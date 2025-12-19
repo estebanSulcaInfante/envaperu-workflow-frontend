@@ -17,13 +17,22 @@ import {
   Card,
   CardContent,
   Grid,
-  Divider
+  Divider,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Tooltip
 } from '@mui/material';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import FactoryIcon from '@mui/icons-material/Factory';
-import { obtenerOrdenes } from '../services/api';
+import QrCode2Icon from '@mui/icons-material/QrCode2';
+import DownloadIcon from '@mui/icons-material/Download';
+import PrintIcon from '@mui/icons-material/Print';
+import { obtenerOrdenes, descargarExcel, getQRImageUrl } from '../services/api';
 
 function LoteRow({ lote }) {
   return (
@@ -111,7 +120,26 @@ function LoteRow({ lote }) {
 
 function OrdenRow({ orden }) {
   const [open, setOpen] = useState(false);
+  const [qrDialogOpen, setQrDialogOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const resumen = orden.resumen_totales || {};
+
+  const handleDownloadExcel = async (e) => {
+    e.stopPropagation();
+    setDownloading(true);
+    try {
+      await descargarExcel(orden.numero_op);
+    } catch (error) {
+      console.error('Error descargando Excel:', error);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleOpenQR = (e) => {
+    e.stopPropagation();
+    setQrDialogOpen(true);
+  };
 
   return (
     <>
@@ -160,9 +188,59 @@ function OrdenRow({ orden }) {
             sx={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
           />
         </TableCell>
+        <TableCell>
+          <Box sx={{ display: 'flex', gap: 0.5 }}>
+            <Tooltip title="Ver QR del Formulario">
+              <IconButton size="small" color="secondary" onClick={handleOpenQR}>
+                <QrCode2Icon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Descargar Excel para Imprimir">
+              <IconButton 
+                size="small" 
+                color="primary" 
+                onClick={handleDownloadExcel}
+                disabled={downloading}
+              >
+                {downloading ? <CircularProgress size={18} /> : <PrintIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </TableCell>
       </TableRow>
+
+      {/* QR Dialog */}
+      <Dialog open={qrDialogOpen} onClose={() => setQrDialogOpen(false)} maxWidth="xs">
+        <DialogTitle sx={{ textAlign: 'center' }}>
+          QR - {orden.numero_op}
+        </DialogTitle>
+        <DialogContent sx={{ textAlign: 'center', py: 3 }}>
+          <img 
+            src={getQRImageUrl(orden.numero_op, 250)} 
+            alt={`QR ${orden.numero_op}`}
+            style={{ maxWidth: '100%', height: 'auto' }}
+          />
+          <Typography variant="caption" display="block" sx={{ mt: 2, color: 'text.secondary' }}>
+            Escanea para abrir el formulario de seguimiento
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'center', pb: 2 }}>
+          <Button 
+            variant="outlined" 
+            startIcon={<DownloadIcon />}
+            href={getQRImageUrl(orden.numero_op, 400)}
+            download={`QR-${orden.numero_op}.png`}
+          >
+            Descargar QR
+          </Button>
+          <Button variant="contained" onClick={() => setQrDialogOpen(false)}>
+            Cerrar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <TableRow>
-        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={9}>
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box sx={{ py: 2, px: 1 }}>
               {/* Resumen de la orden */}
@@ -328,11 +406,12 @@ function OrdenesLista() {
             <TableCell align="right">Producción (Kg)</TableCell>
             <TableCell align="right">Tiempo Est.</TableCell>
             <TableCell>Colores</TableCell>
+            <TableCell>Acciones</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {ordenes.map((orden) => (
-            <OrdenRow key={orden.id} orden={orden} />
+            <OrdenRow key={orden.numero_op} orden={orden} />
           ))}
         </TableBody>
       </Table>
