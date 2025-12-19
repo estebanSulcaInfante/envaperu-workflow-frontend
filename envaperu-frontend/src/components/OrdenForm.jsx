@@ -18,13 +18,16 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  CircularProgress
+  CircularProgress,
+  Tooltip,
+  InputAdornment
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PaletteIcon from '@mui/icons-material/Palette';
+import LockIcon from '@mui/icons-material/Lock';
 import { crearOrden } from '../services/api';
 
 const initialOrden = {
@@ -91,7 +94,7 @@ function OrdenForm({ onOrdenCreada }) {
       ...prev,
       lotes: prev.lotes.map((lote, i) => 
         i === loteIndex 
-          ? { ...lote, materiales: [...lote.materiales, { materia_prima_id: '', fraccion: '' }] }
+          ? { ...lote, materiales: [...lote.materiales, { nombre: '', tipo: 'VIRGEN', fraccion: '' }] }
           : lote
       )
     }));
@@ -129,7 +132,7 @@ function OrdenForm({ onOrdenCreada }) {
       ...prev,
       lotes: prev.lotes.map((lote, i) => 
         i === loteIndex 
-          ? { ...lote, pigmentos: [...lote.pigmentos, { colorante_id: '', gramos: '' }] }
+          ? { ...lote, pigmentos: [...lote.pigmentos, { nombre: '', gramos: '' }] }
           : lote
       )
     }));
@@ -177,11 +180,12 @@ function OrdenForm({ onOrdenCreada }) {
         personas: parseInt(lote.personas) || 1,
         stock_kg_manual: lote.stock_kg_manual ? parseFloat(lote.stock_kg_manual) : null,
         materiales: lote.materiales.map(mat => ({
-          materia_prima_id: parseInt(mat.materia_prima_id),
+          nombre: mat.nombre,
+          tipo: mat.tipo || 'VIRGEN',
           fraccion: parseFloat(mat.fraccion)
         })),
         pigmentos: lote.pigmentos.map(pig => ({
-          colorante_id: parseInt(pig.colorante_id),
+          nombre: pig.nombre,
           gramos: parseFloat(pig.gramos)
         }))
       }))
@@ -321,28 +325,54 @@ function OrdenForm({ onOrdenCreada }) {
           </FormControl>
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
-          <TextField
-            fullWidth
-            label="Meta Total (Kg)"
-            name="meta_total_kg"
-            type="number"
-            value={orden.meta_total_kg}
-            onChange={handleChange}
-            size="small"
-            disabled={orden.tipo_estrategia !== 'POR_PESO'}
-          />
+          <Tooltip 
+            title={orden.tipo_estrategia !== 'POR_PESO' ? 'Solo disponible con estrategia "Por Peso"' : ''}
+            placement="top"
+            arrow
+          >
+            <TextField
+              fullWidth
+              label="Meta Total (Kg)"
+              name="meta_total_kg"
+              type="number"
+              value={orden.meta_total_kg}
+              onChange={handleChange}
+              size="small"
+              disabled={orden.tipo_estrategia !== 'POR_PESO'}
+              InputProps={{
+                endAdornment: orden.tipo_estrategia !== 'POR_PESO' ? (
+                  <InputAdornment position="end">
+                    <LockIcon fontSize="small" sx={{ color: 'text.disabled' }} />
+                  </InputAdornment>
+                ) : null
+              }}
+            />
+          </Tooltip>
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
-          <TextField
-            fullWidth
-            label="Meta Total (Docenas)"
-            name="meta_total_doc"
-            type="number"
-            value={orden.meta_total_doc}
-            onChange={handleChange}
-            size="small"
-            disabled={orden.tipo_estrategia !== 'POR_CANTIDAD'}
-          />
+          <Tooltip 
+            title={orden.tipo_estrategia !== 'POR_CANTIDAD' ? 'Solo disponible con estrategia "Por Cantidad"' : ''}
+            placement="top"
+            arrow
+          >
+            <TextField
+              fullWidth
+              label="Meta Total (Docenas)"
+              name="meta_total_doc"
+              type="number"
+              value={orden.meta_total_doc}
+              onChange={handleChange}
+              size="small"
+              disabled={orden.tipo_estrategia !== 'POR_CANTIDAD'}
+              InputProps={{
+                endAdornment: orden.tipo_estrategia !== 'POR_CANTIDAD' ? (
+                  <InputAdornment position="end">
+                    <LockIcon fontSize="small" sx={{ color: 'text.disabled' }} />
+                  </InputAdornment>
+                ) : null
+              }}
+            />
+          </Tooltip>
         </Grid>
       </Grid>
 
@@ -486,15 +516,28 @@ function OrdenForm({ onOrdenCreada }) {
                 />
               </Grid>
               <Grid item xs={6} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Stock Kg Manual"
-                  type="number"
-                  value={lote.stock_kg_manual}
-                  onChange={(e) => handleLoteChange(loteIndex, 'stock_kg_manual', e.target.value)}
-                  size="small"
-                  disabled={orden.tipo_estrategia !== 'STOCK'}
-                />
+                <Tooltip 
+                  title={orden.tipo_estrategia !== 'STOCK' ? 'Solo disponible con estrategia "Stock Manual"' : ''}
+                  placement="top"
+                  arrow
+                >
+                  <TextField
+                    fullWidth
+                    label="Stock Kg Manual"
+                    type="number"
+                    value={lote.stock_kg_manual}
+                    onChange={(e) => handleLoteChange(loteIndex, 'stock_kg_manual', e.target.value)}
+                    size="small"
+                    disabled={orden.tipo_estrategia !== 'STOCK'}
+                    InputProps={{
+                      endAdornment: orden.tipo_estrategia !== 'STOCK' ? (
+                        <InputAdornment position="end">
+                          <LockIcon fontSize="small" sx={{ color: 'text.disabled' }} />
+                        </InputAdornment>
+                      ) : null
+                    }}
+                  />
+                </Tooltip>
               </Grid>
             </Grid>
 
@@ -513,10 +556,9 @@ function OrdenForm({ onOrdenCreada }) {
                   <Grid item xs={5}>
                     <TextField
                       fullWidth
-                      label="ID Materia Prima"
-                      type="number"
-                      value={mat.materia_prima_id}
-                      onChange={(e) => handleMaterialChange(loteIndex, matIndex, 'materia_prima_id', e.target.value)}
+                      label="Nombre Material"
+                      value={mat.nombre}
+                      onChange={(e) => handleMaterialChange(loteIndex, matIndex, 'nombre', e.target.value)}
                       size="small"
                     />
                   </Grid>
@@ -555,10 +597,9 @@ function OrdenForm({ onOrdenCreada }) {
                   <Grid item xs={5}>
                     <TextField
                       fullWidth
-                      label="ID Colorante"
-                      type="number"
-                      value={pig.colorante_id}
-                      onChange={(e) => handlePigmentoChange(loteIndex, pigIndex, 'colorante_id', e.target.value)}
+                      label="Nombre Colorante"
+                      value={pig.nombre}
+                      onChange={(e) => handlePigmentoChange(loteIndex, pigIndex, 'nombre', e.target.value)}
                       size="small"
                     />
                   </Grid>
