@@ -11,62 +11,107 @@ import {
   CircularProgress,
   Divider,
   Chip,
-  InputAdornment
+  InputAdornment,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  IconButton
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import TodayIcon from '@mui/icons-material/Today';
-import PersonIcon from '@mui/icons-material/Person';
 import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing';
-import ScaleIcon from '@mui/icons-material/Scale';
-import { crearRegistro, obtenerMaquinas } from '../services/api';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import { crearRegistro, obtenerMaquinas, obtenerOrden } from '../services/api';
 
-const TURNOS = ['DIA', 'TARDE', 'NOCHE'];
+const TURNOS = ['DIURNO', 'NOCTURNO', 'EXTRA'];
+
+const GENERAR_HORAS = (inicio, cantidad = 12) => {
+  const horas = [];
+  let h = parseInt(inicio.split(':')[0]);
+  for (let i = 0; i < cantidad; i++) {
+    horas.push(`${h.toString().padStart(2, '0')}:00`);
+    h = (h + 1) % 24;
+  }
+  return horas;
+};
 
 export default function RegistroForm({ ordenId, onRegistroCreado }) {
-  const [formData, setFormData] = useState({
+  // CABECERA (Usar strings para contadores para evitar el "0" inicial)
+  const [header, setHeader] = useState({
     maquina_id: '',
     fecha: new Date().toISOString().split('T')[0],
-    turno: 'DIA',
-    hora_ingreso: '',
-    maquinista: '',
-    molde: '',
-    pieza_color: '',
-    coladas: 0,
-    horas_trabajadas: 0,
-    peso_real_kg: 0,
-    cantidad_x_bulto: 0,
-    numero_bultos: 0,
-    doc_registro_nro: '',
-    color_merma: '',
-    peso_merma: 0,
-    peso_chancaca: 0,
-    fraccion_virgen: 0.5
+    turno: 'DIURNO',
+    hora_inicio: '07:00',
+    colada_inicial: '',
+    colada_final: '',
+    tiempo_ciclo: '',
+    tiempo_enfriamiento: '',
+    meta_hora: ''
   });
 
+  // Info de la Orden (para mostrar contexto)
+  const [ordenInfo, setOrdenInfo] = useState(null);
+
+  // DETALLES (Filas por hora)
+  const [detalles, setDetalles] = useState([]);
+  
   const [maquinas, setMaquinas] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
 
+  // Cargar máquinas y datos de la orden al inicio
   useEffect(() => {
-    const cargarMaquinas = async () => {
-      try {
-        const data = await obtenerMaquinas();
-        setMaquinas(data);
-      } catch (err) {
-        console.error('Error cargando máquinas:', err);
-      }
-    };
-    cargarMaquinas();
-  }, []);
+    obtenerMaquinas().then(setMaquinas).catch(console.error);
+    if (ordenId) {
+      obtenerOrden(ordenId).then(setOrdenInfo).catch(console.error);
+    }
+  }, [ordenId]);
 
-  const handleChange = (e) => {
+  // Generar filas automáticas al cambiar turno/hora inicio
+  useEffect(() => {
+    if (header.hora_inicio) {
+      const horas = GENERAR_HORAS(header.hora_inicio, 12);
+      // Mantener datos existentes si coinciden horas, sino resetear fila
+      const nuevosDetalles = horas.map(h => {
+        const existente = detalles.find(d => d.hora === h);
+        return existente || { 
+          hora: h, 
+          coladas: 0, 
+          maquinista: '', 
+          color: '', 
+          observacion: '' 
+        };
+      });
+      setDetalles(nuevosDetalles);
+    }
+  }, [header.turno, header.hora_inicio]);
+
+  const handleHeaderChange = (e) => {
     const { name, value, type } = e.target;
-    setFormData(prev => ({
+    setHeader(prev => ({
       ...prev,
       [name]: type === 'number' ? parseFloat(value) || 0 : value
     }));
   };
+
+  const handleDetalleChange = (index, field, value) => {
+    const newDetalles = [...detalles];
+    newDetalles[index] = { ...newDetalles[index], [field]: value };
+    setDetalles(newDetalles);
+  };
+  
+  // Totales Calculados en vivo para validación
+  const totalColadasDetalle = detalles.reduce((sum, d) => sum + (parseInt(d.coladas) || 0), 0);
+  const coladaIni = parseInt(header.colada_inicial) || 0;
+  const coladaFin = parseInt(header.colada_final) || 0;
+  const totalColadasContador = coladaFin - coladaIni;
+  const diffColadas = totalColadasContador - totalColadasDetalle;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -74,19 +119,22 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
     setError(null);
     setSuccess(false);
 
+    // Validación básica
+    if (diffColadas !== 0) {
+        if (!window.confirm(`Advertencia: Las coladas reportadas (${totalColadasDetalle}) no coinciden con la diferencia de contadores (${totalColadasContador}). ¿Continuar?`)) {
+            setLoading(false);
+            return;
+        }
+    }
+
+    const payload = {
+        ...header,
+        detalles: detalles.filter(d => d.coladas > 0 || d.observacion) // Enviar solo filas relevantes? O todas? Mejor todas para historial vacio.
+    };
+
     try {
-      await crearRegistro(ordenId, formData);
+      await crearRegistro(ordenId, payload);
       setSuccess(true);
-      // Reset form parcialmente
-      setFormData(prev => ({
-        ...prev,
-        coladas: 0,
-        horas_trabajadas: 0,
-        peso_real_kg: 0,
-        numero_bultos: 0,
-        peso_merma: 0,
-        peso_chancaca: 0
-      }));
       if (onRegistroCreado) onRegistroCreado();
     } catch (err) {
       setError(err.response?.data?.error || 'Error al guardar registro');
@@ -96,306 +144,196 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
   };
 
   return (
-    <Paper 
-      sx={{ 
-        p: 4, 
-        background: 'rgba(26, 26, 46, 0.9)',
-        backdropFilter: 'blur(10px)',
-        border: '1px solid rgba(255,255,255,0.1)'
-      }}
-    >
-      <Typography variant="h5" gutterBottom sx={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: 1,
+    <Paper sx={{ 
+      p: 4, 
+      borderRadius: 2, 
+      background: 'rgba(26, 26, 46, 0.95)',
+      backdropFilter: 'blur(10px)',
+      border: '1px solid rgba(255,255,255,0.1)'
+    }}>
+      <Typography variant="h5" sx={{ 
+        mb: 1, 
+        fontWeight: 'bold', 
         background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
         WebkitBackgroundClip: 'text',
-        WebkitTextFillColor: 'transparent',
-        fontWeight: 700
+        WebkitTextFillColor: 'transparent'
       }}>
-        <TodayIcon sx={{ color: '#4facfe' }} />
-        Nuevo Registro Diario - {ordenId}
+        <TodayIcon sx={{ mr: 1, verticalAlign: 'bottom', color: '#4facfe' }} />
+        Hoja de Producción Diaria
       </Typography>
 
-      <Divider sx={{ my: 2 }} />
+      {/* Info de la Orden */}
+      {ordenInfo && (
+        <Box sx={{ mb: 3, p: 2, bgcolor: 'rgba(79, 172, 254, 0.1)', borderRadius: 1, border: '1px solid rgba(79, 172, 254, 0.3)' }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: '#4facfe' }}>
+            {ordenId} - {ordenInfo.producto}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Máquina: {ordenInfo.maquina} | Cavidades: {ordenInfo.cavidades} | T/C: {ordenInfo.tiempo_ciclo}s | Peso Unit: {ordenInfo.peso_unitario_gr}g
+          </Typography>
+        </Box>
+      )}
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }}>Registro guardado exitosamente</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }}>Registro guardado correctamente</Alert>}
 
       <form onSubmit={handleSubmit}>
-        <Grid container spacing={3}>
-          {/* SECCIÓN: DATOS GENERALES */}
-          <Grid item xs={12}>
-            <Chip label="Datos Generales" color="primary" sx={{ mb: 1 }} />
-          </Grid>
+        {/* CABECERA */}
+        <Grid container spacing={2} sx={{ mb: 4 }}>
+           <Grid item xs={12}><Chip label="Datos Generales" color="primary" variant="outlined" /></Grid>
+           
+           <Grid item xs={6} sm={3}>
+            <TextField label="Fecha" type="date" fullWidth name="fecha" value={header.fecha} onChange={handleHeaderChange} InputLabelProps={{ shrink: true }} />
+           </Grid>
+           <Grid item xs={6} sm={3}>
+             <TextField select label="Turno" fullWidth name="turno" value={header.turno} onChange={handleHeaderChange}>
+                {TURNOS.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+             </TextField>
+           </Grid>
+           <Grid item xs={6} sm={3}>
+             <TextField label="Hora Inicio" fullWidth name="hora_inicio" value={header.hora_inicio} onChange={handleHeaderChange} type="time" InputLabelProps={{ shrink: true }} />
+           </Grid>
+           <Grid item xs={6} sm={3}>
+             <TextField select label="Máquina" fullWidth name="maquina_id" value={header.maquina_id} onChange={handleHeaderChange} required>
+                {maquinas.map(m => <MenuItem key={m.id} value={m.id}>{m.nombre}</MenuItem>)}
+             </TextField>
+           </Grid>
+        </Grid>
 
-          <Grid item xs={12} sm={4}>
-            <TextField
-              select
-              fullWidth
-              label="Máquina"
-              name="maquina_id"
-              value={formData.maquina_id}
-              onChange={handleChange}
-              required
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <PrecisionManufacturingIcon />
-                  </InputAdornment>
-                )
-              }}
-            >
-              {maquinas.map(m => (
-                <MenuItem key={m.id} value={m.id}>
-                  {m.nombre} ({m.tipo})
-                </MenuItem>
+        <Divider sx={{ my: 2 }} />
+
+        {/* CONTADORES Y METAS */}
+        <Grid container spacing={2} sx={{ mb: 4 }}>
+           <Grid item xs={12}><Chip label="Parámetros Máquina" color="secondary" variant="outlined" /></Grid>
+
+           <Grid item xs={6} sm={3}>
+             <TextField 
+               label="Colada Inicial" 
+               fullWidth 
+               name="colada_inicial" 
+               value={header.colada_inicial} 
+               onChange={handleHeaderChange}
+               inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+               placeholder="Ej: 1000"
+             />
+           </Grid>
+           <Grid item xs={6} sm={3}>
+             <TextField 
+               label="Colada Final" 
+               fullWidth 
+               name="colada_final" 
+               value={header.colada_final} 
+               onChange={handleHeaderChange}
+               inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+               placeholder="Ej: 1500"
+             />
+           </Grid>
+           <Grid item xs={6} sm={3}>
+             <TextField 
+               label="Total (Auto)" 
+               value={totalColadasContador} 
+               disabled 
+               fullWidth 
+               InputProps={{ readOnly: true }} 
+               sx={{ 
+                 bgcolor: 'rgba(79, 172, 254, 0.15)', 
+                 borderRadius: 1,
+                 '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: '#4facfe' }
+               }} 
+             />
+           </Grid>
+           
+           <Grid item xs={6} sm={3}>
+             <TextField label="Ciclo (seg)" type="number" fullWidth name="tiempo_ciclo" value={header.tiempo_ciclo} onChange={handleHeaderChange} inputProps={{ step: 0.1 }} />
+           </Grid>
+        </Grid>
+
+        {/* TABLA DETALLES */}
+        <Typography variant="h6" gutterBottom>Registro Hora a Hora</Typography>
+        <TableContainer component={Paper} variant="outlined" sx={{ mb: 3, bgcolor: 'rgba(26, 26, 46, 0.8)' }}>
+          <Table size="small">
+            <TableHead sx={{ bgcolor: 'rgba(79, 172, 254, 0.2)' }}>
+              <TableRow>
+                <TableCell>Hora</TableCell>
+                <TableCell>Maquinista</TableCell>
+                <TableCell>Color</TableCell>
+                <TableCell width={120}>Coladas</TableCell>
+                <TableCell>Observación</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {detalles.map((fila, index) => (
+                <TableRow key={fila.hora}>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="bold">{fila.hora}</Typography>
+                  </TableCell>
+                  <TableCell>
+                    <TextField 
+                        variant="standard" 
+                        fullWidth 
+                        value={fila.maquinista} 
+                        onChange={(e) => handleDetalleChange(index, 'maquinista', e.target.value)} 
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <TextField 
+                        variant="standard" 
+                        fullWidth 
+                        value={fila.color} 
+                        onChange={(e) => handleDetalleChange(index, 'color', e.target.value)} 
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <TextField 
+                        type="number" 
+                        variant="outlined" 
+                        size="small"
+                        value={fila.coladas} 
+                        onChange={(e) => handleDetalleChange(index, 'coladas', parseInt(e.target.value) || 0)}
+                        sx={{ input: { textAlign: 'right' } }}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <TextField 
+                        variant="standard" 
+                        fullWidth 
+                        value={fila.observacion} 
+                        onChange={(e) => handleDetalleChange(index, 'observacion', e.target.value)} 
+                    />
+                  </TableCell>
+                </TableRow>
               ))}
-            </TextField>
-          </Grid>
+              {/* FILA TOTALES */}
+              <TableRow sx={{ bgcolor: 'rgba(79, 172, 254, 0.1)' }}>
+                <TableCell colSpan={3} align="right"><strong>Total Reportado:</strong></TableCell>
+                <TableCell align="right">
+                    <Typography color={diffColadas !== 0 ? 'error' : 'success.main'} fontWeight="bold">
+                        {totalColadasDetalle}
+                    </Typography>
+                </TableCell>
+                <TableCell>
+                    {diffColadas !== 0 && (
+                        <Typography variant="caption" color="error">
+                            Dif: {diffColadas}
+                        </Typography>
+                    )}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </TableContainer>
 
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              label="Fecha"
-              name="fecha"
-              type="date"
-              value={formData.fecha}
-              onChange={handleChange}
-              required
-              InputLabelProps={{ shrink: true }}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={4}>
-            <TextField
-              select
-              fullWidth
-              label="Turno"
-              name="turno"
-              value={formData.turno}
-              onChange={handleChange}
-              required
-            >
-              {TURNOS.map(t => (
-                <MenuItem key={t} value={t}>{t}</MenuItem>
-              ))}
-            </TextField>
-          </Grid>
-
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              label="Hora Ingreso"
-              name="hora_ingreso"
-              value={formData.hora_ingreso}
-              onChange={handleChange}
-              placeholder="08:00"
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              label="Maquinista"
-              name="maquinista"
-              value={formData.maquinista}
-              onChange={handleChange}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <PersonIcon />
-                  </InputAdornment>
-                )
-              }}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              label="Nº Doc. Registro"
-              name="doc_registro_nro"
-              value={formData.doc_registro_nro}
-              onChange={handleChange}
-            />
-          </Grid>
-
-          {/* SECCIÓN: PRODUCTO */}
-          <Grid item xs={12}>
-            <Chip label="Producto" color="secondary" sx={{ mb: 1, mt: 2 }} />
-          </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Molde"
-              name="molde"
-              value={formData.molde}
-              onChange={handleChange}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Pieza-Color"
-              name="pieza_color"
-              value={formData.pieza_color}
-              onChange={handleChange}
-              helperText="Ej: BALDE-ROJO"
-            />
-          </Grid>
-
-          {/* SECCIÓN: PRODUCCIÓN */}
-          <Grid item xs={12}>
-            <Chip label="Producción" sx={{ mb: 1, mt: 2, bgcolor: '#00c853', color: 'white' }} />
-          </Grid>
-
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              label="Coladas"
-              name="coladas"
-              type="number"
-              value={formData.coladas}
-              onChange={handleChange}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              label="Horas Trabajadas"
-              name="horas_trabajadas"
-              type="number"
-              inputProps={{ step: 0.5 }}
-              value={formData.horas_trabajadas}
-              onChange={handleChange}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              label="Peso Real (Kg)"
-              name="peso_real_kg"
-              type="number"
-              inputProps={{ step: 0.1 }}
-              value={formData.peso_real_kg}
-              onChange={handleChange}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <ScaleIcon />
-                  </InputAdornment>
-                )
-              }}
-            />
-          </Grid>
-
-          {/* SECCIÓN: EMPAQUE */}
-          <Grid item xs={12}>
-            <Chip label="Empaque" sx={{ mb: 1, mt: 2, bgcolor: '#ff9800', color: 'white' }} />
-          </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Cantidad x Bulto"
-              name="cantidad_x_bulto"
-              type="number"
-              value={formData.cantidad_x_bulto}
-              onChange={handleChange}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="# Bultos"
-              name="numero_bultos"
-              type="number"
-              value={formData.numero_bultos}
-              onChange={handleChange}
-            />
-          </Grid>
-
-          {/* SECCIÓN: MERMA */}
-          <Grid item xs={12}>
-            <Chip label="Merma" sx={{ mb: 1, mt: 2, bgcolor: '#f44336', color: 'white' }} />
-          </Grid>
-
-          <Grid item xs={12} sm={3}>
-            <TextField
-              fullWidth
-              label="Color Merma"
-              name="color_merma"
-              value={formData.color_merma}
-              onChange={handleChange}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={3}>
-            <TextField
-              fullWidth
-              label="Peso Merma (Kg)"
-              name="peso_merma"
-              type="number"
-              inputProps={{ step: 0.1 }}
-              value={formData.peso_merma}
-              onChange={handleChange}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={3}>
-            <TextField
-              fullWidth
-              label="Peso Chancaca (Kg)"
-              name="peso_chancaca"
-              type="number"
-              inputProps={{ step: 0.1 }}
-              value={formData.peso_chancaca}
-              onChange={handleChange}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={3}>
-            <TextField
-              fullWidth
-              label="Fracción Virgen"
-              name="fraccion_virgen"
-              type="number"
-              inputProps={{ step: 0.1, min: 0, max: 1 }}
-              value={formData.fraccion_virgen}
-              onChange={handleChange}
-              helperText="0.0 a 1.0"
-            />
-          </Grid>
-
-          {/* BOTÓN SUBMIT */}
-          <Grid item xs={12}>
-            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-              <Button
-                type="submit"
-                variant="contained"
-                size="large"
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+             <Button 
+                type="submit" 
+                variant="contained" 
+                size="large" 
                 disabled={loading}
                 startIcon={loading ? <CircularProgress size={20} /> : <SaveIcon />}
-                sx={{
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  px: 4,
-                  py: 1.5,
-                  '&:hover': {
-                    background: 'linear-gradient(135deg, #5a6fd6 0%, #6a4190 100%)',
-                  }
-                }}
-              >
-                {loading ? 'Guardando...' : 'Guardar Registro'}
-              </Button>
-            </Box>
-          </Grid>
-        </Grid>
+             >
+                Guardar Informe
+             </Button>
+        </Box>
       </form>
     </Paper>
   );

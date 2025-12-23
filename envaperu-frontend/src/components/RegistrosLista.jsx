@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Paper,
   Typography,
@@ -17,11 +17,13 @@ import {
   Grid,
   Button,
   Collapse,
-  Divider
+  IconButton,
+  Tooltip
 } from '@mui/material';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import AddIcon from '@mui/icons-material/Add';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import InfoIcon from '@mui/icons-material/Info';
 import { obtenerRegistros, obtenerOrdenes } from '../services/api';
 import RegistroForm from './RegistroForm';
 
@@ -50,7 +52,7 @@ export default function RegistrosLista() {
   }, []);
 
   // Cargar registros cuando cambia la orden seleccionada
-  const cargarRegistros = async () => {
+  const cargarRegistros = useCallback(async () => {
     if (!ordenSeleccionada) return;
     setLoading(true);
     setError(null);
@@ -63,11 +65,11 @@ export default function RegistrosLista() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [ordenSeleccionada]);
 
   useEffect(() => {
     cargarRegistros();
-  }, [ordenSeleccionada]);
+  }, [cargarRegistros]);
 
   const handleRegistroCreado = () => {
     cargarRegistros(); // Refrescar lista
@@ -166,16 +168,16 @@ export default function RegistrosLista() {
             <Table stickyHeader size="small">
               <TableHead>
                 <TableRow>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }}>ID</TableCell>
                   <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }}>Fecha</TableCell>
                   <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }}>Turno</TableCell>
                   <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }}>Máquina</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }}>Maquinista</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }}>Pieza-Color</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Coladas</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Horas</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Peso Real (Kg)</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">DOC</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Prod. Esperada</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }}>Hora Inicio</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Cont. Inicial</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Cont. Final</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Total Coladas</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Total Kg (Est)</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="center">Detalles</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -184,6 +186,7 @@ export default function RegistrosLista() {
                     key={idx}
                     sx={{ '&:hover': { bgcolor: 'rgba(79, 172, 254, 0.1)' } }}
                   >
+                    <TableCell>{r['ID Registro']}</TableCell>
                     <TableCell>{r['FECHA']}</TableCell>
                     <TableCell>
                       <Chip 
@@ -193,13 +196,19 @@ export default function RegistrosLista() {
                       />
                     </TableCell>
                     <TableCell>{r['Maquina']}</TableCell>
-                    <TableCell>{r['Maquinista']}</TableCell>
-                    <TableCell>{r['Pieza-Color']}</TableCell>
-                    <TableCell align="right">{r['Coladas']}</TableCell>
-                    <TableCell align="right">{r['Horas Trab.']}</TableCell>
-                    <TableCell align="right">{r['Peso Real (Kg)']?.toFixed(2)}</TableCell>
-                    <TableCell align="right">{r['DOC']?.toFixed(0)}</TableCell>
-                    <TableCell align="right">{r['Produccion esperada']?.toFixed(2)}</TableCell>
+                    <TableCell>{r['Hora Inicio']}</TableCell>
+                    <TableCell align="right">{r['Colada Ini']}</TableCell>
+                    <TableCell align="right">{r['Colada Fin']}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 'bold', color: '#4caf50' }}>{r['Total Coladas (Calc)']}</TableCell>
+                    <TableCell align="right">{r['Total Kg (Est)']?.toFixed(2)}</TableCell>
+                    <TableCell align="center">
+                         <Tooltip title={`${r['detalles']?.length || 0} horas reportadas`}>
+                            <Box display="inline-flex" alignItems="center">
+                                <InfoIcon fontSize="small" sx={{ color: 'info.main', mr: 0.5 }} />
+                                ({r['detalles']?.length || 0})
+                            </Box>
+                         </Tooltip>
+                    </TableCell>
                   </TableRow>
                 ))}
                 {registros.length === 0 && (

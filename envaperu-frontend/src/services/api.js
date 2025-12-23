@@ -19,6 +19,12 @@ export const obtenerOrdenes = async () => {
   return response.data;
 };
 
+// Obtener una orden específica
+export const obtenerOrden = async (numeroOp) => {
+  const response = await api.get(`/ordenes/${numeroOp}`);
+  return response.data;
+};
+
 // Obtener datos del QR (base64 y URL del form)
 export const obtenerQRData = async (numeroOp, size = 200) => {
   const response = await api.get(`/ordenes/${numeroOp}/qr-data`, {
