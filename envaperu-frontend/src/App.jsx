@@ -16,9 +16,11 @@ import FactoryIcon from '@mui/icons-material/Factory';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import InventoryIcon from '@mui/icons-material/Inventory2';
+import AssignmentIcon from '@mui/icons-material/Assignment';
 import OrdenForm from './components/OrdenForm';
 import OrdenesLista from './components/OrdenesLista';
 import CatalogoSKU from './components/CatalogoSKU';
+import RegistrosLista from './components/RegistrosLista';
 
 // Tema oscuro personalizado
 const darkTheme = createTheme({
@@ -148,6 +150,11 @@ function App() {
                 iconPosition="start" 
                 label="Catálogo SKU" 
               />
+              <Tab 
+                icon={<AssignmentIcon />} 
+                iconPosition="start" 
+                label="Registros Diarios" 
+              />
             </Tabs>
           </Paper>
 
@@ -162,6 +169,10 @@ function App() {
           
           <TabPanel value={tabValue} index={2}>
             <CatalogoSKU />
+          </TabPanel>
+          
+          <TabPanel value={tabValue} index={3}>
+            <RegistrosLista />
           </TabPanel>
         </Container>
       </Box>

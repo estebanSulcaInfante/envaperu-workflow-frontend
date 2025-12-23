@@ -55,4 +55,24 @@ export const buscarProductos = async (query = '') => {
   return response.data;
 };
 
+// ==================== REGISTROS DIARIOS ====================
+
+// Obtener registros diarios de una orden
+export const obtenerRegistros = async (numeroOp) => {
+  const response = await api.get(`/ordenes/${numeroOp}/registros`);
+  return response.data;
+};
+
+// Crear nuevo registro diario
+export const crearRegistro = async (numeroOp, data) => {
+  const response = await api.post(`/ordenes/${numeroOp}/registros`, data);
+  return response.data;
+};
+
+// Obtener catálogo de máquinas
+export const obtenerMaquinas = async () => {
+  const response = await api.get('/maquinas');
+  return response.data;
+};
+
 export default api;
