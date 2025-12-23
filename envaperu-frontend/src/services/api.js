@@ -49,4 +49,10 @@ export const getQRImageUrl = (numeroOp, size = 200) => {
   return `/api/ordenes/${numeroOp}/qr?size=${size}`;
 };
 
+// Buscar productos para autocomplete
+export const buscarProductos = async (query = '') => {
+  const response = await api.get('/productos', { params: { q: query, limit: 20 } });
+  return response.data;
+};
+
 export default api;

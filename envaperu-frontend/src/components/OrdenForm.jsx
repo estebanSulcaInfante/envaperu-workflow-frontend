@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Paper,
   Typography,
@@ -20,7 +20,8 @@ import {
   AccordionDetails,
   CircularProgress,
   Tooltip,
-  InputAdornment
+  InputAdornment,
+  Autocomplete
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import AddIcon from '@mui/icons-material/Add';
@@ -28,17 +29,19 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PaletteIcon from '@mui/icons-material/Palette';
 import LockIcon from '@mui/icons-material/Lock';
-import { crearOrden } from '../services/api';
+import { crearOrden, buscarProductos } from '../services/api';
 
 const initialOrden = {
   numero_op: '',
   maquina_id: '',
   tipo_maquina: '',
   producto: '',
+  producto_sku: '', // SKU del producto seleccionado
   molde: '',
   tipo_estrategia: 'POR_PESO',
   meta_total_kg: '',
   meta_total_doc: '',
+  tipo_cambio: '',
   peso_unitario_gr: '',
   peso_inc_colada: '',
   cavidades: '',
@@ -56,10 +59,63 @@ const initialLote = {
   pigmentos: []
 };
 
+const STORAGE_KEY = 'envaperu_orden_form_draft';
+
 function OrdenForm({ onOrdenCreada }) {
-  const [orden, setOrden] = useState(initialOrden);
+  const [orden, setOrden] = useState(() => {
+    // Cargar datos guardados de localStorage al iniciar
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        console.log('💾 Borrador recuperado de localStorage');
+        return { ...initialOrden, ...parsed };
+      }
+    } catch (e) {
+      console.error('Error cargando borrador:', e);
+    }
+    return initialOrden;
+  });
+
+  // Auto-guardar en localStorage cada vez que cambia el formulario
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(orden));
+    } catch (e) {
+      console.error('Error guardando borrador:', e);
+    }
+  }, [orden]);
   const [loading, setLoading] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  
+  // Estado para Autocomplete de Productos
+  const [productosOptions, setProductosOptions] = useState([]);
+  const [productosLoading, setProductosLoading] = useState(false);
+  const [productoInputValue, setProductoInputValue] = useState('');
+
+  // Fetch productos cuando cambia el input (debounced via useEffect)
+  useEffect(() => {
+    // No buscar si el input es muy corto
+    if (productoInputValue.length < 2) {
+      setProductosOptions([]);
+      return;
+    }
+
+    const timeoutId = setTimeout(async () => {
+      setProductosLoading(true);
+      try {
+        const productos = await buscarProductos(productoInputValue);
+        setProductosOptions(productos);
+      } catch (error) {
+        console.error('Error buscando productos:', error);
+        setProductosOptions([]);
+      } finally {
+        setProductosLoading(false);
+      }
+    }, 300); // Debounce de 300ms
+
+    return () => clearTimeout(timeoutId);
+  }, [productoInputValue]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -168,8 +224,10 @@ function OrdenForm({ onOrdenCreada }) {
   const preparePayload = () => {
     return {
       ...orden,
+      producto_sku: orden.producto_sku || null,
       meta_total_kg: orden.meta_total_kg ? parseFloat(orden.meta_total_kg) : null,
       meta_total_doc: orden.meta_total_doc ? parseFloat(orden.meta_total_doc) : null,
+      tipo_cambio: orden.tipo_cambio ? parseFloat(orden.tipo_cambio) : null,
       peso_unitario_gr: orden.peso_unitario_gr ? parseFloat(orden.peso_unitario_gr) : null,
       peso_inc_colada: orden.peso_inc_colada ? parseFloat(orden.peso_inc_colada) : null,
       cavidades: orden.cavidades ? parseInt(orden.cavidades) : null,
@@ -200,6 +258,8 @@ function OrdenForm({ onOrdenCreada }) {
       const payload = preparePayload();
       await crearOrden(payload);
       setSnackbar({ open: true, message: '¡Orden creada exitosamente!', severity: 'success' });
+      // Limpiar borrador de localStorage tras éxito
+      localStorage.removeItem(STORAGE_KEY);
       setOrden(initialOrden);
       if (onOrdenCreada) onOrdenCreada();
     } catch (error) {
@@ -270,13 +330,57 @@ function OrdenForm({ onOrdenCreada }) {
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
-          <TextField
-            fullWidth
-            label="Producto"
-            name="producto"
-            value={orden.producto}
-            onChange={handleChange}
-            size="small"
+          <Autocomplete
+            freeSolo
+            options={productosOptions}
+            getOptionLabel={(option) => 
+              typeof option === 'string' ? option : `${option.producto} (${option.cod_sku_pt})`
+            }
+            loading={productosLoading}
+            inputValue={productoInputValue}
+            onInputChange={(_, newInputValue) => {
+              setProductoInputValue(newInputValue);
+            }}
+            onChange={(_, newValue) => {
+              // Si seleccionó un objeto, guardar nombre y SKU; si es texto libre, solo guardar el texto
+              if (newValue && typeof newValue === 'object') {
+                setOrden(prev => ({ 
+                  ...prev, 
+                  producto: newValue.producto,
+                  producto_sku: newValue.cod_sku_pt,
+                  // Auto-fill técnicos si están disponibles
+                  peso_unitario_gr: newValue.peso_g ? String(newValue.peso_g) : prev.peso_unitario_gr
+                }));
+              } else {
+                setOrden(prev => ({ ...prev, producto: newValue || '', producto_sku: '' }));
+              }
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Producto"
+                size="small"
+                InputProps={{
+                  ...params.InputProps,
+                  endAdornment: (
+                    <>
+                      {productosLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                      {params.InputProps.endAdornment}
+                    </>
+                  ),
+                }}
+              />
+            )}
+            renderOption={(props, option) => (
+              <li {...props} key={option.cod_sku_pt}>
+                <Box>
+                  <Typography variant="body2">{option.producto}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    SKU: {option.cod_sku_pt} | {option.familia}
+                  </Typography>
+                </Box>
+              </li>
+            )}
           />
         </Grid>
         <Grid item xs={12} sm={6} md={3}>
@@ -299,6 +403,19 @@ function OrdenForm({ onOrdenCreada }) {
             onChange={handleChange}
             size="small"
             InputLabelProps={{ shrink: true }}
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <TextField
+            fullWidth
+            label="T/C (Tipo Cambio)"
+            name="tipo_cambio"
+            type="number"
+            value={orden.tipo_cambio}
+            onChange={handleChange}
+            size="small"
+            inputProps={{ step: 0.01 }}
+            placeholder="Ej: 3.75"
           />
         </Grid>
       </Grid>
