@@ -81,4 +81,43 @@ export const obtenerMaquinas = async () => {
   return response.data;
 };
 
+// ==================== OCR ====================
+
+// Escanear imagen de registro con OCR
+export const scanRegistroOCR = async (imageFile) => {
+  const formData = new FormData();
+  formData.append('file', imageFile);
+  
+  const response = await api.post('/ocr/scan-registro', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  return response.data;
+};
+
+// ==================== CONTROL DE PESO ====================
+
+// Obtener bultos de un registro
+export const obtenerBultos = async (registroId) => {
+  const response = await api.get(`/registros/${registroId}/bultos`);
+  return response.data;
+};
+
+// Agregar nuevo bulto
+export const agregarBulto = async (registroId, data) => {
+  const response = await api.post(`/registros/${registroId}/bultos`, data);
+  return response.data;
+};
+
+// Eliminar bulto
+export const eliminarBulto = async (bultoId) => {
+  const response = await api.delete(`/bultos/${bultoId}`);
+  return response.data;
+};
+
+// Validar peso total vs registro
+export const validarPesoRegistro = async (registroId) => {
+  const response = await api.get(`/registros/${registroId}/validacion-peso`);
+  return response.data;
+};
+
 export default api;

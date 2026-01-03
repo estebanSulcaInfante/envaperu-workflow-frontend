@@ -18,14 +18,19 @@ import {
   Button,
   Collapse,
   IconButton,
-  Tooltip
+  Tooltip,
+  Dialog,
+  DialogContent,
+  DialogTitle
 } from '@mui/material';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import AddIcon from '@mui/icons-material/Add';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import InfoIcon from '@mui/icons-material/Info';
+import ScaleIcon from '@mui/icons-material/Scale';
 import { obtenerRegistros, obtenerOrdenes } from '../services/api';
 import RegistroForm from './RegistroForm';
+import ControlPesoWidget from './ControlPesoWidget';
 
 export default function RegistrosLista() {
   const [registros, setRegistros] = useState([]);
@@ -34,6 +39,10 @@ export default function RegistrosLista() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
+  
+  // Estado para modal de peso
+  const [openPeso, setOpenPeso] = useState(false);
+  const [registroSeleccionadoId, setRegistroSeleccionadoId] = useState(null);
 
   // Cargar órdenes disponibles
   useEffect(() => {
@@ -75,6 +84,11 @@ export default function RegistrosLista() {
     cargarRegistros(); // Refrescar lista
     setMostrarFormulario(false); // Ocultar form
   };
+  
+  const handleOpenPeso = (id) => {
+      setRegistroSeleccionadoId(id);
+      setOpenPeso(true);
+  };
 
   return (
     <Box>
@@ -112,6 +126,16 @@ export default function RegistrosLista() {
           )}
         </Box>
       </Collapse>
+
+      {/* Modal Control Peso */}
+      <Dialog open={openPeso} onClose={() => setOpenPeso(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#1a1a2e', color: 'white' }}>Verificación de Peso</DialogTitle>
+        <DialogContent sx={{ bgcolor: '#1a1a2e' }}>
+            {registroSeleccionadoId && (
+                <ControlPesoWidget registroId={registroSeleccionadoId} />
+            )}
+        </DialogContent>
+      </Dialog>
 
       {/* Lista de Registros */}
       <Paper 
@@ -178,6 +202,7 @@ export default function RegistrosLista() {
                   <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Total Coladas</TableCell>
                   <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Total Kg (Est)</TableCell>
                   <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="center">Detalles</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="center">Acciones</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -209,11 +234,18 @@ export default function RegistrosLista() {
                             </Box>
                          </Tooltip>
                     </TableCell>
+                    <TableCell align="center">
+                        <Tooltip title="Control de Peso">
+                            <IconButton color="secondary" size="small" onClick={() => handleOpenPeso(r['ID Registro'])}>
+                                <ScaleIcon />
+                            </IconButton>
+                        </Tooltip>
+                    </TableCell>
                   </TableRow>
                 ))}
                 {registros.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={10} align="center" sx={{ py: 4, color: 'grey.500' }}>
+                    <TableCell colSpan={11} align="center" sx={{ py: 4, color: 'grey.500' }}>
                       No hay registros para esta orden
                     </TableCell>
                   </TableRow>

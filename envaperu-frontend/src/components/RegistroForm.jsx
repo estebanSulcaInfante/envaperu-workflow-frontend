@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Paper,
   Typography,
@@ -26,19 +26,28 @@ import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturi
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import { crearRegistro, obtenerMaquinas, obtenerOrden } from '../services/api';
+import CameraAltIcon from '@mui/icons-material/CameraAlt';
+import { crearRegistro, obtenerMaquinas, obtenerOrden, scanRegistroOCR } from '../services/api';
 
-const TURNOS = ['DIURNO', 'NOCTURNO', 'EXTRA'];
+const TURNOS = ['DIURNO', 'NOCTURNO'];
 
-const GENERAR_HORAS = (inicio, cantidad = 12) => {
-  const horas = [];
-  let h = parseInt(inicio.split(':')[0]);
-  for (let i = 0; i < cantidad; i++) {
-    horas.push(`${h.toString().padStart(2, '0')}:00`);
-    h = (h + 1) % 24;
-  }
-  return horas;
-};
+// Horas fijas: siempre 7-6 (11 horas)
+// La hora 6-7 es el turno EXTRA y se muestra como fila adicional
+const HORAS_FIJAS = [
+  '07:00 - 08:00',
+  '08:00 - 09:00', 
+  '09:00 - 10:00',
+  '10:00 - 11:00',
+  '11:00 - 12:00',
+  '12:00 - 01:00',
+  '01:00 - 02:00',
+  '02:00 - 03:00',
+  '03:00 - 04:00',
+  '04:00 - 05:00',
+  '05:00 - 06:00'
+];
+
+const HORA_EXTRA = '06:00 - 07:00';
 
 export default function RegistroForm({ ordenId, onRegistroCreado }) {
   // CABECERA (Usar strings para contadores para evitar el "0" inicial)
@@ -64,6 +73,90 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [ocrSuccess, setOcrSuccess] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  
+  // Hora extra (6-7)
+  const [horaExtra, setHoraExtra] = useState({ 
+    coladas: 0, 
+    maquinista: '', 
+    color: '', 
+    observacion: '' 
+  });
+  
+  // Ref para input de archivo oculto
+  const fileInputRef = useRef(null);
+
+  // Handler para escanear imagen con OCR
+  const handleScanOCR = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setScanning(true);
+    setError(null);
+    
+    try {
+      const result = await scanRegistroOCR(file);
+      
+      if (result.success && result.data) {
+        const data = result.data;
+        
+        // Pre-llenar header
+        setHeader(prev => ({
+          ...prev,
+          fecha: data.fecha || prev.fecha,
+          turno: data.turno || prev.turno,
+          hora_inicio: data.hora_inicio || prev.hora_inicio,
+          colada_inicial: data.colada_inicial?.toString() || prev.colada_inicial,
+          colada_final: data.colada_final?.toString() || prev.colada_final,
+          tiempo_enfriamiento: data.enfriamiento?.toString() || prev.tiempo_enfriamiento
+        }));
+        
+        // Pre-llenar detalles si vienen
+        if (data.detalles && data.detalles.length > 0) {
+          setDetalles(prev => {
+            const newDetalles = [...prev];
+            data.detalles.forEach(d => {
+              const idx = newDetalles.findIndex(nd => nd.hora === d.hora);
+              if (idx !== -1) {
+                newDetalles[idx] = {
+                  ...newDetalles[idx],
+                  maquinista: d.maquinista || newDetalles[idx].maquinista,
+                  color: d.color || newDetalles[idx].color,
+                  coladas: d.coladas || newDetalles[idx].coladas,
+                  observacion: d.observacion || newDetalles[idx].observacion
+                };
+              }
+            });
+            return newDetalles;
+          });
+          
+          // Buscar si hay datos para hora extra (6-7)
+          const extraData = data.detalles.find(d => d.hora === '06:00 - 07:00');
+          if (extraData) {
+            setHoraExtra(prev => ({
+              ...prev,
+              maquinista: extraData.maquinista || prev.maquinista,
+              color: extraData.color || prev.color,
+              coladas: extraData.coladas || prev.coladas,
+              observacion: extraData.observacion || prev.observacion
+            }));
+          }
+        }
+        
+        setOcrSuccess(true);
+        setTimeout(() => setOcrSuccess(false), 5000);
+      } else {
+        setError(result.error || 'Error al procesar imagen');
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al escanear imagen');
+    } finally {
+      setScanning(false);
+      // Reset file input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   // Cargar máquinas y datos de la orden al inicio
   useEffect(() => {
@@ -73,24 +166,21 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
     }
   }, [ordenId]);
 
-  // Generar filas automáticas al cambiar turno/hora inicio
+  // Inicializar filas con horas fijas (una sola vez)
   useEffect(() => {
-    if (header.hora_inicio) {
-      const horas = GENERAR_HORAS(header.hora_inicio, 12);
-      // Mantener datos existentes si coinciden horas, sino resetear fila
-      const nuevosDetalles = horas.map(h => {
-        const existente = detalles.find(d => d.hora === h);
-        return existente || { 
-          hora: h, 
-          coladas: 0, 
-          maquinista: '', 
-          color: '', 
-          observacion: '' 
-        };
-      });
-      setDetalles(nuevosDetalles);
-    }
-  }, [header.turno, header.hora_inicio]);
+    const nuevosDetalles = HORAS_FIJAS.map(h => {
+      const existente = detalles.find(d => d.hora === h);
+      return existente || { 
+        hora: h, 
+        coladas: 0, 
+        maquinista: '', 
+        color: '', 
+        observacion: '' 
+      };
+    });
+    setDetalles(nuevosDetalles);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleHeaderChange = (e) => {
     const { name, value, type } = e.target;
@@ -106,8 +196,8 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
     setDetalles(newDetalles);
   };
   
-  // Totales Calculados en vivo para validación
-  const totalColadasDetalle = detalles.reduce((sum, d) => sum + (parseInt(d.coladas) || 0), 0);
+  // Totales Calculados en vivo para validación (incluye hora extra)
+  const totalColadasDetalle = detalles.reduce((sum, d) => sum + (parseInt(d.coladas) || 0), 0) + (parseInt(horaExtra.coladas) || 0);
   const coladaIni = parseInt(header.colada_inicial) || 0;
   const coladaFin = parseInt(header.colada_final) || 0;
   const totalColadasContador = coladaFin - coladaIni;
@@ -127,9 +217,15 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
         }
     }
 
+    // Incluir hora extra si tiene datos
+    const allDetalles = [...detalles];
+    if (horaExtra.coladas > 0 || horaExtra.observacion) {
+      allDetalles.push({ hora: HORA_EXTRA, ...horaExtra });
+    }
+    
     const payload = {
         ...header,
-        detalles: detalles.filter(d => d.coladas > 0 || d.observacion) // Enviar solo filas relevantes? O todas? Mejor todas para historial vacio.
+        detalles: allDetalles.filter(d => d.coladas > 0 || d.observacion)
     };
 
     try {
@@ -151,31 +247,75 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
       backdropFilter: 'blur(10px)',
       border: '1px solid rgba(255,255,255,0.1)'
     }}>
-      <Typography variant="h5" sx={{ 
-        mb: 1, 
-        fontWeight: 'bold', 
-        background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-        WebkitBackgroundClip: 'text',
-        WebkitTextFillColor: 'transparent'
-      }}>
-        <TodayIcon sx={{ mr: 1, verticalAlign: 'bottom', color: '#4facfe' }} />
-        Hoja de Producción Diaria
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h5" sx={{ 
+          fontWeight: 'bold', 
+          background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent'
+        }}>
+          <TodayIcon sx={{ mr: 1, verticalAlign: 'bottom', color: '#4facfe' }} />
+          Hoja de Producción Diaria
+        </Typography>
+        
+        {/* Botón Escanear OCR */}
+        <Button
+          variant="outlined"
+          color="secondary"
+          startIcon={scanning ? <CircularProgress size={20} /> : <CameraAltIcon />}
+          onClick={() => fileInputRef.current?.click()}
+          disabled={scanning}
+          sx={{ borderColor: '#ff9800', color: '#ff9800' }}
+        >
+          {scanning ? 'Escaneando...' : '📷 Escanear'}
+        </Button>
+        
+        {/* Input oculto para seleccionar archivo */}
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          ref={fileInputRef}
+          onChange={handleScanOCR}
+          style={{ display: 'none' }}
+        />
+      </Box>
 
-      {/* Info de la Orden */}
+      {/* Info de la Orden - Simulando el Header del Formulario Físico */}
       {ordenInfo && (
         <Box sx={{ mb: 3, p: 2, bgcolor: 'rgba(79, 172, 254, 0.1)', borderRadius: 1, border: '1px solid rgba(79, 172, 254, 0.3)' }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: '#4facfe' }}>
-            {ordenId} - {ordenInfo.producto}
+          <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold', color: '#4facfe' }}>
+            Nº OP: {ordenId} - {ordenInfo.producto}
           </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Máquina: {ordenInfo.maquina} | Cavidades: {ordenInfo.cavidades} | T/C: {ordenInfo.tiempo_ciclo}s | Peso Unit: {ordenInfo.peso_unitario_gr}g
-          </Typography>
+          <Grid container spacing={2}>
+            {/* Columna Izquierda - Datos Técnicos */}
+            <Grid item xs={6}>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Nº CAVIDADES:</strong> {ordenInfo.cavidades}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                <strong>PESO NETO:</strong> {ordenInfo.peso_unitario_gr} g
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                <strong>PESO COLADA:</strong> {ordenInfo.peso_inc_colada ? (ordenInfo.peso_inc_colada - ordenInfo.peso_unitario_gr * ordenInfo.cavidades).toFixed(1) : '-'} g
+              </Typography>
+            </Grid>
+            {/* Columna Derecha - Parámetros */}
+            <Grid item xs={6}>
+              <Typography variant="body2" color="text.secondary">
+                <strong>TIEMPO CICLO:</strong> {ordenInfo.tiempo_ciclo} seg
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                <strong>MÁQUINA:</strong> {ordenInfo.maquina}
+              </Typography>
+            </Grid>
+          </Grid>
         </Box>
       )}
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }}>Registro guardado correctamente</Alert>}
+      {ocrSuccess && <Alert severity="info" sx={{ mb: 2 }}>📷 Datos escaneados. Revise y corrija antes de guardar.</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 2 }}>✅ Registro guardado correctamente</Alert>}
 
       <form onSubmit={handleSubmit}>
         {/* CABECERA */}
@@ -317,6 +457,49 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
                             Dif: {diffColadas}
                         </Typography>
                     )}
+                </TableCell>
+              </TableRow>
+              
+              {/* FILA HORA EXTRA (6-7) */}
+              <TableRow sx={{ bgcolor: 'rgba(255, 152, 0, 0.1)' }}>
+                <TableCell>
+                  <Typography variant="body2" fontWeight="bold" color="warning.main">
+                    {HORA_EXTRA} (EXTRA)
+                  </Typography>
+                </TableCell>
+                <TableCell>
+                  <TextField 
+                    variant="standard" 
+                    fullWidth 
+                    value={horaExtra.maquinista} 
+                    onChange={(e) => setHoraExtra(prev => ({ ...prev, maquinista: e.target.value }))} 
+                  />
+                </TableCell>
+                <TableCell>
+                  <TextField 
+                    variant="standard" 
+                    fullWidth 
+                    value={horaExtra.color} 
+                    onChange={(e) => setHoraExtra(prev => ({ ...prev, color: e.target.value }))} 
+                  />
+                </TableCell>
+                <TableCell>
+                  <TextField 
+                    type="number" 
+                    variant="outlined" 
+                    size="small"
+                    value={horaExtra.coladas} 
+                    onChange={(e) => setHoraExtra(prev => ({ ...prev, coladas: parseInt(e.target.value) || 0 }))}
+                    sx={{ input: { textAlign: 'right' } }}
+                  />
+                </TableCell>
+                <TableCell>
+                  <TextField 
+                    variant="standard" 
+                    fullWidth 
+                    value={horaExtra.observacion} 
+                    onChange={(e) => setHoraExtra(prev => ({ ...prev, observacion: e.target.value }))} 
+                  />
                 </TableCell>
               </TableRow>
             </TableBody>
