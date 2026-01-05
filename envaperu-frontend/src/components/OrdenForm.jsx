@@ -21,7 +21,8 @@ import {
   CircularProgress,
   Tooltip,
   InputAdornment,
-  Autocomplete
+  Autocomplete,
+  Stack
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import AddIcon from '@mui/icons-material/Add';
@@ -29,7 +30,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PaletteIcon from '@mui/icons-material/Palette';
 import LockIcon from '@mui/icons-material/Lock';
-import { crearOrden, buscarProductos } from '../services/api';
+import { crearOrden, buscarProductos, buscarPiezas } from '../services/api';
 
 const initialOrden = {
   numero_op: '',
@@ -93,14 +94,17 @@ function OrdenForm({ onOrdenCreada }) {
   const [productosLoading, setProductosLoading] = useState(false);
   const [productoInputValue, setProductoInputValue] = useState('');
 
-  // Fetch productos cuando cambia el input (debounced via useEffect)
+  // Estado para Autocomplete de Piezas/Moldes
+  const [piezasOptions, setPiezasOptions] = useState([]);
+  const [piezasLoading, setPiezasLoading] = useState(false);
+  const [moldeInputValue, setMoldeInputValue] = useState('');
+
+  // Fetch productos cuando cambia el input (debounced)
   useEffect(() => {
-    // No buscar si el input es muy corto
     if (productoInputValue.length < 2) {
       setProductosOptions([]);
       return;
     }
-
     const timeoutId = setTimeout(async () => {
       setProductosLoading(true);
       try {
@@ -112,10 +116,30 @@ function OrdenForm({ onOrdenCreada }) {
       } finally {
         setProductosLoading(false);
       }
-    }, 300); // Debounce de 300ms
-
+    }, 300);
     return () => clearTimeout(timeoutId);
   }, [productoInputValue]);
+
+  // Fetch piezas/moldes cuando cambia el input (debounced)
+  useEffect(() => {
+    if (moldeInputValue.length < 2) {
+      setPiezasOptions([]);
+      return;
+    }
+    const timeoutId = setTimeout(async () => {
+      setPiezasLoading(true);
+      try {
+        const piezas = await buscarPiezas(moldeInputValue);
+        setPiezasOptions(piezas);
+      } catch (error) {
+        console.error('Error buscando piezas:', error);
+        setPiezasOptions([]);
+      } finally {
+        setPiezasLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timeoutId);
+  }, [moldeInputValue]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -275,7 +299,7 @@ function OrdenForm({ onOrdenCreada }) {
       component="form" 
       onSubmit={handleSubmit}
       sx={{ 
-        p: 4, 
+        p: 2, 
         background: 'rgba(26, 26, 46, 0.9)',
         backdropFilter: 'blur(10px)',
         border: '1px solid rgba(255,255,255,0.1)'
@@ -290,273 +314,301 @@ function OrdenForm({ onOrdenCreada }) {
         Nueva Orden de Producción
       </Typography>
       
-      <Divider sx={{ my: 3, borderColor: 'rgba(255,255,255,0.1)' }} />
+      <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.1)' }} />
 
-      {/* Sección: Cabecera */}
-      <Typography variant="subtitle1" color="primary" gutterBottom sx={{ fontWeight: 600 }}>
-        📋 Información General
-      </Typography>
-      
-      <Grid container spacing={2} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <TextField
-            fullWidth
-            label="Número OP"
-            name="numero_op"
-            value={orden.numero_op}
-            onChange={handleChange}
-            required
-            size="small"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TextField
-            fullWidth
-            label="Máquina ID"
-            name="maquina_id"
-            value={orden.maquina_id}
-            onChange={handleChange}
-            size="small"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TextField
-            fullWidth
-            label="Tipo Máquina"
-            name="tipo_maquina"
-            value={orden.tipo_maquina}
-            onChange={handleChange}
-            size="small"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Autocomplete
-            freeSolo
-            options={productosOptions}
-            getOptionLabel={(option) => 
-              typeof option === 'string' ? option : `${option.producto} (${option.cod_sku_pt})`
-            }
-            loading={productosLoading}
-            inputValue={productoInputValue}
-            onInputChange={(_, newInputValue) => {
-              setProductoInputValue(newInputValue);
-            }}
-            onChange={(_, newValue) => {
-              // Si seleccionó un objeto, guardar nombre y SKU; si es texto libre, solo guardar el texto
-              if (newValue && typeof newValue === 'object') {
-                setOrden(prev => ({ 
-                  ...prev, 
-                  producto: newValue.producto,
-                  producto_sku: newValue.cod_sku_pt,
-                  // Auto-fill técnicos si están disponibles
-                  peso_unitario_gr: newValue.peso_g ? String(newValue.peso_g) : prev.peso_unitario_gr
-                }));
-              } else {
-                setOrden(prev => ({ ...prev, producto: newValue || '', producto_sku: '' }));
+      {/* Layout Compacto: 3 Cards con Flexbox */}
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mb: 2 }}>
+        {/* Card 1: Identidad */}
+        <Paper sx={{ p: 1.5, background: 'rgba(22, 33, 62, 0.6)', flex: '1 1 280px', minWidth: 0 }}>
+          <Typography variant="subtitle2" color="primary" gutterBottom sx={{ fontWeight: 600, mb: 1 }}>
+            📋 Identidad
+          </Typography>
+          <Stack spacing={1}>
+            <TextField
+              fullWidth
+              label="Número OP"
+              name="numero_op"
+              value={orden.numero_op}
+              onChange={handleChange}
+              required
+              size="small"
+            />
+            <TextField
+              fullWidth
+              label="Máquina ID"
+              name="maquina_id"
+              value={orden.maquina_id}
+              onChange={handleChange}
+              size="small"
+            />
+            <TextField
+              fullWidth
+              label="Tipo Máquina"
+              name="tipo_maquina"
+              value={orden.tipo_maquina}
+              onChange={handleChange}
+              size="small"
+            />
+          </Stack>
+        </Paper>
+
+        {/* Card 2: Producto & Molde */}
+        <Paper sx={{ p: 1.5, background: 'rgba(22, 33, 62, 0.6)', flex: '1 1 280px', minWidth: 0 }}>
+          <Typography variant="subtitle2" color="primary" gutterBottom sx={{ fontWeight: 600, mb: 1 }}>
+            🏭 Producto & Molde
+          </Typography>
+          <Stack spacing={1}>
+            <Autocomplete
+              freeSolo
+              options={productosOptions}
+              getOptionLabel={(option) => 
+                typeof option === 'string' ? option : `${option.producto} (${option.cod_sku_pt})`
               }
-            }}
-            renderInput={(params) => (
+              loading={productosLoading}
+              inputValue={productoInputValue}
+              onInputChange={(_, newInputValue) => {
+                setProductoInputValue(newInputValue);
+              }}
+              onChange={(_, newValue) => {
+                if (newValue && typeof newValue === 'object') {
+                  setOrden(prev => ({ 
+                    ...prev, 
+                    producto: newValue.producto,
+                    producto_sku: newValue.cod_sku_pt,
+                    peso_unitario_gr: newValue.peso_g ? String(newValue.peso_g) : prev.peso_unitario_gr
+                  }));
+                } else {
+                  setOrden(prev => ({ ...prev, producto: newValue || '', producto_sku: '' }));
+                }
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Producto"
+                  size="small"
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {productosLoading ? <CircularProgress color="inherit" size={18} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
+              renderOption={(props, option) => (
+                <li {...props} key={option.cod_sku_pt}>
+                  <Box>
+                    <Typography variant="body2">{option.producto}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {option.cod_sku_pt} | {option.familia}
+                    </Typography>
+                  </Box>
+                </li>
+              )}
+            />
+            <Autocomplete
+              freeSolo
+              options={piezasOptions}
+              getOptionLabel={(option) => 
+                typeof option === 'string' ? option : option.piezas
+              }
+              loading={piezasLoading}
+              inputValue={moldeInputValue}
+              onInputChange={(_, newInputValue) => {
+                setMoldeInputValue(newInputValue);
+              }}
+              onChange={(_, newValue) => {
+                if (newValue && typeof newValue === 'object') {
+                  setOrden(prev => ({ 
+                    ...prev, 
+                    molde: newValue.piezas,
+                    cavidades: newValue.cavidad ? String(newValue.cavidad) : prev.cavidades,
+                    peso_unitario_gr: newValue.peso ? String(newValue.peso) : prev.peso_unitario_gr
+                  }));
+                  setMoldeInputValue(newValue.piezas);
+                } else {
+                  setOrden(prev => ({ ...prev, molde: newValue || '' }));
+                }
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Molde"
+                  size="small"
+                  placeholder="Buscar pieza..."
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {piezasLoading ? <CircularProgress color="inherit" size={18} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
+              renderOption={(props, option) => (
+                <li {...props} key={option.sku}>
+                  <Box>
+                    <Typography variant="body2">{option.piezas}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {option.sku} | Cav: {option.cavidad || '-'} | {option.peso || '-'}g
+                    </Typography>
+                  </Box>
+                </li>
+              )}
+            />
+          </Stack>
+        </Paper>
+
+        {/* Card 3: Estrategia */}
+        <Paper sx={{ p: 1.5, background: 'rgba(22, 33, 62, 0.6)', flex: '1 1 280px', minWidth: 0 }}>
+          <Typography variant="subtitle2" color="primary" gutterBottom sx={{ fontWeight: 600, mb: 1 }}>
+            🎯 Estrategia
+          </Typography>
+          <Stack spacing={1}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Tipo Estrategia</InputLabel>
+              <Select
+                name="tipo_estrategia"
+                value={orden.tipo_estrategia}
+                onChange={handleChange}
+                label="Tipo Estrategia"
+              >
+                <MenuItem value="POR_PESO">Por Peso (Kg)</MenuItem>
+                <MenuItem value="POR_CANTIDAD">Por Cantidad (Doc)</MenuItem>
+                <MenuItem value="STOCK">Stock Manual</MenuItem>
+              </Select>
+            </FormControl>
+            <Tooltip 
+              title={orden.tipo_estrategia !== 'POR_PESO' ? 'Solo con estrategia "Por Peso"' : ''}
+              placement="top"
+              arrow
+            >
               <TextField
-                {...params}
-                label="Producto"
+                fullWidth
+                label="Meta Total (Kg)"
+                name="meta_total_kg"
+                type="number"
+                value={orden.meta_total_kg}
+                onChange={handleChange}
                 size="small"
+                disabled={orden.tipo_estrategia !== 'POR_PESO'}
                 InputProps={{
-                  ...params.InputProps,
-                  endAdornment: (
-                    <>
-                      {productosLoading ? <CircularProgress color="inherit" size={20} /> : null}
-                      {params.InputProps.endAdornment}
-                    </>
-                  ),
+                  endAdornment: orden.tipo_estrategia !== 'POR_PESO' ? (
+                    <InputAdornment position="end">
+                      <LockIcon fontSize="small" sx={{ color: 'text.disabled' }} />
+                    </InputAdornment>
+                  ) : null
                 }}
               />
-            )}
-            renderOption={(props, option) => (
-              <li {...props} key={option.cod_sku_pt}>
-                <Box>
-                  <Typography variant="body2">{option.producto}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    SKU: {option.cod_sku_pt} | {option.familia}
-                  </Typography>
-                </Box>
-              </li>
-            )}
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TextField
-            fullWidth
-            label="Molde"
-            name="molde"
-            value={orden.molde}
-            onChange={handleChange}
-            size="small"
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TextField
-            fullWidth
-            label="Fecha Inicio"
-            name="fecha_inicio"
-            type="datetime-local"
-            value={orden.fecha_inicio}
-            onChange={handleChange}
-            size="small"
-            InputLabelProps={{ shrink: true }}
-          />
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <TextField
-            fullWidth
-            label="T/C (Tipo Cambio)"
-            name="tipo_cambio"
-            type="number"
-            value={orden.tipo_cambio}
-            onChange={handleChange}
-            size="small"
-            inputProps={{ step: 0.01 }}
-            placeholder="Ej: 3.75"
-          />
-        </Grid>
-      </Grid>
-
-      {/* Sección: Estrategia */}
-      <Typography variant="subtitle1" color="primary" gutterBottom sx={{ fontWeight: 600 }}>
-        🎯 Estrategia de Producción
-      </Typography>
-      
-      <Grid container spacing={2} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={4}>
-          <FormControl fullWidth size="small">
-            <InputLabel>Tipo Estrategia</InputLabel>
-            <Select
-              name="tipo_estrategia"
-              value={orden.tipo_estrategia}
-              onChange={handleChange}
-              label="Tipo Estrategia"
+            </Tooltip>
+            <Tooltip 
+              title={orden.tipo_estrategia !== 'POR_CANTIDAD' ? 'Solo con estrategia "Por Cantidad"' : ''}
+              placement="top"
+              arrow
             >
-              <MenuItem value="POR_PESO">Por Peso (Kg)</MenuItem>
-              <MenuItem value="POR_CANTIDAD">Por Cantidad (Doc)</MenuItem>
-              <MenuItem value="STOCK">Stock Manual</MenuItem>
-            </Select>
-          </FormControl>
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <Tooltip 
-            title={orden.tipo_estrategia !== 'POR_PESO' ? 'Solo disponible con estrategia "Por Peso"' : ''}
-            placement="top"
-            arrow
-          >
+              <TextField
+                fullWidth
+                label="Meta Total (Doc)"
+                name="meta_total_doc"
+                type="number"
+                value={orden.meta_total_doc}
+                onChange={handleChange}
+                size="small"
+                disabled={orden.tipo_estrategia !== 'POR_CANTIDAD'}
+                InputProps={{
+                  endAdornment: orden.tipo_estrategia !== 'POR_CANTIDAD' ? (
+                    <InputAdornment position="end">
+                      <LockIcon fontSize="small" sx={{ color: 'text.disabled' }} />
+                    </InputAdornment>
+                  ) : null
+                }}
+              />
+            </Tooltip>
+          </Stack>
+        </Paper>
+      </Box>
+
+      {/* Fila: Parámetros Técnicos + Fechas */}
+      <Paper sx={{ p: 1.5, mb: 2, background: 'rgba(22, 33, 62, 0.6)' }}>
+        <Typography variant="subtitle2" color="primary" gutterBottom sx={{ fontWeight: 600, mb: 1 }}>
+          ⚙️ Parámetros Técnicos
+        </Typography>
+        <Grid container spacing={1}>
+          <Grid item xs={6} sm={4} md={2}>
             <TextField
               fullWidth
-              label="Meta Total (Kg)"
-              name="meta_total_kg"
+              label="Peso Unit. (gr)"
+              name="peso_unitario_gr"
               type="number"
-              value={orden.meta_total_kg}
+              value={orden.peso_unitario_gr}
               onChange={handleChange}
               size="small"
-              disabled={orden.tipo_estrategia !== 'POR_PESO'}
-              InputProps={{
-                endAdornment: orden.tipo_estrategia !== 'POR_PESO' ? (
-                  <InputAdornment position="end">
-                    <LockIcon fontSize="small" sx={{ color: 'text.disabled' }} />
-                  </InputAdornment>
-                ) : null
-              }}
             />
-          </Tooltip>
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <Tooltip 
-            title={orden.tipo_estrategia !== 'POR_CANTIDAD' ? 'Solo disponible con estrategia "Por Cantidad"' : ''}
-            placement="top"
-            arrow
-          >
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
             <TextField
               fullWidth
-              label="Meta Total (Docenas)"
-              name="meta_total_doc"
+              label="Peso Inc. (gr)"
+              name="peso_inc_colada"
               type="number"
-              value={orden.meta_total_doc}
+              value={orden.peso_inc_colada}
               onChange={handleChange}
               size="small"
-              disabled={orden.tipo_estrategia !== 'POR_CANTIDAD'}
-              InputProps={{
-                endAdornment: orden.tipo_estrategia !== 'POR_CANTIDAD' ? (
-                  <InputAdornment position="end">
-                    <LockIcon fontSize="small" sx={{ color: 'text.disabled' }} />
-                  </InputAdornment>
-                ) : null
-              }}
             />
-          </Tooltip>
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <TextField
+              fullWidth
+              label="Cavidades"
+              name="cavidades"
+              type="number"
+              value={orden.cavidades}
+              onChange={handleChange}
+              size="small"
+            />
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <TextField
+              fullWidth
+              label="T. Ciclo (seg)"
+              name="tiempo_ciclo"
+              type="number"
+              value={orden.tiempo_ciclo}
+              onChange={handleChange}
+              size="small"
+            />
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <TextField
+              fullWidth
+              label="Horas Turno"
+              name="horas_turno"
+              type="number"
+              value={orden.horas_turno}
+              onChange={handleChange}
+              size="small"
+            />
+          </Grid>
+          <Grid item xs={6} sm={4} md={2}>
+            <TextField
+              fullWidth
+              label="Fecha Inicio"
+              name="fecha_inicio"
+              type="datetime-local"
+              value={orden.fecha_inicio}
+              onChange={handleChange}
+              size="small"
+              InputLabelProps={{ shrink: true }}
+            />
+          </Grid>
         </Grid>
-      </Grid>
+      </Paper>
 
-      {/* Sección: Parámetros Técnicos */}
-      <Typography variant="subtitle1" color="primary" gutterBottom sx={{ fontWeight: 600 }}>
-        ⚙️ Parámetros Técnicos
-      </Typography>
-      
-      <Grid container spacing={2} sx={{ mb: 4 }}>
-        <Grid item xs={6} sm={4} md={2}>
-          <TextField
-            fullWidth
-            label="Peso Unit. (gr)"
-            name="peso_unitario_gr"
-            type="number"
-            value={orden.peso_unitario_gr}
-            onChange={handleChange}
-            size="small"
-          />
-        </Grid>
-        <Grid item xs={6} sm={4} md={2}>
-          <TextField
-            fullWidth
-            label="Peso Inc. Colada (gr)"
-            name="peso_inc_colada"
-            type="number"
-            value={orden.peso_inc_colada}
-            onChange={handleChange}
-            size="small"
-          />
-        </Grid>
-        <Grid item xs={6} sm={4} md={2}>
-          <TextField
-            fullWidth
-            label="Cavidades"
-            name="cavidades"
-            type="number"
-            value={orden.cavidades}
-            onChange={handleChange}
-            size="small"
-          />
-        </Grid>
-        <Grid item xs={6} sm={4} md={2}>
-          <TextField
-            fullWidth
-            label="Tiempo Ciclo (seg)"
-            name="tiempo_ciclo"
-            type="number"
-            value={orden.tiempo_ciclo}
-            onChange={handleChange}
-            size="small"
-          />
-        </Grid>
-        <Grid item xs={6} sm={4} md={2}>
-          <TextField
-            fullWidth
-            label="Horas Turno"
-            name="horas_turno"
-            type="number"
-            value={orden.horas_turno}
-            onChange={handleChange}
-            size="small"
-          />
-        </Grid>
-      </Grid>
-
-      <Divider sx={{ my: 3, borderColor: 'rgba(255,255,255,0.1)' }} />
+      <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.1)' }} />
 
       {/* Sección: Lotes */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>

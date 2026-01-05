@@ -241,20 +241,20 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
 
   return (
     <Paper sx={{ 
-      p: 4, 
+      p: 2, 
       borderRadius: 2, 
       background: 'rgba(26, 26, 46, 0.95)',
       backdropFilter: 'blur(10px)',
       border: '1px solid rgba(255,255,255,0.1)'
     }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h5" sx={{ 
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+        <Typography variant="h6" sx={{ 
           fontWeight: 'bold', 
           background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent'
         }}>
-          <TodayIcon sx={{ mr: 1, verticalAlign: 'bottom', color: '#4facfe' }} />
+          <TodayIcon sx={{ mr: 1, verticalAlign: 'bottom', color: '#4facfe', fontSize: 20 }} />
           Hoja de Producción Diaria
         </Typography>
         
@@ -262,7 +262,8 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
         <Button
           variant="outlined"
           color="secondary"
-          startIcon={scanning ? <CircularProgress size={20} /> : <CameraAltIcon />}
+          size="small"
+          startIcon={scanning ? <CircularProgress size={16} /> : <CameraAltIcon />}
           onClick={() => fileInputRef.current?.click()}
           disabled={scanning}
           sx={{ borderColor: '#ff9800', color: '#ff9800' }}
@@ -281,112 +282,139 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
         />
       </Box>
 
-      {/* Info de la Orden - Simulando el Header del Formulario Físico */}
+      {/* Info de la Orden - Compacta */}
       {ordenInfo && (
-        <Box sx={{ mb: 3, p: 2, bgcolor: 'rgba(79, 172, 254, 0.1)', borderRadius: 1, border: '1px solid rgba(79, 172, 254, 0.3)' }}>
-          <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold', color: '#4facfe' }}>
+        <Box sx={{ mb: 2, p: 1.5, bgcolor: 'rgba(79, 172, 254, 0.1)', borderRadius: 1, border: '1px solid rgba(79, 172, 254, 0.3)' }}>
+          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'bold', color: '#4facfe' }}>
             Nº OP: {ordenId} - {ordenInfo.producto}
           </Typography>
-          <Grid container spacing={2}>
-            {/* Columna Izquierda - Datos Técnicos */}
-            <Grid item xs={6}>
-              <Typography variant="body2" color="text.secondary">
-                <strong>Nº CAVIDADES:</strong> {ordenInfo.cavidades}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                <strong>PESO NETO:</strong> {ordenInfo.peso_unitario_gr} g
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                <strong>PESO COLADA:</strong> {ordenInfo.peso_inc_colada ? (ordenInfo.peso_inc_colada - ordenInfo.peso_unitario_gr * ordenInfo.cavidades).toFixed(1) : '-'} g
-              </Typography>
-            </Grid>
-            {/* Columna Derecha - Parámetros */}
-            <Grid item xs={6}>
-              <Typography variant="body2" color="text.secondary">
-                <strong>TIEMPO CICLO:</strong> {ordenInfo.tiempo_ciclo} seg
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                <strong>MÁQUINA:</strong> {ordenInfo.maquina}
-              </Typography>
-            </Grid>
-          </Grid>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, fontSize: '0.75rem' }}>
+            <Typography variant="caption" color="text.secondary">
+              <strong>Cavidades:</strong> {ordenInfo.cavidades}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              <strong>Peso Neto:</strong> {ordenInfo.peso_unitario_gr}g
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              <strong>Ciclo:</strong> {ordenInfo.tiempo_ciclo}s
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              <strong>Máquina:</strong> {ordenInfo.maquina}
+            </Typography>
+          </Box>
         </Box>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      {ocrSuccess && <Alert severity="info" sx={{ mb: 2 }}>📷 Datos escaneados. Revise y corrija antes de guardar.</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }}>✅ Registro guardado correctamente</Alert>}
+      {error && <Alert severity="error" sx={{ mb: 1.5 }}>{error}</Alert>}
+      {ocrSuccess && <Alert severity="info" sx={{ mb: 1.5 }}>📷 Datos escaneados. Revise y corrija antes de guardar.</Alert>}
+      {success && <Alert severity="success" sx={{ mb: 1.5 }}>✅ Registro guardado correctamente</Alert>}
 
       <form onSubmit={handleSubmit}>
-        {/* CABECERA */}
-        <Grid container spacing={2} sx={{ mb: 4 }}>
-           <Grid item xs={12}><Chip label="Datos Generales" color="primary" variant="outlined" /></Grid>
-           
-           <Grid item xs={6} sm={3}>
-            <TextField label="Fecha" type="date" fullWidth name="fecha" value={header.fecha} onChange={handleHeaderChange} InputLabelProps={{ shrink: true }} />
-           </Grid>
-           <Grid item xs={6} sm={3}>
-             <TextField select label="Turno" fullWidth name="turno" value={header.turno} onChange={handleHeaderChange}>
+        {/* Layout Compacto: 2 Cards en Flexbox */}
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mb: 2 }}>
+          {/* Card 1: Datos Generales */}
+          <Paper sx={{ p: 1.5, background: 'rgba(22, 33, 62, 0.6)', flex: '1 1 280px', minWidth: 0 }}>
+            <Typography variant="subtitle2" color="primary" sx={{ fontWeight: 600, mb: 1 }}>
+              📅 Datos Generales
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              <TextField 
+                label="Fecha" 
+                type="date" 
+                name="fecha" 
+                value={header.fecha} 
+                onChange={handleHeaderChange} 
+                InputLabelProps={{ shrink: true }} 
+                size="small"
+                sx={{ flex: '1 1 140px' }}
+              />
+              <TextField 
+                select 
+                label="Turno" 
+                name="turno" 
+                value={header.turno} 
+                onChange={handleHeaderChange}
+                size="small"
+                sx={{ flex: '1 1 100px' }}
+              >
                 {TURNOS.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-             </TextField>
-           </Grid>
-           <Grid item xs={6} sm={3}>
-             <TextField label="Hora Inicio" fullWidth name="hora_inicio" value={header.hora_inicio} onChange={handleHeaderChange} type="time" InputLabelProps={{ shrink: true }} />
-           </Grid>
-           <Grid item xs={6} sm={3}>
-             <TextField select label="Máquina" fullWidth name="maquina_id" value={header.maquina_id} onChange={handleHeaderChange} required>
+              </TextField>
+              <TextField 
+                label="Hora Inicio" 
+                name="hora_inicio" 
+                value={header.hora_inicio} 
+                onChange={handleHeaderChange} 
+                type="time" 
+                InputLabelProps={{ shrink: true }}
+                size="small"
+                sx={{ flex: '1 1 100px' }}
+              />
+              <TextField 
+                select 
+                label="Máquina" 
+                name="maquina_id" 
+                value={header.maquina_id} 
+                onChange={handleHeaderChange} 
+                required
+                size="small"
+                sx={{ flex: '1 1 120px' }}
+              >
                 {maquinas.map(m => <MenuItem key={m.id} value={m.id}>{m.nombre}</MenuItem>)}
-             </TextField>
-           </Grid>
-        </Grid>
+              </TextField>
+            </Box>
+          </Paper>
 
-        <Divider sx={{ my: 2 }} />
-
-        {/* CONTADORES Y METAS */}
-        <Grid container spacing={2} sx={{ mb: 4 }}>
-           <Grid item xs={12}><Chip label="Parámetros Máquina" color="secondary" variant="outlined" /></Grid>
-
-           <Grid item xs={6} sm={3}>
-             <TextField 
-               label="Colada Inicial" 
-               fullWidth 
-               name="colada_inicial" 
-               value={header.colada_inicial} 
-               onChange={handleHeaderChange}
-               inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
-               placeholder="Ej: 1000"
-             />
-           </Grid>
-           <Grid item xs={6} sm={3}>
-             <TextField 
-               label="Colada Final" 
-               fullWidth 
-               name="colada_final" 
-               value={header.colada_final} 
-               onChange={handleHeaderChange}
-               inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
-               placeholder="Ej: 1500"
-             />
-           </Grid>
-           <Grid item xs={6} sm={3}>
-             <TextField 
-               label="Total (Auto)" 
-               value={totalColadasContador} 
-               disabled 
-               fullWidth 
-               InputProps={{ readOnly: true }} 
-               sx={{ 
-                 bgcolor: 'rgba(79, 172, 254, 0.15)', 
-                 borderRadius: 1,
-                 '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: '#4facfe' }
-               }} 
-             />
-           </Grid>
-           
-           <Grid item xs={6} sm={3}>
-             <TextField label="Ciclo (seg)" type="number" fullWidth name="tiempo_ciclo" value={header.tiempo_ciclo} onChange={handleHeaderChange} inputProps={{ step: 0.1 }} />
-           </Grid>
-        </Grid>
+          {/* Card 2: Contadores y Parámetros */}
+          <Paper sx={{ p: 1.5, background: 'rgba(22, 33, 62, 0.6)', flex: '1 1 280px', minWidth: 0 }}>
+            <Typography variant="subtitle2" color="secondary" sx={{ fontWeight: 600, mb: 1 }}>
+              ⚙️ Contadores
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              <TextField 
+                label="Colada Ini" 
+                name="colada_inicial" 
+                value={header.colada_inicial} 
+                onChange={handleHeaderChange}
+                inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                placeholder="1000"
+                size="small"
+                sx={{ flex: '1 1 90px' }}
+              />
+              <TextField 
+                label="Colada Fin" 
+                name="colada_final" 
+                value={header.colada_final} 
+                onChange={handleHeaderChange}
+                inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                placeholder="1500"
+                size="small"
+                sx={{ flex: '1 1 90px' }}
+              />
+              <TextField 
+                label="Total" 
+                value={totalColadasContador} 
+                disabled 
+                size="small"
+                sx={{ 
+                  flex: '1 1 70px',
+                  bgcolor: 'rgba(79, 172, 254, 0.15)', 
+                  borderRadius: 1,
+                  '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: '#4facfe' }
+                }} 
+              />
+              <TextField 
+                label="Ciclo (s)" 
+                type="number" 
+                name="tiempo_ciclo" 
+                value={header.tiempo_ciclo} 
+                onChange={handleHeaderChange} 
+                inputProps={{ step: 0.1 }}
+                size="small"
+                sx={{ flex: '1 1 80px' }}
+              />
+            </Box>
+          </Paper>
+        </Box>
 
         {/* TABLA DETALLES */}
         <Typography variant="h6" gutterBottom>Registro Hora a Hora</Typography>

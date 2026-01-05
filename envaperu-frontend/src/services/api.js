@@ -61,6 +61,12 @@ export const buscarProductos = async (query = '') => {
   return response.data;
 };
 
+// Buscar piezas/moldes para autocomplete
+export const buscarPiezas = async (query = '') => {
+  const response = await api.get('/piezas', { params: { q: query, limit: 20 } });
+  return response.data;
+};
+
 // ==================== REGISTROS DIARIOS ====================
 
 // Obtener registros diarios de una orden

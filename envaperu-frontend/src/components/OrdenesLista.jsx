@@ -32,7 +32,9 @@ import FactoryIcon from '@mui/icons-material/Factory';
 import QrCode2Icon from '@mui/icons-material/QrCode2';
 import DownloadIcon from '@mui/icons-material/Download';
 import PrintIcon from '@mui/icons-material/Print';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import { obtenerOrdenes, descargarExcel, getQRImageUrl } from '../services/api';
+import RegistroForm from './RegistroForm';
 
 function LoteRow({ lote }) {
   return (
@@ -118,9 +120,10 @@ function LoteRow({ lote }) {
   );
 }
 
-function OrdenRow({ orden }) {
+function OrdenRow({ orden, onRegistroCreado }) {
   const [open, setOpen] = useState(false);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
+  const [registroDialogOpen, setRegistroDialogOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const resumen = orden.resumen_totales || {};
 
@@ -139,6 +142,11 @@ function OrdenRow({ orden }) {
   const handleOpenQR = (e) => {
     e.stopPropagation();
     setQrDialogOpen(true);
+  };
+
+  const handleOpenRegistro = (e) => {
+    e.stopPropagation();
+    setRegistroDialogOpen(true);
   };
 
   return (
@@ -190,6 +198,11 @@ function OrdenRow({ orden }) {
         </TableCell>
         <TableCell>
           <Box sx={{ display: 'flex', gap: 0.5 }}>
+            <Tooltip title="Crear Registro Diario">
+              <IconButton size="small" color="success" onClick={handleOpenRegistro}>
+                <AddCircleOutlineIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
             <Tooltip title="Ver QR del Formulario">
               <IconButton size="small" color="secondary" onClick={handleOpenQR}>
                 <QrCode2Icon fontSize="small" />
@@ -237,6 +250,27 @@ function OrdenRow({ orden }) {
             Cerrar
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* Registro Dialog */}
+      <Dialog 
+        open={registroDialogOpen} 
+        onClose={() => setRegistroDialogOpen(false)} 
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#1a1a2e', color: 'white' }}>
+          📝 Nuevo Registro - {orden.numero_op}
+        </DialogTitle>
+        <DialogContent sx={{ bgcolor: '#1a1a2e', pt: 2 }}>
+          <RegistroForm 
+            ordenId={orden.numero_op} 
+            onRegistroCreado={() => {
+              setRegistroDialogOpen(false);
+              if (onRegistroCreado) onRegistroCreado();
+            }}
+          />
+        </DialogContent>
       </Dialog>
 
       <TableRow>
