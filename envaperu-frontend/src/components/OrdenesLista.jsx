@@ -41,8 +41,8 @@ function LoteRow({ lote }) {
     <Card 
       sx={{ 
         mb: 1, 
-        background: 'rgba(22, 33, 62, 0.6)',
-        border: '1px solid rgba(255,255,255,0.05)'
+        background: '#FAFAFA',
+        border: '1px solid #E0E0E0'
       }}
     >
       <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
@@ -193,7 +193,7 @@ function OrdenRow({ orden, onRegistroCreado }) {
             size="small" 
             label={`${orden.lotes?.length || 0} colores`}
             variant="filled"
-            sx={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
+            sx={{ background: 'linear-gradient(135deg, #1E3A5F 0%, #0D2137 100%)' }}
           />
         </TableCell>
         <TableCell>
@@ -282,8 +282,8 @@ function OrdenRow({ orden, onRegistroCreado }) {
                 sx={{ 
                   p: 2, 
                   mb: 2, 
-                  background: 'rgba(102, 126, 234, 0.1)',
-                  border: '1px solid rgba(102, 126, 234, 0.2)'
+                  background: '#E3F2FD',
+                  border: '1px solid #1E3A5F'
                 }}
               >
                 <Typography variant="subtitle2" gutterBottom color="primary">
@@ -396,8 +396,8 @@ function OrdenesLista() {
         sx={{ 
           p: 6, 
           textAlign: 'center',
-          background: 'rgba(26, 26, 46, 0.9)',
-          border: '1px solid rgba(255,255,255,0.1)'
+          background: '#FFFFFF',
+          border: '1px solid #E0E0E0'
         }}
       >
         <FactoryIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
@@ -415,9 +415,9 @@ function OrdenesLista() {
     <TableContainer 
       component={Paper}
       sx={{ 
-        background: 'rgba(26, 26, 46, 0.9)',
-        backdropFilter: 'blur(10px)',
-        border: '1px solid rgba(255,255,255,0.1)'
+        background: '#FFFFFF',
+        border: '1px solid #E0E0E0',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
       }}
     >
       <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -428,10 +428,10 @@ function OrdenesLista() {
           <RefreshIcon />
         </IconButton>
       </Box>
-      <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
+      <Divider sx={{ borderColor: '#E0E0E0' }} />
       <Table>
         <TableHead>
-          <TableRow sx={{ background: 'rgba(102, 126, 234, 0.1)' }}>
+          <TableRow sx={{ background: '#E3F2FD' }}>
             <TableCell width={50} />
             <TableCell>N° OP</TableCell>
             <TableCell>Producto</TableCell>

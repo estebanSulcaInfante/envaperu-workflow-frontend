@@ -89,6 +89,13 @@ export default function ControlPesoWidget({ registroId, onUpdate }) {
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
+      {/* Loading Spinner */}
+      {loading && (
+        <Box display="flex" justifyContent="center" my={3}>
+          <CircularProgress color="secondary" />
+        </Box>
+      )}
+
       {/* Resumen de Validación */}
       {validacion && (
         <Paper sx={{ p: 2, mb: 2, bgcolor: validacion.coincide ? 'rgba(76, 175, 80, 0.1)' : 'rgba(244, 67, 54, 0.1)' }}>

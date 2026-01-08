@@ -101,11 +101,11 @@ export default function RegistrosLista() {
           sx={{
             background: mostrarFormulario 
               ? 'linear-gradient(135deg, #f44336 0%, #e91e63 100%)'
-              : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              : 'linear-gradient(135deg, #1E3A5F 0%, #0D2137 100%)',
             '&:hover': {
               background: mostrarFormulario
                 ? 'linear-gradient(135deg, #d32f2f 0%, #c2185b 100%)'
-                : 'linear-gradient(135deg, #5a6fd6 0%, #6a4190 100%)',
+                : 'linear-gradient(135deg, #152a45 0%, #0a1a2e 100%)',
             }
           }}
         >
@@ -138,27 +138,24 @@ export default function RegistrosLista() {
       </Dialog>
 
       {/* Lista de Registros */}
-      <Paper 
-        sx={{ 
-          p: 3, 
-          background: 'rgba(26, 26, 46, 0.9)',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255,255,255,0.1)'
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-          <CalendarMonthIcon sx={{ fontSize: 32, color: '#4facfe' }} />
+      <Paper sx={{ 
+        background: '#FFFFFF',
+        border: '1px solid #E0E0E0',
+        borderRadius: 2,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+      }}>
+        <Box sx={{ p: 3, display: 'flex', alignItems: 'center', borderBottom: '1px solid #E0E0E0' }}>
+          <CalendarMonthIcon sx={{ fontSize: 32, color: '#1E3A5F' }} />
           <Typography variant="h5" sx={{ 
-            fontWeight: 700,
-            background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent'
+            ml: 1, 
+            fontWeight: 'bold',
+            color: '#1E3A5F'
           }}>
             Registros Diarios de Producción
           </Typography>
         </Box>
 
-        <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid container spacing={2} sx={{ mb: 3, px: 3, pt: 3 }}>
           <Grid item xs={12} sm={4}>
             <TextField
               select

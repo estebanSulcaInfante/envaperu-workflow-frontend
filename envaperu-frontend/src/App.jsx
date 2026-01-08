@@ -22,19 +22,30 @@ import OrdenesLista from './components/OrdenesLista';
 import CatalogoSKU from './components/CatalogoSKU';
 import RegistrosLista from './components/RegistrosLista';
 
-// Tema oscuro personalizado
-const darkTheme = createTheme({
+// Tema claro corporativo ENVAPERU
+const envaTheme = createTheme({
   palette: {
-    mode: 'dark',
+    mode: 'light',
     primary: {
-      main: '#4facfe',
+      main: '#1E3A5F',      // Azul oscuro corporativo
+      contrastText: '#FFFFFF',
     },
     secondary: {
-      main: '#764ba2',
+      main: '#D32F2F',      // Rojo corporativo
+    },
+    success: {
+      main: '#2E7D32',
+    },
+    warning: {
+      main: '#F57C00',
     },
     background: {
-      default: '#0f0f23',
-      paper: '#1a1a2e',
+      default: '#F5F5F5',
+      paper: '#FFFFFF',
+    },
+    text: {
+      primary: '#1A1A1A',
+      secondary: '#666666',
     },
   },
   typography: {
@@ -45,7 +56,7 @@ const darkTheme = createTheme({
       styleOverrides: {
         root: {
           backgroundImage: 'none',
-          borderRadius: 16,
+          borderRadius: 8,
         },
       },
     },
@@ -92,15 +103,15 @@ function App() {
   };
 
   return (
-    <ThemeProvider theme={darkTheme}>
+    <ThemeProvider theme={envaTheme}>
       <CssBaseline />
-      <Box sx={{ minHeight: '100vh', background: 'linear-gradient(180deg, #0f0f23 0%, #1a1a2e 100%)' }}>
-        {/* AppBar con gradiente */}
+      <Box sx={{ minHeight: '100vh', background: '#F5F5F5' }}>
+        {/* AppBar corporativo */}
         <AppBar 
           position="static" 
           sx={{ 
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            boxShadow: '0 4px 20px rgba(102, 126, 234, 0.3)'
+            background: 'linear-gradient(135deg, #1E3A5F 0%, #0D2137 100%)',
+            boxShadow: '0 2px 8px rgba(30, 58, 95, 0.3)'
           }}
         >
           <Toolbar>
@@ -119,9 +130,9 @@ function App() {
           <Paper 
             sx={{ 
               mb: 3, 
-              background: 'rgba(26, 26, 46, 0.8)',
-              backdropFilter: 'blur(10px)',
-              border: '1px solid rgba(255,255,255,0.1)'
+              background: '#FFFFFF',
+              border: '1px solid #E0E0E0',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
             }}
           >
             <Tabs 

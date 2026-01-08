@@ -241,20 +241,18 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
 
   return (
     <Paper sx={{ 
-      p: 2, 
+      p: 4, 
       borderRadius: 2, 
-      background: 'rgba(26, 26, 46, 0.95)',
-      backdropFilter: 'blur(10px)',
-      border: '1px solid rgba(255,255,255,0.1)'
+      background: '#FFFFFF',
+      border: '1px solid #E0E0E0',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
     }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-        <Typography variant="h6" sx={{ 
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h5" sx={{ 
           fontWeight: 'bold', 
-          background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent'
+          color: '#1E3A5F'
         }}>
-          <TodayIcon sx={{ mr: 1, verticalAlign: 'bottom', color: '#4facfe', fontSize: 20 }} />
+          <TodayIcon sx={{ mr: 1, verticalAlign: 'bottom', color: '#1E3A5F', fontSize: 20 }} />
           Hoja de Producción Diaria
         </Typography>
         
@@ -266,7 +264,7 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
           startIcon={scanning ? <CircularProgress size={16} /> : <CameraAltIcon />}
           onClick={() => fileInputRef.current?.click()}
           disabled={scanning}
-          sx={{ borderColor: '#ff9800', color: '#ff9800' }}
+          sx={{ borderColor: '#1E3A5F', color: '#1E3A5F' }}
         >
           {scanning ? 'Escaneando...' : '📷 Escanear'}
         </Button>
@@ -284,8 +282,8 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
 
       {/* Info de la Orden - Compacta */}
       {ordenInfo && (
-        <Box sx={{ mb: 2, p: 1.5, bgcolor: 'rgba(79, 172, 254, 0.1)', borderRadius: 1, border: '1px solid rgba(79, 172, 254, 0.3)' }}>
-          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'bold', color: '#4facfe' }}>
+        <Box sx={{ mb: 3, p: 2, bgcolor: '#E3F2FD', borderRadius: 1, border: '1px solid #1E3A5F' }}>
+          <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'bold', color: '#1E3A5F' }}>
             Nº OP: {ordenId} - {ordenInfo.producto}
           </Typography>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, fontSize: '0.75rem' }}>
@@ -313,7 +311,7 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
         {/* Layout Compacto: 2 Cards en Flexbox */}
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mb: 2 }}>
           {/* Card 1: Datos Generales */}
-          <Paper sx={{ p: 1.5, background: 'rgba(22, 33, 62, 0.6)', flex: '1 1 280px', minWidth: 0 }}>
+          <Paper sx={{ p: 1.5, background: '#F5F5F5', flex: '1 1 280px', minWidth: 0 }}>
             <Typography variant="subtitle2" color="primary" sx={{ fontWeight: 600, mb: 1 }}>
               📅 Datos Generales
             </Typography>
@@ -365,7 +363,7 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
           </Paper>
 
           {/* Card 2: Contadores y Parámetros */}
-          <Paper sx={{ p: 1.5, background: 'rgba(22, 33, 62, 0.6)', flex: '1 1 280px', minWidth: 0 }}>
+          <Paper sx={{ p: 1.5, background: '#F5F5F5', flex: '1 1 280px', minWidth: 0 }}>
             <Typography variant="subtitle2" color="secondary" sx={{ fontWeight: 600, mb: 1 }}>
               ⚙️ Contadores
             </Typography>
@@ -391,15 +389,15 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
                 sx={{ flex: '1 1 90px' }}
               />
               <TextField 
-                label="Total" 
-                value={totalColadasContador} 
-                disabled 
-                size="small"
-                sx={{ 
-                  flex: '1 1 70px',
-                  bgcolor: 'rgba(79, 172, 254, 0.15)', 
-                  borderRadius: 1,
-                  '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: '#4facfe' }
+               label="Total (Auto)" 
+               value={totalColadasContador} 
+               disabled 
+               fullWidth 
+               InputProps={{ readOnly: true }} 
+               sx={{ 
+                 bgcolor: '#E3F2FD', 
+                 borderRadius: 1,
+                 '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: '#1E3A5F' }
                 }} 
               />
               <TextField 
@@ -418,7 +416,7 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
 
         {/* TABLA DETALLES */}
         <Typography variant="h6" gutterBottom>Registro Hora a Hora</Typography>
-        <TableContainer component={Paper} variant="outlined" sx={{ mb: 3, bgcolor: 'rgba(26, 26, 46, 0.8)' }}>
+        <TableContainer component={Paper} variant="outlined" sx={{ mb: 3, bgcolor: '#FFFFFF' }}>
           <Table size="small">
             <TableHead sx={{ bgcolor: 'rgba(79, 172, 254, 0.2)' }}>
               <TableRow>

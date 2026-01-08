@@ -1,15 +1,32 @@
 :root {
-  --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  --bg-dark: #0f0f23;
-  --bg-card: #1a1a2e;
-  --bg-input: #16213e;
-  --text-primary: #ffffff;
-  --text-secondary: #a0aec0;
-  --accent-blue: #4facfe;
-  --accent-purple: #764ba2;
-  --border-color: rgba(255, 255, 255, 0.1);
-  --success: #48bb78;
-  --error: #fc8181;
+  /* ENVAPERU Corporate Colors - Light Theme */
+  --bg-main: #F5F5F5;           /* Blanco humo */
+  --bg-card: #FFFFFF;           /* Blanco puro */
+  --bg-dark: #1E3A5F;           /* Azul oscuro corporativo (headers) */
+  --bg-input: #FAFAFA;          /* Blanco suave */
+  --bg-hover: #EEEEEE;          /* Gris claro hover */
+  
+  --text-primary: #1A1A1A;      /* Negro */
+  --text-secondary: #666666;    /* Gris */
+  --text-label: #333333;        /* Gris oscuro */
+  --text-on-dark: #FFFFFF;      /* Blanco para fondos oscuros */
+  
+  --accent: #1E3A5F;            /* Azul oscuro corporativo */
+  --accent-hover: #152a45;      /* Azul más oscuro */
+  --accent-light: #E3F2FD;      /* Azul muy claro para backgrounds */
+  
+  --success: #2E7D32;           /* Verde éxito */
+  --warning: #F57C00;           /* Naranja warning */
+  --danger: #D32F2F;            /* Rojo corporativo */
+  --error: #D32F2F;             /* Alias */
+  
+  --border-color: #E0E0E0;      /* Borde gris claro */
+  
+  --primary-gradient: linear-gradient(135deg, #1E3A5F 0%, #0D2137 100%);
+  
+  --radius: 8px;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
 
 * {
@@ -20,7 +37,7 @@
 
 body {
   font-family: 'Inter', 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: var(--bg-dark);
+  background: var(--bg-main);
   color: var(--text-primary);
   min-height: 100vh;
 }
@@ -36,24 +53,24 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-dark);
+  background: var(--bg-main);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--accent-purple);
+  background: var(--accent);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--accent-blue);
+  background: var(--accent-hover);
 }
 
-/* Glassmorphism card effect */
+/* Card effect (Light theme) */
 .glass-card {
-  background: rgba(26, 26, 46, 0.8);
-  backdrop-filter: blur(10px);
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 16px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
 }
 
 /* Gradient text */
@@ -71,5 +88,7 @@ body {
 
 /* Input focus glow */
 .input-glow:focus {
-  box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.3);
+  box-shadow: 0 0 0 3px rgba(30, 58, 95, 0.2);
+  border-color: var(--accent);
 }
+

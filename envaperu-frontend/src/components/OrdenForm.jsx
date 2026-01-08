@@ -299,27 +299,35 @@ function OrdenForm({ onOrdenCreada }) {
       component="form" 
       onSubmit={handleSubmit}
       sx={{ 
-        p: 2, 
-        background: 'rgba(26, 26, 46, 0.9)',
-        backdropFilter: 'blur(10px)',
-        border: '1px solid rgba(255,255,255,0.1)'
+        p: 4, 
+        background: '#FFFFFF',
+        border: '1px solid #E0E0E0',
+        borderRadius: 2,
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
       }}
     >
-      <Typography variant="h5" gutterBottom sx={{ 
-        fontWeight: 700,
-        background: 'linear-gradient(135deg, #4facfe 0%, #764ba2 100%)',
-        WebkitBackgroundClip: 'text',
-        WebkitTextFillColor: 'transparent'
+      {/* Header corporativo */}
+      <Box sx={{ 
+        mb: 4, 
+        pb: 2, 
+        borderBottom: '1px solid #E0E0E0',
       }}>
-        Nueva Orden de Producción
-      </Typography>
+        <Typography variant="h5" gutterBottom sx={{ 
+          fontWeight: 700,
+          background: 'linear-gradient(135deg, #1E3A5F 0%, #0D2137 100%)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent'
+        }}>
+          Nueva Orden de Producción
+        </Typography>
+      </Box>
       
-      <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.1)' }} />
+      <Divider sx={{ my: 2, borderColor: '#E0E0E0' }} />
 
       {/* Layout Compacto: 3 Cards con Flexbox */}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mb: 2 }}>
         {/* Card 1: Identidad */}
-        <Paper sx={{ p: 1.5, background: 'rgba(22, 33, 62, 0.6)', flex: '1 1 280px', minWidth: 0 }}>
+        <Paper sx={{ p: 1.5, background: '#FAFAFA', border: '1px solid #E0E0E0', flex: '1 1 280px', minWidth: 0 }}>
           <Typography variant="subtitle2" color="primary" gutterBottom sx={{ fontWeight: 600, mb: 1 }}>
             📋 Identidad
           </Typography>
@@ -353,7 +361,7 @@ function OrdenForm({ onOrdenCreada }) {
         </Paper>
 
         {/* Card 2: Producto & Molde */}
-        <Paper sx={{ p: 1.5, background: 'rgba(22, 33, 62, 0.6)', flex: '1 1 280px', minWidth: 0 }}>
+        <Paper sx={{ p: 1.5, background: '#FAFAFA', border: '1px solid #E0E0E0', flex: '1 1 280px', minWidth: 0 }}>
           <Typography variant="subtitle2" color="primary" gutterBottom sx={{ fontWeight: 600, mb: 1 }}>
             🏭 Producto & Molde
           </Typography>
@@ -464,7 +472,7 @@ function OrdenForm({ onOrdenCreada }) {
         </Paper>
 
         {/* Card 3: Estrategia */}
-        <Paper sx={{ p: 1.5, background: 'rgba(22, 33, 62, 0.6)', flex: '1 1 280px', minWidth: 0 }}>
+        <Paper sx={{ p: 1.5, background: '#FAFAFA', border: '1px solid #E0E0E0', flex: '1 1 280px', minWidth: 0 }}>
           <Typography variant="subtitle2" color="primary" gutterBottom sx={{ fontWeight: 600, mb: 1 }}>
             🎯 Estrategia
           </Typography>
@@ -533,7 +541,7 @@ function OrdenForm({ onOrdenCreada }) {
       </Box>
 
       {/* Fila: Parámetros Técnicos + Fechas */}
-      <Paper sx={{ p: 1.5, mb: 2, background: 'rgba(22, 33, 62, 0.6)' }}>
+      <Paper sx={{ p: 1.5, mb: 2, background: '#FAFAFA', border: '1px solid #E0E0E0' }}>
         <Typography variant="subtitle2" color="primary" gutterBottom sx={{ fontWeight: 600, mb: 1 }}>
           ⚙️ Parámetros Técnicos
         </Typography>
@@ -608,7 +616,7 @@ function OrdenForm({ onOrdenCreada }) {
         </Grid>
       </Paper>
 
-      <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.1)' }} />
+      <Divider sx={{ my: 2, borderColor: '#E0E0E0' }} />
 
       {/* Sección: Lotes */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
@@ -630,8 +638,8 @@ function OrdenForm({ onOrdenCreada }) {
           key={loteIndex}
           sx={{ 
             mb: 2, 
-            background: 'rgba(22, 33, 62, 0.8)',
-            border: '1px solid rgba(255,255,255,0.05)',
+            background: '#FAFAFA',
+            border: '1px solid #E0E0E0',
             '&:before': { display: 'none' }
           }}
         >
@@ -795,7 +803,7 @@ function OrdenForm({ onOrdenCreada }) {
         </Accordion>
       ))}
 
-      <Divider sx={{ my: 3, borderColor: 'rgba(255,255,255,0.1)' }} />
+      <Divider sx={{ my: 3, borderColor: '#E0E0E0' }} />
 
       {/* Botón Submit */}
       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -807,9 +815,9 @@ function OrdenForm({ onOrdenCreada }) {
           endIcon={loading ? <CircularProgress size={20} /> : <SendIcon />}
           sx={{
             px: 4,
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: 'linear-gradient(135deg, #1E3A5F 0%, #0D2137 100%)',
             '&:hover': {
-              background: 'linear-gradient(135deg, #5a6fd6 0%, #6a4190 100%)',
+              background: 'linear-gradient(135deg, #152a45 0%, #0a1a2e 100%)',
             }
           }}
         >
