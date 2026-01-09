@@ -25,6 +25,12 @@ export const obtenerOrden = async (numeroOp) => {
   return response.data;
 };
 
+// Cambiar estado de una orden (abrir/cerrar)
+export const toggleEstadoOrden = async (numeroOp, activa) => {
+  const response = await api.put(`/ordenes/${numeroOp}/estado`, { activa });
+  return response.data;
+};
+
 // Obtener datos del QR (base64 y URL del form)
 export const obtenerQRData = async (numeroOp, size = 200) => {
   const response = await api.get(`/ordenes/${numeroOp}/qr-data`, {
@@ -69,9 +75,10 @@ export const buscarPiezas = async (query = '') => {
 
 // ==================== REGISTROS DIARIOS ====================
 
-// Obtener registros diarios de una orden
-export const obtenerRegistros = async (numeroOp) => {
-  const response = await api.get(`/ordenes/${numeroOp}/registros`);
+// Obtener registros diarios (todos o de una orden)
+export const obtenerRegistros = async (numeroOp = null) => {
+  const url = numeroOp ? `/ordenes/${numeroOp}/registros` : '/registros';
+  const response = await api.get(url);
   return response.data;
 };
 

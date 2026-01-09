@@ -33,7 +33,14 @@ import QrCode2Icon from '@mui/icons-material/QrCode2';
 import DownloadIcon from '@mui/icons-material/Download';
 import PrintIcon from '@mui/icons-material/Print';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
-import { obtenerOrdenes, descargarExcel, getQRImageUrl } from '../services/api';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
+import LockIcon from '@mui/icons-material/Lock';
+import SearchIcon from '@mui/icons-material/Search';
+import TextField from '@mui/material/TextField';
+import InputAdornment from '@mui/material/InputAdornment';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import { obtenerOrdenes, descargarExcel, getQRImageUrl, toggleEstadoOrden } from '../services/api';
 import RegistroForm from './RegistroForm';
 
 function LoteRow({ lote }) {
@@ -120,12 +127,14 @@ function LoteRow({ lote }) {
   );
 }
 
-function OrdenRow({ orden, onRegistroCreado }) {
+function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
   const [open, setOpen] = useState(false);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
   const [registroDialogOpen, setRegistroDialogOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [toggling, setToggling] = useState(false);
   const resumen = orden.resumen_totales || {};
+  const isActiva = orden.activa !== false;
 
   const handleDownloadExcel = async (e) => {
     e.stopPropagation();
@@ -147,6 +156,19 @@ function OrdenRow({ orden, onRegistroCreado }) {
   const handleOpenRegistro = (e) => {
     e.stopPropagation();
     setRegistroDialogOpen(true);
+  };
+
+  const handleToggleEstado = async (e) => {
+    e.stopPropagation();
+    setToggling(true);
+    try {
+      await toggleEstadoOrden(orden.numero_op, !isActiva);
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      console.error('Error cambiando estado:', error);
+    } finally {
+      setToggling(false);
+    }
   };
 
   return (
@@ -193,14 +215,42 @@ function OrdenRow({ orden, onRegistroCreado }) {
             size="small" 
             label={`${orden.lotes?.length || 0} colores`}
             variant="filled"
-            sx={{ background: 'linear-gradient(135deg, #1E3A5F 0%, #0D2137 100%)' }}
+            sx={{ 
+              background: 'linear-gradient(135deg, #1E3A5F 0%, #0D2137 100%)',
+              color: '#FFFFFF'
+            }}
+          />
+        </TableCell>
+        <TableCell>
+          <Chip 
+            size="small" 
+            label={isActiva ? 'Activa' : 'Cerrada'}
+            color={isActiva ? 'success' : 'default'}
+            variant={isActiva ? 'filled' : 'outlined'}
           />
         </TableCell>
         <TableCell>
           <Box sx={{ display: 'flex', gap: 0.5 }}>
-            <Tooltip title="Crear Registro Diario">
-              <IconButton size="small" color="success" onClick={handleOpenRegistro}>
-                <AddCircleOutlineIcon fontSize="small" />
+            <Tooltip title={isActiva ? 'Crear Registro Diario' : 'OP cerrada'}>
+              <span>
+                <IconButton 
+                  size="small" 
+                  color="success" 
+                  onClick={handleOpenRegistro}
+                  disabled={!isActiva}
+                >
+                  <AddCircleOutlineIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title={isActiva ? 'Cerrar OP' : 'Reabrir OP'}>
+              <IconButton 
+                size="small" 
+                color={isActiva ? 'warning' : 'primary'}
+                onClick={handleToggleEstado}
+                disabled={toggling}
+              >
+                {toggling ? <CircularProgress size={18} /> : (isActiva ? <LockIcon fontSize="small" /> : <LockOpenIcon fontSize="small" />)}
               </IconButton>
             </Tooltip>
             <Tooltip title="Ver QR del Formulario">
@@ -348,6 +398,8 @@ function OrdenesLista() {
   const [ordenes, setOrdenes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
 
   const fetchOrdenes = async () => {
     setLoading(true);
@@ -366,6 +418,22 @@ function OrdenesLista() {
   useEffect(() => {
     fetchOrdenes();
   }, []);
+
+  // Filtrar órdenes
+  const filteredOrdenes = ordenes.filter(orden => {
+    // Filtro de búsqueda
+    const matchesSearch = searchTerm === '' || 
+      orden.numero_op?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      orden.producto?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      orden.maquina?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // Filtro de estado
+    const matchesStatus = statusFilter === 'all' || 
+      (statusFilter === 'activa' && orden.activa !== false) ||
+      (statusFilter === 'cerrada' && orden.activa === false);
+    
+    return matchesSearch && matchesStatus;
+  });
 
   if (loading) {
     return (
@@ -420,13 +488,39 @@ function OrdenesLista() {
         boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
       }}
     >
-      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
         <Typography variant="h6" sx={{ fontWeight: 600 }}>
-          📋 Órdenes de Producción ({ordenes.length})
+          📋 Órdenes de Producción ({filteredOrdenes.length}/{ordenes.length})
         </Typography>
-        <IconButton onClick={fetchOrdenes} color="primary">
-          <RefreshIcon />
-        </IconButton>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+          <TextField
+            size="small"
+            placeholder="Buscar OP, producto, máquina..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            sx={{ minWidth: 220 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon color="action" />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <ToggleButtonGroup
+            size="small"
+            value={statusFilter}
+            exclusive
+            onChange={(e, value) => value && setStatusFilter(value)}
+          >
+            <ToggleButton value="all">Todas</ToggleButton>
+            <ToggleButton value="activa">Activas</ToggleButton>
+            <ToggleButton value="cerrada">Cerradas</ToggleButton>
+          </ToggleButtonGroup>
+          <IconButton onClick={fetchOrdenes} color="primary">
+            <RefreshIcon />
+          </IconButton>
+        </Box>
       </Box>
       <Divider sx={{ borderColor: '#E0E0E0' }} />
       <Table>
@@ -440,12 +534,13 @@ function OrdenesLista() {
             <TableCell align="right">Producción (Kg)</TableCell>
             <TableCell align="right">Tiempo Est.</TableCell>
             <TableCell>Colores</TableCell>
+            <TableCell>Estado</TableCell>
             <TableCell>Acciones</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
-          {ordenes.map((orden) => (
-            <OrdenRow key={orden.numero_op} orden={orden} />
+          {filteredOrdenes.map((orden) => (
+            <OrdenRow key={orden.numero_op} orden={orden} onRefresh={fetchOrdenes} />
           ))}
         </TableBody>
       </Table>
