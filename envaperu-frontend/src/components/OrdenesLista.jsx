@@ -202,7 +202,10 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
         </TableCell>
         <TableCell align="right">
           <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            {resumen['Peso(Kg) PRODUCCION']?.toFixed(2) || '-'}
+            {orden.avance_real_kg?.toFixed(2) || '0.00'} / {resumen['Peso(Kg) PRODUCCION']?.toFixed(2) || '-'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+             Real / Meta
           </Typography>
         </TableCell>
         <TableCell align="right">
@@ -341,8 +344,10 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
                 </Typography>
                 <Grid container spacing={2}>
                   <Grid item xs={6} sm={3}>
-                    <Typography variant="caption" color="text.secondary">Producción</Typography>
-                    <Typography variant="body1">{resumen['Peso(Kg) PRODUCCION']?.toFixed(2)} Kg</Typography>
+                    <Typography variant="caption" color="text.secondary">Producción Real / Meta</Typography>
+                    <Typography variant="body1">
+                        {orden.avance_real_kg?.toFixed(2) || '0.00'} / {resumen['Peso(Kg) PRODUCCION']?.toFixed(2)} Kg
+                    </Typography>
                   </Grid>
                   <Grid item xs={6} sm={3}>
                     <Typography variant="caption" color="text.secondary">Inc. Merma</Typography>

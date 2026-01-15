@@ -3,7 +3,6 @@ import {
   Box,
   Typography,
   Paper,
-  IconButton,
   Collapse,
   Chip,
   CircularProgress,
@@ -17,73 +16,8 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import AssignmentIcon from '@mui/icons-material/Assignment';
-import TodayIcon from '@mui/icons-material/Today';
-import ScaleIcon from '@mui/icons-material/Scale';
-import { obtenerOrdenes, obtenerRegistros, obtenerBultos } from '../services/api';
-
-function RegistroNode({ registro }) {
-  const [expanded, setExpanded] = useState(false);
-  const [bultos, setBultos] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  const handleExpand = async () => {
-    if (!expanded && bultos.length === 0) {
-      setLoading(true);
-      try {
-        const data = await obtenerBultos(registro['ID Registro'] || registro.id);
-        setBultos(data);
-      } catch (error) {
-        console.error('Error loading bultos:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    setExpanded(!expanded);
-  };
-
-  return (
-    <Box sx={{ ml: 4 }}>
-      <ListItemButton onClick={handleExpand} sx={{ borderRadius: 1, py: 0.5 }}>
-        <ListItemIcon sx={{ minWidth: 36 }}>
-          <TodayIcon fontSize="small" color="primary" />
-        </ListItemIcon>
-        <ListItemText 
-          primary={`${registro.FECHA || registro.fecha || 'Sin fecha'} - ${registro.Turno || registro.turno || '?'}`}
-          secondary={`${registro['Total Coladas (Calc)'] || registro.total_coladas || 0} coladas | ${(registro['Total Kg (Est)'] || registro.total_kg || 0).toFixed(1)} kg`}
-          primaryTypographyProps={{ variant: 'body2', fontWeight: 500 }}
-          secondaryTypographyProps={{ variant: 'caption' }}
-        />
-        {loading ? <CircularProgress size={16} /> : (expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />)}
-      </ListItemButton>
-      
-      <Collapse in={expanded}>
-        <List dense sx={{ ml: 4, py: 0 }}>
-          {bultos.length === 0 && !loading && (
-            <ListItem sx={{ py: 0.5 }}>
-              <ListItemText 
-                secondary="Sin pesajes registrados" 
-                secondaryTypographyProps={{ variant: 'caption', fontStyle: 'italic' }}
-              />
-            </ListItem>
-          )}
-          {bultos.map((bulto, idx) => (
-            <ListItem key={bulto.id || idx} sx={{ py: 0.25 }}>
-              <ListItemIcon sx={{ minWidth: 32 }}>
-                <ScaleIcon fontSize="small" color="secondary" />
-              </ListItemIcon>
-              <ListItemText
-                primary={`${bulto.peso_real_kg?.toFixed(2) || '?'} kg`}
-                secondary={bulto.color || '-'}
-                primaryTypographyProps={{ variant: 'caption', fontWeight: 600, color: 'text.primary' }}
-                secondaryTypographyProps={{ variant: 'caption', color: 'text.secondary' }}
-              />
-            </ListItem>
-          ))}
-        </List>
-      </Collapse>
-    </Box>
-  );
-}
+import { obtenerOrdenes, obtenerRegistros } from '../services/api';
+import RegistroNode from './RegistroNode';
 
 function OrdenNode({ orden }) {
   const [expanded, setExpanded] = useState(false);
@@ -149,7 +83,11 @@ function OrdenNode({ orden }) {
             </ListItem>
           )}
           {registros.map((reg) => (
-            <RegistroNode key={reg['ID Registro'] || reg.id} registro={reg} />
+            <RegistroNode 
+                key={reg['ID Registro'] || reg.id} 
+                registro={reg} 
+                pesoTiro={orden.peso_tiro} 
+            />
           ))}
         </List>
       </Collapse>

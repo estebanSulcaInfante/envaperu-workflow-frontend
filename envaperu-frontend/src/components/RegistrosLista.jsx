@@ -2,12 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Paper,
   Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Box,
   Chip,
   CircularProgress,
@@ -21,7 +15,8 @@ import {
   Tooltip,
   Dialog,
   DialogContent,
-  DialogTitle
+  DialogTitle,
+  List
 } from '@mui/material';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import AddIcon from '@mui/icons-material/Add';
@@ -31,6 +26,7 @@ import ScaleIcon from '@mui/icons-material/Scale';
 import { obtenerRegistros, obtenerOrdenes } from '../services/api';
 import RegistroForm from './RegistroForm';
 import ControlPesoWidget from './ControlPesoWidget';
+import RegistroNode from './RegistroNode';
 
 export default function RegistrosLista() {
   const [registros, setRegistros] = useState([]);
@@ -179,77 +175,38 @@ export default function RegistrosLista() {
         </Grid>
 
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-
+        
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
             <CircularProgress />
           </Box>
         ) : (
-          <TableContainer sx={{ maxHeight: 500 }}>
-            <Table stickyHeader size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }}>ID</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }}>Fecha</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }}>Turno</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }}>Máquina</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }}>Hora Inicio</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Cont. Inicial</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Cont. Final</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Total Coladas</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="right">Total Kg (Est)</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="center">Detalles</TableCell>
-                  <TableCell sx={{ fontWeight: 700, bgcolor: '#1a1a2e' }} align="center">Acciones</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {registros.map((r, idx) => (
-                  <TableRow 
-                    key={idx}
-                    sx={{ '&:hover': { bgcolor: 'rgba(79, 172, 254, 0.1)' } }}
-                  >
-                    <TableCell>{r['ID Registro']}</TableCell>
-                    <TableCell>{r['FECHA']}</TableCell>
-                    <TableCell>
-                      <Chip 
-                        label={r['Turno']} 
-                        size="small"
-                        color={r['Turno'] === 'DIA' ? 'warning' : r['Turno'] === 'NOCHE' ? 'secondary' : 'default'}
-                      />
-                    </TableCell>
-                    <TableCell>{r['Maquina']}</TableCell>
-                    <TableCell>{r['Hora Inicio']}</TableCell>
-                    <TableCell align="right">{r['Colada Ini']}</TableCell>
-                    <TableCell align="right">{r['Colada Fin']}</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold', color: '#4caf50' }}>{r['Total Coladas (Calc)']}</TableCell>
-                    <TableCell align="right">{r['Total Kg (Est)']?.toFixed(2)}</TableCell>
-                    <TableCell align="center">
-                         <Tooltip title={`${r['detalles']?.length || 0} horas reportadas`}>
-                            <Box display="inline-flex" alignItems="center">
-                                <InfoIcon fontSize="small" sx={{ color: 'info.main', mr: 0.5 }} />
-                                ({r['detalles']?.length || 0})
+          <Box sx={{ px: 2, pb: 2 }}>
+            <Paper variant="outlined" sx={{ bgcolor: '#f8f9fa' }}>
+                <List>
+                    {registros.map((r, idx) => {
+                         // Find the full order object to get estimated shot weight
+                         const currentOrden = ordenes.find(o => o.numero_op === ordenSeleccionada);
+                         
+                         return (
+                            <Box key={idx} sx={{ borderBottom: '1px solid #e0e0e0', '&:last-child': { borderBottom: 'none' } }}>
+                                <RegistroNode 
+                                    registro={r} 
+                                    pesoTiro={currentOrden?.peso_tiro} 
+                                    onPesoClick={() => handleOpenPeso(r['ID Registro'])}
+                                />
                             </Box>
-                         </Tooltip>
-                    </TableCell>
-                    <TableCell align="center">
-                        <Tooltip title="Control de Peso">
-                            <IconButton color="secondary" size="small" onClick={() => handleOpenPeso(r['ID Registro'])}>
-                                <ScaleIcon />
-                            </IconButton>
-                        </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {registros.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={11} align="center" sx={{ py: 4, color: 'grey.500' }}>
-                      No hay registros para esta orden
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                         );
+                    })}
+                    
+                    {registros.length === 0 && (
+                        <Box sx={{ py: 4, textAlign: 'center', color: 'text.secondary' }}>
+                            <Typography>No hay registros para esta orden</Typography>
+                        </Box>
+                    )}
+                </List>
+            </Paper>
+          </Box>
         )}
       </Paper>
     </Box>
