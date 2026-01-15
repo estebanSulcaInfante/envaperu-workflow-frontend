@@ -73,9 +73,9 @@ function RegistroNode({ registro }) {
               </ListItemIcon>
               <ListItemText
                 primary={`${bulto.peso_real_kg?.toFixed(2) || '?'} kg`}
-                secondary={bulto.color_nombre || '-'}
-                primaryTypographyProps={{ variant: 'caption', fontWeight: 600 }}
-                secondaryTypographyProps={{ variant: 'caption' }}
+                secondary={bulto.color || '-'}
+                primaryTypographyProps={{ variant: 'caption', fontWeight: 600, color: 'text.primary' }}
+                secondaryTypographyProps={{ variant: 'caption', color: 'text.secondary' }}
               />
             </ListItem>
           ))}

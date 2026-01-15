@@ -148,19 +148,19 @@ export default function ControlPesoWidget({ registroId, onUpdate }) {
         <Table size="small">
             <TableHead>
                 <TableRow>
-                    <TableCell>Hora</TableCell>
-                    <TableCell>Color</TableCell>
-                    <TableCell align="right">Peso (Kg)</TableCell>
-                    <TableCell align="right">Acciones</TableCell>
+                    <TableCell sx={{ color: '#aaa', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>Hora</TableCell>
+                    <TableCell sx={{ color: '#aaa', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>Color</TableCell>
+                    <TableCell align="right" sx={{ color: '#aaa', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>Peso (Kg)</TableCell>
+                    <TableCell align="right" sx={{ color: '#aaa', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>Acciones</TableCell>
                 </TableRow>
             </TableHead>
             <TableBody>
                 {bultos.map((b) => (
                     <TableRow key={b.id}>
-                        <TableCell>{new Date(b.hora).toLocaleTimeString()}</TableCell>
-                        <TableCell>{b.color}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 'bold' }}>{b.peso_real_kg}</TableCell>
-                        <TableCell align="right">
+                        <TableCell sx={{ color: 'white', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>{new Date(b.hora).toLocaleTimeString()}</TableCell>
+                        <TableCell sx={{ color: 'white', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>{b.color}</TableCell>
+                        <TableCell align="right" sx={{ color: 'white', fontWeight: 'bold', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>{b.peso_real_kg}</TableCell>
+                        <TableCell align="right" sx={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
                             <IconButton size="small" color="error" onClick={() => handleEliminar(b.id)}>
                                 <DeleteIcon fontSize="small" />
                             </IconButton>
