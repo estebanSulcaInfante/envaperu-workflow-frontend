@@ -22,6 +22,8 @@ import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturi
 import FactoryIcon from '@mui/icons-material/Factory';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import ListAltIcon from '@mui/icons-material/ListAlt';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
+import DescriptionIcon from '@mui/icons-material/Description';
 import { useState } from 'react';
 
 const drawerWidth = 240;
@@ -37,6 +39,11 @@ const catalogoItems = [
   { path: '/catalogo/moldes', label: 'Moldes', icon: <PrecisionManufacturingIcon /> },
 ];
 
+const registrosItems = [
+  { path: '/registros', label: 'Lista Registros', icon: <DescriptionIcon /> },
+  { path: '/registros/talonarios', label: 'Talonarios RDP', icon: <MenuBookIcon /> },
+];
+
 function Sidebar() {
   const location = useLocation();
   const [ordenesOpen, setOrdenesOpen] = useState(
@@ -44,6 +51,9 @@ function Sidebar() {
   );
   const [catalogoOpen, setCatalogoOpen] = useState(
     location.pathname.startsWith('/catalogo')
+  );
+  const [registrosOpen, setRegistrosOpen] = useState(
+    location.pathname.startsWith('/registros')
   );
 
   return (
@@ -157,6 +167,44 @@ function Sidebar() {
                 <ListItemButton
                   component={NavLink}
                   to={item.path}
+                  sx={{
+                    pl: 4,
+                    borderRadius: 2,
+                    '&.active': { backgroundColor: 'rgba(255,255,255,0.15)' },
+                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
+                  }}
+                >
+                  <ListItemIcon sx={{ color: 'inherit', minWidth: 40 }}>
+                    {item.icon}
+                  </ListItemIcon>
+                  <ListItemText primary={item.label} />
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </List>
+        </Collapse>
+
+        {/* Registros Submenu */}
+        <ListItem disablePadding sx={{ mb: 0.5 }}>
+          <ListItemButton
+            onClick={() => setRegistrosOpen(!registrosOpen)}
+            sx={{ borderRadius: 2, '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' } }}
+          >
+            <ListItemIcon sx={{ color: 'inherit', minWidth: 40 }}>
+              <DescriptionIcon />
+            </ListItemIcon>
+            <ListItemText primary="Registros" />
+            {registrosOpen ? <ExpandLess /> : <ExpandMore />}
+          </ListItemButton>
+        </ListItem>
+        <Collapse in={registrosOpen} timeout="auto" unmountOnExit>
+          <List component="div" disablePadding>
+            {registrosItems.map((item) => (
+              <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
+                <ListItemButton
+                  component={NavLink}
+                  to={item.path}
+                  end={item.path === '/registros'}
                   sx={{
                     pl: 4,
                     borderRadius: 2,

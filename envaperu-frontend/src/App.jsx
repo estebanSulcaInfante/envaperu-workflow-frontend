@@ -14,6 +14,7 @@ import RegistrosLista from './components/RegistrosLista';
 import MoldesLista from './components/MoldesLista';
 import ProductosAdmin from './components/ProductosAdmin';
 import PiezasAdmin from './components/PiezasAdmin';
+import TalonariosAdmin from './components/TalonariosAdmin';
 
 // Tema claro corporativo ENVAPERU
 const envaTheme = createTheme({
@@ -105,6 +106,7 @@ function App() {
               <Route path="/catalogo/piezas" element={<PiezasAdmin />} />
               <Route path="/catalogo/moldes" element={<MoldesLista />} />
               <Route path="/registros" element={<RegistrosLista />} />
+              <Route path="/registros/talonarios" element={<TalonariosAdmin />} />
             </Routes>
           </Box>
         </Box>
