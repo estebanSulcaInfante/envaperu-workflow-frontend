@@ -33,7 +33,8 @@ const ordenesItems = [
 
 const catalogoItems = [
   { path: '/catalogo/productos', label: 'Productos SKU', icon: <CategoryIcon /> },
-  { path: '/catalogo/piezas', label: 'Piezas / Moldes', icon: <PrecisionManufacturingIcon /> },
+  { path: '/catalogo/piezas', label: 'Piezas', icon: <InventoryIcon /> },
+  { path: '/catalogo/moldes', label: 'Moldes', icon: <PrecisionManufacturingIcon /> },
 ];
 
 function Sidebar() {

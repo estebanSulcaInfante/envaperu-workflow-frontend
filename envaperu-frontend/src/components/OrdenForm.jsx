@@ -30,7 +30,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PaletteIcon from '@mui/icons-material/Palette';
 import LockIcon from '@mui/icons-material/Lock';
-import { crearOrden, buscarProductos, buscarPiezas } from '../services/api';
+import { crearOrden, buscarProductos, obtenerPiezasProducibles } from '../services/api';
 
 const initialOrden = {
   numero_op: '',
@@ -39,6 +39,7 @@ const initialOrden = {
   producto: '',
   producto_sku: '', // SKU del producto seleccionado
   molde: '',
+  molde_id: '', // Código del molde seleccionado
   tipo_estrategia: 'POR_PESO',
   meta_total_kg: '',
   meta_total_doc: '',
@@ -95,9 +96,24 @@ function OrdenForm({ onOrdenCreada }) {
   const [productoInputValue, setProductoInputValue] = useState('');
 
   // Estado para Autocomplete de Piezas/Moldes
-  const [piezasOptions, setPiezasOptions] = useState([]);
+  const [piezasProducibles, setPiezasProducibles] = useState([]);
   const [piezasLoading, setPiezasLoading] = useState(false);
-  const [moldeInputValue, setMoldeInputValue] = useState('');
+
+  // Fetch piezas producibles al cargar (solo las que tienen molde)
+  useEffect(() => {
+    const fetchPiezasProducibles = async () => {
+      setPiezasLoading(true);
+      try {
+        const piezas = await obtenerPiezasProducibles();
+        setPiezasProducibles(piezas);
+      } catch (error) {
+        console.error('Error cargando piezas producibles:', error);
+      } finally {
+        setPiezasLoading(false);
+      }
+    };
+    fetchPiezasProducibles();
+  }, []);
 
   // Fetch productos cuando cambia el input (debounced)
   useEffect(() => {
@@ -119,27 +135,6 @@ function OrdenForm({ onOrdenCreada }) {
     }, 300);
     return () => clearTimeout(timeoutId);
   }, [productoInputValue]);
-
-  // Fetch piezas/moldes cuando cambia el input (debounced)
-  useEffect(() => {
-    if (moldeInputValue.length < 2) {
-      setPiezasOptions([]);
-      return;
-    }
-    const timeoutId = setTimeout(async () => {
-      setPiezasLoading(true);
-      try {
-        const piezas = await buscarPiezas(moldeInputValue);
-        setPiezasOptions(piezas);
-      } catch (error) {
-        console.error('Error buscando piezas:', error);
-        setPiezasOptions([]);
-      } finally {
-        setPiezasLoading(false);
-      }
-    }, 300);
-    return () => clearTimeout(timeoutId);
-  }, [moldeInputValue]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -417,35 +412,34 @@ function OrdenForm({ onOrdenCreada }) {
               )}
             />
             <Autocomplete
-              freeSolo
-              options={piezasOptions}
+              options={piezasProducibles}
               getOptionLabel={(option) => 
-                typeof option === 'string' ? option : option.piezas
+                typeof option === 'string' ? option : option.nombre || ''
               }
               loading={piezasLoading}
-              inputValue={moldeInputValue}
-              onInputChange={(_, newInputValue) => {
-                setMoldeInputValue(newInputValue);
-              }}
+              value={piezasProducibles.find(p => p.sku === orden.molde_id) || null}
               onChange={(_, newValue) => {
                 if (newValue && typeof newValue === 'object') {
                   setOrden(prev => ({ 
                     ...prev, 
-                    molde: newValue.piezas,
-                    cavidades: newValue.cavidad ? String(newValue.cavidad) : prev.cavidades,
-                    peso_unitario_gr: newValue.peso ? String(newValue.peso) : prev.peso_unitario_gr
+                    molde: newValue.nombre,
+                    molde_id: newValue.sku,
+                    cavidades: newValue.cavidades ? String(newValue.cavidades) : prev.cavidades,
+                    peso_unitario_gr: newValue.peso_unitario_gr ? String(newValue.peso_unitario_gr) : prev.peso_unitario_gr,
+                    peso_inc_colada: newValue.molde?.peso_tiro_gr ? String(newValue.molde.peso_tiro_gr) : prev.peso_inc_colada,
+                    tiempo_ciclo: newValue.molde?.tiempo_ciclo_std ? String(newValue.molde.tiempo_ciclo_std) : prev.tiempo_ciclo
                   }));
-                  setMoldeInputValue(newValue.piezas);
                 } else {
-                  setOrden(prev => ({ ...prev, molde: newValue || '' }));
+                  setOrden(prev => ({ ...prev, molde: '', molde_id: '' }));
                 }
               }}
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="Molde"
+                  label="Pieza / Molde"
                   size="small"
-                  placeholder="Buscar pieza..."
+                  placeholder="Seleccionar pieza producible..."
+                  helperText="Solo piezas asociadas a un molde"
                   InputProps={{
                     ...params.InputProps,
                     endAdornment: (
@@ -460,13 +454,14 @@ function OrdenForm({ onOrdenCreada }) {
               renderOption={(props, option) => (
                 <li {...props} key={option.sku}>
                   <Box>
-                    <Typography variant="body2">{option.piezas}</Typography>
+                    <Typography variant="body2" fontWeight={600}>{option.nombre}</Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {option.sku} | Cav: {option.cavidad || '-'} | {option.peso || '-'}g
+                      {option.sku} | Molde: {option.molde?.nombre || '-'} | {option.cavidades} cav × {option.peso_unitario_gr}g
                     </Typography>
                   </Box>
                 </li>
               )}
+              isOptionEqualToValue={(option, value) => option.sku === value?.sku}
             />
           </Stack>
         </Paper>

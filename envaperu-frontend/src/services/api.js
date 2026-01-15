@@ -133,4 +133,94 @@ export const validarPesoRegistro = async (registroId) => {
   return response.data;
 };
 
+// ==================== CATÁLOGO MOLDES ====================
+
+// Obtener todos los moldes
+export const obtenerMoldes = async () => {
+  const response = await api.get('/moldes');
+  return response.data;
+};
+
+// Obtener un molde específico
+export const obtenerMolde = async (codigo) => {
+  const response = await api.get(`/moldes/${codigo}`);
+  return response.data;
+};
+
+// Crear molde
+export const crearMolde = async (data) => {
+  const response = await api.post('/moldes', data);
+  return response.data;
+};
+
+// Actualizar molde
+export const actualizarMolde = async (codigo, data) => {
+  const response = await api.put(`/moldes/${codigo}`, data);
+  return response.data;
+};
+
+// Eliminar molde
+export const eliminarMolde = async (codigo) => {
+  const response = await api.delete(`/moldes/${codigo}`);
+  return response.data;
+};
+
+// ==================== CATÁLOGO PIEZAS ====================
+
+// Obtener pieza específica
+export const obtenerPieza = async (sku) => {
+  const response = await api.get(`/piezas/${sku}`);
+  return response.data;
+};
+
+// Crear pieza
+export const crearPieza = async (data) => {
+  const response = await api.post('/piezas', data);
+  return response.data;
+};
+
+// Actualizar pieza
+export const actualizarPieza = async (sku, data) => {
+  const response = await api.put(`/piezas/${sku}`, data);
+  return response.data;
+};
+
+// Eliminar pieza
+export const eliminarPieza = async (sku) => {
+  const response = await api.delete(`/piezas/${sku}`);
+  return response.data;
+};
+
+// Obtener piezas producibles (con molde asignado)
+export const obtenerPiezasProducibles = async () => {
+  const response = await api.get('/piezas-producibles');
+  return response.data;
+};
+
+// ==================== CATÁLOGO PRODUCTOS ====================
+
+// Crear producto
+export const crearProducto = async (data) => {
+  const response = await api.post('/productos', data);
+  return response.data;
+};
+
+// Actualizar producto
+export const actualizarProducto = async (sku, data) => {
+  const response = await api.put(`/productos/${sku}`, data);
+  return response.data;
+};
+
+// Eliminar producto
+export const eliminarProducto = async (sku) => {
+  const response = await api.delete(`/productos/${sku}`);
+  return response.data;
+};
+
+// Obtener producto con BOM
+export const obtenerProducto = async (sku) => {
+  const response = await api.get(`/productos/${sku}`);
+  return response.data;
+};
+
 export default api;
