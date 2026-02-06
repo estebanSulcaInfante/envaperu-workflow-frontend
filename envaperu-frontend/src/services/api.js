@@ -73,6 +73,34 @@ export const buscarPiezas = async (query = '') => {
   return response.data;
 };
 
+// Obtener todos los colores
+export const obtenerColores = async () => {
+  const response = await api.get('/colores');
+  return response.data;
+};
+
+// Crear color on-the-fly
+export const crearColor = async (nombre) => {
+  const response = await api.post('/colores', { nombre });
+  return response.data;
+};
+
+// Validar pre-requisitos para crear orden
+export const validarOrdenPrereq = async (moldeId, colorIds = []) => {
+  const params = { molde_id: moldeId };
+  if (colorIds.length > 0) {
+    params.color_ids = colorIds.join(',');
+  }
+  const response = await api.get('/validar-orden-prereq', { params });
+  return response.data;
+};
+
+// Actualizar metricas de una orden (Snapshots / Moldes Dañados)
+export const actualizarMetricasOrden = async (numeroOp, data) => {
+  const response = await api.put(`/ordenes/${numeroOp}/metricas`, data);
+  return response.data;
+};
+
 // ==================== REGISTROS DIARIOS ====================
 
 // Obtener registros diarios (todos o de una orden)
@@ -220,6 +248,139 @@ export const eliminarProducto = async (sku) => {
 // Obtener producto con BOM
 export const obtenerProducto = async (sku) => {
   const response = await api.get(`/productos/${sku}`);
+  return response.data;
+};
+
+// ==================== CONFIGURACIÓN RÁPIDA ====================
+
+// Crear Molde + Pieza(s) + Producto(s) en cascada
+export const configurarProductoCascada = async (data) => {
+  const response = await api.post('/configurar-producto', data);
+  return response.data;
+};
+
+// ==================== IMPORTACIÓN MASIVA ====================
+
+// Validar archivo de productos
+export const validarImportProductos = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const response = await api.post('/importar/productos?mode=validate', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  return response.data;
+};
+
+// Ejecutar importación de productos
+export const ejecutarImportProductos = async (file, crearColores = true) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const response = await api.post(
+    `/importar/productos?mode=execute&crear_colores=${crearColores}`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } }
+  );
+  return response.data;
+};
+
+// Validar archivo de piezas
+export const validarImportPiezas = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const response = await api.post('/importar/piezas?mode=validate', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  return response.data;
+};
+
+// Ejecutar importación de piezas
+export const ejecutarImportPiezas = async (file, crearColores = true) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const response = await api.post(
+    `/importar/piezas?mode=execute&crear_colores=${crearColores}`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } }
+  );
+  return response.data;
+};
+
+// Detectar colores en archivo Excel
+export const detectarColoresExcel = async (file, tipo = 'productos') => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const response = await api.post(`/importar/colores-detectados?tipo=${tipo}`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  return response.data;
+};
+
+// ============================================================================
+// REVISIÓN PROGRESIVA DE PRODUCTOS
+// ============================================================================
+
+// Listar productos con filtros de revisión
+export const listarProductosRevision = async (params = {}) => {
+  const response = await api.get('/productos/revision', { params });
+  return response.data;
+};
+
+// Actualizar estado de revisión de un producto
+export const actualizarRevisionProducto = async (codSkuPt, data) => {
+  const response = await api.put(`/productos/${codSkuPt}/revision`, data);
+  return response.data;
+};
+
+// Actualizar estado de revisión en bulk
+export const actualizarRevisionBulk = async (skus, estadoRevision, notasRevision = null) => {
+  const response = await api.put('/productos/revision/bulk', {
+    skus,
+    estado_revision: estadoRevision,
+    notas_revision: notasRevision
+  });
+  return response.data;
+};
+
+// Obtener estadísticas de revisión
+export const obtenerEstadisticasRevision = async () => {
+  const response = await api.get('/productos/revision/estadisticas');
+  return response.data;
+};
+
+// ==============================
+// REVISIÓN DE PIEZAS
+// ==============================
+
+// Listar piezas para revisión
+export const listarPiezasRevision = async (params = {}) => {
+  const response = await api.get('/piezas/revision', { params });
+  return response.data;
+};
+
+// Actualizar estado de revisión de una pieza
+export const actualizarRevisionPieza = async (sku, data) => {
+  const response = await api.put(`/piezas/${sku}/revision`, data);
+  return response.data;
+};
+
+// Actualizar estado de revisión de múltiples piezas
+export const actualizarRevisionPiezasBulk = async (skus, estadoRevision, notasRevision = null) => {
+  const response = await api.put('/piezas/revision/bulk', {
+    skus,
+    estado_revision: estadoRevision,
+    notas_revision: notasRevision
+  });
+  return response.data;
+};
+
+// Obtener estadísticas de revisión de piezas
+export const obtenerEstadisticasRevisionPiezas = async () => {
+  const response = await api.get('/piezas/revision/estadisticas');
   return response.data;
 };
 

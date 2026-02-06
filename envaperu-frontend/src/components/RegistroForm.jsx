@@ -27,6 +27,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { crearRegistro, obtenerMaquinas, obtenerOrden, scanRegistroOCR } from '../services/api';
 
 const TURNOS = ['DIURNO', 'NOCTURNO'];
@@ -160,9 +161,27 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
 
   // Cargar máquinas y datos de la orden al inicio
   useEffect(() => {
-    obtenerMaquinas().then(setMaquinas).catch(console.error);
+    obtenerMaquinas()
+      .then(setMaquinas)
+      .catch(err => {
+        console.error('Error cargando máquinas:', err);
+        setError('No se pudieron cargar las máquinas. Verifique conexión.');
+      });
     if (ordenId) {
-      obtenerOrden(ordenId).then(setOrdenInfo).catch(console.error);
+      obtenerOrden(ordenId)
+        .then(data => {
+          setOrdenInfo(data);
+          // Auto-fill parámetros desde la orden
+          setHeader(prev => ({
+            ...prev,
+            tiempo_ciclo: data.tiempo_ciclo?.toString() || data.snapshot_tiempo_ciclo?.toString() || prev.tiempo_ciclo,
+            maquina_id: data.maquina_id || prev.maquina_id
+          }));
+        })
+        .catch(err => {
+          console.error('Error cargando orden:', err);
+          setError('No se pudo cargar la información de la orden.');
+        });
     }
   }, [ordenId]);
 
@@ -195,6 +214,22 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
     newDetalles[index] = { ...newDetalles[index], [field]: value };
     setDetalles(newDetalles);
   };
+
+  // Copiar Maquinista y Color de la primera fila a todas las demás
+  const handleCopyDown = () => {
+    if (detalles.length === 0) return;
+    const { maquinista, color } = detalles[0];
+    if (!maquinista && !color) {
+      setError('Ingrese Maquinista o Color en la primera fila (07:00) para copiar.');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+    setDetalles(prev => prev.map(d => ({
+      ...d,
+      maquinista: maquinista || d.maquinista,
+      color: color || d.color
+    })));
+  };
   
   // Totales Calculados en vivo para validación (incluye hora extra)
   const totalColadasDetalle = detalles.reduce((sum, d) => sum + (parseInt(d.coladas) || 0), 0) + (parseInt(horaExtra.coladas) || 0);
@@ -202,6 +237,19 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
   const coladaFin = parseInt(header.colada_final) || 0;
   const totalColadasContador = coladaFin - coladaIni;
   const diffColadas = totalColadasContador - totalColadasDetalle;
+
+  // Cálculo de Kg Estimados en vivo
+  const cavidades = ordenInfo?.cavidades || ordenInfo?.snapshot_cavidades || 1;
+  const pesoUnitario = ordenInfo?.peso_unitario_gr || ordenInfo?.snapshot_peso_unitario_gr || 0;
+  const pesoIncColada = ordenInfo?.peso_inc_colada || ordenInfo?.snapshot_peso_inc_colada || 0;
+  const pesoTiro = pesoIncColada > 0 ? pesoIncColada : (pesoUnitario * cavidades);
+  const kgEstimados = (totalColadasDetalle * pesoTiro) / 1000;
+
+  // Eficiencia estimada (coladas reales vs teóricas)
+  const cicloSegundos = parseFloat(header.tiempo_ciclo) || ordenInfo?.tiempo_ciclo || ordenInfo?.snapshot_tiempo_ciclo || 0;
+  const horasTrabajadas = 11; // 7am-6pm = 11 horas (excluyendo hora extra)
+  const coladasTeoricas = cicloSegundos > 0 ? Math.floor((horasTrabajadas * 3600) / cicloSegundos) : 0;
+  const eficienciaPct = coladasTeoricas > 0 ? Math.min((totalColadasDetalle / coladasTeoricas) * 100, 150) : 0;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -231,9 +279,13 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
     try {
       await crearRegistro(ordenId, payload);
       setSuccess(true);
+      // Limpiar errores previos
+      setError(null);
       if (onRegistroCreado) onRegistroCreado();
     } catch (err) {
-      setError(err.response?.data?.error || 'Error al guardar registro');
+      const errorMsg = err.response?.data?.error || err.message || 'Error al guardar registro';
+      setError(`Error: ${errorMsg}`);
+      console.error('Error guardando registro:', err);
     } finally {
       setLoading(false);
     }
@@ -414,8 +466,45 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
           </Paper>
         </Box>
 
-        {/* TABLA DETALLES */}
-        <Typography variant="h6" gutterBottom>Registro Hora a Hora</Typography>
+        {/* Header con Botón Copy Down y Resumen en Vivo */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, flexWrap: 'wrap', gap: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Typography variant="h6">Registro Hora a Hora</Typography>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<ContentCopyIcon />}
+              onClick={handleCopyDown}
+              sx={{ height: 28, fontSize: '0.75rem' }}
+            >
+              Copiar Fila 1
+            </Button>
+          </Box>
+          
+          {/* Resumen en Vivo */}
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <Chip
+              label={`Total: ${totalColadasDetalle} coladas`}
+              size="small"
+              color="primary"
+              variant="outlined"
+            />
+            <Chip
+              label={`~${kgEstimados.toFixed(1)} kg`}
+              size="small"
+              color={kgEstimados > 0 ? 'success' : 'default'}
+              variant="filled"
+            />
+            {coladasTeoricas > 0 && (
+              <Chip
+                label={`Efic: ${eficienciaPct.toFixed(0)}%`}
+                size="small"
+                color={eficienciaPct >= 90 ? 'success' : eficienciaPct >= 70 ? 'warning' : 'error'}
+                variant="filled"
+              />
+            )}
+          </Box>
+        </Box>
         <TableContainer component={Paper} variant="outlined" sx={{ mb: 3, bgcolor: '#FFFFFF' }}>
           <Table size="small">
             <TableHead sx={{ bgcolor: 'rgba(79, 172, 254, 0.2)' }}>

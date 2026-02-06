@@ -39,58 +39,114 @@ function OrdenNode({ orden }) {
     setExpanded(!expanded);
   };
 
+  // Cálculos de progreso
+  const meta = orden.meta_kg || 0;
+  // Usamos avance_real_kg si existe (backend nuevo), fallback a resumen_totales o 0
+  const real = orden.avance_real_kg || 0; 
+  const porcentaje = meta > 0 ? Math.min((real / meta) * 100, 100) : 0;
+  
+  // Fecha formateada
+  const fechaInicio = orden.fecha_inicio ? new Date(orden.fecha_inicio).toLocaleDateString() : 'Sin fecha';
+
   return (
-    <Box sx={{ mb: 1 }}>
-      <ListItemButton 
-        onClick={handleExpand}
-        sx={{ 
-          borderRadius: 1,
-          bgcolor: expanded ? 'primary.light' : 'transparent',
-          '&:hover': { bgcolor: 'primary.light' }
-        }}
-      >
-        <ListItemIcon sx={{ minWidth: 40 }}>
-          <AssignmentIcon color={orden.activa !== false ? 'primary' : 'disabled'} />
-        </ListItemIcon>
-        <ListItemText 
-          primary={
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="subtitle2" fontWeight={600}>
-                {orden.numero_op}
-              </Typography>
-              <Chip 
-                size="small" 
-                label={orden.activa !== false ? 'Activa' : 'Cerrada'} 
-                color={orden.activa !== false ? 'success' : 'default'}
-                sx={{ height: 20, fontSize: '0.7rem' }}
-              />
-            </Box>
-          }
-          secondary={`${orden.producto || 'Sin producto'} | ${orden.resumen_totales?.['Peso(Kg) PRODUCCION']?.toFixed(1) || 0} kg`}
-          secondaryTypographyProps={{ variant: 'caption' }}
-        />
-        {loading ? <CircularProgress size={18} /> : (expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />)}
-      </ListItemButton>
-      
-      <Collapse in={expanded}>
-        <List dense sx={{ py: 0 }}>
-          {registros.length === 0 && !loading && (
-            <ListItem sx={{ ml: 4, py: 0.5 }}>
-              <ListItemText 
-                secondary="Sin registros diarios" 
-                secondaryTypographyProps={{ variant: 'caption', fontStyle: 'italic' }}
-              />
-            </ListItem>
-          )}
-          {registros.map((reg) => (
-            <RegistroNode 
-                key={reg['ID Registro'] || reg.id} 
-                registro={reg} 
-                pesoTiro={orden.peso_tiro} 
-            />
-          ))}
-        </List>
-      </Collapse>
+    <Box sx={{ mb: 1.5 }}>
+      <Paper variant="outlined" sx={{ overflow: 'hidden', borderColor: expanded ? 'primary.main' : 'divider' }}>
+        <ListItemButton 
+          onClick={handleExpand}
+          sx={{ 
+            bgcolor: expanded ? 'primary.soft' : 'transparent',
+            '&:hover': { bgcolor: 'action.hover' },
+            flexWrap: 'wrap'
+          }}
+        >
+          <ListItemIcon sx={{ minWidth: 40 }}>
+            <AssignmentIcon color={orden.activa !== false ? 'primary' : 'disabled'} />
+          </ListItemIcon>
+          
+          <ListItemText 
+            sx={{ my: 0.5, flex: '1 1 300px', mr: 2 }}
+            primary={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                <Typography variant="subtitle1" fontWeight={600}>
+                  {orden.numero_op}
+                </Typography>
+                <Chip 
+                  size="small" 
+                  label={orden.activa !== false ? 'Activa' : 'Cerrada'} 
+                  color={orden.activa !== false ? 'success' : 'default'}
+                  variant={orden.activa !== false ? 'filled' : 'outlined'}
+                  sx={{ height: 20, fontSize: '0.7rem' }}
+                />
+                <Typography variant="body2" color="text.secondary">
+                  • {orden.producto || 'Sin producto'}
+                </Typography>
+              </Box>
+            }
+            secondary={
+              <Box>
+                {/* Barra de Progreso */}
+                <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.5, mb: 0.5 }}>
+                  <Box sx={{ width: '100%', mr: 1 }}>
+                    <Box 
+                      sx={{ 
+                        height: 6, 
+                        width: '100%', 
+                        bgcolor: 'grey.200', 
+                        borderRadius: 3,
+                        overflow: 'hidden'
+                      }}
+                    >
+                      <Box 
+                        sx={{ 
+                          height: '100%', 
+                          width: `${porcentaje}%`, 
+                          bgcolor: orden.activa !== false ? 'success.main' : 'text.disabled',
+                          transition: 'width 0.5s ease-in-out'
+                        }} 
+                      />
+                    </Box>
+                  </Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ minWidth: 35 }}>
+                    {Math.round(porcentaje)}%
+                  </Typography>
+                </Box>
+                
+                {/* Detalles Texto */}
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'text.secondary' }}>
+                  <span>
+                    PROGRESO: <strong>{real.toFixed(1)} kg</strong> / {meta.toFixed(1)} kg
+                  </span>
+                  <span>
+                    INICIO: {fechaInicio}
+                  </span>
+                </Box>
+              </Box>
+            }
+          />
+          
+          {loading ? <CircularProgress size={20} /> : (expanded ? <ExpandLessIcon color="action" /> : <ExpandMoreIcon color="action" />)}
+        </ListItemButton>
+        
+        <Collapse in={expanded}>
+          <Divider />
+          <List dense sx={{ py: 0, bgcolor: 'background.paper' }}>
+            {registros.length === 0 && !loading && (
+              <ListItem sx={{ py: 2, justifyContent: 'center' }}>
+                <Typography variant="body2" color="text.secondary" fontStyle="italic">
+                  Sin registros diarios de producción
+                </Typography>
+              </ListItem>
+            )}
+            {registros.map((reg) => (
+                <RegistroNode 
+                    key={reg['ID Registro'] || reg.id} 
+                    registro={reg} 
+                    pesoTiro={orden.peso_tiro} 
+                />
+            ))}
+          </List>
+        </Collapse>
+      </Paper>
     </Box>
   );
 }

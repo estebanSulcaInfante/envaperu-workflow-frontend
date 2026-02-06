@@ -22,7 +22,8 @@ import {
   Tooltip,
   InputAdornment,
   Autocomplete,
-  Stack
+  Stack,
+  LinearProgress
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import AddIcon from '@mui/icons-material/Add';
@@ -30,7 +31,10 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PaletteIcon from '@mui/icons-material/Palette';
 import LockIcon from '@mui/icons-material/Lock';
-import { crearOrden, buscarProductos, obtenerPiezasProducibles } from '../services/api';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import CalculateIcon from '@mui/icons-material/Calculate';
+import { crearOrden, buscarProductos, obtenerPiezasProducibles, obtenerColores, validarOrdenPrereq, crearColor, obtenerMaquinas, obtenerProducto } from '../services/api';
 
 const initialOrden = {
   numero_op: '',
@@ -54,6 +58,7 @@ const initialOrden = {
 };
 
 const initialLote = {
+  color_id: null, // Nuevo campo FK
   color_nombre: '',
   personas: 1,
   stock_kg_manual: '',
@@ -98,8 +103,67 @@ function OrdenForm({ onOrdenCreada }) {
   // Estado para Autocomplete de Piezas/Moldes
   const [piezasProducibles, setPiezasProducibles] = useState([]);
   const [piezasLoading, setPiezasLoading] = useState(false);
+  
+  // Estado para Colores
+  const [coloresOptions, setColoresOptions] = useState([]);
+  const [coloresLoading, setColoresLoading] = useState(false);
 
-  // Fetch piezas producibles al cargar (solo las que tienen molde)
+  // Estado para Pre-validación
+  const [validationResult, setValidationResult] = useState(null);
+  const [validationLoading, setValidationLoading] = useState(false);
+
+  // Estado para Máquinas
+  const [maquinasOptions, setMaquinasOptions] = useState([]);
+  const [maquinasLoading, setMaquinasLoading] = useState(false);
+
+  // Estado de Errores de Validación
+  const [errors, setErrors] = useState({});
+
+  // Estado de Piezas Filtradas (Cascada)
+  const [filteredPiezas, setFilteredPiezas] = useState([]);
+
+  // Fetch product details when selected for cascading logic
+  useEffect(() => {
+    const filterAndAutoSelect = async () => {
+      // Si no hay producto, mostrar todas las piezas
+      if (!orden.producto_sku) {
+        setFilteredPiezas(piezasProducibles);
+        return;
+      }
+      
+      try {
+        const prodDetails = await obtenerProducto(orden.producto_sku);
+        
+        if (prodDetails && prodDetails.piezas) {
+            const pieceSkus = prodDetails.piezas.map(p => p.sku);
+            const filtradas = piezasProducibles.filter(p => pieceSkus.includes(p.sku));
+            setFilteredPiezas(filtradas);
+            
+            // Auto-select si solo hay 1
+            if (filtradas.length === 1) {
+                const p = filtradas[0];
+                setOrden(prev => ({
+                    ...prev,
+                    molde: p.molde ? p.molde.nombre : '',
+                    molde_id: p.molde ? p.molde.codigo : '',
+                    peso_unitario_gr: p.peso_unitario_gr, // De la pieza
+                    cavidades: p.cavidades,
+                    tipo_estrategia: 'POR_PESO' // Default
+                }));
+            }
+        }
+      } catch (err) {
+        console.error("Error cascading product details:", err);
+        setFilteredPiezas(piezasProducibles); // Fallback
+      }
+    };
+    
+    if (piezasProducibles.length > 0) {
+        filterAndAutoSelect();
+    }
+  }, [orden.producto_sku, piezasProducibles]);
+
+  // Fetch piezas producibles, máquinas y colores al cargar
   useEffect(() => {
     const fetchPiezasProducibles = async () => {
       setPiezasLoading(true);
@@ -112,8 +176,49 @@ function OrdenForm({ onOrdenCreada }) {
         setPiezasLoading(false);
       }
     };
+    
+    const fetchMaquinas = async () => {
+      setMaquinasLoading(true);
+      try {
+        const data = await obtenerMaquinas();
+        setMaquinasOptions(data);
+      } catch (error) {
+        console.error('Error cargando maquinas:', error);
+      } finally {
+        setMaquinasLoading(false);
+      }
+    };
+    
+    const fetchColores = async () => {
+        setColoresLoading(true);
+        try {
+            const colores = await obtenerColores();
+            setColoresOptions(colores);
+        } catch (error) {
+            console.error("Error cargando colores:", error);
+        } finally {
+            setColoresLoading(false);
+        }
+    };
+
     fetchPiezasProducibles();
+    fetchMaquinas();
+    fetchColores();
   }, []);
+
+  const validateForm = () => {
+    const newErrors = {};
+    if (!orden.numero_op) newErrors.numero_op = 'Requerido';
+    if (!orden.maquina_id) newErrors.maquina_id = 'Requerido';
+    if (!orden.producto_sku) newErrors.producto = 'Requerido';
+    if (!orden.molde_id) newErrors.molde = 'Requerido para parámetros técnicos';
+    
+    if (orden.meta_total_kg && parseFloat(orden.meta_total_kg) <= 0) newErrors.meta_total_kg = 'Debe ser mayor a 0';
+    
+    setErrors(newErrors);
+    // Return true if NO errors
+    return Object.keys(newErrors).length === 0;
+  };
 
   // Fetch productos cuando cambia el input (debounced)
   useEffect(() => {
@@ -135,6 +240,34 @@ function OrdenForm({ onOrdenCreada }) {
     }, 300);
     return () => clearTimeout(timeoutId);
   }, [productoInputValue]);
+
+  // Pre-validación cuando cambia molde o lotes
+  useEffect(() => {
+    const validatePrereq = async () => {
+      if (!orden.molde_id) {
+        setValidationResult(null);
+        return;
+      }
+      
+      setValidationLoading(true);
+      try {
+        const colorIds = orden.lotes
+          .map(l => l.color_id)
+          .filter(id => id !== null);
+        
+        const result = await validarOrdenPrereq(orden.molde_id, colorIds);
+        setValidationResult(result);
+      } catch (err) {
+        console.error('Error validando pre-requisitos:', err);
+        setValidationResult(null);
+      } finally {
+        setValidationLoading(false);
+      }
+    };
+    
+    const timer = setTimeout(validatePrereq, 500); // Debounce
+    return () => clearTimeout(timer);
+  }, [orden.molde_id, orden.lotes]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -247,13 +380,14 @@ function OrdenForm({ onOrdenCreada }) {
       meta_total_kg: orden.meta_total_kg ? parseFloat(orden.meta_total_kg) : null,
       meta_total_doc: orden.meta_total_doc ? parseFloat(orden.meta_total_doc) : null,
       tipo_cambio: orden.tipo_cambio ? parseFloat(orden.tipo_cambio) : null,
-      peso_unitario_gr: orden.peso_unitario_gr ? parseFloat(orden.peso_unitario_gr) : null,
-      peso_inc_colada: orden.peso_inc_colada ? parseFloat(orden.peso_inc_colada) : null,
-      cavidades: orden.cavidades ? parseInt(orden.cavidades) : null,
-      tiempo_ciclo: orden.tiempo_ciclo ? parseFloat(orden.tiempo_ciclo) : null,
-      horas_turno: orden.horas_turno ? parseFloat(orden.horas_turno) : 24,
+      snapshot_peso_unitario_gr: orden.peso_unitario_gr ? parseFloat(orden.peso_unitario_gr) : null,
+      snapshot_peso_inc_colada: orden.peso_inc_colada ? parseFloat(orden.peso_inc_colada) : null,
+      snapshot_cavidades: orden.cavidades ? parseInt(orden.cavidades) : null,
+      snapshot_tiempo_ciclo: orden.tiempo_ciclo ? parseFloat(orden.tiempo_ciclo) : null,
+      snapshot_horas_turno: orden.horas_turno ? parseFloat(orden.horas_turno) : 24,
       lotes: orden.lotes.map(lote => ({
         ...lote,
+        color_id: lote.color_id, // ENVIAR ID
         personas: parseInt(lote.personas) || 1,
         stock_kg_manual: lote.stock_kg_manual ? parseFloat(lote.stock_kg_manual) : null,
         materiales: lote.materiales.map(mat => ({
@@ -271,6 +405,12 @@ function OrdenForm({ onOrdenCreada }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (!validateForm()) {
+        setSnackbar({ open: true, message: 'Faltan campos requeridos', severity: 'error' });
+        return;
+    }
+
     setLoading(true);
     
     try {
@@ -289,6 +429,63 @@ function OrdenForm({ onOrdenCreada }) {
     }
   };
 
+  // Limpiar formulario y borrador
+  const handleClearForm = () => {
+    localStorage.removeItem(STORAGE_KEY);
+    setOrden(initialOrden);
+    setValidationResult(null);
+    setProductoInputValue('');
+    setSnackbar({ open: true, message: 'Formulario limpiado', severity: 'info' });
+  };
+
+  // Cálculos dinámicos basados en los parámetros actuales
+  const calcularEstimaciones = () => {
+    const peso = parseFloat(orden.peso_unitario_gr) || 0;
+    const cavidades = parseInt(orden.cavidades) || 0;
+    const tiempoCiclo = parseFloat(orden.tiempo_ciclo) || 0;
+    const horasTurno = parseFloat(orden.horas_turno) || 24;
+    const metaKg = parseFloat(orden.meta_total_kg) || 0;
+    const metaDoc = parseFloat(orden.meta_total_doc) || 0;
+    
+    // Ciclos por hora = 3600 / tiempo_ciclo
+    const ciclosPorHora = tiempoCiclo > 0 ? 3600 / tiempoCiclo : 0;
+    
+    // Piezas por hora = ciclos/hora × cavidades
+    const piezasPorHora = ciclosPorHora * cavidades;
+    
+    // Docenas por hora = piezas/hora / 12
+    const docenasPorHora = piezasPorHora / 12;
+    
+    // Kg por hora = piezas/hora × peso / 1000
+    const kgPorHora = (piezasPorHora * peso) / 1000;
+    
+    // Capacidad diaria (24h)
+    const kgDia = kgPorHora * horasTurno;
+    const docDia = docenasPorHora * horasTurno;
+    
+    // Tiempo estimado para cumplir meta
+    let tiempoEstimadoHoras = 0;
+    if (orden.tipo_estrategia === 'POR_PESO' && metaKg > 0 && kgPorHora > 0) {
+      tiempoEstimadoHoras = metaKg / kgPorHora;
+    } else if (orden.tipo_estrategia === 'POR_CANTIDAD' && metaDoc > 0 && docenasPorHora > 0) {
+      tiempoEstimadoHoras = metaDoc / docenasPorHora;
+    }
+    
+    return {
+      ciclosPorHora: ciclosPorHora.toFixed(1),
+      piezasPorHora: piezasPorHora.toFixed(0),
+      docenasPorHora: docenasPorHora.toFixed(1),
+      kgPorHora: kgPorHora.toFixed(2),
+      kgDia: kgDia.toFixed(1),
+      docDia: docDia.toFixed(0),
+      tiempoEstimadoHoras: tiempoEstimadoHoras.toFixed(1),
+      tiempoEstimadoDias: (tiempoEstimadoHoras / horasTurno).toFixed(1),
+      esValido: peso > 0 && cavidades > 0 && tiempoCiclo > 0
+    };
+  };
+  
+  const estimaciones = calcularEstimaciones();
+
   return (
     <Paper 
       component="form" 
@@ -306,8 +503,11 @@ function OrdenForm({ onOrdenCreada }) {
         mb: 4, 
         pb: 2, 
         borderBottom: '1px solid #E0E0E0',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
       }}>
-        <Typography variant="h5" gutterBottom sx={{ 
+        <Typography variant="h5" sx={{ 
           fontWeight: 700,
           background: 'linear-gradient(135deg, #1E3A5F 0%, #0D2137 100%)',
           WebkitBackgroundClip: 'text',
@@ -315,9 +515,40 @@ function OrdenForm({ onOrdenCreada }) {
         }}>
           Nueva Orden de Producción
         </Typography>
+        <Button
+          variant="outlined"
+          color="warning"
+          size="small"
+          onClick={handleClearForm}
+          startIcon={<DeleteOutlineIcon />}
+        >
+          Limpiar Formulario
+        </Button>
       </Box>
       
       <Divider sx={{ my: 2, borderColor: '#E0E0E0' }} />
+
+      {/* Pre-validation Banner */}
+      {validationLoading && <LinearProgress sx={{ mb: 2 }} />}
+      {validationResult && !validationLoading && (
+        <Box sx={{ mb: 2 }}>
+          {validationResult.errors.map((err, i) => (
+            <Alert key={`err-${i}`} severity="error" sx={{ mb: 1 }}>
+              {err}
+            </Alert>
+          ))}
+          {validationResult.warnings.map((warn, i) => (
+            <Alert key={`warn-${i}`} severity="warning" sx={{ mb: 1 }}>
+              {warn}
+            </Alert>
+          ))}
+          {validationResult.valid && validationResult.warnings.length === 0 && validationResult.errors.length === 0 && (
+            <Alert severity="success" icon={<CheckCircleIcon />}>
+              ✅ Todos los requisitos cumplidos - Molde: {validationResult.molde?.nombre} ({validationResult.molde?.piezas_count} piezas)
+            </Alert>
+          )}
+        </Box>
+      )}
 
       {/* Layout Compacto: 3 Cards con Flexbox */}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, mb: 2 }}>
@@ -334,16 +565,42 @@ function OrdenForm({ onOrdenCreada }) {
               value={orden.numero_op}
               onChange={handleChange}
               required
+              error={!!errors.numero_op}
+              helperText={errors.numero_op}
               size="small"
+              placeholder="Ej: OP-24-001"
             />
-            <TextField
-              fullWidth
-              label="Máquina ID"
-              name="maquina_id"
-              value={orden.maquina_id}
-              onChange={handleChange}
-              size="small"
-            />
+            {/* Selector de Máquina */}
+            <FormControl fullWidth size="small" error={!!errors.maquina_id}>
+              <InputLabel>Máquina</InputLabel>
+              <Select
+                name="maquina_id"
+                label="Máquina"
+                value={orden.maquina_id || ''}
+                onChange={(e) => {
+                  const maqId = e.target.value;
+                  const maqObj = maquinasOptions.find(m => m.id === maqId);
+                  setOrden(prev => ({
+                    ...prev,
+                    maquina_id: maqId,
+                    tipo_maquina: maqObj ? maqObj.tipo : prev.tipo_maquina
+                  }));
+                }}
+                disabled={maquinasLoading}
+              >
+                {maquinasLoading ? (
+                  <MenuItem disabled>Cargando...</MenuItem>
+                ) : (
+                  maquinasOptions.map((m) => (
+                    <MenuItem key={m.id} value={m.id}>
+                      {m.nombre} ({m.tipo})
+                    </MenuItem>
+                  ))
+                )}
+              </Select>
+              {errors.maquina_id && <Typography variant="caption" color="error">{errors.maquina_id}</Typography>}
+            </FormControl>
+            
             <TextField
               fullWidth
               label="Tipo Máquina"
@@ -351,6 +608,10 @@ function OrdenForm({ onOrdenCreada }) {
               value={orden.tipo_maquina}
               onChange={handleChange}
               size="small"
+              disabled // Auto-rellenado
+              InputProps={{
+                startAdornment: <InputAdornment position="start">🏭</InputAdornment>,
+              }}
             />
           </Stack>
         </Paper>
@@ -363,10 +624,15 @@ function OrdenForm({ onOrdenCreada }) {
           <Stack spacing={1}>
             <Autocomplete
               freeSolo
+              forcePopupIcon
               options={productosOptions}
-              getOptionLabel={(option) => 
-                typeof option === 'string' ? option : `${option.producto} (${option.cod_sku_pt})`
-              }
+              value={orden.producto || null}
+              getOptionLabel={(option) => {
+                // Si es string, retornarlo tal cual
+                if (typeof option === 'string') return option;
+                // Si es objeto, usar el formato deseado
+                return `${option.producto} (${option.cod_sku_pt})`;
+              }}
               loading={productosLoading}
               inputValue={productoInputValue}
               onInputChange={(_, newInputValue) => {
@@ -374,14 +640,18 @@ function OrdenForm({ onOrdenCreada }) {
               }}
               onChange={(_, newValue) => {
                 if (newValue && typeof newValue === 'object') {
-                  setOrden(prev => ({ 
-                    ...prev, 
+                  setOrden(prev => ({
+                    ...prev,
                     producto: newValue.producto,
                     producto_sku: newValue.cod_sku_pt,
                     peso_unitario_gr: newValue.peso_g ? String(newValue.peso_g) : prev.peso_unitario_gr
                   }));
+                  // Filter pieces based on selected product using useEffect
+                  // const filtered = piezasProducibles.filter(p => p.producto_sku === newValue.cod_sku_pt);
+                  // setFilteredPiezas(filtered);
                 } else {
                   setOrden(prev => ({ ...prev, producto: newValue || '', producto_sku: '' }));
+                  setFilteredPiezas([]); // Clear filter if no product selected
                 }
               }}
               renderInput={(params) => (
@@ -389,6 +659,9 @@ function OrdenForm({ onOrdenCreada }) {
                   {...params}
                   label="Producto"
                   size="small"
+                  placeholder="Buscar producto (min. 2 caracteres)..."
+                  error={!!errors.producto}
+                  helperText={errors.producto || "Escriba para buscar productos"}
                   InputProps={{
                     ...params.InputProps,
                     endAdornment: (
@@ -412,18 +685,21 @@ function OrdenForm({ onOrdenCreada }) {
               )}
             />
             <Autocomplete
-              options={piezasProducibles}
+              options={filteredPiezas.length > 0 ? filteredPiezas : piezasProducibles}
               getOptionLabel={(option) => 
                 typeof option === 'string' ? option : option.nombre || ''
               }
               loading={piezasLoading}
-              value={piezasProducibles.find(p => p.sku === orden.molde_id) || null}
+              value={
+                // Buscar por nombre de pieza (orden.molde guarda el nombre) o código
+                piezasProducibles.find(p => p.nombre === orden.molde || p.sku === orden.molde_id) || null
+              }
               onChange={(_, newValue) => {
                 if (newValue && typeof newValue === 'object') {
                   setOrden(prev => ({ 
                     ...prev, 
                     molde: newValue.nombre,
-                    molde_id: newValue.sku,
+                    molde_id: newValue.molde?.codigo || newValue.sku, // Prefer Mold Code, fallback to SKU if direct
                     cavidades: newValue.cavidades ? String(newValue.cavidades) : prev.cavidades,
                     peso_unitario_gr: newValue.peso_unitario_gr ? String(newValue.peso_unitario_gr) : prev.peso_unitario_gr,
                     peso_inc_colada: newValue.molde?.peso_tiro_gr ? String(newValue.molde.peso_tiro_gr) : prev.peso_inc_colada,
@@ -439,7 +715,7 @@ function OrdenForm({ onOrdenCreada }) {
                   label="Pieza / Molde"
                   size="small"
                   placeholder="Seleccionar pieza producible..."
-                  helperText="Solo piezas asociadas a un molde"
+                  helperText={errors.molde || (filteredPiezas.length > 0 && filteredPiezas.length < piezasProducibles.length ? "Filtrado por Producto" : "Solo piezas asociadas a un molde")}
                   InputProps={{
                     ...params.InputProps,
                     endAdornment: (
@@ -611,6 +887,64 @@ function OrdenForm({ onOrdenCreada }) {
         </Grid>
       </Paper>
 
+      {/* Panel de Cálculos Dinámicos */}
+      {estimaciones.esValido && (
+        <Paper sx={{ p: 1.5, mb: 2, background: 'linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%)', border: '1px solid #81C784' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <CalculateIcon sx={{ color: '#2E7D32' }} />
+            <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#1B5E20' }}>
+              📊 Estimaciones de Producción (Calculado en tiempo real)
+            </Typography>
+          </Box>
+          <Grid container spacing={1}>
+            <Grid item xs={6} sm={4} md={2}>
+              <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary">Ciclos/Hora</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#2E7D32' }}>{estimaciones.ciclosPorHora}</Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary">Piezas/Hora</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#2E7D32' }}>{estimaciones.piezasPorHora}</Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary">Docenas/Hora</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#2E7D32' }}>{estimaciones.docenasPorHora}</Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary">Kg/Hora</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#2E7D32' }}>{estimaciones.kgPorHora}</Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary">Kg/Día ({orden.horas_turno}h)</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#1565C0' }}>{estimaciones.kgDia}</Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={6} sm={4} md={2}>
+              <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary">Doc/Día ({orden.horas_turno}h)</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#1565C0' }}>{estimaciones.docDia}</Typography>
+              </Box>
+            </Grid>
+          </Grid>
+          {/* Tiempo estimado para meta */}
+          {(parseFloat(orden.meta_total_kg) > 0 || parseFloat(orden.meta_total_doc) > 0) && parseFloat(estimaciones.tiempoEstimadoHoras) > 0 && (
+            <Box sx={{ mt: 1, p: 1, background: 'rgba(255,255,255,0.9)', borderRadius: 1, textAlign: 'center' }}>
+              <Typography variant="body2" sx={{ color: '#1B5E20' }}>
+                ⏱️ <strong>Tiempo estimado para cumplir meta:</strong> {estimaciones.tiempoEstimadoHoras} horas ({estimaciones.tiempoEstimadoDias} días de {orden.horas_turno}h)
+              </Typography>
+            </Box>
+          )}
+        </Paper>
+      )}
+
       <Divider sx={{ my: 2, borderColor: '#E0E0E0' }} />
 
       {/* Sección: Lotes */}
@@ -668,13 +1002,101 @@ function OrdenForm({ onOrdenCreada }) {
           <AccordionDetails>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Nombre del Color"
-                  value={lote.color_nombre}
-                  onChange={(e) => handleLoteChange(loteIndex, 'color_nombre', e.target.value)}
-                  size="small"
-                  required
+                <Autocomplete
+                    options={coloresOptions}
+                    getOptionLabel={(option) => typeof option === 'string' ? option : option.nombre}
+                    value={coloresOptions.find(c => c.id === lote.color_id) || (lote.color_nombre ? { nombre: lote.color_nombre, id: null } : null)}
+                    loading={coloresLoading}
+                    onChange={async (_, newValue) => {
+                        if (typeof newValue === 'string') {
+                            // Usuario escribió un nuevo color - crear on-the-fly
+                            try {
+                                const nuevoColor = await crearColor(newValue);
+                                setOrden(prev => ({
+                                    ...prev,
+                                    lotes: prev.lotes.map((l, i) => 
+                                        i === loteIndex ? { ...l, color_id: nuevoColor.id, color_nombre: nuevoColor.nombre } : l
+                                    )
+                                }));
+                                // Agregar a la lista si es nuevo
+                                if (!nuevoColor.existed) {
+                                    setColoresOptions(prev => [...prev, nuevoColor].sort((a, b) => a.nombre.localeCompare(b.nombre)));
+                                    setSnackbar({ 
+                                        open: true, 
+                                        message: `✨ Color "${nuevoColor.nombre}" creado exitosamente`, 
+                                        severity: 'success' 
+                                    });
+                                }
+                            } catch (err) {
+                                console.error('Error creando color:', err);
+                                setSnackbar({ open: true, message: 'Error creando color', severity: 'error' });
+                            }
+                        } else if (newValue && typeof newValue === 'object') {
+                            // Selección de opción existente
+                            setOrden(prev => ({
+                                ...prev,
+                                lotes: prev.lotes.map((l, i) => 
+                                    i === loteIndex ? { ...l, color_id: newValue.id, color_nombre: newValue.nombre } : l
+                                )
+                            }));
+                        } else {
+                            // Clear
+                            setOrden(prev => ({
+                                ...prev,
+                                lotes: prev.lotes.map((l, i) => 
+                                    i === loteIndex ? { ...l, color_id: null, color_nombre: '' } : l
+                                )
+                            }));
+                        }
+                    }}
+                    filterOptions={(options, params) => {
+                        const filtered = options.filter(opt => 
+                            opt.nombre.toLowerCase().includes(params.inputValue.toLowerCase())
+                        );
+                        // Sugerir crear nuevo si no existe
+                        if (params.inputValue !== '' && !filtered.some(o => o.nombre.toLowerCase() === params.inputValue.toLowerCase())) {
+                            filtered.push({
+                                inputValue: params.inputValue,
+                                nombre: `➕ Crear "${params.inputValue.toUpperCase()}"`,
+                                isNew: true
+                            });
+                        }
+                        return filtered;
+                    }}
+                    renderInput={(params) => (
+                        <TextField
+                            {...params}
+                            label="Seleccionar o crear Color"
+                            size="small"
+                            required
+                            placeholder="Escribe para buscar o crear..."
+                            InputProps={{
+                                ...params.InputProps,
+                                endAdornment: (
+                                    <>
+                                        {coloresLoading ? <CircularProgress color="inherit" size={18} /> : null}
+                                        {params.InputProps.endAdornment}
+                                    </>
+                                ),
+                            }}
+                        />
+                    )}
+                    renderOption={(props, option) => (
+                        <li {...props} key={option.id || option.inputValue}>
+                            <Typography 
+                                sx={{ 
+                                    color: option.isNew ? 'success.main' : 'text.primary',
+                                    fontWeight: option.isNew ? 600 : 400
+                                }}
+                            >
+                                {option.nombre}
+                            </Typography>
+                        </li>
+                    )}
+                    freeSolo
+                    selectOnFocus
+                    clearOnBlur
+                    handleHomeEndKeys
                 />
               </Grid>
               <Grid item xs={6} sm={4}>

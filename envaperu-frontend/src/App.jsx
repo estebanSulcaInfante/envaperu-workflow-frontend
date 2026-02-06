@@ -15,6 +15,10 @@ import MoldesLista from './components/MoldesLista';
 import ProductosAdmin from './components/ProductosAdmin';
 import PiezasAdmin from './components/PiezasAdmin';
 import TalonariosAdmin from './components/TalonariosAdmin';
+import ImportarCatalogo from './components/ImportarCatalogo';
+import ConfigurarProducto from './components/ConfigurarProducto';
+import RevisionProductos from './components/RevisionProductos';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Tema claro corporativo ENVAPERU
 const envaTheme = createTheme({
@@ -89,26 +93,30 @@ function App() {
       <BrowserRouter>
         <Box sx={{ display: 'flex', minHeight: '100vh' }}>
           <Sidebar />
-          <Box
-            component="main"
-            sx={{
-              flexGrow: 1,
-              p: 3,
-              background: '#F5F5F5',
-              minHeight: '100vh',
-            }}
-          >
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/ordenes" element={<OrdenesLista />} />
-              <Route path="/ordenes/nueva" element={<OrdenForm />} />
-              <Route path="/catalogo/productos" element={<ProductosAdmin />} />
-              <Route path="/catalogo/piezas" element={<PiezasAdmin />} />
-              <Route path="/catalogo/moldes" element={<MoldesLista />} />
-              <Route path="/registros" element={<RegistrosLista />} />
-              <Route path="/registros/talonarios" element={<TalonariosAdmin />} />
-            </Routes>
-          </Box>
+          <ErrorBoundary>
+            <Box
+              component="main"
+              sx={{
+                flexGrow: 1,
+                p: 3,
+                background: '#F5F5F5',
+                minHeight: '100vh',
+              }}
+            >
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/ordenes" element={<OrdenesLista />} />
+                <Route path="/ordenes/nueva" element={<OrdenForm />} />
+                <Route path="/catalogo/sku" element={<CatalogoSKU />} />
+                <Route path="/catalogo/moldes" element={<MoldesLista />} />
+                <Route path="/catalogo/importar" element={<ImportarCatalogo />} />
+                <Route path="/catalogo/configurar" element={<ConfigurarProducto />} />
+                <Route path="/catalogo/revision" element={<RevisionProductos />} />
+                <Route path="/registros" element={<RegistrosLista />} />
+                <Route path="/registros/talonarios" element={<TalonariosAdmin />} />
+              </Routes>
+            </Box>
+          </ErrorBoundary>
         </Box>
       </BrowserRouter>
     </ThemeProvider>
@@ -116,3 +124,4 @@ function App() {
 }
 
 export default App;
+

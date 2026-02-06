@@ -24,6 +24,8 @@ import AddCircleIcon from '@mui/icons-material/AddCircle';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import DescriptionIcon from '@mui/icons-material/Description';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import RateReviewIcon from '@mui/icons-material/RateReview';
 import { useState } from 'react';
 
 const drawerWidth = 240;
@@ -34,9 +36,11 @@ const ordenesItems = [
 ];
 
 const catalogoItems = [
-  { path: '/catalogo/productos', label: 'Productos SKU', icon: <CategoryIcon /> },
-  { path: '/catalogo/piezas', label: 'Piezas', icon: <InventoryIcon /> },
+  { path: '/catalogo/configurar', label: 'Config. Rápida', icon: <AddCircleIcon />, highlight: true },
+  { path: '/catalogo/sku', label: 'Catálogo SKU', icon: <CategoryIcon /> },
   { path: '/catalogo/moldes', label: 'Moldes', icon: <PrecisionManufacturingIcon /> },
+  { path: '/catalogo/importar', label: 'Importar Excel', icon: <CloudUploadIcon /> },
+  { path: '/catalogo/revision', label: 'Revisión Datos', icon: <RateReviewIcon /> },
 ];
 
 const registrosItems = [
@@ -170,8 +174,14 @@ function Sidebar() {
                   sx={{
                     pl: 4,
                     borderRadius: 2,
+                    ...(item.highlight && {
+                      background: 'rgba(2, 136, 209, 0.3)',
+                      border: '1px solid rgba(2, 136, 209, 0.5)',
+                    }),
                     '&.active': { backgroundColor: 'rgba(255,255,255,0.15)' },
-                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
+                    '&:hover': { 
+                      backgroundColor: item.highlight ? 'rgba(2, 136, 209, 0.5)' : 'rgba(255,255,255,0.1)' 
+                    },
                   }}
                 >
                   <ListItemIcon sx={{ color: 'inherit', minWidth: 40 }}>

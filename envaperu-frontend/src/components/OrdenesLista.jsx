@@ -40,7 +40,8 @@ import TextField from '@mui/material/TextField';
 import InputAdornment from '@mui/material/InputAdornment';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import { obtenerOrdenes, descargarExcel, getQRImageUrl, toggleEstadoOrden } from '../services/api';
+import BuildIcon from '@mui/icons-material/Build'; // Icono para ajustes tecnicos
+import { obtenerOrdenes, descargarExcel, getQRImageUrl, toggleEstadoOrden, actualizarMetricasOrden } from '../services/api';
 import RegistroForm from './RegistroForm';
 
 function LoteRow({ lote }) {
@@ -131,6 +132,7 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
   const [open, setOpen] = useState(false);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
   const [registroDialogOpen, setRegistroDialogOpen] = useState(false);
+  const [metricasDialogOpen, setMetricasDialogOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [toggling, setToggling] = useState(false);
   const resumen = orden.resumen_totales || {};
@@ -200,13 +202,27 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
             variant="outlined"
           />
         </TableCell>
-        <TableCell align="right">
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            {orden.avance_real_kg?.toFixed(2) || '0.00'} / {resumen['Peso(Kg) PRODUCCION']?.toFixed(2) || '-'}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-             Real / Meta
-          </Typography>
+        <TableCell align="right" sx={{ minWidth: 140 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              {orden.avance_real_kg?.toFixed(1) || '0.0'} / {(orden.meta_kg || resumen['Peso(Kg) PRODUCCION'] || 0).toFixed(0)} kg
+            </Typography>
+            <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ width: '100%', height: 6, bgcolor: 'grey.200', borderRadius: 3, overflow: 'hidden' }}>
+                <Box 
+                  sx={{ 
+                    width: `${Math.min(((orden.avance_real_kg || 0) / (orden.meta_kg || resumen['Peso(Kg) PRODUCCION'] || 1) * 100), 100)}%`, 
+                    height: '100%', 
+                    bgcolor: isActiva ? 'success.main' : 'text.disabled',
+                    transition: 'width 0.5s'
+                  }} 
+                />
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ minWidth: 25 }}>
+                {Math.round((orden.avance_real_kg || 0) / (orden.meta_kg || resumen['Peso(Kg) PRODUCCION'] || 1) * 100)}%
+              </Typography>
+            </Box>
+          </Box>
         </TableCell>
         <TableCell align="right">
           <Typography variant="body2" color="secondary">
@@ -256,6 +272,17 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
                 {toggling ? <CircularProgress size={18} /> : (isActiva ? <LockIcon fontSize="small" /> : <LockOpenIcon fontSize="small" />)}
               </IconButton>
             </Tooltip>
+            {isActiva && (
+                <Tooltip title="Ajustar Parámetros (Cavidades/Ciclo)">
+                    <IconButton 
+                        size="small" 
+                        color="default"
+                        onClick={(e) => { e.stopPropagation(); setMetricasDialogOpen(true); }}
+                    >
+                        <BuildIcon fontSize="small" />
+                    </IconButton>
+                </Tooltip>
+            )}
             <Tooltip title="Ver QR del Formulario">
               <IconButton size="small" color="secondary" onClick={handleOpenQR}>
                 <QrCode2Icon fontSize="small" />
@@ -325,6 +352,32 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
           />
         </DialogContent>
       </Dialog>
+      
+      {/* Metricas Dialog */}
+      <Dialog
+        open={metricasDialogOpen}
+        onClose={() => setMetricasDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ textAlign: 'center', bgcolor: '#f5f5f5' }}>
+            ⚙️ Ajustar Parámetros Técnicos - {orden.numero_op}
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+            <Alert severity="warning" sx={{ mb: 2, mt: 1 }}>
+                Cambiar estos valores afectará el cálculo de eficiencia de los futuros registros, pero mantendrá la integridad histórica de los pasados.
+                Usa esto si se dañó un molde (reducir cavidades) o cambió el ciclo real.
+            </Alert>
+            <MetricasForm 
+                orden={orden} 
+                onClose={() => setMetricasDialogOpen(false)}
+                onSuccess={() => {
+                    setMetricasDialogOpen(false);
+                    if(onRefresh) onRefresh();
+                }}
+            />
+        </DialogContent>
+      </Dialog>
 
       <TableRow>
         <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={9}>
@@ -346,7 +399,7 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
                   <Grid item xs={6} sm={3}>
                     <Typography variant="caption" color="text.secondary">Producción Real / Meta</Typography>
                     <Typography variant="body1">
-                        {orden.avance_real_kg?.toFixed(2) || '0.00'} / {resumen['Peso(Kg) PRODUCCION']?.toFixed(2)} Kg
+                        {orden.avance_real_kg?.toFixed(2) || '0.00'} / {(orden.meta_kg || resumen['Peso(Kg) PRODUCCION'] || 0).toFixed(2)} Kg
                     </Typography>
                   </Grid>
                   <Grid item xs={6} sm={3}>
@@ -364,12 +417,12 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
                   <Grid item xs={6} sm={3}>
                     <Typography variant="caption" color="text.secondary">Total a Máquina</Typography>
                     <Typography variant="body1" color="primary" sx={{ fontWeight: 600 }}>
-                      {resumen['Peso REAL A ENTREGAR']} Kg
+                      {(resumen['Peso REAL A ENTREGAR'] || orden.meta_kg || 0).toFixed(2)} Kg
                     </Typography>
                   </Grid>
                   <Grid item xs={6} sm={3}>
                     <Typography variant="caption" color="text.secondary">Docenas</Typography>
-                    <Typography variant="body1">{resumen['Total DOC']}</Typography>
+                    <Typography variant="body1">{resumen['Total DOC'] || (orden.meta_total_doc || 0).toFixed(0)}</Typography>
                   </Grid>
                   <Grid item xs={6} sm={3}>
                     <Typography variant="caption" color="text.secondary">Tiempo</Typography>
@@ -551,6 +604,97 @@ function OrdenesLista() {
       </Table>
     </TableContainer>
   );
+}
+
+// Componente interno para el formulario de metricas
+function MetricasForm({ orden, onClose, onSuccess }) {
+    const [formData, setFormData] = useState({
+        snapshot_cavidades: orden.cavidades || orden.snapshot_cavidades || '',
+        snapshot_tiempo_ciclo: orden.tiempo_ciclo || orden.snapshot_tiempo_ciclo || '',
+        snapshot_peso_unitario_gr: orden.peso_unitario_gr || orden.snapshot_peso_unitario_gr || '',
+        snapshot_peso_inc_colada: orden.peso_inc_colada || orden.snapshot_peso_inc_colada || ''
+    });
+    const [loading, setLoading] = useState(false);
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSubmit = async () => {
+        setLoading(true);
+        try {
+            await actualizarMetricasOrden(orden.numero_op, {
+                snapshot_cavidades: parseInt(formData.snapshot_cavidades),
+                snapshot_tiempo_ciclo: parseFloat(formData.snapshot_tiempo_ciclo),
+                snapshot_peso_unitario_gr: parseFloat(formData.snapshot_peso_unitario_gr),
+                snapshot_peso_inc_colada: parseFloat(formData.snapshot_peso_inc_colada)
+            });
+            onSuccess();
+        } catch (error) {
+            console.error(error);
+            alert("Error al actualizar métricas: " + (error.response?.data?.error || error.message));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <Grid container spacing={2}>
+                <Grid item xs={6}>
+                    <TextField 
+                        label="Cavidades Activas"
+                        type="number"
+                        name="snapshot_cavidades"
+                        value={formData.snapshot_cavidades}
+                        onChange={handleChange}
+                        fullWidth
+                        size="small"
+                    />
+                </Grid>
+                <Grid item xs={6}>
+                    <TextField 
+                        label="Tiempo Ciclo (seg)"
+                        type="number"
+                        name="snapshot_tiempo_ciclo"
+                        value={formData.snapshot_tiempo_ciclo}
+                        onChange={handleChange}
+                        fullWidth
+                        size="small"
+                    />
+                </Grid>
+                <Grid item xs={6}>
+                    <TextField 
+                        label="Peso Pieza (gr)"
+                        type="number"
+                        name="snapshot_peso_unitario_gr"
+                        value={formData.snapshot_peso_unitario_gr}
+                        onChange={handleChange}
+                        fullWidth
+                        size="small"
+                    />
+                </Grid>
+                <Grid item xs={6}>
+                    <TextField 
+                        label="Peso Tiro (inc. Colada)"
+                        type="number"
+                        name="snapshot_peso_inc_colada"
+                        value={formData.snapshot_peso_inc_colada}
+                        onChange={handleChange}
+                        fullWidth
+                        size="small"
+                    />
+                </Grid>
+            </Grid>
+            <DialogActions>
+                <Button onClick={onClose} disabled={loading}>Cancelar</Button>
+                <Button variant="contained" onClick={handleSubmit} disabled={loading}>
+                    {loading ? <CircularProgress size={24} /> : 'Guardar Cambios'}
+                </Button>
+            </DialogActions>
+        </Box>
+    );
 }
 
 export default OrdenesLista;
