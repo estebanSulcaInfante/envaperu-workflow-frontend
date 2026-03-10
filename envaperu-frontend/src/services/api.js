@@ -384,4 +384,21 @@ export const obtenerEstadisticasRevisionPiezas = async () => {
   return response.data;
 };
 
+// ==================== RECETA COLOR NORMALIZADA (Prefill pigmentos) ====================
+
+/**
+ * Consulta la receta acumulada de pigmentos para un color dado.
+ * @param {number} colorId       - ID del color (requerido)
+ * @param {string|null} productoSku - SKU del producto (opcional, para receta específica)
+ * @param {number|null} metaKg   - Si se provee, la API calcula gramos absolutos
+ * @returns {{ tiene_receta: boolean, n_muestras_min: number, pigmentos: Array }}
+ */
+export const obtenerRecetaColor = async (colorId, productoSku = null, metaKg = null) => {
+  const params = { color_id: colorId };
+  if (productoSku) params.producto_sku = productoSku;
+  if (metaKg)      params.meta_kg = metaKg;
+  const response = await api.get('/catalogo/receta-color', { params });
+  return response.data;
+};
+
 export default api;

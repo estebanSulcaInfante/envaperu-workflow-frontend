@@ -30,40 +30,39 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PaletteIcon from '@mui/icons-material/Palette';
-import LockIcon from '@mui/icons-material/Lock';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import CalculateIcon from '@mui/icons-material/Calculate';
-import { crearOrden, buscarProductos, obtenerPiezasProducibles, obtenerColores, validarOrdenPrereq, crearColor, obtenerMaquinas, obtenerProducto } from '../services/api';
+import LockIcon from '@mui/icons-material/Lock';
+import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
+import { crearOrden, buscarProductos, obtenerPiezasProducibles, obtenerColores, validarOrdenPrereq, crearColor, obtenerMaquinas, obtenerProducto, obtenerRecetaColor } from '../services/api';
 
 const initialOrden = {
   numero_op: '',
   maquina_id: '',
   tipo_maquina: '',
   producto: '',
-  producto_sku: '', // SKU del producto seleccionado
+  producto_sku: '',
   molde: '',
-  molde_id: '', // Código del molde seleccionado
-  tipo_estrategia: 'POR_PESO',
-  meta_total_kg: '',
-  meta_total_doc: '',
+  molde_id: '',
   tipo_cambio: '',
-  peso_unitario_gr: '',
-  peso_inc_colada: '',
-  cavidades: '',
-  tiempo_ciclo: '',
-  horas_turno: '24',
+  snapshot_peso_colada_gr: '',
+  snapshot_tiempo_ciclo: '',
+  snapshot_horas_turno: '24',
   fecha_inicio: new Date().toISOString().slice(0, 16),
+  // Composición manual del molde (cuando no viene del catálogo)
+  snapshot_composicion: [],
   lotes: []
 };
 
 const initialLote = {
-  color_id: null, // Nuevo campo FK
+  color_id: null,
   color_nombre: '',
+  meta_kg: '',
   personas: 1,
-  stock_kg_manual: '',
   materiales: [],
-  pigmentos: []
+  pigmentos: [],
+  _receta_sugerida: null,  // { pigmentos, n_muestras_min } — estado UI temporal
 };
 
 const STORAGE_KEY = 'envaperu_orden_form_draft';
@@ -116,13 +115,13 @@ function OrdenForm({ onOrdenCreada }) {
   const [maquinasOptions, setMaquinasOptions] = useState([]);
   const [maquinasLoading, setMaquinasLoading] = useState(false);
 
-  // Estado de Errores de Validación
+  // Errores de validación de campos del formulario
   const [errors, setErrors] = useState({});
 
-  // Estado de Piezas Filtradas (Cascada)
+  // Piezas filtradas por producto seleccionado (cascada)
   const [filteredPiezas, setFilteredPiezas] = useState([]);
 
-  // Fetch product details when selected for cascading logic
+
   useEffect(() => {
     const filterAndAutoSelect = async () => {
       // Si no hay producto, mostrar todas las piezas
@@ -274,6 +273,34 @@ function OrdenForm({ onOrdenCreada }) {
     setOrden(prev => ({ ...prev, [name]: value }));
   };
 
+  // ---- Handlers Composición de Molde ----
+  const handleAddComposicion = () => {
+    setOrden(prev => ({
+      ...prev,
+      snapshot_composicion: [
+        ...prev.snapshot_composicion,
+        { pieza_sku: null, cavidades: 1, peso_unit_gr: '' }
+      ]
+    }));
+  };
+
+  const handleComposicionChange = (idx, field, value) => {
+    setOrden(prev => ({
+      ...prev,
+      snapshot_composicion: prev.snapshot_composicion.map((row, i) =>
+        i === idx ? { ...row, [field]: value } : row
+      )
+    }));
+  };
+
+  const handleRemoveComposicion = (idx) => {
+    setOrden(prev => ({
+      ...prev,
+      snapshot_composicion: prev.snapshot_composicion.filter((_, i) => i !== idx)
+    }));
+  };
+
+  // ---- Handlers Lotes ----
   const handleAddLote = () => {
     setOrden(prev => ({
       ...prev,
@@ -373,26 +400,46 @@ function OrdenForm({ onOrdenCreada }) {
     }));
   };
 
+  // Calcular proporción neta del golpe (peso neto = piezas, sin colada)
+  // Los parámetros técnicos ahora usan los snapshots reales del modelo refactorizado
+  const getParamsTecnicos = () => ({
+    pesoNeto: parseFloat(orden.peso_unitario_gr) * (parseInt(orden.cavidades) || 1) || 0,  // cav × peso_unit
+    cavidades: parseInt(orden.cavidades) || 0,
+    tiempoCiclo: parseFloat(orden.snapshot_tiempo_ciclo) || 0,
+    horasTurno: parseFloat(orden.snapshot_horas_turno) || 24,
+    pesoColada: parseFloat(orden.snapshot_peso_colada_gr) || 0,
+  });
+
   const preparePayload = () => {
+    const p = getParamsTecnicos();
+    // Si hay molde_id del catálogo → auto_snapshot_molde = true
+    const autoSnap = !!orden.molde_id && orden.snapshot_composicion.length === 0;
     return {
-      ...orden,
-      producto_sku: orden.producto_sku || null,
-      meta_total_kg: orden.meta_total_kg ? parseFloat(orden.meta_total_kg) : null,
-      meta_total_doc: orden.meta_total_doc ? parseFloat(orden.meta_total_doc) : null,
-      tipo_cambio: orden.tipo_cambio ? parseFloat(orden.tipo_cambio) : null,
-      snapshot_peso_unitario_gr: orden.peso_unitario_gr ? parseFloat(orden.peso_unitario_gr) : null,
-      snapshot_peso_inc_colada: orden.peso_inc_colada ? parseFloat(orden.peso_inc_colada) : null,
-      snapshot_cavidades: orden.cavidades ? parseInt(orden.cavidades) : null,
-      snapshot_tiempo_ciclo: orden.tiempo_ciclo ? parseFloat(orden.tiempo_ciclo) : null,
-      snapshot_horas_turno: orden.horas_turno ? parseFloat(orden.horas_turno) : 24,
+      numero_op:              orden.numero_op,
+      maquina_id:             orden.maquina_id,
+      producto:               orden.producto,
+      producto_sku:           orden.producto_sku || null,
+      molde:                  orden.molde,
+      molde_id:               orden.molde_id || null,
+      tipo_cambio:            orden.tipo_cambio ? parseFloat(orden.tipo_cambio) : null,
+      snapshot_tiempo_ciclo:  p.tiempoCiclo,
+      snapshot_horas_turno:   p.horasTurno,
+      snapshot_peso_colada_gr: p.pesoColada,
+      fecha_inicio:           orden.fecha_inicio,
+      auto_snapshot_molde:    autoSnap,
+      snapshot_composicion:   autoSnap ? [] : orden.snapshot_composicion.map(row => ({
+        pieza_sku:    row.pieza_sku || null,
+        cavidades:    parseInt(row.cavidades) || 1,
+        peso_unit_gr: parseFloat(row.peso_unit_gr) || 0,
+      })),
       lotes: orden.lotes.map(lote => ({
-        ...lote,
-        color_id: lote.color_id, // ENVIAR ID
-        personas: parseInt(lote.personas) || 1,
-        stock_kg_manual: lote.stock_kg_manual ? parseFloat(lote.stock_kg_manual) : null,
+        color_id:   lote.color_id,
+        color_nombre: lote.color_nombre,
+        meta_kg:    lote.meta_kg ? parseFloat(lote.meta_kg) : 0.0,
+        personas:   parseInt(lote.personas) || 1,
         materiales: lote.materiales.map(mat => ({
-          nombre: mat.nombre,
-          tipo: mat.tipo || 'VIRGEN',
+          nombre:   mat.nombre,
+          tipo:     mat.tipo || 'VIRGEN',
           fraccion: parseFloat(mat.fraccion)
         })),
         pigmentos: lote.pigmentos.map(pig => ({
@@ -438,39 +485,20 @@ function OrdenForm({ onOrdenCreada }) {
     setSnackbar({ open: true, message: 'Formulario limpiado', severity: 'info' });
   };
 
-  // Cálculos dinámicos basados en los parámetros actuales
-  const calcularEstimaciones = () => {
+  // Precalculos globales (basados en parámetros técnicos del molde)
+  const calcularEstimacionesGlobales = () => {
     const peso = parseFloat(orden.peso_unitario_gr) || 0;
     const cavidades = parseInt(orden.cavidades) || 0;
-    const tiempoCiclo = parseFloat(orden.tiempo_ciclo) || 0;
-    const horasTurno = parseFloat(orden.horas_turno) || 24;
-    const metaKg = parseFloat(orden.meta_total_kg) || 0;
-    const metaDoc = parseFloat(orden.meta_total_doc) || 0;
-    
-    // Ciclos por hora = 3600 / tiempo_ciclo
+    const tiempoCiclo = parseFloat(orden.snapshot_tiempo_ciclo) || 0;
+    const horasTurno = parseFloat(orden.snapshot_horas_turno) || 24;
+
     const ciclosPorHora = tiempoCiclo > 0 ? 3600 / tiempoCiclo : 0;
-    
-    // Piezas por hora = ciclos/hora × cavidades
     const piezasPorHora = ciclosPorHora * cavidades;
-    
-    // Docenas por hora = piezas/hora / 12
     const docenasPorHora = piezasPorHora / 12;
-    
-    // Kg por hora = piezas/hora × peso / 1000
     const kgPorHora = (piezasPorHora * peso) / 1000;
-    
-    // Capacidad diaria (24h)
     const kgDia = kgPorHora * horasTurno;
     const docDia = docenasPorHora * horasTurno;
-    
-    // Tiempo estimado para cumplir meta
-    let tiempoEstimadoHoras = 0;
-    if (orden.tipo_estrategia === 'POR_PESO' && metaKg > 0 && kgPorHora > 0) {
-      tiempoEstimadoHoras = metaKg / kgPorHora;
-    } else if (orden.tipo_estrategia === 'POR_CANTIDAD' && metaDoc > 0 && docenasPorHora > 0) {
-      tiempoEstimadoHoras = metaDoc / docenasPorHora;
-    }
-    
+
     return {
       ciclosPorHora: ciclosPorHora.toFixed(1),
       piezasPorHora: piezasPorHora.toFixed(0),
@@ -478,13 +506,25 @@ function OrdenForm({ onOrdenCreada }) {
       kgPorHora: kgPorHora.toFixed(2),
       kgDia: kgDia.toFixed(1),
       docDia: docDia.toFixed(0),
-      tiempoEstimadoHoras: tiempoEstimadoHoras.toFixed(1),
-      tiempoEstimadoDias: (tiempoEstimadoHoras / horasTurno).toFixed(1),
-      esValido: peso > 0 && cavidades > 0 && tiempoCiclo > 0
+      esValido: peso > 0 && cavidades > 0 && tiempoCiclo > 0,
+      _kgPorHoraRaw: kgPorHora,
+      _horasTurno: horasTurno,
     };
   };
-  
-  const estimaciones = calcularEstimaciones();
+
+  // Precalculo por lote: dado meta_kg, ¿cuánto tiempo tarda este color?
+  const calcularEstimacionLote = (lote, estGlobales) => {
+    const metaKg = parseFloat(lote.meta_kg) || 0;
+    if (metaKg <= 0 || !estGlobales.esValido) return null;
+    const horas = estGlobales._kgPorHoraRaw > 0 ? metaKg / estGlobales._kgPorHoraRaw : 0;
+    const dias = horas / estGlobales._horasTurno;
+    return {
+      horas: horas.toFixed(1),
+      dias: dias.toFixed(2),
+    };
+  };
+
+  const estimacionesGlobales = calcularEstimacionesGlobales();
 
   return (
     <Paper 
@@ -696,14 +736,19 @@ function OrdenForm({ onOrdenCreada }) {
               }
               onChange={(_, newValue) => {
                 if (newValue && typeof newValue === 'object') {
-                  setOrden(prev => ({ 
-                    ...prev, 
+                  // Molde del catálogo: auto-rellenar datos técnicos y limpiar composición manual
+                  setOrden(prev => ({
+                    ...prev,
                     molde: newValue.nombre,
-                    molde_id: newValue.molde?.codigo || newValue.sku, // Prefer Mold Code, fallback to SKU if direct
+                    molde_id: newValue.molde?.codigo || newValue.sku,
                     cavidades: newValue.cavidades ? String(newValue.cavidades) : prev.cavidades,
                     peso_unitario_gr: newValue.peso_unitario_gr ? String(newValue.peso_unitario_gr) : prev.peso_unitario_gr,
-                    peso_inc_colada: newValue.molde?.peso_tiro_gr ? String(newValue.molde.peso_tiro_gr) : prev.peso_inc_colada,
-                    tiempo_ciclo: newValue.molde?.tiempo_ciclo_std ? String(newValue.molde.tiempo_ciclo_std) : prev.tiempo_ciclo
+                    snapshot_peso_colada_gr: newValue.molde?.peso_tiro_gr
+                      ? String(parseFloat(newValue.molde.peso_tiro_gr) - parseFloat(newValue.peso_unitario_gr || 0) * parseInt(newValue.cavidades || 1))
+                      : prev.snapshot_peso_colada_gr,
+                    snapshot_tiempo_ciclo: newValue.molde?.tiempo_ciclo_std ? String(newValue.molde.tiempo_ciclo_std) : prev.snapshot_tiempo_ciclo,
+                    // Si el molde viene del catálogo, no necesitamos composición manual
+                    snapshot_composicion: [],
                   }));
                 } else {
                   setOrden(prev => ({ ...prev, molde: '', molde_id: '' }));
@@ -742,72 +787,90 @@ function OrdenForm({ onOrdenCreada }) {
           </Stack>
         </Paper>
 
-        {/* Card 3: Estrategia */}
+        {/* Card 3: Composición del Molde (snapshot manual) */}
         <Paper sx={{ p: 1.5, background: '#FAFAFA', border: '1px solid #E0E0E0', flex: '1 1 280px', minWidth: 0 }}>
-          <Typography variant="subtitle2" color="primary" gutterBottom sx={{ fontWeight: 600, mb: 1 }}>
-            🎯 Estrategia
-          </Typography>
-          <Stack spacing={1}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Tipo Estrategia</InputLabel>
-              <Select
-                name="tipo_estrategia"
-                value={orden.tipo_estrategia}
-                onChange={handleChange}
-                label="Tipo Estrategia"
-              >
-                <MenuItem value="POR_PESO">Por Peso (Kg)</MenuItem>
-                <MenuItem value="POR_CANTIDAD">Por Cantidad (Doc)</MenuItem>
-                <MenuItem value="STOCK">Stock Manual</MenuItem>
-              </Select>
-            </FormControl>
-            <Tooltip 
-              title={orden.tipo_estrategia !== 'POR_PESO' ? 'Solo con estrategia "Por Peso"' : ''}
-              placement="top"
-              arrow
-            >
-              <TextField
-                fullWidth
-                label="Meta Total (Kg)"
-                name="meta_total_kg"
-                type="number"
-                value={orden.meta_total_kg}
-                onChange={handleChange}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+            <Typography variant="subtitle2" color="primary" sx={{ fontWeight: 600 }}>
+              🔩 Composición del Molde
+            </Typography>
+            {orden.molde_id && orden.snapshot_composicion.length === 0 ? (
+              <Chip
+                label="Auto desde catálogo"
                 size="small"
-                disabled={orden.tipo_estrategia !== 'POR_PESO'}
-                InputProps={{
-                  endAdornment: orden.tipo_estrategia !== 'POR_PESO' ? (
-                    <InputAdornment position="end">
-                      <LockIcon fontSize="small" sx={{ color: 'text.disabled' }} />
-                    </InputAdornment>
-                  ) : null
-                }}
+                color="success"
+                variant="outlined"
               />
-            </Tooltip>
-            <Tooltip 
-              title={orden.tipo_estrategia !== 'POR_CANTIDAD' ? 'Solo con estrategia "Por Cantidad"' : ''}
-              placement="top"
-              arrow
-            >
-              <TextField
-                fullWidth
-                label="Meta Total (Doc)"
-                name="meta_total_doc"
-                type="number"
-                value={orden.meta_total_doc}
-                onChange={handleChange}
-                size="small"
-                disabled={orden.tipo_estrategia !== 'POR_CANTIDAD'}
-                InputProps={{
-                  endAdornment: orden.tipo_estrategia !== 'POR_CANTIDAD' ? (
-                    <InputAdornment position="end">
-                      <LockIcon fontSize="small" sx={{ color: 'text.disabled' }} />
-                    </InputAdornment>
-                  ) : null
-                }}
-              />
-            </Tooltip>
-          </Stack>
+            ) : (
+              <Button size="small" startIcon={<AddIcon />} onClick={handleAddComposicion}>
+                Fila
+              </Button>
+            )}
+          </Box>
+
+          {orden.molde_id && orden.snapshot_composicion.length === 0 ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              La composición se tomará automáticamente del molde <strong>{orden.molde}</strong> en el catálogo.
+            </Typography>
+          ) : (
+            <>
+              {orden.snapshot_composicion.length === 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  Sin molde en catálogo — ingresa la composición manualmente.
+                </Typography>
+              )}
+              {orden.snapshot_composicion.map((row, idx) => (
+                <Grid container spacing={1} key={idx} sx={{ mb: 1, alignItems: 'center' }}>
+                  <Grid item xs={5}>
+                    <TextField
+                      fullWidth
+                      label="Pieza SKU"
+                      size="small"
+                      placeholder="Opcional"
+                      value={row.pieza_sku || ''}
+                      onChange={(e) => handleComposicionChange(idx, 'pieza_sku', e.target.value || null)}
+                    />
+                  </Grid>
+                  <Grid item xs={3}>
+                    <TextField
+                      fullWidth
+                      label="Cav."
+                      size="small"
+                      type="number"
+                      value={row.cavidades}
+                      onChange={(e) => handleComposicionChange(idx, 'cavidades', e.target.value)}
+                    />
+                  </Grid>
+                  <Grid item xs={3}>
+                    <TextField
+                      fullWidth
+                      label="Peso (gr)"
+                      size="small"
+                      type="number"
+                      value={row.peso_unit_gr}
+                      onChange={(e) => handleComposicionChange(idx, 'peso_unit_gr', e.target.value)}
+                    />
+                  </Grid>
+                  <Grid item xs={1}>
+                    <IconButton size="small" color="error" onClick={() => handleRemoveComposicion(idx)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Grid>
+                </Grid>
+              ))}
+              {orden.snapshot_composicion.length === 0 && (
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleAddComposicion}
+                  sx={{ mt: 0.5, borderStyle: 'dashed' }}
+                >
+                  Agregar fila de pieza
+                </Button>
+              )}
+            </>
+          )}
         </Paper>
       </Box>
 
@@ -823,20 +886,22 @@ function OrdenForm({ onOrdenCreada }) {
               label="Peso Unit. (gr)"
               name="peso_unitario_gr"
               type="number"
-              value={orden.peso_unitario_gr}
+              value={orden.peso_unitario_gr || ''}
               onChange={handleChange}
               size="small"
+              helperText="Peso de 1 pieza"
             />
           </Grid>
           <Grid item xs={6} sm={4} md={2}>
             <TextField
               fullWidth
-              label="Peso Inc. (gr)"
-              name="peso_inc_colada"
+              label="Peso Colada (gr)"
+              name="snapshot_peso_colada_gr"
               type="number"
-              value={orden.peso_inc_colada}
+              value={orden.snapshot_peso_colada_gr}
               onChange={handleChange}
               size="small"
+              helperText="Ramal / runner"
             />
           </Grid>
           <Grid item xs={6} sm={4} md={2}>
@@ -845,7 +910,7 @@ function OrdenForm({ onOrdenCreada }) {
               label="Cavidades"
               name="cavidades"
               type="number"
-              value={orden.cavidades}
+              value={orden.cavidades || ''}
               onChange={handleChange}
               size="small"
             />
@@ -854,9 +919,9 @@ function OrdenForm({ onOrdenCreada }) {
             <TextField
               fullWidth
               label="T. Ciclo (seg)"
-              name="tiempo_ciclo"
+              name="snapshot_tiempo_ciclo"
               type="number"
-              value={orden.tiempo_ciclo}
+              value={orden.snapshot_tiempo_ciclo}
               onChange={handleChange}
               size="small"
             />
@@ -865,9 +930,9 @@ function OrdenForm({ onOrdenCreada }) {
             <TextField
               fullWidth
               label="Horas Turno"
-              name="horas_turno"
+              name="snapshot_horas_turno"
               type="number"
-              value={orden.horas_turno}
+              value={orden.snapshot_horas_turno}
               onChange={handleChange}
               size="small"
             />
@@ -887,61 +952,32 @@ function OrdenForm({ onOrdenCreada }) {
         </Grid>
       </Paper>
 
-      {/* Panel de Cálculos Dinámicos */}
-      {estimaciones.esValido && (
+      {/* Panel de Estimaciones Globales (Capacidad de la Máquina) */}
+      {estimacionesGlobales.esValido && (
         <Paper sx={{ p: 1.5, mb: 2, background: 'linear-gradient(135deg, #E8F5E9 0%, #C8E6C9 100%)', border: '1px solid #81C784' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <CalculateIcon sx={{ color: '#2E7D32' }} />
             <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#1B5E20' }}>
-              📊 Estimaciones de Producción (Calculado en tiempo real)
+              📊 Capacidad de Máquina (tiempo real)
             </Typography>
           </Box>
           <Grid container spacing={1}>
-            <Grid item xs={6} sm={4} md={2}>
-              <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary">Ciclos/Hora</Typography>
-                <Typography variant="h6" sx={{ fontWeight: 700, color: '#2E7D32' }}>{estimaciones.ciclosPorHora}</Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2}>
-              <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary">Piezas/Hora</Typography>
-                <Typography variant="h6" sx={{ fontWeight: 700, color: '#2E7D32' }}>{estimaciones.piezasPorHora}</Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2}>
-              <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary">Docenas/Hora</Typography>
-                <Typography variant="h6" sx={{ fontWeight: 700, color: '#2E7D32' }}>{estimaciones.docenasPorHora}</Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2}>
-              <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary">Kg/Hora</Typography>
-                <Typography variant="h6" sx={{ fontWeight: 700, color: '#2E7D32' }}>{estimaciones.kgPorHora}</Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2}>
-              <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary">Kg/Día ({orden.horas_turno}h)</Typography>
-                <Typography variant="h6" sx={{ fontWeight: 700, color: '#1565C0' }}>{estimaciones.kgDia}</Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={6} sm={4} md={2}>
-              <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary">Doc/Día ({orden.horas_turno}h)</Typography>
-                <Typography variant="h6" sx={{ fontWeight: 700, color: '#1565C0' }}>{estimaciones.docDia}</Typography>
-              </Box>
-            </Grid>
+            {[
+              { label: 'Ciclos/Hora', value: estimacionesGlobales.ciclosPorHora, color: '#2E7D32' },
+              { label: 'Piezas/Hora', value: estimacionesGlobales.piezasPorHora, color: '#2E7D32' },
+              { label: 'Doc/Hora', value: estimacionesGlobales.docenasPorHora, color: '#2E7D32' },
+              { label: 'Kg/Hora', value: estimacionesGlobales.kgPorHora, color: '#2E7D32' },
+              { label: `Kg/Día (${orden.snapshot_horas_turno}h)`, value: estimacionesGlobales.kgDia, color: '#1565C0' },
+              { label: `Doc/Día (${orden.snapshot_horas_turno}h)`, value: estimacionesGlobales.docDia, color: '#1565C0' },
+            ].map(({ label, value, color }) => (
+              <Grid item xs={6} sm={4} md={2} key={label}>
+                <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
+                  <Typography variant="caption" color="text.secondary">{label}</Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 700, color }}>{value}</Typography>
+                </Box>
+              </Grid>
+            ))}
           </Grid>
-          {/* Tiempo estimado para meta */}
-          {(parseFloat(orden.meta_total_kg) > 0 || parseFloat(orden.meta_total_doc) > 0) && parseFloat(estimaciones.tiempoEstimadoHoras) > 0 && (
-            <Box sx={{ mt: 1, p: 1, background: 'rgba(255,255,255,0.9)', borderRadius: 1, textAlign: 'center' }}>
-              <Typography variant="body2" sx={{ color: '#1B5E20' }}>
-                ⏱️ <strong>Tiempo estimado para cumplir meta:</strong> {estimaciones.tiempoEstimadoHoras} horas ({estimaciones.tiempoEstimadoDias} días de {orden.horas_turno}h)
-              </Typography>
-            </Box>
-          )}
         </Paper>
       )}
 
@@ -1036,15 +1072,35 @@ function OrdenForm({ onOrdenCreada }) {
                             setOrden(prev => ({
                                 ...prev,
                                 lotes: prev.lotes.map((l, i) => 
-                                    i === loteIndex ? { ...l, color_id: newValue.id, color_nombre: newValue.nombre } : l
+                                    i === loteIndex ? { ...l, color_id: newValue.id, color_nombre: newValue.nombre, _receta_sugerida: null } : l
                                 )
                             }));
+                            // Buscar receta conocida para este color (best-effort)
+                            if (newValue.id) {
+                                try {
+                                    const receta = await obtenerRecetaColor(
+                                        newValue.id,
+                                        orden.producto_sku || null,
+                                        null  // sin meta_kg aún; se calcula al aplicar
+                                    );
+                                    if (receta.tiene_receta && receta.pigmentos.length > 0) {
+                                        setOrden(prev => ({
+                                            ...prev,
+                                            lotes: prev.lotes.map((l, i) =>
+                                                i === loteIndex ? { ...l, _receta_sugerida: receta } : l
+                                            )
+                                        }));
+                                    }
+                                } catch (_) {
+                                    // silencioso: no bloqueamos el flujo por el prefill
+                                }
+                            }
                         } else {
                             // Clear
                             setOrden(prev => ({
                                 ...prev,
                                 lotes: prev.lotes.map((l, i) => 
-                                    i === loteIndex ? { ...l, color_id: null, color_nombre: '' } : l
+                                    i === loteIndex ? { ...l, color_id: null, color_nombre: '', _receta_sugerida: null } : l
                                 )
                             }));
                         }
@@ -1099,6 +1155,22 @@ function OrdenForm({ onOrdenCreada }) {
                     handleHomeEndKeys
                 />
               </Grid>
+              {/* --- Meta Kg por lote + Estimación de tiempo --- */}
+              <Grid item xs={6} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Meta (Kg)"
+                  type="number"
+                  value={lote.meta_kg}
+                  onChange={(e) => handleLoteChange(loteIndex, 'meta_kg', e.target.value)}
+                  size="small"
+                  required
+                  helperText="Kg objetivo para este color"
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">kg</InputAdornment>
+                  }}
+                />
+              </Grid>
               <Grid item xs={6} sm={4}>
                 <TextField
                   fullWidth
@@ -1109,31 +1181,25 @@ function OrdenForm({ onOrdenCreada }) {
                   size="small"
                 />
               </Grid>
-              <Grid item xs={6} sm={4}>
-                <Tooltip 
-                  title={orden.tipo_estrategia !== 'STOCK' ? 'Solo disponible con estrategia "Stock Manual"' : ''}
-                  placement="top"
-                  arrow
-                >
-                  <TextField
-                    fullWidth
-                    label="Stock Kg Manual"
-                    type="number"
-                    value={lote.stock_kg_manual}
-                    onChange={(e) => handleLoteChange(loteIndex, 'stock_kg_manual', e.target.value)}
-                    size="small"
-                    disabled={orden.tipo_estrategia !== 'STOCK'}
-                    InputProps={{
-                      endAdornment: orden.tipo_estrategia !== 'STOCK' ? (
-                        <InputAdornment position="end">
-                          <LockIcon fontSize="small" sx={{ color: 'text.disabled' }} />
-                        </InputAdornment>
-                      ) : null
-                    }}
-                  />
-                </Tooltip>
-              </Grid>
             </Grid>
+
+            {/* Estimación por lote en tiempo real */}
+            {(() => {
+              const est = calcularEstimacionLote(lote, estimacionesGlobales);
+              if (!est) return null;
+              return (
+                <Box sx={{
+                  mt: 1, px: 1.5, py: 0.75,
+                  background: 'linear-gradient(90deg, #E3F2FD, #E8F5E9)',
+                  borderRadius: 1, display: 'flex', gap: 3, alignItems: 'center'
+                }}>
+                  <CalculateIcon sx={{ color: '#1565C0', fontSize: 18 }} />
+                  <Typography variant="caption" sx={{ color: '#0D47A1' }}>
+                    ⏱ <strong>{est.horas}h</strong> ≈ {est.dias} días para <strong>{lote.meta_kg} kg</strong>
+                  </Typography>
+                </Box>
+              );
+            })()}
 
             {/* Materiales */}
             <Box sx={{ mt: 3 }}>
@@ -1182,9 +1248,39 @@ function OrdenForm({ onOrdenCreada }) {
                 <Typography variant="body2" color="text.secondary">
                   Colorantes / Pigmentos
                 </Typography>
-                <Button size="small" startIcon={<AddIcon />} onClick={() => handleAddPigmento(loteIndex)}>
-                  Pigmento
-                </Button>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  {/* Botón de prefill: aparece cuando hay receta conocida */}
+                  {lote._receta_sugerida && (
+                    <Tooltip title={`Usar receta de ${lote._receta_sugerida.n_muestras_min} OPs anteriores`} arrow>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="success"
+                        startIcon={<AutoFixHighIcon />}
+                        onClick={() => {
+                          // Precarga los pigmentos sugeridos, manteniendo los existentes si el usuario ya editó
+                          const pigsSugeridos = lote._receta_sugerida.pigmentos.map(p => ({
+                            nombre: p.nombre,
+                            gramos: p.gramos !== undefined ? String(p.gramos) : String(parseFloat((p.gr_por_kg * (parseFloat(lote.meta_kg) || 1)).toFixed(2)))
+                          }));
+                          setOrden(prev => ({
+                            ...prev,
+                            lotes: prev.lotes.map((l, i) =>
+                              i === loteIndex ? { ...l, pigmentos: pigsSugeridos, _receta_sugerida: null } : l
+                            )
+                          }));
+                          setSnackbar({ open: true, message: `✨ Receta de pigmentos cargada (${lote._receta_sugerida.n_muestras_min} OPs)`, severity: 'success' });
+                        }}
+                        sx={{ whiteSpace: 'nowrap' }}
+                      >
+                        Usar receta ({lote._receta_sugerida.n_muestras_min} OPs)
+                      </Button>
+                    </Tooltip>
+                  )}
+                  <Button size="small" startIcon={<AddIcon />} onClick={() => handleAddPigmento(loteIndex)}>
+                    Pigmento
+                  </Button>
+                </Box>
               </Box>
               {lote.pigmentos.map((pig, pigIndex) => (
                 <Grid container spacing={1} key={pigIndex} sx={{ mb: 1 }}>

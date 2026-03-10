@@ -21,19 +21,15 @@ import {
   Switch,
   FormControlLabel,
   Tooltip,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
   Stack
 } from '@mui/material';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing';
-import CategoryIcon from '@mui/icons-material/Category';
 import PaletteIcon from '@mui/icons-material/Palette';
 import InventoryIcon from '@mui/icons-material/Inventory2';
+import BuildIcon from '@mui/icons-material/Build';
 import { useNavigate } from 'react-router-dom';
 import {
   obtenerColores,
@@ -74,9 +70,14 @@ function ConfigurarProducto() {
   const [piezas, setPiezas] = useState([
     { nombre: '', cavidades: '2', peso_unitario_gr: '', sku_override: '' }
   ]);
+
+  // Kit state (NUEVO)
+  const [crearKit, setCrearKit] = useState(false);
+  const [kitNombre, setKitNombre] = useState('');
+  const [kitSkuOverride, setKitSkuOverride] = useState('');
   
   const [coloresSeleccionados, setColoresSeleccionados] = useState([]);
-  const [generarProductos, setGenerarProductos] = useState(true);
+
   const [lineaSeleccionada, setLineaSeleccionada] = useState(null);
   const [familiaSeleccionada, setFamiliaSeleccionada] = useState(null);
   
@@ -95,12 +96,10 @@ function ConfigurarProducto() {
       try {
         setColoresLoading(true);
         setMoldesLoading(true);
-        
         const [coloresRes, moldesRes] = await Promise.all([
           obtenerColores(),
           obtenerMoldes()
         ]);
-        
         setColoresOptions(coloresRes);
         setMoldesOptions(moldesRes);
       } catch (err) {
@@ -125,11 +124,17 @@ function ConfigurarProducto() {
     return `MOL-${base}`;
   };
 
+  // Auto-generar nombre del Kit basado en el molde
+  useEffect(() => {
+    if (crearKit && !kitNombre && molde.nombre) {
+      setKitNombre(`${molde.nombre} Completo`);
+    }
+  }, [crearKit, molde.nombre]);
+
   // Handlers
   const handleMoldeChange = (field, value) => {
     setMolde(prev => {
       const updated = { ...prev, [field]: value };
-      // Auto-generar código si cambia el nombre
       if (field === 'nombre' && !prev.usar_existente) {
         updated.codigo = generarCodigoMolde(value);
       }
@@ -180,8 +185,13 @@ function ConfigurarProducto() {
           peso_unitario_gr: parseFloat(p.peso_unitario_gr) || 0,
           sku_override: p.sku_override || null
         })),
+        // Kit (solo si se activó y hay >1 pieza)
+        kit: (crearKit && piezas.length > 1) ? {
+          nombre: kitNombre,
+          sku_override: kitSkuOverride || null
+        } : null,
         color_ids: coloresSeleccionados.map(c => c.id),
-        generar_productos: generarProductos,
+
         linea: lineaSeleccionada?.nombre || '',
         cod_linea: lineaSeleccionada?.cod || 0,
         familia: familiaSeleccionada?.nombre || '',
@@ -203,16 +213,15 @@ function ConfigurarProducto() {
     if (molde.usar_existente) {
       return !!molde.molde_seleccionado;
     }
-    return molde.codigo && molde.nombre && molde.peso_tiro_gr;
+    return molde.codigo && molde.nombre && molde.peso_tiro_gr && lineaSeleccionada && familiaSeleccionada;
   };
 
   const isStep1Valid = () => {
     return piezas.every(p => p.nombre && p.cavidades && p.peso_unitario_gr);
   };
 
-  const isStep2Valid = () => {
-    return coloresSeleccionados.length > 0 || !generarProductos;
-  };
+  // Kit step siempre es válido (es opcional)
+  const isStep2Valid = () => true;
 
   // Calcular peso total estimado
   const pesoNetoCalculado = piezas.reduce((sum, p) => {
@@ -225,7 +234,7 @@ function ConfigurarProducto() {
         <PrecisionManufacturingIcon /> Configuración Rápida de Producto
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Crea Molde + Pieza(s) + Productos en una sola operación
+        Crea Molde + Pieza(s) + Kit (opcional) + Productos en una sola operación
       </Typography>
 
       {error && (
@@ -324,7 +333,7 @@ function ConfigurarProducto() {
                       value={lineaSeleccionada}
                       onChange={(_, newVal) => setLineaSeleccionada(newVal)}
                       renderInput={(params) => (
-                        <TextField {...params} label="Línea" />
+                        <TextField {...params} label="Línea" required />
                       )}
                     />
                   </Grid>
@@ -335,11 +344,39 @@ function ConfigurarProducto() {
                       value={familiaSeleccionada}
                       onChange={(_, newVal) => setFamiliaSeleccionada(newVal)}
                       renderInput={(params) => (
-                        <TextField {...params} label="Familia" />
+                        <TextField {...params} label="Familia" required />
                       )}
                     />
                   </Grid>
-                </Grid>
+                  <Grid item xs={12}>
+                    <Autocomplete
+                      multiple
+                      options={coloresOptions}
+                      getOptionLabel={(opt) => opt.nombre}
+                      loading={coloresLoading}
+                      value={coloresSeleccionados}
+                      onChange={(_, newVal) => setColoresSeleccionados(newVal)}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Colores de Inyección (opcional)"
+                          placeholder="Selecciona colores para crear SKUs de inventario..."
+                          helperText="Si seleccionas colores, se crearán Piezas coloreadas (SKUs) vinculadas a las formas del molde"
+                        />
+                      )}
+                      renderTags={(value, getTagProps) =>
+                        value.map((option, index) => (
+                          <Chip
+                            {...getTagProps({ index })}
+                            key={option.id}
+                            label={option.nombre}
+                            icon={<PaletteIcon />}
+                            size="small"
+                          />
+                        ))
+                      }
+                    />
+                  </Grid>                </Grid>
               )}
             </Box>
             <Box sx={{ display: 'flex', gap: 1 }}>
@@ -384,7 +421,7 @@ function ConfigurarProducto() {
                       label="Nombre de la Pieza"
                       value={pieza.nombre}
                       onChange={(e) => handlePiezaChange(index, 'nombre', e.target.value)}
-                      placeholder="Ej: Balde 5L"
+                      placeholder="Ej: Tapa Regadera"
                     />
                   </Grid>
                   <Grid item xs={6} sm={2}>
@@ -452,79 +489,83 @@ function ConfigurarProducto() {
           </StepContent>
         </Step>
 
-        {/* PASO 3: COLORES */}
+        {/* PASO 3: KIT (NUEVO) — solo aparece si hay >1 pieza */}
         <Step>
           <StepLabel>
-            <Typography sx={{ fontWeight: 600 }}>Seleccionar Colores</Typography>
+            <Typography sx={{ fontWeight: 600 }}>
+              <BuildIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: 'middle' }} />
+              Formar Kit {piezas.length <= 1 && '(no aplica)'}
+            </Typography>
           </StepLabel>
           <StepContent>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={generarProductos}
-                  onChange={(e) => setGenerarProductos(e.target.checked)}
-                />
-              }
-              label="Generar SKUs de Producto Terminado"
-              sx={{ mb: 2 }}
-            />
-            
-            {generarProductos && (
+            {piezas.length > 1 ? (
               <>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Selecciona los colores en los que se producirá. Se creará un ProductoTerminado por cada combinación Pieza × Color.
-                </Typography>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Tu molde produce <strong>{piezas.length} piezas</strong> por golpe. 
+                  ¿Se ensamblan para formar un solo producto?
+                </Alert>
                 
-                <Autocomplete
-                  multiple
-                  options={coloresOptions}
-                  getOptionLabel={(opt) => opt.nombre}
-                  loading={coloresLoading}
-                  value={coloresSeleccionados}
-                  onChange={(_, newVal) => setColoresSeleccionados(newVal)}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Colores"
-                      placeholder="Buscar o seleccionar..."
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={crearKit}
+                      onChange={(e) => setCrearKit(e.target.checked)}
                     />
-                  )}
-                  renderTags={(value, getTagProps) =>
-                    value.map((option, index) => (
-                      <Chip
-                        {...getTagProps({ index })}
-                        key={option.id}
-                        label={option.nombre}
-                        icon={<PaletteIcon />}
-                        size="small"
-                      />
-                    ))
                   }
+                  label="Sí, formar un Kit (pieza ensamblada)"
+                  sx={{ mb: 2, display: 'block' }}
                 />
 
-                {coloresSeleccionados.length > 0 && piezas.length > 0 && (
-                  <Alert severity="success" sx={{ mt: 2 }}>
-                    Se crearán <strong>{piezas.length * coloresSeleccionados.length}</strong> productos terminados
-                    ({piezas.length} pieza(s) × {coloresSeleccionados.length} color(es))
-                  </Alert>
+                {crearKit && (
+                  <Card variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'action.hover' }}>
+                    <Typography variant="subtitle2" color="primary" sx={{ mb: 1 }}>
+                      <BuildIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: 'middle' }} />
+                      Kit: {kitNombre || '(sin nombre)'}
+                    </Typography>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={7}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Nombre del Kit"
+                          value={kitNombre}
+                          onChange={(e) => setKitNombre(e.target.value)}
+                          placeholder="Ej: Regadera Completa"
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={5}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="SKU Kit (opcional)"
+                          value={kitSkuOverride}
+                          onChange={(e) => setKitSkuOverride(e.target.value)}
+                          placeholder="Auto-generado"
+                        />
+                      </Grid>
+                    </Grid>
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                      Componentes: {piezas.map(p => p.nombre || '?').join(' + ')}
+                    </Typography>
+                  </Card>
                 )}
               </>
+            ) : (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Solo hay 1 pieza, no se necesita Kit. Continúa al siguiente paso.
+              </Alert>
             )}
 
-            <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+            <Box sx={{ display: 'flex', gap: 1 }}>
               <Button onClick={handleBack}>Atrás</Button>
-              <Button
-                variant="contained"
-                onClick={handleNext}
-                disabled={!isStep2Valid()}
-              >
+              <Button variant="contained" onClick={handleNext}>
                 Revisar
               </Button>
             </Box>
           </StepContent>
         </Step>
 
-        {/* PASO 4: RESUMEN */}
+        {/* PASO 5: RESUMEN */}
         <Step>
           <StepLabel>
             <Typography sx={{ fontWeight: 600 }}>Revisar y Crear</Typography>
@@ -565,31 +606,17 @@ function ConfigurarProducto() {
                       />
                     ))}
                   </Box>
-                  
-                  {generarProductos && coloresSeleccionados.length > 0 && (
+
+                  {crearKit && piezas.length > 1 && (
                     <>
                       <Divider />
                       <Box>
                         <Typography variant="subtitle2" color="primary">
-                          <PaletteIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: 'middle' }} />
-                          Colores ({coloresSeleccionados.length})
+                          <BuildIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: 'middle' }} />
+                          Kit
                         </Typography>
-                        {coloresSeleccionados.map(c => (
-                          <Chip
-                            key={c.id}
-                            label={c.nombre}
-                            size="small"
-                            sx={{ mr: 0.5, mb: 0.5 }}
-                          />
-                        ))}
-                      </Box>
-                      
-                      <Divider />
-                      
-                      <Box>
-                        <Typography variant="subtitle2" color="success.main">
-                          <CategoryIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: 'middle' }} />
-                          Productos a Crear: {piezas.length * coloresSeleccionados.length}
+                        <Typography variant="body2">
+                          {kitNombre} = {piezas.map(p => p.nombre || '?').join(' + ')}
                         </Typography>
                       </Box>
                     </>
@@ -620,7 +647,7 @@ function ConfigurarProducto() {
           <CheckCircleIcon sx={{ fontSize: 80, color: 'success.main', mb: 2 }} />
           <Typography variant="h5" gutterBottom>¡Configuración Completada!</Typography>
           
-          <Stack direction="row" spacing={2} justifyContent="center" sx={{ my: 3 }}>
+          <Stack direction="row" spacing={2} justifyContent="center" sx={{ my: 3 }} flexWrap="wrap">
             {resultado.molde_creado && (
               <Card variant="outlined">
                 <CardContent>
@@ -637,14 +664,14 @@ function ConfigurarProducto() {
                 <Typography variant="body2">Piezas Creadas</Typography>
               </CardContent>
             </Card>
-            <Card variant="outlined">
-              <CardContent>
-                <Typography variant="h4" color="info.main">
-                  {resultado.productos_creados?.length || 0}
-                </Typography>
-                <Typography variant="body2">Productos Creados</Typography>
-              </CardContent>
-            </Card>
+            {resultado.kit_creado && (
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h4" color="info.main">1</Typography>
+                  <Typography variant="body2">Kit Creado</Typography>
+                </CardContent>
+              </Card>
+            )}
           </Stack>
 
           {resultado.errores?.length > 0 && (
@@ -664,6 +691,9 @@ function ConfigurarProducto() {
               setResultado(null);
               setMolde({ codigo: '', nombre: '', peso_tiro_gr: '', tiempo_ciclo_std: '30', usar_existente: false, molde_seleccionado: null });
               setPiezas([{ nombre: '', cavidades: '2', peso_unitario_gr: '', sku_override: '' }]);
+              setCrearKit(false);
+              setKitNombre('');
+              setKitSkuOverride('');
               setColoresSeleccionados([]);
             }}>
               Crear Otro
