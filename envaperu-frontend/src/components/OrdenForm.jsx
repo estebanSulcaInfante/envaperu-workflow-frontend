@@ -787,19 +787,42 @@ function OrdenForm({ onOrdenCreada }) {
           </Stack>
         </Paper>
 
-        {/* Card 3: Composición del Molde (snapshot manual) */}
+        {/* Card 3: Composición del Molde (snapshot manual / auto) */}
         <Paper sx={{ p: 1.5, background: '#FAFAFA', border: '1px solid #E0E0E0', flex: '1 1 280px', minWidth: 0 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
             <Typography variant="subtitle2" color="primary" sx={{ fontWeight: 600 }}>
               🔩 Composición del Molde
             </Typography>
             {orden.molde_id && orden.snapshot_composicion.length === 0 ? (
-              <Chip
-                label="Auto desde catálogo"
-                size="small"
-                color="success"
-                variant="outlined"
-              />
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Chip
+                  label="Auto desde catálogo"
+                  size="small"
+                  color="success"
+                  variant="outlined"
+                />
+                <Tooltip title="Cambiar a personalizado para editar cavidades/pesos">
+                  <IconButton size="small" onClick={() => {
+                    // Populate from the catalog dynamically to allow editing
+                    const moldeSeleccionado = piezasProducibles.find(p => p.sku === orden.molde_id || p.molde?.codigo === orden.molde_id)?.molde;
+                    const preFills = moldeSeleccionado && moldeSeleccionado.piezas 
+                      ? moldeSeleccionado.piezas 
+                      : piezasProducibles.filter(p => p.molde?.codigo === orden.molde_id || p.sku === orden.molde_id);
+                    
+                    setOrden(prev => ({
+                      ...prev,
+                      snapshot_composicion: preFills.map(p => ({
+                        pieza_sku: p.sku,
+                        nombre: p.nombre, // For UI label tracking
+                        cavidades: p.cavidades || 1,
+                        peso_unit_gr: p.peso_unitario_gr || 0
+                      }))
+                    }));
+                  }}>
+                    <AutoFixHighIcon fontSize="small" color="primary" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
             ) : (
               <Button size="small" startIcon={<AddIcon />} onClick={handleAddComposicion}>
                 Fila
@@ -807,70 +830,77 @@ function OrdenForm({ onOrdenCreada }) {
             )}
           </Box>
 
-          {orden.molde_id && orden.snapshot_composicion.length === 0 ? (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-              La composición se tomará automáticamente del molde <strong>{orden.molde}</strong> en el catálogo.
-            </Typography>
-          ) : (
-            <>
-              {orden.snapshot_composicion.length === 0 && (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                  Sin molde en catálogo — ingresa la composición manualmente.
-                </Typography>
-              )}
-              {orden.snapshot_composicion.map((row, idx) => (
-                <Grid container spacing={1} key={idx} sx={{ mb: 1, alignItems: 'center' }}>
-                  <Grid item xs={5}>
-                    <TextField
-                      fullWidth
-                      label="Pieza SKU"
-                      size="small"
-                      placeholder="Opcional"
-                      value={row.pieza_sku || ''}
-                      onChange={(e) => handleComposicionChange(idx, 'pieza_sku', e.target.value || null)}
-                    />
+          {(() => {
+            const isAutoMode = orden.molde_id && orden.snapshot_composicion.length === 0;
+            // Derivar datos solo-lectura si estamos en auto mode
+            let vistaTabla = orden.snapshot_composicion;
+            
+            if (isAutoMode) {
+              const moldeCat = piezasProducibles.find(p => p.sku === orden.molde_id || p.molde?.codigo === orden.molde_id)?.molde;
+              vistaTabla = (moldeCat && moldeCat.piezas ? moldeCat.piezas : piezasProducibles.filter(p => p.molde?.codigo === orden.molde_id || p.sku === orden.molde_id))
+                .map(p => ({
+                  pieza_sku: p.sku,
+                  nombre: p.nombre,
+                  cavidades: p.cavidades,
+                  peso_unit_gr: p.peso_unitario_gr,
+                  _readonly: true
+                }));
+            }
+
+            return (
+              <>
+                {vistaTabla.length === 0 && !isAutoMode && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    Sin molde en catálogo — ingresa la composición manualmente.
+                  </Typography>
+                )}
+                {vistaTabla.map((row, idx) => (
+                  <Grid container spacing={1} key={idx} sx={{ mb: 1, alignItems: 'center' }}>
+                    <Grid item xs={5}>
+                      <TextField
+                        fullWidth
+                        label="Pieza"
+                        size="small"
+                        placeholder="Opcional"
+                        disabled={row._readonly}
+                        value={row.nombre || row.pieza_sku || ''}
+                        onChange={(e) => handleComposicionChange(idx, 'pieza_sku', e.target.value || null)}
+                      />
+                    </Grid>
+                    <Grid item xs={3}>
+                      <TextField
+                        fullWidth
+                        label="Cav."
+                        size="small"
+                        type="number"
+                        disabled={row._readonly}
+                        value={row.cavidades}
+                        onChange={(e) => handleComposicionChange(idx, 'cavidades', e.target.value)}
+                      />
+                    </Grid>
+                    <Grid item xs={3}>
+                      <TextField
+                        fullWidth
+                        label="Peso (gr)"
+                        size="small"
+                        type="number"
+                        disabled={row._readonly}
+                        value={row.peso_unit_gr}
+                        onChange={(e) => handleComposicionChange(idx, 'peso_unit_gr', e.target.value)}
+                      />
+                    </Grid>
+                    {!row._readonly && (
+                      <Grid item xs={1}>
+                        <IconButton size="small" color="error" onClick={() => handleRemoveComposicion(idx)}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Grid>
+                    )}
                   </Grid>
-                  <Grid item xs={3}>
-                    <TextField
-                      fullWidth
-                      label="Cav."
-                      size="small"
-                      type="number"
-                      value={row.cavidades}
-                      onChange={(e) => handleComposicionChange(idx, 'cavidades', e.target.value)}
-                    />
-                  </Grid>
-                  <Grid item xs={3}>
-                    <TextField
-                      fullWidth
-                      label="Peso (gr)"
-                      size="small"
-                      type="number"
-                      value={row.peso_unit_gr}
-                      onChange={(e) => handleComposicionChange(idx, 'peso_unit_gr', e.target.value)}
-                    />
-                  </Grid>
-                  <Grid item xs={1}>
-                    <IconButton size="small" color="error" onClick={() => handleRemoveComposicion(idx)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Grid>
-                </Grid>
-              ))}
-              {orden.snapshot_composicion.length === 0 && (
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={handleAddComposicion}
-                  sx={{ mt: 0.5, borderStyle: 'dashed' }}
-                >
-                  Agregar fila de pieza
-                </Button>
-              )}
-            </>
-          )}
+                ))}
+              </>
+            );
+          })()}
         </Paper>
       </Box>
 
