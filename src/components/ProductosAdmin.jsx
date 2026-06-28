@@ -143,12 +143,12 @@ function ProductosAdmin() {
 
   const handleAddPieza = (pieza) => {
     if (!pieza) return;
-    const exists = formData.piezas.find(p => p.pieza_sku === pieza.sku);
+    const exists = formData.piezas.find(p => p.pieza_sku === (pieza.sku || pieza.pieza_sku));
     if (exists) return;
     
     setFormData(prev => ({
       ...prev,
-      piezas: [...prev.piezas, { pieza_sku: pieza.sku, nombre: pieza.piezas, cantidad: 1 }]
+      piezas: [...prev.piezas, { pieza_sku: pieza.sku, nombre: pieza.piezas, color: pieza.color, cantidad: 1 }]
     }));
     setPiezaInput('');
   };
@@ -157,6 +157,13 @@ function ProductosAdmin() {
     setFormData(prev => ({
       ...prev,
       piezas: prev.piezas.filter(p => p.pieza_sku !== sku)
+    }));
+  };
+
+  const handleQuantityChange = (sku, qty) => {
+    setFormData(prev => ({
+      ...prev,
+      piezas: prev.piezas.map(p => p.pieza_sku === sku ? { ...p, cantidad: parseInt(qty) || 1 } : p)
     }));
   };
 
@@ -201,12 +208,8 @@ function ProductosAdmin() {
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5" fontWeight={600}>
-          <InventoryIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-          Catálogo de Productos
-        </Typography>
+    <Box sx={{ mt: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 3 }}>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
@@ -405,15 +408,44 @@ function ProductosAdmin() {
                   </li>
                 )}
               />
-              <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                {formData.piezas.map((p) => (
-                  <Chip
-                    key={p.pieza_sku}
-                    label={`${p.nombre || p.pieza_sku} (${p.cantidad})`}
-                    onDelete={() => handleRemovePieza(p.pieza_sku)}
-                    size="small"
-                  />
-                ))}
+              <Box sx={{ mt: 2 }}>
+                {formData.piezas.length > 0 && (
+                  <TableContainer component={Paper} variant="outlined">
+                    <Table size="small">
+                      <TableHead sx={{ bgcolor: '#f5f5f5' }}>
+                        <TableRow>
+                          <TableCell>SKU</TableCell>
+                          <TableCell>Nombre</TableCell>
+                          <TableCell width="120px" align="center">Cantidad</TableCell>
+                          <TableCell width="50px"></TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {formData.piezas.map((p) => (
+                          <TableRow key={p.pieza_sku}>
+                            <TableCell>{p.pieza_sku}</TableCell>
+                            <TableCell>{p.nombre}</TableCell>
+                            <TableCell align="center">
+                              <TextField
+                                type="number"
+                                size="small"
+                                inputProps={{ min: 1 }}
+                                value={p.cantidad}
+                                onChange={(e) => handleQuantityChange(p.pieza_sku, e.target.value)}
+                                sx={{ width: '80px' }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <IconButton size="small" color="error" onClick={() => handleRemovePieza(p.pieza_sku)}>
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
               </Box>
             </Box>
           </Stack>

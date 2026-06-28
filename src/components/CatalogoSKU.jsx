@@ -2,12 +2,16 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, TextField, Tabs, Tab, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Paper, Typography, InputAdornment, Chip, CircularProgress,
-  TablePagination, Tooltip, IconButton
+  TablePagination, Tooltip, IconButton, Button
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import ExtensionIcon from '@mui/icons-material/Extension';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
+import ProductoDialog from './ProductoDialog';
+import PiezaDialog from './PiezaDialog';
 
 const API_BASE = '/api';
 
@@ -18,6 +22,12 @@ function CatalogoSKU() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(50);
+  
+  // Dialog States
+  const [productoDialogOpen, setProductoDialogOpen] = useState(false);
+  const [piezaDialogOpen, setPiezaDialogOpen] = useState(false);
+  
+  const [editingItem, setEditingItem] = useState(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -58,6 +68,16 @@ function CatalogoSKU() {
 
   const paginatedData = data.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 
+  const handleEditProducto = (producto) => {
+    setEditingItem(producto);
+    setProductoDialogOpen(true);
+  };
+  
+  const handleEditPieza = (pieza) => {
+    setEditingItem(pieza);
+    setPiezaDialogOpen(true);
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -67,33 +87,45 @@ function CatalogoSKU() {
 
       <Paper sx={{ mb: 3 }}>
         <Tabs value={tab} onChange={handleTabChange} indicatorColor="primary" textColor="primary">
-          <Tab icon={<InventoryIcon />} label="Productos Terminados" />
-          <Tab icon={<ExtensionIcon />} label="Piezas" />
+          <Tab icon={<InventoryIcon />} label="Productos Terminados (PT)" />
+          <Tab icon={<ExtensionIcon />} label="Piezas y Variantes (SKU)" />
         </Tabs>
       </Paper>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center' }}>
-        <TextField
-          fullWidth
-          variant="outlined"
-          placeholder={tab === 0 
-            ? "Buscar por SKU, nombre, familia, línea, marca, código de barras..." 
-            : "Buscar por SKU, pieza, color, familia, molde, material..."}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-          }}
-        />
-        <Tooltip title="Recargar datos">
-          <IconButton onClick={fetchData} color="primary">
-            <RefreshIcon />
-          </IconButton>
-        </Tooltip>
+      <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center', justifyContent: 'space-between' }}>
+        <Box sx={{ display: 'flex', gap: 2, flexGrow: 1, alignItems: 'center' }}>
+          <TextField
+            fullWidth
+            variant="outlined"
+            placeholder={tab === 0 
+              ? "Buscar por SKU, nombre, familia, línea, marca, código de barras..." 
+              : "Buscar por SKU, pieza, color, familia, molde, material..."}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <Tooltip title="Recargar datos">
+            <IconButton onClick={fetchData} color="primary">
+              <RefreshIcon />
+            </IconButton>
+          </Tooltip>
+        </Box>
+        
+        {tab === 0 ? (
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setEditingItem(null); setProductoDialogOpen(true); }}>
+            Nuevo Producto
+          </Button>
+        ) : (
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => { setEditingItem(null); setPiezaDialogOpen(true); }}>
+            Nueva Pieza
+          </Button>
+        )}
       </Box>
 
       {loading ? (
@@ -104,9 +136,9 @@ function CatalogoSKU() {
         <>
           <TableContainer component={Paper} sx={{ maxHeight: 'calc(100vh - 350px)', overflow: 'auto' }}>
             {tab === 0 ? (
-              <ProductosTableComplete data={paginatedData} />
+              <ProductosTableComplete data={paginatedData} onEdit={handleEditProducto} />
             ) : (
-              <PiezasTableComplete data={paginatedData} />
+              <PiezasTableComplete data={paginatedData} onEdit={handleEditPieza} />
             )}
           </TableContainer>
           
@@ -127,6 +159,18 @@ function CatalogoSKU() {
       <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
         Total: {data.length} registros
       </Typography>
+
+      {/* Dialogs de Edición/Creación */}
+      <ProductoDialog 
+        open={productoDialogOpen} 
+        onClose={() => { setProductoDialogOpen(false); setEditingItem(null); fetchData(); }} 
+        producto={editingItem} 
+      />
+      <PiezaDialog 
+        open={piezaDialogOpen} 
+        onClose={() => { setPiezaDialogOpen(false); setEditingItem(null); fetchData(); }} 
+        pieza={editingItem} 
+      />
     </Box>
   );
 }
@@ -144,7 +188,7 @@ function CellWithTooltip({ value, maxWidth = 150 }) {
   );
 }
 
-function ProductosTableComplete({ data }) {
+function ProductosTableComplete({ data, onEdit }) {
   const getRevisionColor = (estado) => {
     switch(estado) {
       case 'VERIFICADO': return 'success';
@@ -158,6 +202,7 @@ function ProductosTableComplete({ data }) {
     <Table stickyHeader size="small" sx={{ minWidth: 2000 }}>
       <TableHead>
         <TableRow sx={{ '& th': { fontWeight: 'bold', backgroundColor: '#f5f5f5' } }}>
+          <TableCell align="center">Acciones</TableCell>
           <TableCell>SKU</TableCell>
           <TableCell>Producto</TableCell>
           <TableCell>Línea</TableCell>
@@ -185,6 +230,11 @@ function ProductosTableComplete({ data }) {
       <TableBody>
         {data.map((row) => (
           <TableRow key={row.cod_sku_pt} hover sx={{ '&:nth-of-type(odd)': { backgroundColor: '#fafafa' } }}>
+            <TableCell align="center">
+              <IconButton size="small" color="primary" onClick={() => onEdit(row)}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </TableCell>
             <TableCell><code style={{ fontSize: '0.85em', backgroundColor: '#e3f2fd', padding: '2px 6px', borderRadius: '4px' }}>{row.cod_sku_pt}</code></TableCell>
             <CellWithTooltip value={row.producto} maxWidth={200} />
             <TableCell>{row.linea || '-'}</TableCell>
@@ -230,7 +280,7 @@ function ProductosTableComplete({ data }) {
   );
 }
 
-function PiezasTableComplete({ data }) {
+function PiezasTableComplete({ data, onEdit }) {
   const getRevisionColor = (estado) => {
     switch(estado) {
       case 'VERIFICADO': return 'success';
@@ -244,7 +294,8 @@ function PiezasTableComplete({ data }) {
     <Table stickyHeader size="small" sx={{ minWidth: 1800 }}>
       <TableHead>
         <TableRow sx={{ '& th': { fontWeight: 'bold', backgroundColor: '#f5f5f5' } }}>
-          <TableCell>SKU</TableCell>
+          <TableCell align="center">Acciones</TableCell>
+          <TableCell>SKU Pieza</TableCell>
           <TableCell>Pieza</TableCell>
           <TableCell>Tipo</TableCell>
           <TableCell>Línea</TableCell>
@@ -268,7 +319,12 @@ function PiezasTableComplete({ data }) {
       <TableBody>
         {data.map((row) => (
           <TableRow key={row.sku} hover sx={{ '&:nth-of-type(odd)': { backgroundColor: '#fafafa' } }}>
-            <TableCell><code style={{ fontSize: '0.85em', backgroundColor: '#e8f5e9', padding: '2px 6px', borderRadius: '4px' }}>{row.sku}</code></TableCell>
+            <TableCell align="center">
+              <IconButton size="small" color="primary" onClick={() => onEdit(row)}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </TableCell>
+            <TableCell><code style={{ fontSize: '0.85em', backgroundColor: '#e3f2fd', padding: '2px 6px', borderRadius: '4px' }}>{row.sku}</code></TableCell>
             <CellWithTooltip value={row.piezas} maxWidth={180} />
             <TableCell>
               <Chip 

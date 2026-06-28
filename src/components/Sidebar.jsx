@@ -37,7 +37,7 @@ const ordenesItems = [
 
 const catalogoItems = [
   { path: '/catalogo/configurar', label: 'Config. Rápida', icon: <AddCircleIcon />, highlight: true },
-  { path: '/catalogo/sku', label: 'Catálogo SKU', icon: <CategoryIcon /> },
+  { path: '/catalogo/sku', label: 'Catálogo (PT y Piezas)', icon: <CategoryIcon /> },
   { path: '/catalogo/moldes', label: 'Moldes', icon: <PrecisionManufacturingIcon /> },
   { path: '/catalogo/importar', label: 'Importar Excel', icon: <CloudUploadIcon /> },
   { path: '/catalogo/revision', label: 'Revisión Datos', icon: <RateReviewIcon /> },

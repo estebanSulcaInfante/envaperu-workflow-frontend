@@ -12,6 +12,7 @@ import OrdenesLista from './components/OrdenesLista';
 import CatalogoSKU from './components/CatalogoSKU';
 import RegistrosLista from './components/RegistrosLista';
 import MoldesLista from './components/MoldesLista';
+import MoldeDetalle from './components/MoldeDetalle';
 import ProductosAdmin from './components/ProductosAdmin';
 import PiezasAdmin from './components/PiezasAdmin';
 import TalonariosAdmin from './components/TalonariosAdmin';
@@ -107,8 +108,10 @@ function App() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/ordenes" element={<OrdenesLista />} />
                 <Route path="/ordenes/nueva" element={<OrdenForm />} />
+                <Route path="/catalogo/productos" element={<ProductosAdmin />} />
                 <Route path="/catalogo/sku" element={<CatalogoSKU />} />
                 <Route path="/catalogo/moldes" element={<MoldesLista />} />
+                <Route path="/catalogo/moldes/:codigo" element={<MoldeDetalle />} />
                 <Route path="/catalogo/importar" element={<ImportarCatalogo />} />
                 <Route path="/catalogo/configurar" element={<ConfigurarProducto />} />
                 <Route path="/catalogo/revision" element={<RevisionProductos />} />

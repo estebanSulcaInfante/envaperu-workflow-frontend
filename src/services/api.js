@@ -79,6 +79,30 @@ export const obtenerColores = async () => {
   return response.data;
 };
 
+// Obtener todas las líneas
+export const obtenerLineas = async () => {
+  const response = await api.get('/catalogo/lineas');
+  return response.data;
+};
+
+// Obtener todas las familias
+export const obtenerFamilias = async () => {
+  const response = await api.get('/catalogo/familias');
+  return response.data;
+};
+
+// Obtener todas las familias de color
+export const obtenerFamiliasColor = async () => {
+  const response = await api.get('/familias-color');
+  return response.data;
+};
+
+// Obtener todas las formas (piezas de molde)
+export const obtenerFormas = async () => {
+  const response = await api.get('/formas');
+  return response.data;
+};
+
 // Crear color on-the-fly
 export const crearColor = async (nombre) => {
   const response = await api.post('/colores', { nombre });
@@ -251,6 +275,10 @@ export const obtenerProducto = async (sku) => {
   return response.data;
 };
 
+// ==================== CATÁLOGO LÍNEAS/FAMILIAS ====================
+
+// Las funciones obtenerLineas y obtenerFamilias fueron movidas arriba.
+
 // ==================== CONFIGURACIÓN RÁPIDA ====================
 
 // Crear Molde + Pieza(s) + Producto(s) en cascada
@@ -398,6 +426,38 @@ export const obtenerRecetaColor = async (colorId, productoSku = null, metaKg = n
   if (productoSku) params.producto_sku = productoSku;
   if (metaKg)      params.meta_kg = metaKg;
   const response = await api.get('/catalogo/receta-color', { params });
+  return response.data;
+};
+
+// ==================== CATÁLOGO MOLDES Y FORMAS (CRUD Avanzado) ====================
+
+export const getMoldes = async () => {
+  const response = await api.get('/moldes');
+  return response.data;
+};
+
+export const getMoldeDetalle = async (codigo) => {
+  const response = await api.get(`/moldes/${codigo}`);
+  return response.data;
+};
+
+export const updateMolde = async (codigo, data) => {
+  const response = await api.put(`/moldes/${codigo}`, data);
+  return response.data;
+};
+
+export const addFormaMolde = async (codigo, data) => {
+  const response = await api.post(`/moldes/${codigo}/formas`, data);
+  return response.data;
+};
+
+export const addColorForma = async (formaId, colorId) => {
+  const response = await api.post(`/formas/${formaId}/colores`, { color_id: colorId });
+  return response.data;
+};
+
+export const deleteForma = async (formaId) => {
+  const response = await api.delete(`/formas/${formaId}`);
   return response.data;
 };
 

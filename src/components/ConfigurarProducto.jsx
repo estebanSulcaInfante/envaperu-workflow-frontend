@@ -34,22 +34,10 @@ import { useNavigate } from 'react-router-dom';
 import {
   obtenerColores,
   obtenerMoldes,
-  configurarProductoCascada
+  configurarProductoCascada,
+  obtenerLineas,
+  obtenerFamilias
 } from '../services/api';
-
-// Líneas/Familias predefinidas (pueden venir del backend en el futuro)
-const LINEAS = [
-  { cod: 2, nombre: 'JUGUETES' },
-  { cod: 1, nombre: 'HOGAR' },
-  { cod: 3, nombre: 'INDUSTRIAL' },
-];
-
-const FAMILIAS = [
-  { cod: 14, nombre: 'PLAYEROS', linea_cod: 2 },
-  { cod: 15, nombre: 'BALDES', linea_cod: 2 },
-  { cod: 10, nombre: 'JARRAS', linea_cod: 1 },
-  { cod: 11, nombre: 'TAZONES', linea_cod: 1 },
-];
 
 function ConfigurarProducto() {
   const navigate = useNavigate();
@@ -84,8 +72,11 @@ function ConfigurarProducto() {
   // Catálogos
   const [coloresOptions, setColoresOptions] = useState([]);
   const [moldesOptions, setMoldesOptions] = useState([]);
+  const [lineasOptions, setLineasOptions] = useState([]);
+  const [familiasOptions, setFamiliasOptions] = useState([]);
   const [coloresLoading, setColoresLoading] = useState(false);
   const [moldesLoading, setMoldesLoading] = useState(false);
+  const [catalogosLoading, setCatalogosLoading] = useState(false);
   
   // Resultado
   const [resultado, setResultado] = useState(null);
@@ -96,17 +87,24 @@ function ConfigurarProducto() {
       try {
         setColoresLoading(true);
         setMoldesLoading(true);
-        const [coloresRes, moldesRes] = await Promise.all([
+        setCatalogosLoading(true);
+        const [coloresRes, moldesRes, lineasRes, familiasRes] = await Promise.all([
           obtenerColores(),
-          obtenerMoldes()
+          obtenerMoldes(),
+          obtenerLineas(),
+          obtenerFamilias()
         ]);
-        setColoresOptions(coloresRes);
-        setMoldesOptions(moldesRes);
+        setColoresOptions(coloresRes || []);
+        setMoldesOptions(moldesRes || []);
+        setLineasOptions(lineasRes || []);
+        setFamiliasOptions(familiasRes || []);
       } catch (err) {
-        console.error('Error cargando catálogos:', err);
+        console.error("Error al cargar catálogos:", err);
+        setError("No se pudieron cargar algunos catálogos iniciales.");
       } finally {
         setColoresLoading(false);
         setMoldesLoading(false);
+        setCatalogosLoading(false);
       }
     };
     cargarCatalogos();
@@ -179,7 +177,7 @@ function ConfigurarProducto() {
           tiempo_ciclo_std: parseFloat(molde.tiempo_ciclo_std) || 30,
           usar_existente: molde.usar_existente
         },
-        piezas: piezas.map(p => ({
+        formas: piezas.map(p => ({
           nombre: p.nombre,
           cavidades: parseInt(p.cavidades) || 1,
           peso_unitario_gr: parseFloat(p.peso_unitario_gr) || 0,
@@ -192,15 +190,13 @@ function ConfigurarProducto() {
         } : null,
         color_ids: coloresSeleccionados.map(c => c.id),
 
-        linea: lineaSeleccionada?.nombre || '',
-        cod_linea: lineaSeleccionada?.cod || 0,
-        familia: familiaSeleccionada?.nombre || '',
-        cod_familia: familiaSeleccionada?.cod || 0
+        linea_id: lineaSeleccionada?.id || 0,
+        familia_id: familiaSeleccionada?.id || 0
       };
       
       const response = await configurarProductoCascada(payload);
       setResultado(response.resultado);
-      setActiveStep(4); // Ir al paso de resultado
+      setActiveStep(5); // Ir al paso de resultado
     } catch (err) {
       setError(err.response?.data?.error || 'Error creando configuración');
     } finally {
@@ -220,8 +216,12 @@ function ConfigurarProducto() {
     return piezas.every(p => p.nombre && p.cavidades && p.peso_unitario_gr);
   };
 
+  const isStep2Valid = () => {
+    return true; // Colors are optional
+  };
+
   // Kit step siempre es válido (es opcional)
-  const isStep2Valid = () => true;
+  const isStep3Valid = () => true;
 
   // Calcular peso total estimado
   const pesoNetoCalculado = piezas.reduce((sum, p) => {
@@ -328,8 +328,9 @@ function ConfigurarProducto() {
                   </Grid>
                   <Grid item xs={6} sm={3}>
                     <Autocomplete
-                      options={LINEAS}
+                      options={lineasOptions}
                       getOptionLabel={(opt) => opt.nombre}
+                      loading={catalogosLoading}
                       value={lineaSeleccionada}
                       onChange={(_, newVal) => setLineaSeleccionada(newVal)}
                       renderInput={(params) => (
@@ -339,8 +340,9 @@ function ConfigurarProducto() {
                   </Grid>
                   <Grid item xs={6} sm={3}>
                     <Autocomplete
-                      options={FAMILIAS.filter(f => !lineaSeleccionada || f.linea_cod === lineaSeleccionada?.cod)}
+                      options={familiasOptions}
                       getOptionLabel={(opt) => opt.nombre}
+                      loading={catalogosLoading}
                       value={familiaSeleccionada}
                       onChange={(_, newVal) => setFamiliaSeleccionada(newVal)}
                       renderInput={(params) => (
@@ -348,35 +350,7 @@ function ConfigurarProducto() {
                       )}
                     />
                   </Grid>
-                  <Grid item xs={12}>
-                    <Autocomplete
-                      multiple
-                      options={coloresOptions}
-                      getOptionLabel={(opt) => opt.nombre}
-                      loading={coloresLoading}
-                      value={coloresSeleccionados}
-                      onChange={(_, newVal) => setColoresSeleccionados(newVal)}
-                      renderInput={(params) => (
-                        <TextField
-                          {...params}
-                          label="Colores de Inyección (opcional)"
-                          placeholder="Selecciona colores para crear SKUs de inventario..."
-                          helperText="Si seleccionas colores, se crearán Piezas coloreadas (SKUs) vinculadas a las formas del molde"
-                        />
-                      )}
-                      renderTags={(value, getTagProps) =>
-                        value.map((option, index) => (
-                          <Chip
-                            {...getTagProps({ index })}
-                            key={option.id}
-                            label={option.nombre}
-                            icon={<PaletteIcon />}
-                            size="small"
-                          />
-                        ))
-                      }
-                    />
-                  </Grid>                </Grid>
+                </Grid>
               )}
             </Box>
             <Box sx={{ display: 'flex', gap: 1 }}>
@@ -391,21 +365,21 @@ function ConfigurarProducto() {
           </StepContent>
         </Step>
 
-        {/* PASO 2: PIEZAS */}
+        {/* PASO 2: FORMAS */}
         <Step>
           <StepLabel>
-            <Typography sx={{ fontWeight: 600 }}>Definir Piezas ({piezas.length})</Typography>
+            <Typography sx={{ fontWeight: 600 }}>Definir Formas ({piezas.length})</Typography>
           </StepLabel>
           <StepContent>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Define las piezas que produce este molde por golpe
+              Define las formas físicas (cavidades puras) que produce este molde por golpe
             </Typography>
             
             {piezas.map((pieza, index) => (
               <Card key={index} variant="outlined" sx={{ mb: 2, p: 2 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                   <Typography variant="subtitle2" color="primary">
-                    Pieza {index + 1}
+                    Forma {index + 1}
                   </Typography>
                   {piezas.length > 1 && (
                     <IconButton size="small" color="error" onClick={() => removePieza(index)}>
@@ -418,7 +392,7 @@ function ConfigurarProducto() {
                     <TextField
                       fullWidth
                       size="small"
-                      label="Nombre de la Pieza"
+                      label="Nombre de la Forma"
                       value={pieza.nombre}
                       onChange={(e) => handlePiezaChange(index, 'nombre', e.target.value)}
                       placeholder="Ej: Tapa Regadera"
@@ -464,7 +438,7 @@ function ConfigurarProducto() {
               onClick={addPieza}
               sx={{ mb: 2 }}
             >
-              Agregar Otra Pieza
+              Agregar Otra Forma
             </Button>
 
             {pesoNetoCalculado > 0 && (
@@ -489,7 +463,55 @@ function ConfigurarProducto() {
           </StepContent>
         </Step>
 
-        {/* PASO 3: KIT (NUEVO) — solo aparece si hay >1 pieza */}
+        {/* PASO 3: COLORES DE INYECCIÓN (NUEVO) */}
+        <Step>
+          <StepLabel>
+            <Typography sx={{ fontWeight: 600 }}>Colores de Inyección</Typography>
+          </StepLabel>
+          <StepContent>
+            <Box sx={{ mb: 2 }}>
+              <Autocomplete
+                multiple
+                options={coloresOptions}
+                getOptionLabel={(opt) => opt.nombre}
+                loading={coloresLoading}
+                value={coloresSeleccionados}
+                onChange={(_, newVal) => setColoresSeleccionados(newVal)}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Colores (opcional)"
+                    placeholder="Selecciona colores para crear SKUs..."
+                    helperText="Si seleccionas colores, se crearán Piezas Color (SKUs físicos) vinculadas a las formas"
+                  />
+                )}
+                renderTags={(value, getTagProps) =>
+                  value.map((option, index) => (
+                    <Chip
+                      {...getTagProps({ index })}
+                      key={option.id}
+                      label={option.nombre}
+                      icon={<PaletteIcon />}
+                      size="small"
+                    />
+                  ))
+                }
+              />
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button onClick={handleBack}>Atrás</Button>
+              <Button
+                variant="contained"
+                onClick={handleNext}
+                disabled={!isStep2Valid()}
+              >
+                Siguiente
+              </Button>
+            </Box>
+          </StepContent>
+        </Step>
+
+        {/* PASO 4: KIT */}
         <Step>
           <StepLabel>
             <Typography sx={{ fontWeight: 600 }}>
@@ -501,7 +523,7 @@ function ConfigurarProducto() {
             {piezas.length > 1 ? (
               <>
                 <Alert severity="info" sx={{ mb: 2 }}>
-                  Tu molde produce <strong>{piezas.length} piezas</strong> por golpe. 
+                  Tu molde produce <strong>{piezas.length} formas</strong> por golpe. 
                   ¿Se ensamblan para formar un solo producto?
                 </Alert>
                 
@@ -552,7 +574,7 @@ function ConfigurarProducto() {
               </>
             ) : (
               <Alert severity="info" sx={{ mb: 2 }}>
-                Solo hay 1 pieza, no se necesita Kit. Continúa al siguiente paso.
+                Solo hay 1 forma, no se necesita Kit. Continúa al siguiente paso.
               </Alert>
             )}
 
@@ -595,7 +617,7 @@ function ConfigurarProducto() {
                   <Box>
                     <Typography variant="subtitle2" color="primary">
                       <InventoryIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: 'middle' }} />
-                      Piezas ({piezas.length})
+                      Formas ({piezas.length})
                     </Typography>
                     {piezas.map((p, i) => (
                       <Chip
@@ -642,7 +664,7 @@ function ConfigurarProducto() {
       </Stepper>
 
       {/* RESULTADO */}
-      {activeStep === 4 && resultado && (
+      {activeStep === 5 && resultado && (
         <Box sx={{ mt: 3, textAlign: 'center' }}>
           <CheckCircleIcon sx={{ fontSize: 80, color: 'success.main', mb: 2 }} />
           <Typography variant="h5" gutterBottom>¡Configuración Completada!</Typography>

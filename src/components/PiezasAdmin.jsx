@@ -149,12 +149,8 @@ function PiezasAdmin() {
   }
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5" fontWeight={600}>
-          <CategoryIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-          Catálogo de Piezas
-        </Typography>
+    <Box sx={{ mt: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 3 }}>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
