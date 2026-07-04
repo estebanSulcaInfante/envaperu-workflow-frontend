@@ -147,7 +147,7 @@ function TalonariosAdmin() {
         <Box>
           <Typography variant="h5" fontWeight={600}>
             <MenuBookIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Talonarios RDP
+            Talonarios de Orden de Trabajo (ex-RDP)
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Gestión de correlativos para Registros Diarios de Producción

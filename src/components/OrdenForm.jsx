@@ -118,15 +118,34 @@ function OrdenForm({ onOrdenCreada }) {
   // Errores de validación de campos del formulario
   const [errors, setErrors] = useState({});
 
-  // Piezas filtradas por producto seleccionado (cascada)
-  const [filteredPiezas, setFilteredPiezas] = useState([]);
+  // Moldes filtrados por producto seleccionado (cascada)
+  const [filteredMoldes, setFilteredMoldes] = useState([]);
+  const [moldesOptions, setMoldesOptions] = useState([]); // Unique molds from piezasProducibles
 
+  useEffect(() => {
+    // Generar moldesOptions únicos a partir de piezasProducibles
+    if (piezasProducibles.length > 0) {
+      const uniqueMoldesMap = new Map();
+      piezasProducibles.forEach(p => {
+        if (p.molde && p.molde.codigo) {
+          if (!uniqueMoldesMap.has(p.molde.codigo)) {
+            uniqueMoldesMap.set(p.molde.codigo, {
+              ...p.molde,
+              // Guardar la pieza asociada por defecto para auto-rellenar
+              _defaultPieza: p
+            });
+          }
+        }
+      });
+      setMoldesOptions(Array.from(uniqueMoldesMap.values()));
+    }
+  }, [piezasProducibles]);
 
   useEffect(() => {
     const filterAndAutoSelect = async () => {
-      // Si no hay producto, mostrar todas las piezas
+      // Si no hay producto, mostrar todos los moldes
       if (!orden.producto_sku) {
-        setFilteredPiezas(piezasProducibles);
+        setFilteredMoldes(moldesOptions);
         return;
       }
       
@@ -135,32 +154,52 @@ function OrdenForm({ onOrdenCreada }) {
         
         if (prodDetails && prodDetails.piezas) {
             const pieceSkus = prodDetails.piezas.map(p => p.sku);
-            const filtradas = piezasProducibles.filter(p => pieceSkus.includes(p.sku));
-            setFilteredPiezas(filtradas);
+            const piezasAsociadas = piezasProducibles.filter(p => pieceSkus.includes(p.sku));
             
-            // Auto-select si solo hay 1
-            if (filtradas.length === 1) {
-                const p = filtradas[0];
+            // Extraer moldes únicos de las piezas asociadas
+            const moldesMap = new Map();
+            piezasAsociadas.forEach(p => {
+                if (p.molde && p.molde.codigo) {
+                    if (!moldesMap.has(p.molde.codigo)) {
+                        moldesMap.set(p.molde.codigo, {
+                          ...p.molde,
+                          _defaultPieza: p
+                        });
+                    }
+                }
+            });
+            const moldesFiltrados = Array.from(moldesMap.values());
+            setFilteredMoldes(moldesFiltrados);
+            
+            // Auto-select si solo hay 1 molde
+            if (moldesFiltrados.length === 1) {
+                const m = moldesFiltrados[0];
+                const defaultP = m._defaultPieza;
                 setOrden(prev => ({
                     ...prev,
-                    molde: p.molde ? p.molde.nombre : '',
-                    molde_id: p.molde ? p.molde.codigo : '',
-                    peso_unitario_gr: p.peso_unitario_gr, // De la pieza
-                    cavidades: p.cavidades,
-                    tipo_estrategia: 'POR_PESO' // Default
+                    molde: m.nombre,
+                    molde_id: m.codigo,
+                    peso_unitario_gr: defaultP ? String(defaultP.peso_unitario_gr) : prev.peso_unitario_gr,
+                    cavidades: defaultP ? String(defaultP.cavidades) : prev.cavidades,
+                    snapshot_peso_colada_gr: m.peso_tiro_gr && defaultP 
+                      ? String(parseFloat(m.peso_tiro_gr) - parseFloat(defaultP.peso_unitario_gr || 0) * parseInt(defaultP.cavidades || 1))
+                      : prev.snapshot_peso_colada_gr,
+                    snapshot_tiempo_ciclo: m.tiempo_ciclo_std ? String(m.tiempo_ciclo_std) : prev.snapshot_tiempo_ciclo,
+                    snapshot_composicion: [],
+                    tipo_estrategia: 'POR_PESO'
                 }));
             }
         }
       } catch (err) {
         console.error("Error cascading product details:", err);
-        setFilteredPiezas(piezasProducibles); // Fallback
+        setFilteredMoldes(moldesOptions); // Fallback
       }
     };
     
-    if (piezasProducibles.length > 0) {
+    if (piezasProducibles.length > 0 && moldesOptions.length > 0) {
         filterAndAutoSelect();
     }
-  }, [orden.producto_sku, piezasProducibles]);
+  }, [orden.producto_sku, piezasProducibles, moldesOptions]);
 
   // Fetch piezas producibles, máquinas y colores al cargar
   useEffect(() => {
@@ -209,7 +248,7 @@ function OrdenForm({ onOrdenCreada }) {
     const newErrors = {};
     if (!orden.numero_op) newErrors.numero_op = 'Requerido';
     if (!orden.maquina_id) newErrors.maquina_id = 'Requerido';
-    if (!orden.producto_sku) newErrors.producto = 'Requerido';
+    if (!orden.producto) newErrors.producto = 'Requerido';
     if (!orden.molde_id) newErrors.molde = 'Requerido para parámetros técnicos';
     
     if (orden.meta_total_kg && parseFloat(orden.meta_total_kg) <= 0) newErrors.meta_total_kg = 'Debe ser mayor a 0';
@@ -663,10 +702,10 @@ function OrdenForm({ onOrdenCreada }) {
           </Typography>
           <Stack spacing={1}>
             <Autocomplete
-              freeSolo
               forcePopupIcon
               options={productosOptions}
-              value={orden.producto || null}
+              value={orden.producto ? { producto: orden.producto, cod_sku_pt: orden.producto_sku || '' } : null}
+              isOptionEqualToValue={(option, value) => option.cod_sku_pt === value?.cod_sku_pt}
               getOptionLabel={(option) => {
                 // Si es string, retornarlo tal cual
                 if (typeof option === 'string') return option;
@@ -691,7 +730,7 @@ function OrdenForm({ onOrdenCreada }) {
                   // setFilteredPiezas(filtered);
                 } else {
                   setOrden(prev => ({ ...prev, producto: newValue || '', producto_sku: '' }));
-                  setFilteredPiezas([]); // Clear filter if no product selected
+                  setFilteredMoldes([]); // Clear filter if no product selected
                 }
               }}
               renderInput={(params) => (
@@ -725,28 +764,29 @@ function OrdenForm({ onOrdenCreada }) {
               )}
             />
             <Autocomplete
-              options={filteredPiezas.length > 0 ? filteredPiezas : piezasProducibles}
+              options={filteredMoldes.length > 0 ? filteredMoldes : moldesOptions}
               getOptionLabel={(option) => 
                 typeof option === 'string' ? option : option.nombre || ''
               }
               loading={piezasLoading}
               value={
-                // Buscar por nombre de pieza (orden.molde guarda el nombre) o código
-                piezasProducibles.find(p => p.nombre === orden.molde || p.sku === orden.molde_id) || null
+                // Buscar por nombre de molde o código
+                moldesOptions.find(m => m.nombre === orden.molde || m.codigo === orden.molde_id) || null
               }
               onChange={(_, newValue) => {
                 if (newValue && typeof newValue === 'object') {
                   // Molde del catálogo: auto-rellenar datos técnicos y limpiar composición manual
+                  const defaultP = newValue._defaultPieza;
                   setOrden(prev => ({
                     ...prev,
                     molde: newValue.nombre,
-                    molde_id: newValue.molde?.codigo || newValue.sku,
-                    cavidades: newValue.cavidades ? String(newValue.cavidades) : prev.cavidades,
-                    peso_unitario_gr: newValue.peso_unitario_gr ? String(newValue.peso_unitario_gr) : prev.peso_unitario_gr,
-                    snapshot_peso_colada_gr: newValue.molde?.peso_tiro_gr
-                      ? String(parseFloat(newValue.molde.peso_tiro_gr) - parseFloat(newValue.peso_unitario_gr || 0) * parseInt(newValue.cavidades || 1))
+                    molde_id: newValue.codigo,
+                    cavidades: defaultP?.cavidades ? String(defaultP.cavidades) : prev.cavidades,
+                    peso_unitario_gr: defaultP?.peso_unitario_gr ? String(defaultP.peso_unitario_gr) : prev.peso_unitario_gr,
+                    snapshot_peso_colada_gr: newValue.peso_tiro_gr && defaultP
+                      ? String(parseFloat(newValue.peso_tiro_gr) - parseFloat(defaultP.peso_unitario_gr || 0) * parseInt(defaultP.cavidades || 1))
                       : prev.snapshot_peso_colada_gr,
-                    snapshot_tiempo_ciclo: newValue.molde?.tiempo_ciclo_std ? String(newValue.molde.tiempo_ciclo_std) : prev.snapshot_tiempo_ciclo,
+                    snapshot_tiempo_ciclo: newValue.tiempo_ciclo_std ? String(newValue.tiempo_ciclo_std) : prev.snapshot_tiempo_ciclo,
                     // Si el molde viene del catálogo, no necesitamos composición manual
                     snapshot_composicion: [],
                   }));
@@ -757,10 +797,10 @@ function OrdenForm({ onOrdenCreada }) {
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="Pieza / Molde"
+                  label="Molde"
                   size="small"
-                  placeholder="Seleccionar pieza producible..."
-                  helperText={errors.molde || (filteredPiezas.length > 0 && filteredPiezas.length < piezasProducibles.length ? "Filtrado por Producto" : "Solo piezas asociadas a un molde")}
+                  placeholder="Seleccionar molde a usar..."
+                  helperText={errors.molde || (filteredMoldes.length > 0 && filteredMoldes.length < moldesOptions.length ? "Filtrado por Producto" : "Solo moldes asociados")}
                   InputProps={{
                     ...params.InputProps,
                     endAdornment: (
@@ -773,16 +813,16 @@ function OrdenForm({ onOrdenCreada }) {
                 />
               )}
               renderOption={(props, option) => (
-                <li {...props} key={option.sku}>
+                <li {...props} key={option.codigo}>
                   <Box>
                     <Typography variant="body2" fontWeight={600}>{option.nombre}</Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {option.sku} | Molde: {option.molde?.nombre || '-'} | {option.cavidades} cav × {option.peso_unitario_gr}g
+                      {option.codigo} | T/C: {option.tiempo_ciclo_std}s | {option.peso_tiro_gr}g
                     </Typography>
                   </Box>
                 </li>
               )}
-              isOptionEqualToValue={(option, value) => option.sku === value?.sku}
+              isOptionEqualToValue={(option, value) => option.codigo === value?.codigo}
             />
           </Stack>
         </Paper>
@@ -803,19 +843,16 @@ function OrdenForm({ onOrdenCreada }) {
                 />
                 <Tooltip title="Cambiar a personalizado para editar cavidades/pesos">
                   <IconButton size="small" onClick={() => {
-                    // Populate from the catalog dynamically to allow editing
-                    const moldeSeleccionado = piezasProducibles.find(p => p.sku === orden.molde_id || p.molde?.codigo === orden.molde_id)?.molde;
-                    const preFills = moldeSeleccionado && moldeSeleccionado.piezas 
-                      ? moldeSeleccionado.piezas 
-                      : piezasProducibles.filter(p => p.molde?.codigo === orden.molde_id || p.sku === orden.molde_id);
+                    const molde = moldesOptions.find(m => m.codigo === orden.molde_id);
+                    const preFills = molde && molde.formas ? molde.formas : [];
                     
                     setOrden(prev => ({
                       ...prev,
-                      snapshot_composicion: preFills.map(p => ({
-                        pieza_sku: p.sku,
-                        nombre: p.nombre, // For UI label tracking
-                        cavidades: p.cavidades || 1,
-                        peso_unit_gr: p.peso_unitario_gr || 0
+                      snapshot_composicion: preFills.map(f => ({
+                        pieza_sku: null,
+                        nombre: f.nombre, // For UI label tracking
+                        cavidades: f.cavidades || 1,
+                        peso_unit_gr: f.peso_unitario_gr || 0
                       }))
                     }));
                   }}>
@@ -836,15 +873,16 @@ function OrdenForm({ onOrdenCreada }) {
             let vistaTabla = orden.snapshot_composicion;
             
             if (isAutoMode) {
-              const moldeCat = piezasProducibles.find(p => p.sku === orden.molde_id || p.molde?.codigo === orden.molde_id)?.molde;
-              vistaTabla = (moldeCat && moldeCat.piezas ? moldeCat.piezas : piezasProducibles.filter(p => p.molde?.codigo === orden.molde_id || p.sku === orden.molde_id))
-                .map(p => ({
-                  pieza_sku: p.sku,
-                  nombre: p.nombre,
-                  cavidades: p.cavidades,
-                  peso_unit_gr: p.peso_unitario_gr,
+              const molde = moldesOptions.find(m => m.codigo === orden.molde_id);
+              if (molde && molde.formas) {
+                vistaTabla = molde.formas.map(f => ({
+                  pieza_sku: null,
+                  nombre: f.nombre,
+                  cavidades: f.cavidades,
+                  peso_unit_gr: f.peso_unitario_gr,
                   _readonly: true
                 }));
+              }
             }
 
             return (
@@ -855,8 +893,8 @@ function OrdenForm({ onOrdenCreada }) {
                   </Typography>
                 )}
                 {vistaTabla.map((row, idx) => (
-                  <Grid container spacing={1} key={idx} sx={{ mb: 1, alignItems: 'center' }}>
-                    <Grid item xs={5}>
+                  <Grid  container spacing={1} key={idx} sx={{ mb: 1, alignItems: 'center' }}>
+                    <Grid  size={{ xs: 5 }}>
                       <TextField
                         fullWidth
                         label="Pieza"
@@ -867,7 +905,7 @@ function OrdenForm({ onOrdenCreada }) {
                         onChange={(e) => handleComposicionChange(idx, 'pieza_sku', e.target.value || null)}
                       />
                     </Grid>
-                    <Grid item xs={3}>
+                    <Grid  size={{ xs: 3 }}>
                       <TextField
                         fullWidth
                         label="Cav."
@@ -878,7 +916,7 @@ function OrdenForm({ onOrdenCreada }) {
                         onChange={(e) => handleComposicionChange(idx, 'cavidades', e.target.value)}
                       />
                     </Grid>
-                    <Grid item xs={3}>
+                    <Grid  size={{ xs: 3 }}>
                       <TextField
                         fullWidth
                         label="Peso (gr)"
@@ -890,7 +928,7 @@ function OrdenForm({ onOrdenCreada }) {
                       />
                     </Grid>
                     {!row._readonly && (
-                      <Grid item xs={1}>
+                      <Grid  size={{ xs: 1 }}>
                         <IconButton size="small" color="error" onClick={() => handleRemoveComposicion(idx)}>
                           <DeleteIcon fontSize="small" />
                         </IconButton>
@@ -909,8 +947,8 @@ function OrdenForm({ onOrdenCreada }) {
         <Typography variant="subtitle2" color="primary" gutterBottom sx={{ fontWeight: 600, mb: 1 }}>
           ⚙️ Parámetros Técnicos
         </Typography>
-        <Grid container spacing={1}>
-          <Grid item xs={6} sm={4} md={2}>
+        <Grid  container spacing={1}>
+          <Grid  size={{ xs: 6, sm: 4, md: 2 }}>
             <TextField
               fullWidth
               label="Peso Unit. (gr)"
@@ -922,7 +960,7 @@ function OrdenForm({ onOrdenCreada }) {
               helperText="Peso de 1 pieza"
             />
           </Grid>
-          <Grid item xs={6} sm={4} md={2}>
+          <Grid  size={{ xs: 6, sm: 4, md: 2 }}>
             <TextField
               fullWidth
               label="Peso Colada (gr)"
@@ -934,7 +972,7 @@ function OrdenForm({ onOrdenCreada }) {
               helperText="Ramal / runner"
             />
           </Grid>
-          <Grid item xs={6} sm={4} md={2}>
+          <Grid  size={{ xs: 6, sm: 4, md: 2 }}>
             <TextField
               fullWidth
               label="Cavidades"
@@ -945,7 +983,7 @@ function OrdenForm({ onOrdenCreada }) {
               size="small"
             />
           </Grid>
-          <Grid item xs={6} sm={4} md={2}>
+          <Grid  size={{ xs: 6, sm: 4, md: 2 }}>
             <TextField
               fullWidth
               label="T. Ciclo (seg)"
@@ -956,7 +994,7 @@ function OrdenForm({ onOrdenCreada }) {
               size="small"
             />
           </Grid>
-          <Grid item xs={6} sm={4} md={2}>
+          <Grid  size={{ xs: 6, sm: 4, md: 2 }}>
             <TextField
               fullWidth
               label="Horas Turno"
@@ -967,7 +1005,7 @@ function OrdenForm({ onOrdenCreada }) {
               size="small"
             />
           </Grid>
-          <Grid item xs={6} sm={4} md={2}>
+          <Grid  size={{ xs: 6, sm: 4, md: 2 }}>
             <TextField
               fullWidth
               label="Fecha Inicio"
@@ -991,7 +1029,7 @@ function OrdenForm({ onOrdenCreada }) {
               📊 Capacidad de Máquina (tiempo real)
             </Typography>
           </Box>
-          <Grid container spacing={1}>
+          <Grid  container spacing={1}>
             {[
               { label: 'Ciclos/Hora', value: estimacionesGlobales.ciclosPorHora, color: '#2E7D32' },
               { label: 'Piezas/Hora', value: estimacionesGlobales.piezasPorHora, color: '#2E7D32' },
@@ -1000,7 +1038,7 @@ function OrdenForm({ onOrdenCreada }) {
               { label: `Kg/Día (${orden.snapshot_horas_turno}h)`, value: estimacionesGlobales.kgDia, color: '#1565C0' },
               { label: `Doc/Día (${orden.snapshot_horas_turno}h)`, value: estimacionesGlobales.docDia, color: '#1565C0' },
             ].map(({ label, value, color }) => (
-              <Grid item xs={6} sm={4} md={2} key={label}>
+              <Grid  size={{ xs: 6, sm: 4, md: 2 }} key={label}>
                 <Box sx={{ textAlign: 'center', p: 1, background: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>
                   <Typography variant="caption" color="text.secondary">{label}</Typography>
                   <Typography variant="h6" sx={{ fontWeight: 700, color }}>{value}</Typography>
@@ -1056,22 +1094,24 @@ function OrdenForm({ onOrdenCreada }) {
                 color="secondary" 
                 variant="outlined" 
               />
-              <IconButton 
-                size="small" 
-                color="error"
+              <Box 
+                component="span"
                 onClick={(e) => { e.stopPropagation(); handleRemoveLote(loteIndex); }}
+                sx={{ cursor: 'pointer', color: 'error.main', display: 'flex', alignItems: 'center', p: 0.5, borderRadius: 1, '&:hover': { bgcolor: 'error.light', color: 'error.contrastText' } }}
               >
                 <DeleteIcon fontSize="small" />
-              </IconButton>
+              </Box>
             </Box>
           </AccordionSummary>
           <AccordionDetails>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={4}>
+            <Grid  container spacing={2}>
+              <Grid  size={{ xs: 12, sm: 4 }}>
                 <Autocomplete
+                    fullWidth
                     options={coloresOptions}
+                    isOptionEqualToValue={(option, value) => option.id === value?.id || option.nombre === value?.nombre}
                     getOptionLabel={(option) => typeof option === 'string' ? option : option.nombre}
-                    value={coloresOptions.find(c => c.id === lote.color_id) || (lote.color_nombre ? { nombre: lote.color_nombre, id: null } : null)}
+                    value={coloresOptions.find(c => c.id === lote.color_id) || (lote.color_nombre ? { nombre: lote.color_nombre, id: lote.color_id } : null)}
                     loading={coloresLoading}
                     onChange={async (_, newValue) => {
                         if (typeof newValue === 'string') {
@@ -1152,6 +1192,7 @@ function OrdenForm({ onOrdenCreada }) {
                     renderInput={(params) => (
                         <TextField
                             {...params}
+                            fullWidth
                             label="Seleccionar o crear Color"
                             size="small"
                             required
@@ -1186,7 +1227,7 @@ function OrdenForm({ onOrdenCreada }) {
                 />
               </Grid>
               {/* --- Meta Kg por lote + Estimación de tiempo --- */}
-              <Grid item xs={6} sm={4}>
+              <Grid  size={{ xs: 6, sm: 4 }}>
                 <TextField
                   fullWidth
                   label="Meta (Kg)"
@@ -1201,7 +1242,7 @@ function OrdenForm({ onOrdenCreada }) {
                   }}
                 />
               </Grid>
-              <Grid item xs={6} sm={4}>
+              <Grid  size={{ xs: 6, sm: 4 }}>
                 <TextField
                   fullWidth
                   label="Personas"
@@ -1242,8 +1283,8 @@ function OrdenForm({ onOrdenCreada }) {
                 </Button>
               </Box>
               {lote.materiales.map((mat, matIndex) => (
-                <Grid container spacing={1} key={matIndex} sx={{ mb: 1 }}>
-                  <Grid item xs={5}>
+                <Grid  container spacing={1} key={matIndex} sx={{ mb: 1 }}>
+                  <Grid  size={{ xs: 5 }}>
                     <TextField
                       fullWidth
                       label="Nombre Material"
@@ -1252,7 +1293,7 @@ function OrdenForm({ onOrdenCreada }) {
                       size="small"
                     />
                   </Grid>
-                  <Grid item xs={5}>
+                  <Grid  size={{ xs: 5 }}>
                     <TextField
                       fullWidth
                       label="Fracción"
@@ -1263,7 +1304,7 @@ function OrdenForm({ onOrdenCreada }) {
                       size="small"
                     />
                   </Grid>
-                  <Grid item xs={2}>
+                  <Grid  size={{ xs: 2 }}>
                     <IconButton color="error" onClick={() => handleRemoveMaterial(loteIndex, matIndex)}>
                       <DeleteIcon fontSize="small" />
                     </IconButton>
@@ -1313,8 +1354,8 @@ function OrdenForm({ onOrdenCreada }) {
                 </Box>
               </Box>
               {lote.pigmentos.map((pig, pigIndex) => (
-                <Grid container spacing={1} key={pigIndex} sx={{ mb: 1 }}>
-                  <Grid item xs={5}>
+                <Grid  container spacing={1} key={pigIndex} sx={{ mb: 1 }}>
+                  <Grid  size={{ xs: 5 }}>
                     <TextField
                       fullWidth
                       label="Nombre Colorante"
@@ -1323,7 +1364,7 @@ function OrdenForm({ onOrdenCreada }) {
                       size="small"
                     />
                   </Grid>
-                  <Grid item xs={5}>
+                  <Grid  size={{ xs: 5 }}>
                     <TextField
                       fullWidth
                       label="Gramos"
@@ -1334,7 +1375,7 @@ function OrdenForm({ onOrdenCreada }) {
                       size="small"
                     />
                   </Grid>
-                  <Grid item xs={2}>
+                  <Grid  size={{ xs: 2 }}>
                     <IconButton color="error" onClick={() => handleRemovePigmento(loteIndex, pigIndex)}>
                       <DeleteIcon fontSize="small" />
                     </IconButton>

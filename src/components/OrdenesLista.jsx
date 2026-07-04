@@ -55,26 +55,26 @@ function LoteRow({ lote }) {
     >
       <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
         <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} sm={3}>
+          <Grid size={{ xs: 12, sm: 3 }}>
             <Typography variant="subtitle2" color="secondary">
               🎨 {lote.Color}
             </Typography>
           </Grid>
-          <Grid item xs={6} sm={2}>
+          <Grid size={{ xs: 6, sm: 2 }}>
             <Typography variant="caption" color="text.secondary">Peso (Kg)</Typography>
             <Typography variant="body2">
               {lote['Peso (Kg)'] || lote['Por Cantidad (Kg)'] || lote['Stock (Kg)'] || '-'}
             </Typography>
           </Grid>
-          <Grid item xs={6} sm={2}>
+          <Grid size={{ xs: 6, sm: 2 }}>
             <Typography variant="caption" color="text.secondary">Extra (Kg)</Typography>
             <Typography variant="body2">{lote['Extra (Kg)']}</Typography>
           </Grid>
-          <Grid item xs={6} sm={2}>
+          <Grid size={{ xs: 6, sm: 2 }}>
             <Typography variant="caption" color="text.secondary">Total + Extra</Typography>
             <Typography variant="body2" color="primary">{lote['TOTAL + EXTRA (Kg)']}</Typography>
           </Grid>
-          <Grid item xs={6} sm={3}>
+          <Grid size={{ xs: 6, sm: 3 }}>
             <Typography variant="caption" color="text.secondary">Coladas</Typography>
             <Chip 
               size="small" 
@@ -90,7 +90,7 @@ function LoteRow({ lote }) {
           <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
             <Grid container spacing={2}>
               {lote.materiales?.length > 0 && (
-                <Grid item xs={12} sm={6}>
+                <Grid size={{ xs: 12, sm: 6 }}>
                   <Typography variant="caption" color="text.secondary">Materiales:</Typography>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
                     {lote.materiales.map((mat, i) => (
@@ -105,7 +105,7 @@ function LoteRow({ lote }) {
                 </Grid>
               )}
               {lote.pigmentos?.length > 0 && (
-                <Grid item xs={12} sm={6}>
+                <Grid size={{ xs: 12, sm: 6 }}>
                   <Typography variant="caption" color="text.secondary">Pigmentos:</Typography>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
                     {lote.pigmentos.map((pig, i) => (
@@ -396,39 +396,39 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
                   📊 Resumen de Producción
                 </Typography>
                 <Grid container spacing={2}>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Producción Real / Meta</Typography>
                     <Typography variant="body1">
                         {orden.avance_real_kg?.toFixed(2) || '0.00'} / {(orden.meta_kg || resumen['Peso(Kg) PRODUCCION'] || 0).toFixed(2)} Kg
                     </Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Inc. Merma</Typography>
                     <Typography variant="body1">{resumen['Peso (Kg) Inc. Merma']} Kg</Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">% Merma</Typography>
                     <Typography variant="body1">{((resumen['%Merma'] || 0) * 100).toFixed(2)}%</Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Extra</Typography>
                     <Typography variant="body1">{resumen['EXTRA']} Kg</Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Total a Máquina</Typography>
                     <Typography variant="body1" color="primary" sx={{ fontWeight: 600 }}>
                       {(resumen['Peso REAL A ENTREGAR'] || orden.meta_kg || 0).toFixed(2)} Kg
                     </Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Docenas</Typography>
                     <Typography variant="body1">{resumen['Total DOC'] || (orden.meta_total_doc || 0).toFixed(0)}</Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Tiempo</Typography>
                     <Typography variant="body1">{resumen['Horas']} hrs / {resumen['Días']} días</Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Fecha Fin Est.</Typography>
                     <Typography variant="body1">
                       {resumen['F. Fin'] ? new Date(resumen['F. Fin']).toLocaleDateString() : '-'}
@@ -609,9 +609,7 @@ function OrdenesLista() {
 // Componente interno para el formulario de metricas
 function MetricasForm({ orden, onClose, onSuccess }) {
     const [formData, setFormData] = useState({
-        snapshot_cavidades: orden.cavidades || orden.snapshot_cavidades || '',
         snapshot_tiempo_ciclo: orden.tiempo_ciclo || orden.snapshot_tiempo_ciclo || '',
-        snapshot_peso_unitario_gr: orden.peso_unitario_gr || orden.snapshot_peso_unitario_gr || '',
         snapshot_peso_inc_colada: orden.peso_inc_colada || orden.snapshot_peso_inc_colada || ''
     });
     const [loading, setLoading] = useState(false);
@@ -625,9 +623,7 @@ function MetricasForm({ orden, onClose, onSuccess }) {
         setLoading(true);
         try {
             await actualizarMetricasOrden(orden.numero_op, {
-                snapshot_cavidades: parseInt(formData.snapshot_cavidades),
                 snapshot_tiempo_ciclo: parseFloat(formData.snapshot_tiempo_ciclo),
-                snapshot_peso_unitario_gr: parseFloat(formData.snapshot_peso_unitario_gr),
                 snapshot_peso_inc_colada: parseFloat(formData.snapshot_peso_inc_colada)
             });
             onSuccess();
@@ -642,18 +638,7 @@ function MetricasForm({ orden, onClose, onSuccess }) {
     return (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
             <Grid container spacing={2}>
-                <Grid item xs={6}>
-                    <TextField 
-                        label="Cavidades Activas"
-                        type="number"
-                        name="snapshot_cavidades"
-                        value={formData.snapshot_cavidades}
-                        onChange={handleChange}
-                        fullWidth
-                        size="small"
-                    />
-                </Grid>
-                <Grid item xs={6}>
+                <Grid size={{ xs: 6 }}>
                     <TextField 
                         label="Tiempo Ciclo (seg)"
                         type="number"
@@ -664,18 +649,7 @@ function MetricasForm({ orden, onClose, onSuccess }) {
                         size="small"
                     />
                 </Grid>
-                <Grid item xs={6}>
-                    <TextField 
-                        label="Peso Pieza (gr)"
-                        type="number"
-                        name="snapshot_peso_unitario_gr"
-                        value={formData.snapshot_peso_unitario_gr}
-                        onChange={handleChange}
-                        fullWidth
-                        size="small"
-                    />
-                </Grid>
-                <Grid item xs={6}>
+                <Grid size={{ xs: 6 }}>
                     <TextField 
                         label="Peso Tiro (inc. Colada)"
                         type="number"

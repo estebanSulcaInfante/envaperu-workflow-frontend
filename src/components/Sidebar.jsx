@@ -45,7 +45,7 @@ const catalogoItems = [
 
 const registrosItems = [
   { path: '/registros', label: 'Lista Registros', icon: <DescriptionIcon /> },
-  { path: '/registros/talonarios', label: 'Talonarios RDP', icon: <MenuBookIcon /> },
+  { path: '/registros/talonarios', label: 'Talonarios OT', icon: <MenuBookIcon /> },
 ];
 
 function Sidebar() {

@@ -240,9 +240,9 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
 
   // Cálculo de Kg Estimados en vivo
   const cavidades = ordenInfo?.cavidades || ordenInfo?.snapshot_cavidades || 1;
-  const pesoUnitario = ordenInfo?.peso_unitario_gr || ordenInfo?.snapshot_peso_unitario_gr || 0;
+  const pesoNetoGolpe = ordenInfo?.snapshot_tecnico?.peso_neto_golpe_gr || ((ordenInfo?.peso_unitario_gr || ordenInfo?.snapshot_peso_unitario_gr || 0) * cavidades);
   const pesoIncColada = ordenInfo?.peso_inc_colada || ordenInfo?.snapshot_peso_inc_colada || 0;
-  const pesoTiro = pesoIncColada > 0 ? pesoIncColada : (pesoUnitario * cavidades);
+  const pesoTiro = pesoIncColada > 0 ? pesoIncColada : pesoNetoGolpe;
   const kgEstimados = (totalColadasDetalle * pesoTiro) / 1000;
 
   // Eficiencia estimada (coladas reales vs teóricas)
@@ -343,7 +343,7 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
               <strong>Cavidades:</strong> {ordenInfo.cavidades}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              <strong>Peso Neto:</strong> {ordenInfo.peso_unitario_gr}g
+              <strong>Peso Neto Golpe:</strong> {ordenInfo.snapshot_tecnico?.peso_neto_golpe_gr || ordenInfo.peso_unitario_gr || '-'}g
             </Typography>
             <Typography variant="caption" color="text.secondary">
               <strong>Ciclo:</strong> {ordenInfo.tiempo_ciclo}s

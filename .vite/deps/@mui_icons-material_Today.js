@@ -1,0 +1,23 @@
+"use client";
+import "./chunk-C6WWHQR7.js";
+import {
+  createSvgIcon
+} from "./chunk-WKKOCQE5.js";
+import "./chunk-NI6NMEGN.js";
+import {
+  require_jsx_runtime
+} from "./chunk-BMW4S4VC.js";
+import "./chunk-P6RTVJOB.js";
+import {
+  __toESM
+} from "./chunk-G3PMV62Z.js";
+
+// node_modules/@mui/icons-material/esm/Today.js
+var import_jsx_runtime = __toESM(require_jsx_runtime());
+var Today_default = createSvgIcon((0, import_jsx_runtime.jsx)("path", {
+  d: "M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2m0 16H5V8h14zM7 10h5v5H7z"
+}), "Today");
+export {
+  Today_default as default
+};
+//# sourceMappingURL=@mui_icons-material_Today.js.map
