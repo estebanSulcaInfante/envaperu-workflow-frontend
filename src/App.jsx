@@ -9,12 +9,13 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import OrdenForm from './components/OrdenForm';
 import OrdenesLista from './components/OrdenesLista';
-import CatalogoSKU from './components/CatalogoSKU';
 import RegistrosLista from './components/RegistrosLista';
 import MoldesLista from './components/MoldesLista';
 import MoldeDetalle from './components/MoldeDetalle';
 import ProductosAdmin from './components/ProductosAdmin';
 import PiezasAdmin from './components/PiezasAdmin';
+import TrabajadoresAdmin from './components/TrabajadoresAdmin';
+import MaquinasAdmin from './components/MaquinasAdmin';
 import TalonariosAdmin from './components/TalonariosAdmin';
 import ImportarCatalogo from './components/ImportarCatalogo';
 import ConfigurarProducto from './components/ConfigurarProducto';
@@ -109,7 +110,9 @@ function App() {
                 <Route path="/ordenes" element={<OrdenesLista />} />
                 <Route path="/ordenes/nueva" element={<OrdenForm />} />
                 <Route path="/catalogo/productos" element={<ProductosAdmin />} />
-                <Route path="/catalogo/sku" element={<CatalogoSKU />} />
+                <Route path="/catalogo/piezas" element={<PiezasAdmin />} />
+                <Route path="/catalogo/trabajadores" element={<TrabajadoresAdmin />} />
+                <Route path="/catalogo/maquinas" element={<MaquinasAdmin />} />
                 <Route path="/catalogo/moldes" element={<MoldesLista />} />
                 <Route path="/catalogo/moldes/:codigo" element={<MoldeDetalle />} />
                 <Route path="/catalogo/importar" element={<ImportarCatalogo />} />

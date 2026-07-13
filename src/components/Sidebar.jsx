@@ -37,8 +37,11 @@ const ordenesItems = [
 
 const catalogoItems = [
   { path: '/catalogo/configurar', label: 'Config. Rápida', icon: <AddCircleIcon />, highlight: true },
-  { path: '/catalogo/sku', label: 'Catálogo (PT y Piezas)', icon: <CategoryIcon /> },
+  { path: '/catalogo/productos', label: 'Productos (PT)', icon: <CategoryIcon /> },
+  { path: '/catalogo/piezas', label: 'Piezas / SKUs', icon: <CategoryIcon /> },
   { path: '/catalogo/moldes', label: 'Moldes', icon: <PrecisionManufacturingIcon /> },
+  { path: '/catalogo/trabajadores', label: 'Trabajadores', icon: <CategoryIcon /> },
+  { path: '/catalogo/maquinas', label: 'Máquinas', icon: <PrecisionManufacturingIcon /> },
   { path: '/catalogo/importar', label: 'Importar Excel', icon: <CloudUploadIcon /> },
   { path: '/catalogo/revision', label: 'Revisión Datos', icon: <RateReviewIcon /> },
 ];

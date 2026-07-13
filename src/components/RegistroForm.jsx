@@ -28,7 +28,7 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import { crearRegistro, obtenerMaquinas, obtenerOrden, scanRegistroOCR } from '../services/api';
+import { crearRegistro, obtenerMaquinas, obtenerOrden, scanRegistroOCR, getTrabajadores } from '../services/api';
 
 const TURNOS = ['DIURNO', 'NOCTURNO'];
 
@@ -71,6 +71,7 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
   const [detalles, setDetalles] = useState([]);
   
   const [maquinas, setMaquinas] = useState([]);
+  const [trabajadores, setTrabajadores] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
@@ -80,7 +81,7 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
   // Hora extra (6-7)
   const [horaExtra, setHoraExtra] = useState({ 
     coladas: 0, 
-    maquinista: '', 
+    trabajador_id: '', 
     color: '', 
     observacion: '' 
   });
@@ -137,7 +138,7 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
           if (extraData) {
             setHoraExtra(prev => ({
               ...prev,
-              maquinista: extraData.maquinista || prev.maquinista,
+              maquinista_snapshot: extraData.maquinista || prev.maquinista_snapshot,
               color: extraData.color || prev.color,
               coladas: extraData.coladas || prev.coladas,
               observacion: extraData.observacion || prev.observacion
@@ -167,6 +168,11 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
         console.error('Error cargando máquinas:', err);
         setError('No se pudieron cargar las máquinas. Verifique conexión.');
       });
+    
+    getTrabajadores({ rol: 'MAQUINISTA', activo: true })
+      .then(res => setTrabajadores(res))
+      .catch(err => console.error('Error cargando trabajadores', err));
+
     if (ordenId) {
       obtenerOrden(ordenId)
         .then(data => {
@@ -192,7 +198,7 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
       return existente || { 
         hora: h, 
         coladas: 0, 
-        maquinista: '', 
+        trabajador_id: '', 
         color: '', 
         observacion: '' 
       };
@@ -215,18 +221,17 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
     setDetalles(newDetalles);
   };
 
-  // Copiar Maquinista y Color de la primera fila a todas las demás
   const handleCopyDown = () => {
     if (detalles.length === 0) return;
-    const { maquinista, color } = detalles[0];
-    if (!maquinista && !color) {
+    const { trabajador_id, color } = detalles[0];
+    if (!trabajador_id && !color) {
       setError('Ingrese Maquinista o Color en la primera fila (07:00) para copiar.');
       setTimeout(() => setError(null), 3000);
       return;
     }
     setDetalles(prev => prev.map(d => ({
       ...d,
-      maquinista: maquinista || d.maquinista,
+      trabajador_id: trabajador_id || d.trabajador_id,
       color: color || d.color
     })));
   };
@@ -524,11 +529,17 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
                   </TableCell>
                   <TableCell>
                     <TextField 
+                        select
                         variant="standard" 
                         fullWidth 
-                        value={fila.maquinista} 
-                        onChange={(e) => handleDetalleChange(index, 'maquinista', e.target.value)} 
-                    />
+                        value={fila.trabajador_id || ''} 
+                        onChange={(e) => handleDetalleChange(index, 'trabajador_id', e.target.value)}
+                    >
+                      <MenuItem value=""><em>Ninguno</em></MenuItem>
+                      {trabajadores.map(t => (
+                        <MenuItem key={t.id} value={t.id}>{t.nombre_corto || t.nombres}</MenuItem>
+                      ))}
+                    </TextField>
                   </TableCell>
                   <TableCell>
                     <TextField 
@@ -584,11 +595,17 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
                 </TableCell>
                 <TableCell>
                   <TextField 
+                    select
                     variant="standard" 
                     fullWidth 
-                    value={horaExtra.maquinista} 
-                    onChange={(e) => setHoraExtra(prev => ({ ...prev, maquinista: e.target.value }))} 
-                  />
+                    value={horaExtra.trabajador_id || ''} 
+                    onChange={(e) => setHoraExtra(prev => ({ ...prev, trabajador_id: e.target.value }))}
+                  >
+                    <MenuItem value=""><em>Ninguno</em></MenuItem>
+                    {trabajadores.map(t => (
+                      <MenuItem key={t.id} value={t.id}>{t.nombre_corto || t.nombres}</MenuItem>
+                    ))}
+                  </TextField>
                 </TableCell>
                 <TableCell>
                   <TextField 

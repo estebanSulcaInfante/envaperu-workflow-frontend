@@ -461,4 +461,58 @@ export const deleteForma = async (formaId) => {
   return response.data;
 };
 
+// ==================== TRABAJADORES ====================
+
+export const getTrabajadores = async (params = {}) => {
+  const response = await api.get('/catalogo/trabajadores', { params });
+  return response.data;
+};
+
+export const createTrabajador = async (data) => {
+  const response = await api.post('/catalogo/trabajadores', data);
+  return response.data;
+};
+
+export const updateTrabajador = async (id, data) => {
+  const response = await api.put(`/catalogo/trabajadores/${id}`, data);
+  return response.data;
+};
+
+export const toggleEstadoTrabajador = async (id, activo) => {
+  const response = await api.patch(`/catalogo/trabajadores/${id}/estado`, { activo });
+  return response.data;
+};
+
+export const getRolesOperativos = async () => {
+  const response = await api.get('/catalogo/roles-operativos');
+  return response.data;
+};
+
+// ==================== MÁQUINAS ====================
+
+export const getMaquinas = async (params = {}) => {
+  const response = await api.get('/catalogo/maquinas', { params });
+  return response.data;
+};
+
+export const createMaquina = async (data) => {
+  const response = await api.post('/catalogo/maquinas', data);
+  return response.data;
+};
+
+export const updateMaquina = async (id, data) => {
+  const response = await api.put(`/catalogo/maquinas/${id}`, data);
+  return response.data;
+};
+
+export const toggleEstadoMaquina = async (id, estado) => {
+  const response = await api.patch(`/catalogo/maquinas/${id}/estado`, { estado });
+  return response.data;
+};
+
+export const getTiposMaquina = async () => {
+  const response = await api.get('/catalogo/tipos-maquina');
+  return response.data;
+};
+
 export default api;
