@@ -276,7 +276,7 @@ export default function LegacyProductionOrders() {
       <Alert severity="info" sx={{ mb: 2, borderRadius: 1 }}>Fuente legacy de consulta: no confirma inventario SCM ni corrige automáticamente códigos, colores o cierres.</Alert>
 
       <Paper variant="outlined" sx={{ mb: 2, borderRadius: 1 }}>
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(5, minmax(0, 1fr))' } }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: 'repeat(5, minmax(0, 1fr))' } }}>
           <Metric icon={<AssignmentOutlinedIcon fontSize="small" />} label="OP REGISTRADAS" value={data?.summary.raw_orders || 0} />
           <Metric icon={<ScaleOutlinedIcon fontSize="small" />} label="PESO ACTIVO" value={kg(data?.summary.active_weight_kg)} />
           <Metric icon={<HistoryOutlinedIcon fontSize="small" />} label="BOLSAS ACTIVAS" value={data?.summary.active_bags || 0} />
