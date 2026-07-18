@@ -20,6 +20,11 @@ import TalonariosAdmin from './components/TalonariosAdmin';
 import ImportarCatalogo from './components/ImportarCatalogo';
 import ConfigurarProducto from './components/ConfigurarProducto';
 import RevisionProductos from './components/RevisionProductos';
+import PlanificacionProduccion from './components/PlanificacionProduccion';
+import PreparacionMateriales from './components/PreparacionMateriales';
+import RecepcionMateriales from './components/RecepcionMateriales';
+import ScmGuide from './components/ScmGuide';
+import ProductionProgressDashboard from './components/ProductionProgressDashboard';
 import ErrorBoundary from './components/ErrorBoundary';
 
 // Tema claro corporativo ENVAPERU
@@ -100,15 +105,27 @@ function App() {
               component="main"
               sx={{
                 flexGrow: 1,
-                p: 3,
+                minWidth: 0,
+                px: { xs: 1.5, sm: 2, md: 3 },
+                pb: 3,
+                pt: { xs: 9, md: 3 },
                 background: '#F5F5F5',
                 minHeight: '100vh',
               }}
             >
               <Routes>
                 <Route path="/" element={<Dashboard />} />
+                <Route path="/guia/scm" element={<ScmGuide />} />
+                <Route path="/planificacion" element={<PlanificacionProduccion />} />
+                <Route path="/planificacion/:solicitudId" element={<PlanificacionProduccion />} />
+                <Route path="/pesaje/avance" element={<ProductionProgressDashboard />} />
                 <Route path="/ordenes" element={<OrdenesLista />} />
                 <Route path="/ordenes/nueva" element={<OrdenForm />} />
+                <Route path="/materiales/recepciones" element={<RecepcionMateriales />} />
+                <Route path="/materiales/recepciones/nueva" element={<RecepcionMateriales />} />
+                <Route path="/materiales/recepciones/:recepcionId" element={<RecepcionMateriales />} />
+                <Route path="/materiales" element={<PreparacionMateriales />} />
+                <Route path="/ordenes/:numeroOp/materiales" element={<PreparacionMateriales />} />
                 <Route path="/catalogo/productos" element={<ProductosAdmin />} />
                 <Route path="/catalogo/piezas" element={<PiezasAdmin />} />
                 <Route path="/catalogo/trabajadores" element={<TrabajadoresAdmin />} />

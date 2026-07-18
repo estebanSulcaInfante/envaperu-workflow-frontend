@@ -1,7 +1,10 @@
 import axios from 'axios';
 
+const apiOrigin = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+export const API_BASE_URL = apiOrigin ? `${apiOrigin}/api` : '/api';
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -58,7 +61,7 @@ export const descargarExcel = async (numeroOp) => {
 
 // URL directa del QR como imagen
 export const getQRImageUrl = (numeroOp, size = 200) => {
-  return `/api/ordenes/${numeroOp}/qr?size=${size}`;
+  return `${API_BASE_URL}/ordenes/${numeroOp}/qr?size=${size}`;
 };
 
 // Buscar productos para autocomplete

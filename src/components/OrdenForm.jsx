@@ -35,7 +35,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import LockIcon from '@mui/icons-material/Lock';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
-import { crearOrden, buscarProductos, obtenerPiezasProducibles, obtenerColores, validarOrdenPrereq, crearColor, obtenerMaquinas, obtenerProducto, obtenerRecetaColor } from '../services/api';
+import { crearOrden, buscarProductos, obtenerPiezasProducibles, obtenerColores, validarOrdenPrereq, crearColor, obtenerMaquinas, obtenerProducto } from '../services/api';
 
 const initialOrden = {
   numero_op: '',
@@ -1145,26 +1145,6 @@ function OrdenForm({ onOrdenCreada }) {
                                     i === loteIndex ? { ...l, color_id: newValue.id, color_nombre: newValue.nombre, _receta_sugerida: null } : l
                                 )
                             }));
-                            // Buscar receta conocida para este color (best-effort)
-                            if (newValue.id) {
-                                try {
-                                    const receta = await obtenerRecetaColor(
-                                        newValue.id,
-                                        orden.producto_sku || null,
-                                        null  // sin meta_kg aún; se calcula al aplicar
-                                    );
-                                    if (receta.tiene_receta && receta.pigmentos.length > 0) {
-                                        setOrden(prev => ({
-                                            ...prev,
-                                            lotes: prev.lotes.map((l, i) =>
-                                                i === loteIndex ? { ...l, _receta_sugerida: receta } : l
-                                            )
-                                        }));
-                                    }
-                                } catch (_) {
-                                    // silencioso: no bloqueamos el flujo por el prefill
-                                }
-                            }
                         } else {
                             // Clear
                             setOrden(prev => ({
@@ -1320,34 +1300,19 @@ function OrdenForm({ onOrdenCreada }) {
                   Colorantes / Pigmentos
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1 }}>
-                  {/* Botón de prefill: aparece cuando hay receta conocida */}
-                  {lote._receta_sugerida && (
-                    <Tooltip title={`Usar receta de ${lote._receta_sugerida.n_muestras_min} OPs anteriores`} arrow>
+                  <Tooltip title="API pendiente: la receta debe dosificar por 25 kg de material virgen" arrow>
+                    <span>
                       <Button
                         size="small"
                         variant="outlined"
-                        color="success"
-                        startIcon={<AutoFixHighIcon />}
-                        onClick={() => {
-                          // Precarga los pigmentos sugeridos, manteniendo los existentes si el usuario ya editó
-                          const pigsSugeridos = lote._receta_sugerida.pigmentos.map(p => ({
-                            nombre: p.nombre,
-                            gramos: p.gramos !== undefined ? String(p.gramos) : String(parseFloat((p.gr_por_kg * (parseFloat(lote.meta_kg) || 1)).toFixed(2)))
-                          }));
-                          setOrden(prev => ({
-                            ...prev,
-                            lotes: prev.lotes.map((l, i) =>
-                              i === loteIndex ? { ...l, pigmentos: pigsSugeridos, _receta_sugerida: null } : l
-                            )
-                          }));
-                          setSnackbar({ open: true, message: `✨ Receta de pigmentos cargada (${lote._receta_sugerida.n_muestras_min} OPs)`, severity: 'success' });
-                        }}
+                        startIcon={<LockIcon />}
+                        disabled
                         sx={{ whiteSpace: 'nowrap' }}
                       >
-                        Usar receta ({lote._receta_sugerida.n_muestras_min} OPs)
+                        Receta trazable
                       </Button>
-                    </Tooltip>
-                  )}
+                    </span>
+                  </Tooltip>
                   <Button size="small" startIcon={<AddIcon />} onClick={() => handleAddPigmento(loteIndex)}>
                     Pigmento
                   </Button>

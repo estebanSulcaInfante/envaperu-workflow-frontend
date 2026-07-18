@@ -41,6 +41,8 @@ import InputAdornment from '@mui/material/InputAdornment';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import BuildIcon from '@mui/icons-material/Build'; // Icono para ajustes tecnicos
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
+import { Link } from 'react-router-dom';
 import { obtenerOrdenes, descargarExcel, getQRImageUrl, toggleEstadoOrden, actualizarMetricasOrden } from '../services/api';
 import RegistroForm from './RegistroForm';
 
@@ -250,6 +252,18 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
         </TableCell>
         <TableCell>
           <Box sx={{ display: 'flex', gap: 0.5 }}>
+            <Tooltip title="Preparación de materiales">
+              <IconButton
+                component={Link}
+                to={`/ordenes/${orden.numero_op}/materiales`}
+                size="small"
+                color="primary"
+                onClick={(event) => event.stopPropagation()}
+                aria-label={`Preparación de materiales ${orden.numero_op}`}
+              >
+                <Inventory2OutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
             <Tooltip title={isActiva ? 'Crear Registro Diario' : 'OP cerrada'}>
               <span>
                 <IconButton 

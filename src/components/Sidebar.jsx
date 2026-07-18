@@ -10,7 +10,11 @@ import {
   Toolbar,
   Typography,
   Divider,
-  Collapse
+  Collapse,
+  AppBar,
+  IconButton,
+  useMediaQuery,
+  useTheme
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import AssignmentIcon from '@mui/icons-material/Assignment';
@@ -26,13 +30,29 @@ import MenuBookIcon from '@mui/icons-material/MenuBook';
 import DescriptionIcon from '@mui/icons-material/Description';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import RateReviewIcon from '@mui/icons-material/RateReview';
+import MenuIcon from '@mui/icons-material/Menu';
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
+import MoveToInboxOutlinedIcon from '@mui/icons-material/MoveToInboxOutlined';
+import WarehouseOutlinedIcon from '@mui/icons-material/WarehouseOutlined';
+import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
+import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
+import ScaleOutlinedIcon from '@mui/icons-material/ScaleOutlined';
 import { useState } from 'react';
 
 const drawerWidth = 240;
 
 const ordenesItems = [
   { path: '/ordenes', label: 'Lista de OPs', icon: <ListAltIcon /> },
-  { path: '/ordenes/nueva', label: 'Nueva OP', icon: <AddCircleIcon />, highlight: true },
+  { path: '/ordenes/nueva', label: 'Nueva OP manual', icon: <AddCircleIcon /> },
+];
+
+const materialesItems = [
+  { path: '/materiales/recepciones', label: 'Recepciones', icon: <MoveToInboxOutlinedIcon /> },
+  { path: '/materiales', label: 'Preparación OP', icon: <Inventory2OutlinedIcon />, end: true },
+];
+
+const pesajeItems = [
+  { path: '/pesaje/avance', label: 'Avance de producción', icon: <ScaleOutlinedIcon /> },
 ];
 
 const catalogoItems = [
@@ -53,9 +73,14 @@ const registrosItems = [
 
 function Sidebar() {
   const location = useLocation();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [ordenesOpen, setOrdenesOpen] = useState(
     location.pathname.startsWith('/ordenes')
   );
+  const [materialesOpen, setMaterialesOpen] = useState(location.pathname.startsWith('/materiales'));
+  const [pesajeOpen, setPesajeOpen] = useState(location.pathname.startsWith('/pesaje'));
   const [catalogoOpen, setCatalogoOpen] = useState(
     location.pathname.startsWith('/catalogo')
   );
@@ -63,11 +88,34 @@ function Sidebar() {
     location.pathname.startsWith('/registros')
   );
 
+  const closeOnMobile = () => {
+    if (isMobile) setMobileOpen(false);
+  };
+
   return (
-    <Drawer
-      variant="permanent"
+    <>
+      {isMobile && (
+        <AppBar
+          position="fixed"
+          elevation={0}
+          sx={{ bgcolor: '#1E3A5F', borderBottom: '1px solid rgba(255,255,255,0.12)', zIndex: theme.zIndex.drawer - 1 }}
+        >
+          <Toolbar sx={{ minHeight: 56 }}>
+            <IconButton color="inherit" edge="start" onClick={() => setMobileOpen(true)} aria-label="Abrir navegación">
+              <MenuIcon />
+            </IconButton>
+            <FactoryIcon sx={{ ml: 1.5, mr: 1, fontSize: 24 }} />
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Envaperu</Typography>
+          </Toolbar>
+        </AppBar>
+      )}
+      <Drawer
+      variant={isMobile ? 'temporary' : 'permanent'}
+      open={isMobile ? mobileOpen : true}
+      onClose={() => setMobileOpen(false)}
+      ModalProps={{ keepMounted: true }}
       sx={{
-        width: drawerWidth,
+        width: isMobile ? 0 : drawerWidth,
         flexShrink: 0,
         '& .MuiDrawer-paper': {
           width: drawerWidth,
@@ -91,6 +139,7 @@ function Sidebar() {
           <ListItemButton
             component={NavLink}
             to="/"
+            onClick={closeOnMobile}
             sx={{
               borderRadius: 2,
               '&.active': { backgroundColor: 'rgba(255,255,255,0.15)' },
@@ -101,6 +150,42 @@ function Sidebar() {
               <DashboardIcon />
             </ListItemIcon>
             <ListItemText primary="Dashboard" />
+          </ListItemButton>
+        </ListItem>
+
+        <ListItem disablePadding sx={{ mb: 0.5 }}>
+          <ListItemButton
+            component={NavLink}
+            to="/guia/scm"
+            onClick={closeOnMobile}
+            sx={{
+              borderRadius: 2,
+              '&.active': { backgroundColor: 'rgba(255,255,255,0.15)' },
+              '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
+            }}
+          >
+            <ListItemIcon sx={{ color: 'inherit', minWidth: 40 }}>
+              <MapOutlinedIcon />
+            </ListItemIcon>
+            <ListItemText primary="Guía SCM" />
+          </ListItemButton>
+        </ListItem>
+
+        <ListItem disablePadding sx={{ mb: 0.5 }}>
+          <ListItemButton
+            component={NavLink}
+            to="/planificacion"
+            onClick={closeOnMobile}
+            sx={{
+              borderRadius: 2,
+              '&.active': { backgroundColor: 'rgba(255,255,255,0.15)' },
+              '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
+            }}
+          >
+            <ListItemIcon sx={{ color: 'inherit', minWidth: 40 }}>
+              <EventNoteOutlinedIcon />
+            </ListItemIcon>
+            <ListItemText primary="Planificación" />
           </ListItemButton>
         </ListItem>
 
@@ -128,6 +213,7 @@ function Sidebar() {
                   component={NavLink}
                   to={item.path}
                   end={item.path === '/ordenes'}
+                  onClick={closeOnMobile}
                   sx={{
                     pl: 4,
                     borderRadius: 2,
@@ -139,6 +225,89 @@ function Sidebar() {
                     '&:hover': { 
                       backgroundColor: item.highlight ? 'rgba(46, 125, 50, 0.5)' : 'rgba(255,255,255,0.1)' 
                     },
+                  }}
+                >
+                  <ListItemIcon sx={{ color: 'inherit', minWidth: 40 }}>
+                    {item.icon}
+                  </ListItemIcon>
+                  <ListItemText primary={item.label} />
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </List>
+        </Collapse>
+
+        {/* Pesaje Submenu */}
+        <ListItem disablePadding sx={{ mb: 0.5 }}>
+          <ListItemButton
+            onClick={() => setPesajeOpen(!pesajeOpen)}
+            sx={{
+              borderRadius: 2,
+              '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
+            }}
+          >
+            <ListItemIcon sx={{ color: 'inherit', minWidth: 40 }}>
+              <ScaleOutlinedIcon />
+            </ListItemIcon>
+            <ListItemText primary="Pesaje" />
+            {pesajeOpen ? <ExpandLess /> : <ExpandMore />}
+          </ListItemButton>
+        </ListItem>
+        <Collapse in={pesajeOpen} timeout="auto" unmountOnExit>
+          <List component="div" disablePadding>
+            {pesajeItems.map((item) => (
+              <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
+                <ListItemButton
+                  component={NavLink}
+                  to={item.path}
+                  onClick={closeOnMobile}
+                  sx={{
+                    pl: 4,
+                    borderRadius: 2,
+                    '&.active': { backgroundColor: 'rgba(255,255,255,0.15)' },
+                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
+                  }}
+                >
+                  <ListItemIcon sx={{ color: 'inherit', minWidth: 40 }}>
+                    {item.icon}
+                  </ListItemIcon>
+                  <ListItemText primary={item.label} />
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </List>
+        </Collapse>
+
+        {/* Materias Primas Submenu */}
+        <ListItem disablePadding sx={{ mb: 0.5 }}>
+          <ListItemButton
+            onClick={() => setMaterialesOpen(!materialesOpen)}
+            sx={{
+              borderRadius: 2,
+              '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
+            }}
+          >
+            <ListItemIcon sx={{ color: 'inherit', minWidth: 40 }}>
+              <WarehouseOutlinedIcon />
+            </ListItemIcon>
+            <ListItemText primary="Materias primas" />
+            {materialesOpen ? <ExpandLess /> : <ExpandMore />}
+          </ListItemButton>
+        </ListItem>
+        <Collapse in={materialesOpen} timeout="auto" unmountOnExit>
+          <List component="div" disablePadding>
+            {materialesItems.map((item) => (
+              <ListItem key={item.path} disablePadding sx={{ mb: 0.5 }}>
+                <ListItemButton
+                  component={NavLink}
+                  to={item.path}
+                  end={item.end}
+                  onClick={closeOnMobile}
+                  sx={{
+                    pl: 4,
+                    borderRadius: 2,
+                    '&.active': { backgroundColor: 'rgba(255,255,255,0.15)' },
+                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
                   }}
                 >
                   <ListItemIcon sx={{ color: 'inherit', minWidth: 40 }}>
@@ -174,6 +343,7 @@ function Sidebar() {
                 <ListItemButton
                   component={NavLink}
                   to={item.path}
+                  onClick={closeOnMobile}
                   sx={{
                     pl: 4,
                     borderRadius: 2,
@@ -218,6 +388,7 @@ function Sidebar() {
                   component={NavLink}
                   to={item.path}
                   end={item.path === '/registros'}
+                  onClick={closeOnMobile}
                   sx={{
                     pl: 4,
                     borderRadius: 2,
@@ -235,7 +406,8 @@ function Sidebar() {
           </List>
         </Collapse>
       </List>
-    </Drawer>
+      </Drawer>
+    </>
   );
 }
 

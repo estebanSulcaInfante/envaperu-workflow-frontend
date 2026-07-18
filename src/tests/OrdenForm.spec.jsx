@@ -24,17 +24,17 @@ import {
 
 const mockPiezas = [
   { sku: 'MZ-BLD', nombre: 'Pieza Balde', cavidades: 1, peso_unitario_gr: 145, tipo: 'SIMPLE',
-    molde: { codigo: 'MLB01', nombre: 'Molde Balde Playero', peso_tiro_gr: 150, piezas: [{ sku: 'MZ-BLD', cavidades: 1, peso_unitario_gr: 145 }] } 
+    molde: { codigo: 'MLB01', nombre: 'Molde Balde Playero', peso_tiro_gr: 150, formas: [{ nombre: 'Pieza Balde', cavidades: 1, peso_unitario_gr: 145 }] }
   },
   { sku: 'MZ-JBASE', nombre: 'Base Jarra', cavidades: 1, peso_unitario_gr: 100, tipo: 'COMPUESTO',
     molde: { 
       codigo: 'MLJ01', 
       nombre: 'Molde Jarra Regadera', 
       peso_tiro_gr: 150,
-      piezas: [
-        { sku: 'MZ-JBASE', nombre: 'Base Jarra', cavidades: 1, peso_unitario_gr: 100 },
-        { sku: 'MZ-JTAPA', nombre: 'Tapa Jarra', cavidades: 1, peso_unitario_gr: 20 },
-        { sku: 'MZ-JROS', nombre: 'Roseta', cavidades: 2, peso_unitario_gr: 5 }
+      formas: [
+        { nombre: 'Base Jarra', cavidades: 1, peso_unitario_gr: 100 },
+        { nombre: 'Tapa Jarra', cavidades: 1, peso_unitario_gr: 20 },
+        { nombre: 'Roseta', cavidades: 2, peso_unitario_gr: 5 }
       ]
     } 
   }
@@ -61,12 +61,12 @@ describe('Specs: OrdenForm (Spec-Driven)', () => {
     render(<TestWrapper><OrdenForm /></TestWrapper>);
     const user = userEvent.setup();
     
-    // Select the simple piece/mold
-    const moldeInput = await screen.findByLabelText(/Pieza \/ Molde/i);
+    // Select the mold; its forms are rendered from the normalized catalog.
+    const moldeInput = await screen.findByLabelText(/^Molde$/i);
     await user.type(moldeInput, 'Balde');
     
     // Select option
-    const option = await screen.findByRole('option', { name: /Pieza Balde/i });
+    const option = await screen.findByRole('option', { name: /Molde Balde Playero/i });
     await user.click(option);
 
     // Wait for the composition to appear
@@ -83,11 +83,11 @@ describe('Specs: OrdenForm (Spec-Driven)', () => {
     render(<TestWrapper><OrdenForm /></TestWrapper>);
     const user = userEvent.setup();
 
-    // Select the jar component
-    const moldeInput = await screen.findByLabelText(/Pieza \/ Molde/i);
-    await user.type(moldeInput, 'Base Jarra');
+    // Select the mold and verify its three normalized forms.
+    const moldeInput = await screen.findByLabelText(/^Molde$/i);
+    await user.type(moldeInput, 'Jarra');
     
-    const option = await screen.findByRole('option', { name: /Base Jarra/i });
+    const option = await screen.findByRole('option', { name: /Molde Jarra Regadera/i });
     await user.click(option);
 
     // Assert: Debe mostrar las piezas cargadas desde el mockup, no ocultarlas
