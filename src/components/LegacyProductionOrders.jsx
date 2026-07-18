@@ -11,6 +11,7 @@ import {
   Pagination,
   Paper,
   Stack,
+  Snackbar,
   Table,
   TableBody,
   TableCell,
@@ -24,24 +25,28 @@ import {
   useTheme,
 } from '@mui/material';
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
+import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import ExpandLessOutlinedIcon from '@mui/icons-material/ExpandLessOutlined';
 import ExpandMoreOutlinedIcon from '@mui/icons-material/ExpandMoreOutlined';
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
+import LockOpenOutlinedIcon from '@mui/icons-material/LockOpenOutlined';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import ScaleOutlinedIcon from '@mui/icons-material/ScaleOutlined';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import {
+  createPilotCommand,
   getLegacyProductionOrderDetail,
   getLegacyProductionOrders,
 } from '../services/legacyProductionOrders';
 
 
 const statusOptions = {
-  ACTIVA_CENTRAL: { label: 'Activa central', color: 'success' },
-  CERRADA_CENTRAL: { label: 'Cerrada central', color: 'default' },
-  CERRADA_LEGACY: { label: 'Cerrada legacy', color: 'info' },
-  SIN_CIERRE_LEGACY: { label: 'Sin cierre legacy', color: 'warning' },
+  ABIERTA_PILOTO: { label: 'Abierta', color: 'success' },
+  CERRADA_LEGACY: { label: 'Cerrada', color: 'default' },
+  CIERRE_PENDIENTE: { label: 'Cierre pendiente', color: 'warning' },
+  REAPERTURA_PENDIENTE: { label: 'Reapertura pendiente', color: 'warning' },
   PENDIENTE_MAPEO: { label: 'Pendiente de mapeo', color: 'error' },
 };
 
@@ -81,11 +86,16 @@ function OrderIdentity({ item }) {
       <Typography variant="caption" color="text.secondary">
         {item.molds.join(', ') || 'Sin molde'}
       </Typography>
+      {item.mapping_status === 'PENDIENTE_MAPEO' && (
+        <Typography variant="caption" color="error.main" sx={{ display: 'block' }}>
+          Código pendiente de mapeo
+        </Typography>
+      )}
     </Box>
   );
 }
 
-function Detail({ state }) {
+function Detail({ item, state, onRequestCommand }) {
   if (state?.loading) return <Box sx={{ py: 3, display: 'grid', placeItems: 'center' }}><CircularProgress size={24} /></Box>;
   if (state?.error) return <Alert severity="error">No se pudo cargar el detalle de pesajes.</Alert>;
   if (!state?.data) return null;
@@ -97,6 +107,7 @@ function Detail({ state }) {
             <TableCell>Fecha</TableCell><TableCell>OT</TableCell><TableCell>Color</TableCell>
             <TableCell>Máquina</TableCell><TableCell>Turno</TableCell>
             <TableCell align="right">Peso</TableCell><TableCell>Registro</TableCell>
+            <TableCell padding="checkbox" />
           </TableRow>
         </TableHead>
         <TableBody>
@@ -110,11 +121,23 @@ function Detail({ state }) {
               <TableCell align="right" sx={{ fontWeight: 750 }}>{kg(capture.weight_kg)}</TableCell>
               <TableCell>
                 <Chip
-                  color={capture.is_deleted ? 'default' : 'success'}
-                  label={capture.is_deleted ? 'Eliminado legacy' : 'Activo'}
+                  color={capture.is_deleted ? 'default' : capture.pending_command ? 'warning' : 'success'}
+                  label={capture.is_deleted ? 'Anulado' : capture.pending_command ? 'Anulación pendiente' : 'Activo'}
                   size="small"
                   variant="outlined"
                 />
+              </TableCell>
+              <TableCell padding="checkbox">
+                <IconButton
+                  aria-label={`Anular pesaje ${capture.legacy_id}`}
+                  color="error"
+                  disabled={capture.is_deleted || Boolean(capture.pending_command)}
+                  onClick={() => onRequestCommand({ action: 'VOID_CAPTURE', item, capture })}
+                  size="small"
+                  title="Anular pesaje"
+                >
+                  <DeleteOutlineOutlinedIcon fontSize="small" />
+                </IconButton>
               </TableCell>
             </TableRow>
           ))}
@@ -124,7 +147,7 @@ function Detail({ state }) {
   );
 }
 
-function DesktopOrders({ items, expanded, details, onToggle }) {
+function DesktopOrders({ items, expanded, details, onRequestCommand, onToggle }) {
   return (
     <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 1 }}>
       <Table size="small" aria-label="Todas las órdenes de producción legacy">
@@ -154,17 +177,31 @@ function DesktopOrders({ items, expanded, details, onToggle }) {
                   <TableCell align="right" sx={{ fontWeight: 800 }}>{kg(item.active_weight_kg)}</TableCell>
                   <TableCell>{dateTime(item.last_capture_at_utc)}</TableCell>
                   <TableCell padding="checkbox">
-                    <Tooltip title={open ? 'Ocultar pesajes' : 'Ver pesajes'}>
-                      <IconButton aria-label={`${open ? 'Ocultar' : 'Ver'} pesajes de ${item.op_raw}`} size="small" onClick={() => onToggle(item)}>
-                        {open ? <ExpandLessOutlinedIcon /> : <ExpandMoreOutlinedIcon />}
-                      </IconButton>
-                    </Tooltip>
+                    <Stack direction="row">
+                      <Button
+                        aria-label={`${item.status === 'CERRADA_LEGACY' ? 'Reabrir' : 'Cerrar'} ${item.op_raw}`}
+                        disabled={Boolean(item.pending_command)}
+                        startIcon={item.status === 'CERRADA_LEGACY' ? <LockOpenOutlinedIcon /> : <LockOutlinedIcon />}
+                        onClick={() => onRequestCommand({
+                          action: item.status === 'CERRADA_LEGACY' ? 'REOPEN_OP' : 'CLOSE_OP',
+                          item,
+                        })}
+                        size="small"
+                      >
+                        {item.status === 'CERRADA_LEGACY' ? 'Reabrir' : 'Cerrar'}
+                      </Button>
+                      <Tooltip title={open ? 'Ocultar pesajes' : 'Ver pesajes'}>
+                        <IconButton aria-label={`${open ? 'Ocultar' : 'Ver'} pesajes de ${item.op_raw}`} size="small" onClick={() => onToggle(item)}>
+                          {open ? <ExpandLessOutlinedIcon /> : <ExpandMoreOutlinedIcon />}
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell colSpan={8} sx={{ p: 0, borderBottom: open ? undefined : 0 }}>
                     <Collapse in={open} timeout="auto" unmountOnExit>
-                      <Box sx={{ p: 1.25, bgcolor: '#FAFAFA' }}><Detail state={details[key]} /></Box>
+                      <Box sx={{ p: 1.25, bgcolor: '#FAFAFA' }}><Detail item={item} state={details[key]} onRequestCommand={onRequestCommand} /></Box>
                     </Collapse>
                   </TableCell>
                 </TableRow>
@@ -177,7 +214,7 @@ function DesktopOrders({ items, expanded, details, onToggle }) {
   );
 }
 
-function MobileOrders({ items, expanded, details, onToggle }) {
+function MobileOrders({ items, expanded, details, onRequestCommand, onToggle }) {
   return (
     <Stack spacing={1}>
       {items.map((item) => {
@@ -197,11 +234,24 @@ function MobileOrders({ items, expanded, details, onToggle }) {
               </Box>
               <Stack direction="row" justifyContent="space-between" alignItems="center">
                 <Typography variant="caption" color="text.secondary">{dateTime(item.last_capture_at_utc)}</Typography>
-                <IconButton aria-label={`${open ? 'Ocultar' : 'Ver'} pesajes de ${item.op_raw}`} size="small" onClick={() => onToggle(item)}>
-                  {open ? <ExpandLessOutlinedIcon /> : <ExpandMoreOutlinedIcon />}
-                </IconButton>
+                <Stack direction="row">
+                  <IconButton
+                    aria-label={`${item.status === 'CERRADA_LEGACY' ? 'Reabrir' : 'Cerrar'} ${item.op_raw}`}
+                    disabled={Boolean(item.pending_command)}
+                    onClick={() => onRequestCommand({
+                      action: item.status === 'CERRADA_LEGACY' ? 'REOPEN_OP' : 'CLOSE_OP',
+                      item,
+                    })}
+                    size="small"
+                  >
+                    {item.status === 'CERRADA_LEGACY' ? <LockOpenOutlinedIcon /> : <LockOutlinedIcon />}
+                  </IconButton>
+                  <IconButton aria-label={`${open ? 'Ocultar' : 'Ver'} pesajes de ${item.op_raw}`} size="small" onClick={() => onToggle(item)}>
+                    {open ? <ExpandLessOutlinedIcon /> : <ExpandMoreOutlinedIcon />}
+                  </IconButton>
+                </Stack>
               </Stack>
-              <Collapse in={open} timeout="auto" unmountOnExit><Detail state={details[key]} /></Collapse>
+              <Collapse in={open} timeout="auto" unmountOnExit><Detail item={item} state={details[key]} onRequestCommand={onRequestCommand} /></Collapse>
             </Stack>
           </Paper>
         );
@@ -223,6 +273,11 @@ export default function LegacyProductionOrders() {
   const [error, setError] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const [details, setDetails] = useState({});
+  const [command, setCommand] = useState(null);
+  const [requestedBy, setRequestedBy] = useState('');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState('');
 
   useEffect(() => {
     const controller = new AbortController();
@@ -259,6 +314,50 @@ export default function LegacyProductionOrders() {
       setDetails((current) => ({ ...current, [key]: { error: true } }));
     }
   };
+  const openCommand = (target) => {
+    setRequestedBy('');
+    setReason('');
+    setCommand(target);
+  };
+  const closeCommand = () => {
+    if (!submitting) {
+      setCommand(null);
+      setRequestedBy('');
+      setReason('');
+    }
+  };
+  const submitCommand = async () => {
+    if (!command || !requestedBy.trim() || !reason.trim()) return;
+    setSubmitting(true);
+    try {
+      await createPilotCommand({
+        stationId: command.item.station_id,
+        action: command.action,
+        legacyPesajeId: command.capture?.legacy_id,
+        op: command.item.op_raw,
+        requestedBy: requestedBy.trim(),
+        reason: reason.trim(),
+      });
+      setNotice('Comando registrado. La estación lo aplicará al conectarse.');
+      setCommand(null);
+      setRequestedBy('');
+      setReason('');
+      setDetails({});
+      setExpanded(null);
+      setLoading(true);
+      setRefresh((value) => value + 1);
+    } catch (requestError) {
+      setNotice(requestError?.response?.data?.message || 'No se pudo registrar el comando.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const commandTitle = command?.action === 'VOID_CAPTURE'
+    ? `Anular pesaje ${command.capture?.legacy_id}`
+    : command?.action === 'CLOSE_OP'
+      ? `Cerrar ${command.item?.op_raw}`
+      : `Reabrir ${command?.item?.op_raw}`;
 
   return (
     <Box sx={{ width: '100%', maxWidth: 1600, mx: 'auto' }}>
@@ -299,10 +398,70 @@ export default function LegacyProductionOrders() {
       {error && <Alert severity="error" sx={{ mb: 2 }}>No se pudo consultar el historial de pesajes.</Alert>}
       {loading && !data && <Box sx={{ minHeight: 280, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>}
       {data?.items.length > 0 && (mobile
-        ? <MobileOrders items={data.items} expanded={expanded} details={details} onToggle={toggle} />
-        : <DesktopOrders items={data.items} expanded={expanded} details={details} onToggle={toggle} />)}
+        ? <MobileOrders items={data.items} expanded={expanded} details={details} onRequestCommand={openCommand} onToggle={toggle} />
+        : <DesktopOrders items={data.items} expanded={expanded} details={details} onRequestCommand={openCommand} onToggle={toggle} />)}
       {data && data.items.length === 0 && !loading && <Paper variant="outlined" sx={{ py: 8, textAlign: 'center', borderRadius: 1 }}><Typography color="text.secondary">No hay OP legacy para los filtros seleccionados.</Typography></Paper>}
       {(data?.pagination.pages || 0) > 1 && <Stack alignItems="center" sx={{ mt: 2 }}><Pagination count={data.pagination.pages} page={page} onChange={(_event, value) => { setLoading(true); setPage(value); setExpanded(null); }} color="primary" /></Stack>}
+
+      {command && (
+        <Box
+          aria-labelledby="pilot-command-title"
+          aria-modal="true"
+          role="dialog"
+          sx={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: (themeValue) => themeValue.zIndex.modal,
+            bgcolor: 'rgba(0, 0, 0, 0.48)',
+            display: 'grid',
+            placeItems: 'center',
+            p: 2,
+          }}
+        >
+          <Paper sx={{ width: '100%', maxWidth: 560, p: 2.5, borderRadius: 1 }}>
+            <Typography component="h2" id="pilot-command-title" variant="h6" sx={{ fontWeight: 800, mb: 2 }}>{commandTitle}</Typography>
+            <Alert severity={command.action === 'VOID_CAPTURE' ? 'warning' : 'info'} sx={{ mb: 2 }}>
+              La acción se enviará a la estación y conservará su auditoría. Si está desconectada quedará pendiente.
+            </Alert>
+            <Stack spacing={2}>
+              <TextField
+                autoFocus
+                label="Responsable"
+                value={requestedBy}
+                onChange={(event) => setRequestedBy(event.target.value)}
+                inputProps={{ maxLength: 120 }}
+                required
+              />
+              <TextField
+                label="Motivo"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                inputProps={{ maxLength: 500 }}
+                minRows={3}
+                multiline
+                required
+              />
+              <Stack direction="row" justifyContent="flex-end" spacing={1}>
+                <Button onClick={closeCommand} disabled={submitting}>Cancelar</Button>
+                <Button
+                  color={command.action === 'VOID_CAPTURE' ? 'error' : 'primary'}
+                  disabled={submitting || !requestedBy.trim() || !reason.trim()}
+                  onClick={submitCommand}
+                  variant="contained"
+                >
+                  {submitting ? 'Registrando...' : 'Confirmar'}
+                </Button>
+              </Stack>
+            </Stack>
+          </Paper>
+        </Box>
+      )}
+      <Snackbar
+        autoHideDuration={5000}
+        message={notice}
+        onClose={() => setNotice('')}
+        open={Boolean(notice)}
+      />
     </Box>
   );
 }

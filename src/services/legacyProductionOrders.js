@@ -37,3 +37,25 @@ export const getLegacyProductionOrderDetail = async ({
   });
   return response.data;
 };
+
+
+export const createPilotCommand = async ({
+  stationId,
+  action,
+  legacyPesajeId,
+  op,
+  requestedBy,
+  reason,
+}) => {
+  const commandId = crypto.randomUUID();
+  const response = await api.post('/monitoring/v1/pilot-commands', {
+    command_id: commandId,
+    station_id: stationId,
+    action,
+    requested_by: requestedBy,
+    reason,
+    ...(legacyPesajeId ? { legacy_pesaje_id: legacyPesajeId } : {}),
+    ...(op ? { op } : {}),
+  });
+  return response.data;
+};
