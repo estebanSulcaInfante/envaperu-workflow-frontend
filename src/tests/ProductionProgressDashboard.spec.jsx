@@ -20,6 +20,16 @@ const response = {
     stations_reporting: 1,
     weight_kg: '75.150',
   },
+  monthly_summary: {
+    average_daily_weight_kg: '50.075',
+    bags: 4,
+    month: '2026-07',
+    period_start: '2026-07-01',
+    period_end: '2026-07-31',
+    production_days: 2,
+    production_orders: 2,
+    weight_kg: '100.150',
+  },
   items: [
     {
       op: 'OP-1401',
@@ -114,6 +124,12 @@ describe('US-011A: Dashboard gerencial temporal por pesajes', () => {
     })).toBeInTheDocument();
     expect(screen.getByTestId('progress-total-weight')).toHaveTextContent('75.150 kg');
     expect(screen.getByTestId('progress-total-bags')).toHaveTextContent('3');
+    expect(screen.getByRole('heading', { name: 'Resumen mensual · julio de 2026' })).toBeInTheDocument();
+    expect(screen.getByTestId('monthly-total-weight')).toHaveTextContent('100.150 kg');
+    expect(screen.getByTestId('monthly-total-bags')).toHaveTextContent('4');
+    expect(screen.getByTestId('monthly-production-orders')).toHaveTextContent('2');
+    expect(screen.getByTestId('monthly-daily-average')).toHaveTextContent('50.075 kg');
+    expect(screen.getByText('2 días con producción')).toBeInTheDocument();
     expect(screen.getByText('Reporte local legacy')).toBeInTheDocument();
     expect(screen.getByText(/no confirma inventario SCM/i)).toBeInTheDocument();
 

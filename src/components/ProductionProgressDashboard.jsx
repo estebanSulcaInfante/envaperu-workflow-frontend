@@ -26,12 +26,14 @@ import {
 } from '@mui/material';
 import AccessTimeOutlinedIcon from '@mui/icons-material/AccessTimeOutlined';
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
+import CalendarMonthOutlinedIcon from '@mui/icons-material/CalendarMonthOutlined';
 import ExpandLessOutlinedIcon from '@mui/icons-material/ExpandLessOutlined';
 import ExpandMoreOutlinedIcon from '@mui/icons-material/ExpandMoreOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
 import ScaleOutlinedIcon from '@mui/icons-material/ScaleOutlined';
 import SensorsOutlinedIcon from '@mui/icons-material/SensorsOutlined';
+import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import { getProductionProgress } from '../services/productionProgress';
 
@@ -90,6 +92,81 @@ function Metric({ icon, label, value, detail, accent, testId }) {
         {value}
       </Typography>
       <Typography variant="caption" color="text.secondary">{detail}</Typography>
+    </Paper>
+  );
+}
+
+function MonthlyValue({ icon, label, value, detail, testId }) {
+  return (
+    <Box sx={{ minWidth: 0, py: 0.75 }}>
+      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ color: 'text.secondary' }}>
+        {icon}
+        <Typography variant="caption" sx={{ fontWeight: 750 }}>{label}</Typography>
+      </Stack>
+      <Typography
+        data-testid={testId}
+        variant="h6"
+        sx={{ mt: 0.5, fontWeight: 850, lineHeight: 1.15, overflowWrap: 'anywhere' }}
+      >
+        {value}
+      </Typography>
+      <Typography variant="caption" color="text.secondary">{detail}</Typography>
+    </Box>
+  );
+}
+
+function MonthlySummary({ summary }) {
+  if (!summary) return null;
+  const monthLabel = new Intl.DateTimeFormat('es-PE', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${summary.month}-01T12:00:00Z`));
+  return (
+    <Paper variant="outlined" sx={{ p: 1.75, mb: 2, borderRadius: 1 }}>
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+        <CalendarMonthOutlinedIcon color="primary" fontSize="small" />
+        <Typography component="h2" variant="subtitle1" sx={{ fontWeight: 850 }}>
+          Resumen mensual · {monthLabel}
+        </Typography>
+      </Stack>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr 1fr', lg: 'repeat(4, minmax(0, 1fr))' },
+          columnGap: 2,
+          rowGap: 1,
+        }}
+      >
+        <MonthlyValue
+          detail="Peso neto reportado"
+          icon={<ScaleOutlinedIcon fontSize="small" />}
+          label="PESO DEL MES"
+          testId="monthly-total-weight"
+          value={kg(summary.weight_kg)}
+        />
+        <MonthlyValue
+          detail="Capturas activas"
+          icon={<Inventory2OutlinedIcon fontSize="small" />}
+          label="BOLSAS DEL MES"
+          testId="monthly-total-bags"
+          value={summary.bags || 0}
+        />
+        <MonthlyValue
+          detail="Órdenes distintas con pesajes"
+          icon={<AssignmentOutlinedIcon fontSize="small" />}
+          label="OP DEL MES"
+          testId="monthly-production-orders"
+          value={summary.production_orders || 0}
+        />
+        <MonthlyValue
+          detail={`${summary.production_days || 0} días con producción`}
+          icon={<TrendingUpOutlinedIcon fontSize="small" />}
+          label="PROMEDIO DIARIO"
+          testId="monthly-daily-average"
+          value={kg(summary.average_daily_weight_kg)}
+        />
+      </Box>
     </Paper>
   );
 }
@@ -416,6 +493,8 @@ export default function ProductionProgressDashboard({ initialDate }) {
         Este es un indicador operativo basado en la estación local; no confirma inventario SCM, consumo ni unidad logística.
       </Alert>
 
+      <MonthlySummary summary={data?.monthly_summary} />
+
       <Paper variant="outlined" sx={{ p: 1.5, mb: 2, borderRadius: 1 }}>
         <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.25} alignItems={{ lg: 'center' }}>
           <TextField
@@ -495,7 +574,7 @@ export default function ProductionProgressDashboard({ initialDate }) {
               accent="#1E3A5F"
               detail="Peso neto informado"
               icon={<ScaleOutlinedIcon fontSize="small" />}
-              label="PESO REPORTADO"
+              label="PESO DEL DÍA"
               testId="progress-total-weight"
               value={kg(data?.summary.weight_kg)}
             />
@@ -503,7 +582,7 @@ export default function ProductionProgressDashboard({ initialDate }) {
               accent="#2E7D32"
               detail="Capturas activas"
               icon={<Inventory2OutlinedIcon fontSize="small" />}
-              label="BOLSAS"
+              label="BOLSAS DEL DÍA"
               testId="progress-total-bags"
               value={data?.summary.bags || 0}
             />
@@ -511,7 +590,7 @@ export default function ProductionProgressDashboard({ initialDate }) {
               accent="#D97706"
               detail={itemCountLabel}
               icon={<AssignmentOutlinedIcon fontSize="small" />}
-              label="ÓRDENES"
+              label="ÓRDENES DEL DÍA"
               value={data?.summary.production_orders || 0}
             />
             <Metric
