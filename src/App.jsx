@@ -25,6 +25,7 @@ import PreparacionMateriales from './components/PreparacionMateriales';
 import RecepcionMateriales from './components/RecepcionMateriales';
 import ScmGuide from './components/ScmGuide';
 import ProductionProgressDashboard from './components/ProductionProgressDashboard';
+import LegacyProductionOrders from './components/LegacyProductionOrders';
 import ErrorBoundary from './components/ErrorBoundary';
 
 // Tema claro corporativo ENVAPERU
@@ -119,6 +120,7 @@ function App() {
                 <Route path="/planificacion" element={<PlanificacionProduccion />} />
                 <Route path="/planificacion/:solicitudId" element={<PlanificacionProduccion />} />
                 <Route path="/pesaje/avance" element={<ProductionProgressDashboard />} />
+                <Route path="/pesaje/ordenes" element={<LegacyProductionOrders />} />
                 <Route path="/ordenes" element={<OrdenesLista />} />
                 <Route path="/ordenes/nueva" element={<OrdenForm />} />
                 <Route path="/materiales/recepciones" element={<RecepcionMateriales />} />

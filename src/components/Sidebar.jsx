@@ -53,6 +53,7 @@ const materialesItems = [
 
 const pesajeItems = [
   { path: '/pesaje/avance', label: 'Avance de producción', icon: <ScaleOutlinedIcon /> },
+  { path: '/pesaje/ordenes', label: 'Todas las OP', icon: <ListAltIcon /> },
 ];
 
 const catalogoItems = [
