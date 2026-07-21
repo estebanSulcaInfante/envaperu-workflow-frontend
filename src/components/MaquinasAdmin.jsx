@@ -28,14 +28,20 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
-import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing';
 import { getMaquinas, createMaquina, updateMaquina, getTiposMaquina, toggleEstadoMaquina } from '../services/api';
+import DataTableToolbar from './ui/DataTableToolbar';
+import PageHeader from './ui/PageHeader';
+import { matchesOmniSearch } from '../utils/tableSearch';
 
 function MaquinasAdmin() {
   const [maquinas, setMaquinas] = useState([]);
   const [tipos, setTipos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('TODOS');
+  const [physicalStatus, setPhysicalStatus] = useState('TODOS');
+  const [visibility, setVisibility] = useState('TODOS');
 
   // Formulario
   const [openDialog, setOpenDialog] = useState(false);
@@ -145,40 +151,104 @@ function MaquinasAdmin() {
     }
   };
 
+  const typeOptions = tipos.map((type) => ({
+    value: String(type.id),
+    label: type.nombre,
+  }));
+  const visibleMachines = maquinas.filter((machine) => {
+    const matchesType = typeFilter === 'TODOS'
+      || String(machine.tipo_maquina_id) === typeFilter;
+    const matchesPhysicalStatus = physicalStatus === 'TODOS'
+      || machine.estado === physicalStatus;
+    const matchesVisibility = visibility === 'TODOS'
+      || (visibility === 'VISIBLES' && machine.activo)
+      || (visibility === 'OCULTAS' && !machine.activo);
+
+    return matchesType
+      && matchesPhysicalStatus
+      && matchesVisibility
+      && matchesOmniSearch(machine, search);
+  });
+
   return (
     <Box>
-      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h5" fontWeight={600}>
-          <PrecisionManufacturingIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-          Catálogo de Máquinas
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={handleOpenNew}
-          sx={{ bgcolor: '#1E3A5F' }}
-        >
-          Nueva Máquina
-        </Button>
+      <Box sx={{ mb: 2 }}>
+        <PageHeader
+          eyebrow="Datos maestros"
+          title="Máquinas"
+          description="Equipos de planta, tipo de proceso, estado físico y disponibilidad en formularios."
+        />
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
+      <DataTableToolbar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Buscar código, máquina, tipo o serie"
+        resultCount={visibleMachines.length}
+        totalCount={maquinas.length}
+        filters={[
+          {
+            id: 'type',
+            label: 'Tipo',
+            value: typeFilter,
+            onChange: setTypeFilter,
+            options: [{ value: 'TODOS', label: 'Todos' }, ...typeOptions],
+          },
+          {
+            id: 'physicalStatus',
+            label: 'Estado físico',
+            value: physicalStatus,
+            onChange: setPhysicalStatus,
+            options: [
+              { value: 'TODOS', label: 'Todos' },
+              { value: 'OPERATIVA', label: 'Operativa' },
+              { value: 'MANTENIMIENTO', label: 'Mantenimiento' },
+              { value: 'FUERA_SERVICIO', label: 'Fuera de servicio' },
+              { value: 'BAJA', label: 'Baja' },
+            ],
+          },
+          {
+            id: 'visibility',
+            label: 'Visibilidad',
+            value: visibility,
+            onChange: setVisibility,
+            options: [
+              { value: 'TODOS', label: 'Todas' },
+              { value: 'VISIBLES', label: 'Visibles' },
+              { value: 'OCULTAS', label: 'Ocultas' },
+            ],
+          },
+        ]}
+        onClear={() => {
+          setSearch('');
+          setTypeFilter('TODOS');
+          setPhysicalStatus('TODOS');
+          setVisibility('TODOS');
+        }}
+        actions={(
+          <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenNew}>
+            Nueva máquina
+          </Button>
+        )}
+      />
+
       <TableContainer component={Paper}>
         <Table>
-          <TableHead sx={{ bgcolor: '#1E3A5F' }}>
+          <TableHead>
             <TableRow>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Código</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Nombre</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Tipo</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Nro. Serie</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="center">Estado Físico</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="center">Visible</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="center">Acciones</TableCell>
+              <TableCell>Código</TableCell>
+              <TableCell>Nombre</TableCell>
+              <TableCell>Tipo</TableCell>
+              <TableCell>Nro. serie</TableCell>
+              <TableCell align="center">Estado físico</TableCell>
+              <TableCell align="center">Visible</TableCell>
+              <TableCell align="center">Acciones</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {maquinas.map((m) => (
+            {visibleMachines.map((m) => (
               <TableRow key={m.id} hover>
                 <TableCell>{m.codigo}</TableCell>
                 <TableCell>{m.nombre}</TableCell>
@@ -223,10 +293,10 @@ function MaquinasAdmin() {
                 </TableCell>
               </TableRow>
             ))}
-            {maquinas.length === 0 && (
+            {visibleMachines.length === 0 && (
               <TableRow>
                 <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
-                  No hay máquinas registradas
+                  No hay máquinas que coincidan con los filtros
                 </TableCell>
               </TableRow>
             )}

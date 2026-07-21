@@ -7,14 +7,9 @@ import {
   Chip,
   CircularProgress,
   Divider,
-  FormControl,
   Grid,
   IconButton,
-  InputAdornment,
-  InputLabel,
-  MenuItem,
   Paper,
-  Select,
   Stack,
   Step,
   StepButton,
@@ -25,7 +20,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  TextField,
   Tooltip,
   Typography,
   useMediaQuery,
@@ -40,11 +34,12 @@ import FactoryOutlinedIcon from '@mui/icons-material/FactoryOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ScienceOutlinedIcon from '@mui/icons-material/ScienceOutlined';
-import SearchIcon from '@mui/icons-material/Search';
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import ApiPendingButton from './ApiPendingButton';
+import DataTableToolbar from './ui/DataTableToolbar';
 import { obtenerPlanificacionProduccion } from '../services/planificacionProduccion';
+import { matchesOmniSearch } from '../utils/tableSearch';
 
 const stages = ['Demanda', 'Cobertura', 'Propuestas de OP', 'Configuración', 'Liberación'];
 
@@ -476,7 +471,7 @@ function ReleasePanel({ solicitud, capabilities }) {
         {isReleased && propuesta?.opNumero ? (
           <Button
             component={RouterLink}
-            to={`/ordenes/${propuesta.opNumero}/materiales`}
+            to={`/materiales/preparaciones/${propuesta.opNumero}`}
             variant="contained"
             endIcon={<ArrowForwardOutlinedIcon />}
           >
@@ -529,15 +524,9 @@ function PlanificacionProduccion() {
 
   const filteredRequests = useMemo(() => {
     if (!workspace) return [];
-    const term = search.trim().toLowerCase();
     return workspace.solicitudes.filter((solicitud) => {
       const matchesStatus = statusFilter === 'TODOS' || solicitud.estado === statusFilter;
-      const searchable = [
-        solicitud.id,
-        solicitud.referencia,
-        ...solicitud.lineas.flatMap((linea) => [linea.producto, linea.productoSku]),
-      ].join(' ').toLowerCase();
-      return matchesStatus && (!term || searchable.includes(term));
+      return matchesStatus && matchesOmniSearch(solicitud, search);
     });
   }, [search, statusFilter, workspace]);
 
@@ -594,29 +583,30 @@ function PlanificacionProduccion() {
       </Paper>
 
       <Paper variant="outlined" sx={{ mb: 2, borderRadius: 1, overflow: 'hidden' }}>
-        <Box sx={{ p: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(260px, 1fr) 220px' }, gap: 1.5 }}>
-          <TextField
-            size="small"
-            label="Buscar solicitud, producto o SKU"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }}
-          />
-          <FormControl size="small" fullWidth>
-            <InputLabel id="planning-status-filter-label">Estado</InputLabel>
-            <Select
-              labelId="planning-status-filter-label"
-              label="Estado"
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-            >
-              <MenuItem value="TODOS">Todos</MenuItem>
-              {Object.entries(statusConfig).map(([value, config]) => (
-                <MenuItem key={value} value={value}>{config.label}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Box>
+        <DataTableToolbar
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Buscar solicitud, referencia, producto o SKU"
+          resultCount={filteredRequests.length}
+          totalCount={workspace.solicitudes.length}
+          filters={[
+            {
+              id: 'status',
+              label: 'Estado',
+              value: statusFilter,
+              onChange: setStatusFilter,
+              options: [
+                { value: 'TODOS', label: 'Todos' },
+                ...Object.entries(statusConfig).map(([value, config]) => ({ value, label: config.label })),
+              ],
+            },
+          ]}
+          onClear={() => {
+            setSearch('');
+            setStatusFilter('TODOS');
+          }}
+          sx={{ border: 0, borderRadius: 0 }}
+        />
         <Divider />
         <RequestTable solicitudes={filteredRequests} selectedId={solicitud.id} onSelect={handleSelect} />
       </Paper>

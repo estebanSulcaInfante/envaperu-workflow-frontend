@@ -9,7 +9,6 @@ import {
   Divider,
   IconButton,
   LinearProgress,
-  MenuItem,
   Paper,
   Stack,
   Table,
@@ -20,6 +19,8 @@ import {
   TableRow,
   TextField,
   Tooltip,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
   useMediaQuery,
   useTheme,
@@ -33,9 +34,12 @@ import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
 import ScaleOutlinedIcon from '@mui/icons-material/ScaleOutlined';
 import SensorsOutlinedIcon from '@mui/icons-material/SensorsOutlined';
+import TodayOutlinedIcon from '@mui/icons-material/TodayOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import { getProductionProgress } from '../services/productionProgress';
+import DataTableToolbar from './ui/DataTableToolbar';
+import { matchesOmniSearch } from '../utils/tableSearch';
 
 
 const statusConfig = {
@@ -204,52 +208,91 @@ function ProgressValue({ item }) {
   );
 }
 
+function DetailCell({ label, children }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ display: { xs: 'block', lg: 'none' }, mb: 0.25, fontWeight: 750 }}
+      >
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  );
+}
+
 function DetailRows({ item }) {
   const rowId = item.op || 'SIN-OP';
   return (
     <Box data-testid={`progress-detail-${rowId}`} sx={{ minWidth: 0 }}>
       <Box
         sx={{
-          display: 'grid',
-          gridTemplateColumns: {
-            xs: 'minmax(0, 1fr) minmax(0, 1fr)',
-            lg: '100px minmax(130px, 1fr) minmax(120px, 1fr) 110px 100px 80px 105px',
-          },
+          display: { xs: 'none', lg: 'grid' },
+          gridTemplateColumns: 'minmax(130px, 1.1fr) 100px minmax(130px, 1fr) 110px minmax(150px, 1fr) 70px 105px',
           gap: 1,
           px: 1.5,
           pb: 0.75,
           color: 'text.secondary',
         }}
       >
-        {['OT', 'Molde', 'Color', 'Máquina', 'Turno', 'Bolsas', 'Peso'].map((label) => (
+        {['Color', 'OT', 'Molde', 'Máquina', 'Turnos', 'Bolsas', 'Peso'].map((label) => (
           <Typography key={label} variant="caption" sx={{ fontWeight: 800 }}>{label}</Typography>
         ))}
       </Box>
-      {item.details.map((detail, index) => (
-        <Box
-          key={`${detail.station_id}-${detail.ot || 'sin-ot'}-${index}`}
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: 'minmax(0, 1fr) minmax(0, 1fr)',
-              lg: '100px minmax(130px, 1fr) minmax(120px, 1fr) 110px 100px 80px 105px',
-            },
-            gap: 1,
-            alignItems: 'center',
-            px: 1.5,
-            py: 1,
-            borderTop: '1px solid #EEEEEE',
-          }}
-        >
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>{detail.ot || 'Sin OT'}</Typography>
-          <Typography variant="body2">{detail.mold || 'Sin molde'}</Typography>
-          <Typography variant="body2">{detail.color || 'Sin color'}</Typography>
-          <Typography variant="body2">{detail.machine_code || 'Sin máquina'}</Typography>
-          <Typography variant="body2">{detail.shift || 'Sin turno'}</Typography>
-          <Typography variant="body2">{detail.bags}</Typography>
-          <Typography variant="body2" sx={{ fontWeight: 800 }}>{kg(detail.weight_kg)}</Typography>
-        </Box>
-      ))}
+      {item.details.map((detail, index) => {
+        const shifts = detail.shifts?.length
+          ? detail.shifts
+          : detail.shift
+            ? [detail.shift]
+            : [];
+        return (
+          <Box
+            data-testid={`color-group-${detail.color || 'SIN-COLOR'}`}
+            key={`${detail.station_id}-${detail.color || 'sin-color'}-${detail.ot || 'sin-ot'}-${index}`}
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: 'minmax(0, 1fr)',
+                sm: 'repeat(2, minmax(0, 1fr))',
+                lg: 'minmax(130px, 1.1fr) 100px minmax(130px, 1fr) 110px minmax(150px, 1fr) 70px 105px',
+              },
+              gap: 1,
+              alignItems: 'center',
+              px: 1.5,
+              py: 1,
+              borderTop: '1px solid #EEEEEE',
+            }}
+          >
+            <DetailCell label="Color">
+              <Typography variant="body2" sx={{ fontWeight: 800 }}>{detail.color || 'Sin color'}</Typography>
+            </DetailCell>
+            <DetailCell label="OT">
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>{detail.ot || 'Sin OT'}</Typography>
+            </DetailCell>
+            <DetailCell label="Molde">
+              <Typography variant="body2">{detail.mold || 'Sin molde'}</Typography>
+            </DetailCell>
+            <DetailCell label="Máquina">
+              <Typography variant="body2">{detail.machine_code || 'Sin máquina'}</Typography>
+            </DetailCell>
+            <DetailCell label="Turnos">
+              <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+                {shifts.length
+                  ? shifts.map((value) => <Chip key={value} label={value} size="small" variant="outlined" />)
+                  : <Typography variant="body2">Sin turno</Typography>}
+              </Stack>
+            </DetailCell>
+            <DetailCell label="Bolsas">
+              <Typography variant="body2">{detail.bags}</Typography>
+            </DetailCell>
+            <DetailCell label="Peso">
+              <Typography variant="body2" sx={{ fontWeight: 800 }}>{kg(detail.weight_kg)}</Typography>
+            </DetailCell>
+          </Box>
+        );
+      })}
     </Box>
   );
 }
@@ -385,13 +428,17 @@ function LoadingState() {
   );
 }
 
-export default function ProductionProgressDashboard({ initialDate }) {
+export default function ProductionProgressDashboard({ initialDate, initialPeriod = 'month' }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const [date, setDate] = useState(initialDate || limaDate());
+  const initialOperationalDate = initialDate || limaDate();
+  const [period, setPeriod] = useState(initialPeriod);
+  const [date, setDate] = useState(initialOperationalDate);
+  const [month, setMonth] = useState(initialOperationalDate.slice(0, 7));
   const [op, setOp] = useState('');
   const [machine, setMachine] = useState('');
   const [shift, setShift] = useState('');
+  const [search, setSearch] = useState('');
   const [data, setData] = useState(null);
   const [filterOptions, setFilterOptions] = useState({ ops: [], machines: [], shifts: [] });
   const [loading, setLoading] = useState(true);
@@ -406,7 +453,8 @@ export default function ProductionProgressDashboard({ initialDate }) {
       setError(null);
       try {
         const payload = await getProductionProgress({
-          date,
+          period,
+          ...(period === 'month' ? { month } : { date }),
           ...(op ? { op } : {}),
           ...(machine ? { machine_code: machine } : {}),
           ...(shift ? { shift } : {}),
@@ -414,10 +462,13 @@ export default function ProductionProgressDashboard({ initialDate }) {
         });
         setData(payload);
         const details = payload.items.flatMap((item) => item.details || []);
+        const reportedShifts = details.flatMap((detail) => (
+          detail.shifts?.length ? detail.shifts : [detail.shift]
+        )).filter(Boolean);
         setFilterOptions((current) => ({
           ops: [...new Set([...current.ops, ...payload.items.map((item) => item.op).filter(Boolean)])].sort(),
           machines: [...new Set([...current.machines, ...details.map((detail) => detail.machine_code).filter(Boolean)])].sort(),
-          shifts: [...new Set([...current.shifts, ...details.map((detail) => detail.shift).filter(Boolean)])].sort(),
+          shifts: [...new Set([...current.shifts, ...reportedShifts])].sort(),
         }));
       } catch (requestError) {
         if (requestError?.name !== 'CanceledError' && requestError?.name !== 'AbortError') {
@@ -434,22 +485,40 @@ export default function ProductionProgressDashboard({ initialDate }) {
       controller.abort();
       window.clearInterval(interval);
     };
-  }, [date, op, machine, shift, refreshKey]);
+  }, [period, month, date, op, machine, shift, refreshKey]);
 
   const hasDelayedData = data?.items.some((item) => item.communication_status !== 'RECIENTE');
+  const visibleItems = useMemo(
+    () => (data?.items || []).filter((item) => matchesOmniSearch(item, search)),
+    [data, search],
+  );
   const itemCountLabel = useMemo(() => {
     const count = data?.summary.production_orders || 0;
     return `${count} ${count === 1 ? 'OP reportada' : 'OP reportadas'}`;
   }, [data]);
 
   const toggleDetail = (rowId) => setExpanded((current) => (current === rowId ? null : rowId));
-  const changeDate = (event) => {
-    setDate(event.target.value);
+  const resetTemporalScope = () => {
     setOp('');
     setMachine('');
     setShift('');
+    setSearch('');
     setFilterOptions({ ops: [], machines: [], shifts: [] });
     setExpanded(null);
+    setData(null);
+  };
+  const changePeriod = (_event, value) => {
+    if (!value || value === period) return;
+    setPeriod(value);
+    resetTemporalScope();
+  };
+  const changeDate = (event) => {
+    setDate(event.target.value);
+    resetTemporalScope();
+  };
+  const changeMonth = (event) => {
+    setMonth(event.target.value);
+    resetTemporalScope();
   };
 
   return (
@@ -469,7 +538,7 @@ export default function ProductionProgressDashboard({ initialDate }) {
             </Typography>
           </Stack>
           <Typography variant="body2" color="text.secondary">
-            Seguimiento de kilos embolsados por orden de producción y fecha operativa.
+            Seguimiento de kilos embolsados por orden de producción y periodo operativo.
           </Typography>
         </Box>
         <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
@@ -493,52 +562,47 @@ export default function ProductionProgressDashboard({ initialDate }) {
         Este es un indicador operativo basado en la estación local; no confirma inventario SCM, consumo ni unidad logística.
       </Alert>
 
-      <MonthlySummary summary={data?.monthly_summary} />
-
-      <Paper variant="outlined" sx={{ p: 1.5, mb: 2, borderRadius: 1 }}>
-        <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.25} alignItems={{ lg: 'center' }}>
-          <TextField
-            label="Fecha operativa"
-            onChange={changeDate}
+      <Box sx={{ mb: 2 }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} alignItems={{ md: 'center' }} sx={{ mb: 1.25 }}>
+          <ToggleButtonGroup
+            aria-label="Periodo del avance"
+            color="primary"
+            exclusive
+            onChange={changePeriod}
             size="small"
-            type="date"
-            value={date}
-            slotProps={{ inputLabel: { shrink: true } }}
-            sx={{ width: { xs: '100%', lg: 170 }, flexShrink: 0 }}
-          />
-          <TextField
-            label="Orden de producción"
-            onChange={(event) => setOp(event.target.value)}
-            select
-            size="small"
-            value={op}
-            sx={{ width: { xs: '100%', lg: 190 }, flexShrink: 0 }}
+            value={period}
+            sx={{ alignSelf: { xs: 'stretch', md: 'auto' } }}
           >
-            <MenuItem value="">Todas las OP</MenuItem>
-            {filterOptions.ops.map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
-          </TextField>
-          <TextField
-            label="Máquina"
-            onChange={(event) => setMachine(event.target.value)}
-            select
-            size="small"
-            value={machine}
-            sx={{ width: { xs: '100%', lg: 170 }, flexShrink: 0 }}
-          >
-            <MenuItem value="">Todas las máquinas</MenuItem>
-            {filterOptions.machines.map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
-          </TextField>
-          <TextField
-            label="Turno"
-            onChange={(event) => setShift(event.target.value)}
-            select
-            size="small"
-            value={shift}
-            sx={{ width: { xs: '100%', lg: 150 }, flexShrink: 0 }}
-          >
-            <MenuItem value="">Todos los turnos</MenuItem>
-            {filterOptions.shifts.map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
-          </TextField>
+            <ToggleButton value="month" sx={{ flex: { xs: 1, md: 'initial' }, gap: 0.75 }}>
+              <CalendarMonthOutlinedIcon fontSize="small" />
+              Mes
+            </ToggleButton>
+            <ToggleButton value="day" sx={{ flex: { xs: 1, md: 'initial' }, gap: 0.75 }}>
+              <TodayOutlinedIcon fontSize="small" />
+              Día
+            </ToggleButton>
+          </ToggleButtonGroup>
+          {period === 'month' ? (
+            <TextField
+              label="Mes operativo"
+              onChange={changeMonth}
+              size="small"
+              type="month"
+              value={month}
+              slotProps={{ inputLabel: { shrink: true } }}
+              sx={{ width: { xs: '100%', md: 180 }, flexShrink: 0 }}
+            />
+          ) : (
+            <TextField
+              label="Fecha operativa"
+              onChange={changeDate}
+              size="small"
+              type="date"
+              value={date}
+              slotProps={{ inputLabel: { shrink: true } }}
+              sx={{ width: { xs: '100%', md: 180 }, flexShrink: 0 }}
+            />
+          )}
           <Box sx={{ flexGrow: 1 }} />
           <Stack direction="row" spacing={0.75} alignItems="center" sx={{ color: 'text.secondary' }}>
             <AccessTimeOutlinedIcon fontSize="small" />
@@ -547,7 +611,58 @@ export default function ProductionProgressDashboard({ initialDate }) {
             </Typography>
           </Stack>
         </Stack>
-      </Paper>
+        <DataTableToolbar
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Buscar OP, OT, molde, color, máquina o estación"
+          resultCount={visibleItems.length}
+          totalCount={data?.items.length}
+          filters={[
+            {
+              id: 'op',
+              label: 'Orden de producción',
+              value: op,
+              allValue: '',
+              onChange: (value) => setOp(value),
+              options: [
+                { value: '', label: 'Todas las OP' },
+                ...filterOptions.ops.map((value) => ({ value, label: value })),
+              ],
+            },
+            {
+              id: 'machine',
+              label: 'Máquina',
+              value: machine,
+              allValue: '',
+              onChange: (value) => setMachine(value),
+              options: [
+                { value: '', label: 'Todas las máquinas' },
+                ...filterOptions.machines.map((value) => ({ value, label: value })),
+              ],
+            },
+            {
+              id: 'shift',
+              label: 'Turno',
+              value: shift,
+              allValue: '',
+              onChange: (value) => setShift(value),
+              options: [
+                { value: '', label: 'Todos los turnos' },
+                ...filterOptions.shifts.map((value) => ({ value, label: value })),
+              ],
+            },
+          ]}
+          onClear={() => {
+            setSearch('');
+            setOp('');
+            setMachine('');
+            setShift('');
+            setExpanded(null);
+          }}
+        />
+      </Box>
+
+      {period === 'day' && <MonthlySummary summary={data?.monthly_summary} />}
 
       {loading && data && <LinearProgress sx={{ mb: 1 }} />}
       {error && (
@@ -572,9 +687,9 @@ export default function ProductionProgressDashboard({ initialDate }) {
           >
             <Metric
               accent="#1E3A5F"
-              detail="Peso neto informado"
+              detail={period === 'month' ? 'Peso neto del periodo' : 'Peso neto informado'}
               icon={<ScaleOutlinedIcon fontSize="small" />}
-              label="PESO DEL DÍA"
+              label={period === 'month' ? 'PESO DEL MES' : 'PESO DEL DÍA'}
               testId="progress-total-weight"
               value={kg(data?.summary.weight_kg)}
             />
@@ -582,7 +697,7 @@ export default function ProductionProgressDashboard({ initialDate }) {
               accent="#2E7D32"
               detail="Capturas activas"
               icon={<Inventory2OutlinedIcon fontSize="small" />}
-              label="BOLSAS DEL DÍA"
+              label={period === 'month' ? 'BOLSAS DEL MES' : 'BOLSAS DEL DÍA'}
               testId="progress-total-bags"
               value={data?.summary.bags || 0}
             />
@@ -590,15 +705,21 @@ export default function ProductionProgressDashboard({ initialDate }) {
               accent="#D97706"
               detail={itemCountLabel}
               icon={<AssignmentOutlinedIcon fontSize="small" />}
-              label="ÓRDENES DEL DÍA"
+              label={period === 'month' ? 'ÓRDENES DEL MES' : 'ÓRDENES DEL DÍA'}
               value={data?.summary.production_orders || 0}
             />
             <Metric
               accent="#5F6368"
-              detail="Con datos en la fecha"
-              icon={<SensorsOutlinedIcon fontSize="small" />}
-              label="ESTACIONES"
-              value={data?.summary.stations_reporting || 0}
+              detail={period === 'month'
+                ? `${data?.monthly_summary?.production_days || 0} días con producción`
+                : 'Con datos en la fecha'}
+              icon={period === 'month'
+                ? <TrendingUpOutlinedIcon fontSize="small" />
+                : <SensorsOutlinedIcon fontSize="small" />}
+              label={period === 'month' ? 'PROMEDIO DIARIO' : 'ESTACIONES'}
+              value={period === 'month'
+                ? kg(data?.monthly_summary?.average_daily_weight_kg)
+                : data?.summary.stations_reporting || 0}
             />
           </Box>
 
@@ -608,17 +729,17 @@ export default function ProductionProgressDashboard({ initialDate }) {
             </Alert>
           )}
 
-          {data?.items.length ? (
+          {visibleItems.length ? (
             isMobile
-              ? <MobileList expanded={expanded} items={data.items} onToggle={toggleDetail} />
-              : <DesktopTable expanded={expanded} items={data.items} onToggle={toggleDetail} />
+              ? <MobileList expanded={expanded} items={visibleItems} onToggle={toggleDetail} />
+              : <DesktopTable expanded={expanded} items={visibleItems} onToggle={toggleDetail} />
           ) : (
             <Paper variant="outlined" sx={{ minHeight: 260, display: 'grid', placeItems: 'center', p: 3, borderRadius: 1 }}>
               <Stack alignItems="center" spacing={1} sx={{ textAlign: 'center' }}>
                 <ScaleOutlinedIcon sx={{ fontSize: 38, color: 'text.disabled' }} />
                 <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>Sin pesajes reportados</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  No hay avance para la fecha y filtros seleccionados.
+                  No hay avance para el periodo y filtros seleccionados.
                 </Typography>
               </Stack>
             </Paper>

@@ -55,7 +55,7 @@ describe('US-010P: Planificación de demanda y generación de OP', () => {
     renderPage('/planificacion/SP-00045');
 
     const preparationLink = await screen.findByRole('link', { name: 'Preparar materiales' });
-    expect(preparationLink).toHaveAttribute('href', '/ordenes/OP-B-TEST-001/materiales');
+    expect(preparationLink).toHaveAttribute('href', '/materiales/preparaciones/OP-B-TEST-001');
     expect(screen.getByText('OP: LIBERADA')).toBeInTheDocument();
     expect(screen.getByText('Materiales: RESERVADO')).toBeInTheDocument();
   });

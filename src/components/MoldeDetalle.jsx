@@ -115,7 +115,7 @@ function MoldeDetalle() {
   return (
     <Box>
       <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
-        <IconButton onClick={() => navigate('/catalogo/moldes')}>
+        <IconButton onClick={() => navigate('/datos-maestros/moldes')}>
           <ArrowBackIcon />
         </IconButton>
         <Typography variant="h4" fontWeight="bold">Detalle de Molde: {molde.codigo}</Typography>

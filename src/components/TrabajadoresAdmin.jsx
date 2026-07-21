@@ -31,14 +31,19 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
-import SettingsIcon from '@mui/icons-material/Settings';
 import { getTrabajadores, createTrabajador, updateTrabajador, getRolesOperativos, toggleEstadoTrabajador } from '../services/api';
+import DataTableToolbar from './ui/DataTableToolbar';
+import PageHeader from './ui/PageHeader';
+import { matchesOmniSearch } from '../utils/tableSearch';
 
 function TrabajadoresAdmin() {
   const [trabajadores, setTrabajadores] = useState([]);
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('TODOS');
+  const [statusFilter, setStatusFilter] = useState('TODOS');
 
   // Formulario
   const [openDialog, setOpenDialog] = useState(false);
@@ -125,7 +130,7 @@ function TrabajadoresAdmin() {
     try {
       await toggleEstadoTrabajador(id, !currentEstado);
       fetchData();
-    } catch (err) {
+    } catch {
       alert('Error cambiando estado');
     }
   };
@@ -138,40 +143,85 @@ function TrabajadoresAdmin() {
     );
   }
 
+  const roleOptions = roles.map((role) => ({
+    value: String(role.id),
+    label: role.nombre,
+  }));
+  const visibleWorkers = trabajadores.filter((worker) => {
+    const matchesRole = roleFilter === 'TODOS'
+      || worker.roles?.some((role) => String(role.id) === roleFilter);
+    const matchesStatus = statusFilter === 'TODOS'
+      || (statusFilter === 'ACTIVOS' && worker.activo)
+      || (statusFilter === 'INACTIVOS' && !worker.activo);
+
+    return matchesRole && matchesStatus && matchesOmniSearch(worker, search);
+  });
+
   return (
     <Box>
-      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h5" fontWeight={600}>
-          <SettingsIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-          Catálogo de Trabajadores
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={handleOpenNew}
-          sx={{ bgcolor: '#1E3A5F' }}
-        >
-          Nuevo Trabajador
-        </Button>
+      <Box sx={{ mb: 2 }}>
+        <PageHeader
+          eyebrow="Datos maestros"
+          title="Trabajadores"
+          description="Personas habilitadas y sus roles operativos de planta."
+        />
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
+      <DataTableToolbar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Buscar código, nombre, apellido o rol"
+        resultCount={visibleWorkers.length}
+        totalCount={trabajadores.length}
+        filters={[
+          {
+            id: 'role',
+            label: 'Rol',
+            value: roleFilter,
+            onChange: setRoleFilter,
+            options: [{ value: 'TODOS', label: 'Todos' }, ...roleOptions],
+          },
+          {
+            id: 'status',
+            label: 'Estado',
+            value: statusFilter,
+            onChange: setStatusFilter,
+            options: [
+              { value: 'TODOS', label: 'Todos' },
+              { value: 'ACTIVOS', label: 'Activos' },
+              { value: 'INACTIVOS', label: 'Inactivos' },
+            ],
+          },
+        ]}
+        onClear={() => {
+          setSearch('');
+          setRoleFilter('TODOS');
+          setStatusFilter('TODOS');
+        }}
+        actions={(
+          <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenNew}>
+            Nuevo trabajador
+          </Button>
+        )}
+      />
+
       <TableContainer component={Paper}>
         <Table>
-          <TableHead sx={{ bgcolor: '#1E3A5F' }}>
+          <TableHead>
             <TableRow>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Código</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Apellidos</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Nombres</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Nombre Corto</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Roles</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="center">Estado</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="center">Acciones</TableCell>
+              <TableCell>Código</TableCell>
+              <TableCell>Apellidos</TableCell>
+              <TableCell>Nombres</TableCell>
+              <TableCell>Nombre corto</TableCell>
+              <TableCell>Roles</TableCell>
+              <TableCell align="center">Estado</TableCell>
+              <TableCell align="center">Acciones</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {trabajadores.map((t) => (
+            {visibleWorkers.map((t) => (
               <TableRow key={t.id} hover>
                 <TableCell>{t.codigo}</TableCell>
                 <TableCell>{t.apellidos}</TableCell>
@@ -198,10 +248,10 @@ function TrabajadoresAdmin() {
                 </TableCell>
               </TableRow>
             ))}
-            {trabajadores.length === 0 && (
+            {visibleWorkers.length === 0 && (
               <TableRow>
                 <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
-                  No hay trabajadores registrados
+                  No hay trabajadores que coincidan con los filtros
                 </TableCell>
               </TableRow>
             )}

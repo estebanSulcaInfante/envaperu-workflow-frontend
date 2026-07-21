@@ -12,13 +12,18 @@ vi.mock('../services/productionProgress', () => ({
 
 const response = {
   source: 'LOCAL_REPORTED_LEGACY',
-  operational_date: '2026-07-17',
+  operational_date: null,
+  period: {
+    type: 'MONTH',
+    start_date: '2026-07-01',
+    end_date: '2026-07-31',
+  },
   generated_at_utc: '2026-07-17T15:02:03+00:00',
   summary: {
-    bags: 3,
+    bags: 4,
     production_orders: 2,
     stations_reporting: 1,
-    weight_kg: '75.150',
+    weight_kg: '100.150',
   },
   monthly_summary: {
     average_daily_weight_kg: '50.075',
@@ -34,11 +39,11 @@ const response = {
     {
       op: 'OP-1401',
       product: 'Tapa 38 mm',
-      bags: 2,
-      weight_kg: '50.250',
+      bags: 3,
+      weight_kg: '75.250',
       target_kg: '100.000',
       target_status: 'AVAILABLE',
-      progress_percent: 50.3,
+      progress_percent: 75.3,
       communication_status: 'RECIENTE',
       last_capture_at_utc: '2026-07-17T14:05:00+00:00',
       last_report_received_at_utc: '2026-07-17T15:02:03+00:00',
@@ -58,9 +63,11 @@ const response = {
           mold: 'TAPA 38 MM',
           color: 'ROJO SOLIDO',
           machine_code: 'HT-250B',
-          shift: 'DIURNO',
-          bags: 2,
-          weight_kg: '50.250',
+          shift: null,
+          shifts: ['DIURNO', 'NOCTURNO'],
+          operational_dates: ['2026-07-02', '2026-07-17'],
+          bags: 3,
+          weight_kg: '75.250',
           first_capture_at_utc: '2026-07-17T13:10:00+00:00',
           last_capture_at_utc: '2026-07-17T14:05:00+00:00',
         },
@@ -94,6 +101,8 @@ const response = {
           color: 'NATURAL',
           machine_code: 'SOP-01',
           shift: 'DIURNO',
+          shifts: ['DIURNO'],
+          operational_dates: ['2026-07-17'],
           bags: 1,
           weight_kg: '24.900',
           first_capture_at_utc: '2026-07-17T15:02:00+00:00',
@@ -122,20 +131,18 @@ describe('US-011A: Dashboard gerencial temporal por pesajes', () => {
     expect(await screen.findByRole('heading', {
       name: 'Avance de producción por pesajes',
     })).toBeInTheDocument();
-    expect(screen.getByTestId('progress-total-weight')).toHaveTextContent('75.150 kg');
-    expect(screen.getByTestId('progress-total-bags')).toHaveTextContent('3');
-    expect(screen.getByRole('heading', { name: 'Resumen mensual · julio de 2026' })).toBeInTheDocument();
-    expect(screen.getByTestId('monthly-total-weight')).toHaveTextContent('100.150 kg');
-    expect(screen.getByTestId('monthly-total-bags')).toHaveTextContent('4');
-    expect(screen.getByTestId('monthly-production-orders')).toHaveTextContent('2');
-    expect(screen.getByTestId('monthly-daily-average')).toHaveTextContent('50.075 kg');
+    expect(screen.getByTestId('progress-total-weight')).toHaveTextContent('100.150 kg');
+    expect(screen.getByTestId('progress-total-bags')).toHaveTextContent('4');
+    expect(screen.getByText('PESO DEL MES')).toBeInTheDocument();
+    expect(screen.getByText('BOLSAS DEL MES')).toBeInTheDocument();
+    expect(screen.getByText('PROMEDIO DIARIO')).toBeInTheDocument();
     expect(screen.getByText('2 días con producción')).toBeInTheDocument();
     expect(screen.getByText('Reporte local legacy')).toBeInTheDocument();
     expect(screen.getByText(/no confirma inventario SCM/i)).toBeInTheDocument();
 
     const op1401 = screen.getByTestId('progress-row-OP-1401');
     const op1402 = screen.getByTestId('progress-row-OP-1402');
-    expect(within(op1401).getByText('50.3%')).toBeInTheDocument();
+    expect(within(op1401).getByText('75.3%')).toBeInTheDocument();
     expect(within(op1402).getByText('Sin meta')).toBeInTheDocument();
     expect(within(op1402).queryByText('0%')).not.toBeInTheDocument();
   });
@@ -151,7 +158,8 @@ describe('US-011A: Dashboard gerencial temporal por pesajes', () => {
     await waitFor(() => {
       expect(getProductionProgress).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          date: '2026-07-17',
+          period: 'month',
+          month: '2026-07',
           machine_code: 'HT-250B',
         }),
       );
@@ -169,7 +177,27 @@ describe('US-011A: Dashboard gerencial temporal por pesajes', () => {
     expect(within(detail).getByText('OT-0041')).toBeInTheDocument();
     expect(within(detail).getByText('TAPA 38 MM')).toBeInTheDocument();
     expect(within(detail).getByText('ROJO SOLIDO')).toBeInTheDocument();
+    expect(within(detail).getByText('DIURNO')).toBeInTheDocument();
+    expect(within(detail).getByText('NOCTURNO')).toBeInTheDocument();
+    expect(within(detail).getAllByTestId('color-group-ROJO SOLIDO')).toHaveLength(1);
     expect(within(detail).queryByText('OT-0042')).not.toBeInTheDocument();
+  });
+
+  it('muestra el mes por defecto y conserva el corte diario', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('OP-1401');
+
+    expect(getProductionProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ period: 'month', month: '2026-07' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Día' }));
+
+    await waitFor(() => {
+      expect(getProductionProgress).toHaveBeenLastCalledWith(
+        expect.objectContaining({ period: 'day', date: '2026-07-17' }),
+      );
+    });
   });
 
   it('conserva un estado de error reintentable', async () => {
@@ -181,6 +209,6 @@ describe('US-011A: Dashboard gerencial temporal por pesajes', () => {
     getProductionProgress.mockResolvedValueOnce(response);
     await user.click(screen.getByRole('button', { name: 'Reintentar' }));
 
-    expect(await screen.findByTestId('progress-total-weight')).toHaveTextContent('75.150 kg');
+    expect(await screen.findByTestId('progress-total-weight')).toHaveTextContent('100.150 kg');
   });
 });

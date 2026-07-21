@@ -7,7 +7,6 @@ import {
   CircularProgress,
   Collapse,
   IconButton,
-  MenuItem,
   Pagination,
   Paper,
   Stack,
@@ -40,6 +39,7 @@ import {
   getLegacyProductionOrderDetail,
   getLegacyProductionOrders,
 } from '../services/legacyProductionOrders';
+import DataTableToolbar from './ui/DataTableToolbar';
 
 
 const statusOptions = {
@@ -384,16 +384,41 @@ export default function LegacyProductionOrders() {
         </Box>
       </Paper>
 
-      <Paper component="form" onSubmit={submitSearch} variant="outlined" sx={{ p: 1.5, mb: 2, borderRadius: 1 }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-          <TextField label="OP o molde" value={queryDraft} onChange={(event) => setQueryDraft(event.target.value)} size="small" sx={{ flex: 1, maxWidth: { sm: 420 } }} />
-          <TextField select label="Estado" value={status} onChange={(event) => { setLoading(true); setStatus(event.target.value); setPage(1); setExpanded(null); }} size="small" sx={{ minWidth: 210 }}>
-            <MenuItem value="">Todos los estados</MenuItem>
-            {Object.entries(statusOptions).map(([value, config]) => <MenuItem key={value} value={value}>{config.label}</MenuItem>)}
-          </TextField>
-          <Button type="submit" variant="contained" startIcon={<SearchOutlinedIcon />}>Buscar</Button>
-        </Stack>
-      </Paper>
+      <Box component="form" onSubmit={submitSearch} sx={{ mb: 2 }}>
+        <DataTableToolbar
+          searchValue={queryDraft}
+          onSearchChange={setQueryDraft}
+          searchPlaceholder="Buscar OP, molde, color o máquina"
+          resultCount={data?.items.length}
+          totalCount={data?.pagination.total}
+          filters={[
+            {
+              id: 'status',
+              label: 'Estado',
+              value: status,
+              allValue: '',
+              onChange: (value) => {
+                setLoading(true);
+                setStatus(value);
+                setPage(1);
+                setExpanded(null);
+              },
+              options: [
+                { value: '', label: 'Todos los estados' },
+                ...Object.entries(statusOptions).map(([value, config]) => ({ value, label: config.label })),
+              ],
+            },
+          ]}
+          onClear={() => {
+            setQueryDraft('');
+            setQuery('');
+            setStatus('');
+            setPage(1);
+            setExpanded(null);
+          }}
+          actions={<Button type="submit" variant="contained" startIcon={<SearchOutlinedIcon />}>Buscar</Button>}
+        />
+      </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>No se pudo consultar el historial de pesajes.</Alert>}
       {loading && !data && <Box sx={{ minHeight: 280, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>}

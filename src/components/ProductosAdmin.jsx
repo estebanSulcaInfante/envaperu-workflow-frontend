@@ -38,6 +38,9 @@ import {
   obtenerProducto,
   buscarPiezas 
 } from '../services/api';
+import DataTableToolbar from './ui/DataTableToolbar';
+import PageHeader from './ui/PageHeader';
+import { matchesOmniSearch, uniqueOptions } from '../utils/tableSearch';
 
 function ProductosAdmin() {
   const [productos, setProductos] = useState([]);
@@ -64,6 +67,9 @@ function ProductosAdmin() {
   
   // Estado para filas expandidas
   const [expandedRows, setExpandedRows] = useState({});
+  const [search, setSearch] = useState('');
+  const [familyFilter, setFamilyFilter] = useState('TODAS');
+  const [statusFilter, setStatusFilter] = useState('TODOS');
 
   const fetchProductos = async () => {
     try {
@@ -207,44 +213,62 @@ function ProductosAdmin() {
     );
   }
 
+  const families = uniqueOptions(productos, 'familia');
+  const visibleProductos = productos.filter((producto) => (
+    (familyFilter === 'TODAS' || producto.familia === familyFilter)
+    && (statusFilter === 'TODOS' || String(producto.status || 'Activo').toUpperCase() === statusFilter)
+    && matchesOmniSearch(producto, search)
+  ));
+
   return (
     <Box sx={{ mt: 2 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 3 }}>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
-          sx={{ bgcolor: '#1E3A5F' }}
-        >
-          Nuevo Producto
-        </Button>
+      <Box sx={{ mb: 2 }}>
+        <PageHeader
+          eyebrow="Datos maestros"
+          title="Productos terminados"
+          description="Paquetes comerciales definidos por su BOM de PiezaColor."
+        />
       </Box>
-
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+
+      <DataTableToolbar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Buscar SKU, producto, familia, línea o pieza BOM"
+        filters={[
+          { id: 'familia', label: 'Familia', value: familyFilter, onChange: setFamilyFilter, options: [{ value: 'TODAS', label: 'Todas' }, ...families.map((value) => ({ value, label: value }))] },
+          { id: 'estado', label: 'Estado', value: statusFilter, onChange: setStatusFilter, options: [{ value: 'TODOS', label: 'Todos' }, { value: 'ACTIVO', label: 'Activos' }, { value: 'INACTIVO', label: 'Inactivos' }] },
+        ]}
+        resultCount={visibleProductos.length}
+        totalCount={productos.length}
+        onClear={() => { setSearch(''); setFamilyFilter('TODAS'); setStatusFilter('TODOS'); }}
+        actions={<Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>Nuevo producto</Button>}
+        sx={{ mb: 2 }}
+      />
 
       <TableContainer component={Paper}>
         <Table>
-          <TableHead sx={{ bgcolor: '#1E3A5F' }}>
+          <TableHead>
             <TableRow>
-              <TableCell sx={{ color: 'white', width: 50 }}></TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>SKU</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Producto</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Familia</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Línea</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="right">Peso (g)</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Piezas (BOM)</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="center">Acciones</TableCell>
+              <TableCell sx={{ width: 50 }}></TableCell>
+              <TableCell>SKU</TableCell>
+              <TableCell>Producto</TableCell>
+              <TableCell>Familia</TableCell>
+              <TableCell>Línea</TableCell>
+              <TableCell align="right">Peso (g)</TableCell>
+              <TableCell>Piezas (BOM)</TableCell>
+              <TableCell align="center">Acciones</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {productos.length === 0 ? (
+            {visibleProductos.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">No hay productos registrados.</Typography>
+                  <Typography color="text.secondary">No hay productos para los filtros seleccionados.</Typography>
                 </TableCell>
               </TableRow>
             ) : (
-              productos.map((producto) => (
+              visibleProductos.map((producto) => (
                 <Fragment key={producto.cod_sku_pt}>
                   <TableRow hover sx={{ '& > *': { borderBottom: 'unset' } }}>
                     <TableCell>

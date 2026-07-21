@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Alert,
   Box,
+  Button,
   Chip,
   CircularProgress,
   Divider,
@@ -38,8 +39,12 @@ import ScaleOutlinedIcon from '@mui/icons-material/ScaleOutlined';
 import RouteOutlinedIcon from '@mui/icons-material/RouteOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
+import ArrowForwardOutlinedIcon from '@mui/icons-material/ArrowForwardOutlined';
 import ApiPendingButton from './ApiPendingButton';
+import DataTableToolbar from './ui/DataTableToolbar';
+import PageHeader from './ui/PageHeader';
 import { obtenerPreparacionMateriales } from '../services/preparacionMateriales';
+import { matchesOmniSearch, uniqueOptions } from '../utils/tableSearch';
 
 const stages = ['Plan', 'Reserva', 'Emisión', 'Premezcla', 'Máquina'];
 
@@ -113,6 +118,91 @@ function RequirementsTable({ items }) {
         </TableBody>
       </Table>
     </TableContainer>
+  );
+}
+
+function PreparationQueue({ workspace, onOpen }) {
+  const [search, setSearch] = useState('');
+  const [stageFilter, setStageFilter] = useState('TODAS');
+  const rows = useMemo(() => workspace.ordenes.flatMap((order) => order.lotes.map((lote) => {
+    const plannedKg = lote.requerimientos.reduce((sum, item) => sum + item.planKg, 0);
+    const reservedKg = lote.requerimientos.reduce((sum, item) => sum + item.reservadoKg, 0);
+    return {
+      numeroOp: order.numeroOp,
+      producto: order.producto,
+      maquina: order.maquina,
+      estadoOp: order.estado,
+      loteId: lote.id,
+      color: lote.color,
+      etapa: lote.etapa,
+      plannedKg,
+      reservedKg,
+      pendingKg: Math.max(0, plannedKg - reservedKg),
+    };
+  })), [workspace]);
+  const stagesAvailable = useMemo(() => uniqueOptions(rows, 'etapa'), [rows]);
+  const visibleRows = useMemo(() => rows.filter((row) => (
+    (stageFilter === 'TODAS' || row.etapa === stageFilter)
+    && matchesOmniSearch(row, search)
+  )), [rows, search, stageFilter]);
+
+  return (
+    <Stack spacing={2.25} sx={{ maxWidth: 1480, mx: 'auto' }}>
+      <PageHeader
+        eyebrow="Materias primas"
+        title="Reservas y entregas a producción"
+        description="Órdenes liberadas con requerimientos de material pendientes de reservar, emitir o preparar."
+        actions={<Chip data-testid="data-source" icon={<ScienceOutlinedIcon />} label="Datos mock" color="info" variant="outlined" />}
+      />
+      <DataTableToolbar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Buscar OP, lote, producto, color o máquina"
+        filters={[{
+          id: 'etapa',
+          label: 'Etapa',
+          value: stageFilter,
+          onChange: setStageFilter,
+          options: [{ value: 'TODAS', label: 'Todas las etapas' }, ...stagesAvailable.map((value) => ({ value, label: value.replaceAll('_', ' ') }))],
+        }]}
+        resultCount={visibleRows.length}
+        totalCount={rows.length}
+        onClear={() => { setSearch(''); setStageFilter('TODAS'); }}
+      />
+      <TableContainer component={Paper} variant="outlined">
+        <Table size="small" aria-label="Órdenes pendientes de preparación de materiales" sx={{ minWidth: 1080 }}>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ minWidth: 155 }}>OP</TableCell>
+              <TableCell>Lote de producción</TableCell>
+              <TableCell>Producto / color</TableCell>
+              <TableCell>Máquina</TableCell>
+              <TableCell align="right">Plan</TableCell>
+              <TableCell align="right">Reservado</TableCell>
+              <TableCell align="right">Faltante</TableCell>
+              <TableCell>Etapa</TableCell>
+              <TableCell align="right">Abrir</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {visibleRows.map((row) => (
+              <TableRow key={`${row.numeroOp}-${row.loteId}`} hover>
+                <TableCell sx={{ whiteSpace: 'nowrap' }}><Typography variant="body2" sx={{ fontWeight: 800 }}>{row.numeroOp}</Typography><Typography variant="caption">{row.estadoOp}</Typography></TableCell>
+                <TableCell>{row.loteId}</TableCell>
+                <TableCell><Typography variant="body2">{row.producto}</Typography><Typography variant="caption" color="text.secondary">{row.color}</Typography></TableCell>
+                <TableCell>{row.maquina}</TableCell>
+                <TableCell align="right">{formatKg(row.plannedKg)}</TableCell>
+                <TableCell align="right">{formatKg(row.reservedKg)}</TableCell>
+                <TableCell align="right" sx={{ color: row.pendingKg > 0 ? 'warning.dark' : 'success.dark', fontWeight: 750 }}>{formatKg(row.pendingKg)}</TableCell>
+                <TableCell><Chip size="small" variant="outlined" label={row.etapa.replaceAll('_', ' ')} /></TableCell>
+                <TableCell align="right"><Button aria-label={`Atender ${row.numeroOp}`} size="small" endIcon={<ArrowForwardOutlinedIcon />} onClick={() => onOpen(row.numeroOp)}>Atender</Button></TableCell>
+              </TableRow>
+            ))}
+            {visibleRows.length === 0 && <TableRow><TableCell colSpan={9} align="center" sx={{ py: 6 }}>No hay órdenes para los filtros seleccionados.</TableCell></TableRow>}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Stack>
   );
 }
 
@@ -329,6 +419,7 @@ function TracePanel({ lote }) {
 
 function PreparacionMateriales() {
   const { numeroOp } = useParams();
+  const navigate = useNavigate();
   const theme = useTheme();
   const isSmall = useMediaQuery(theme.breakpoints.down('sm'));
   const [workspace, setWorkspace] = useState(null);
@@ -365,6 +456,10 @@ function PreparacionMateriales() {
 
   if (error || !workspace) {
     return <Alert severity="error">{error || 'No existen datos de preparación.'}</Alert>;
+  }
+
+  if (!numeroOp) {
+    return <PreparationQueue workspace={workspace} onOpen={(op) => navigate(`/materiales/preparaciones/${op}`)} />;
   }
 
   const order = workspace.ordenes.find((item) => item.numeroOp === selectedOp) || workspace.ordenes[0];

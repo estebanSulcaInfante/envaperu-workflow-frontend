@@ -31,6 +31,9 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CategoryIcon from '@mui/icons-material/Category';
 import { buscarPiezas, crearPieza, actualizarPieza, eliminarPieza } from '../services/api';
+import DataTableToolbar from './ui/DataTableToolbar';
+import PageHeader from './ui/PageHeader';
+import { matchesOmniSearch, uniqueOptions } from '../utils/tableSearch';
 
 function PiezasAdmin() {
   const [piezas, setPiezas] = useState([]);
@@ -38,6 +41,9 @@ function PiezasAdmin() {
   const [error, setError] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPieza, setEditingPieza] = useState(null);
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('TODOS');
+  const [familyFilter, setFamilyFilter] = useState('TODAS');
   
   const [formData, setFormData] = useState({
     sku: '',
@@ -148,44 +154,63 @@ function PiezasAdmin() {
     );
   }
 
+  const types = uniqueOptions(piezas, (pieza) => pieza.tipo || 'SIMPLE');
+  const families = uniqueOptions(piezas, 'familia');
+  const visiblePiezas = piezas.filter((pieza) => (
+    (typeFilter === 'TODOS' || (pieza.tipo || 'SIMPLE') === typeFilter)
+    && (familyFilter === 'TODAS' || pieza.familia === familyFilter)
+    && matchesOmniSearch(pieza, search)
+  ));
+
   return (
     <Box sx={{ mt: 2 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 3 }}>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
-          sx={{ bgcolor: '#1E3A5F' }}
-        >
-          Nueva Pieza
-        </Button>
+      <Box sx={{ mb: 2 }}>
+        <PageHeader
+          eyebrow="Datos maestros"
+          title="Piezas y variantes de color"
+          description="Formas base, PiezaColor y relaciones utilizadas por moldes y productos terminados."
+        />
       </Box>
-
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+
+      <DataTableToolbar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Buscar SKU, pieza, color, familia o producto"
+        filters={[
+          { id: 'tipo', label: 'Tipo', value: typeFilter, onChange: setTypeFilter, options: [{ value: 'TODOS', label: 'Todos' }, ...types.map((value) => ({ value, label: value }))] },
+          { id: 'familia', label: 'Familia', value: familyFilter, onChange: setFamilyFilter, options: [{ value: 'TODAS', label: 'Todas' }, ...families.map((value) => ({ value, label: value }))] },
+        ]}
+        resultCount={visiblePiezas.length}
+        totalCount={piezas.length}
+        onClear={() => { setSearch(''); setTypeFilter('TODOS'); setFamilyFilter('TODAS'); }}
+        actions={<Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>Nueva pieza</Button>}
+        sx={{ mb: 2 }}
+      />
 
       <TableContainer component={Paper}>
         <Table size="small">
-          <TableHead sx={{ bgcolor: '#1E3A5F' }}>
+          <TableHead>
             <TableRow>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>SKU</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Nombre</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Tipo</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Familia</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="right">Peso (g)</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="right">Cavidades</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>En Productos</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="center">Acciones</TableCell>
+              <TableCell>SKU</TableCell>
+              <TableCell>Nombre</TableCell>
+              <TableCell>Tipo</TableCell>
+              <TableCell>Familia</TableCell>
+              <TableCell align="right">Peso (g)</TableCell>
+              <TableCell align="right">Cavidades</TableCell>
+              <TableCell>En productos</TableCell>
+              <TableCell align="center">Acciones</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {piezas.length === 0 ? (
+            {visiblePiezas.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">No hay piezas registradas.</Typography>
+                  <Typography color="text.secondary">No hay piezas para los filtros seleccionados.</Typography>
                 </TableCell>
               </TableRow>
             ) : (
-              piezas.map((pieza) => (
+              visiblePiezas.map((pieza) => (
                 <TableRow key={pieza.sku} hover>
                   <TableCell>
                     <Typography variant="body2" fontWeight={600}>{pieza.sku}</Typography>

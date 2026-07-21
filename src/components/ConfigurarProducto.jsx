@@ -720,7 +720,7 @@ function ConfigurarProducto() {
             }}>
               Crear Otro
             </Button>
-            <Button variant="contained" onClick={() => navigate('/ordenes/nueva')}>
+            <Button variant="contained" onClick={() => navigate('/produccion/ordenes/nueva-excepcional')}>
               Crear Orden de Producción
             </Button>
           </Stack>

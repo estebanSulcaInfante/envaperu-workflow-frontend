@@ -25,7 +25,9 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
-import MenuBookIcon from '@mui/icons-material/MenuBook';
+import DataTableToolbar from './ui/DataTableToolbar';
+import PageHeader from './ui/PageHeader';
+import { matchesOmniSearch } from '../utils/tableSearch';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -35,6 +37,8 @@ function TalonariosAdmin() {
   const [error, setError] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [siguiente, setSiguiente] = useState(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('TODOS');
   
   const [formData, setFormData] = useState({
     desde: '',
@@ -141,61 +145,81 @@ function TalonariosAdmin() {
     );
   }
 
+  const visibleBooks = talonarios.filter((book) => {
+    const status = book.disponibles === 0 ? 'AGOTADOS' : book.activo ? 'ACTIVOS' : 'INACTIVOS';
+    return (statusFilter === 'TODOS' || statusFilter === status)
+      && matchesOmniSearch(book, search);
+  });
+
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Typography variant="h5" fontWeight={600}>
-            <MenuBookIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Talonarios de Orden de Trabajo (ex-RDP)
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Gestión de correlativos para Registros Diarios de Producción
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          {siguiente && (
-            <Chip 
-              label={`Próximo: ${siguiente}`} 
-              color="success" 
-              variant="outlined"
-              sx={{ fontWeight: 600 }}
-            />
-          )}
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={handleOpenDialog}
-            sx={{ bgcolor: '#1E3A5F' }}
-          >
-            Nuevo Talonario
-          </Button>
-        </Box>
+      <Box sx={{ mb: 2 }}>
+        <PageHeader
+          eyebrow="Producción"
+          title="Talonarios de Orden de Trabajo"
+          description="Correlativos físicos utilizados por el registro diario de producción."
+        />
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
+      <DataTableToolbar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Buscar rango o descripción"
+        resultCount={visibleBooks.length}
+        totalCount={talonarios.length}
+        filters={[
+          {
+            id: 'status',
+            label: 'Estado',
+            value: statusFilter,
+            onChange: setStatusFilter,
+            options: [
+              { value: 'TODOS', label: 'Todos' },
+              { value: 'ACTIVOS', label: 'Activos' },
+              { value: 'INACTIVOS', label: 'Inactivos' },
+              { value: 'AGOTADOS', label: 'Agotados' },
+            ],
+          },
+        ]}
+        onClear={() => {
+          setSearch('');
+          setStatusFilter('TODOS');
+        }}
+        actions={(
+          <Stack direction="row" spacing={1} alignItems="center">
+            {siguiente && (
+              <Chip label={`Próximo: ${siguiente}`} color="success" variant="outlined" />
+            )}
+            <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenDialog}>
+              Nuevo talonario
+            </Button>
+          </Stack>
+        )}
+      />
+
       <TableContainer component={Paper}>
         <Table>
-          <TableHead sx={{ bgcolor: '#1E3A5F' }}>
+          <TableHead>
             <TableRow>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Rango</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Descripción</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="center">Uso</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="right">Disponibles</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Estado</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="center">Acciones</TableCell>
+              <TableCell>Rango</TableCell>
+              <TableCell>Descripción</TableCell>
+              <TableCell align="center">Uso</TableCell>
+              <TableCell align="right">Disponibles</TableCell>
+              <TableCell>Estado</TableCell>
+              <TableCell align="center">Acciones</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {talonarios.length === 0 ? (
+            {visibleBooks.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">No hay talonarios registrados.</Typography>
+                  <Typography color="text.secondary">No hay talonarios que coincidan con los filtros.</Typography>
                 </TableCell>
               </TableRow>
             ) : (
-              talonarios.map((t) => (
+              visibleBooks.map((t) => (
                 <TableRow key={t.id} hover>
                   <TableCell>
                     <Typography variant="body2" fontWeight={600}>

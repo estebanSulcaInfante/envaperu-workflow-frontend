@@ -46,7 +46,7 @@ export const scmGuideStages = [
     input: 'Diseños de producto, componentes, colores de producción, moldes, máquinas y trabajadores.',
     decision: 'Confirmar que la composición comercial y la capacidad industrial están completas antes de planificar.',
     output: 'ProductoTerminado con BOM válida y PiezaColor fabricables mediante moldes y configuraciones conocidas.',
-    route: '/catalogo/productos',
+    route: '/datos-maestros/productos',
     routeLabel: 'Abrir catálogo de productos',
     statusNote: 'Estas vistas existen. La guía destaca las relaciones normalizadas que alimentan US-010P.',
     anatomy: [
@@ -161,7 +161,7 @@ export const scmGuideStages = [
     input: 'OP liberada, revisión de receta y lotes recibidos que US-010A considera disponibles.',
     decision: 'Elegir qué lotes y cantidades reservar, emitir y convertir en premezcla para una corrida.',
     output: 'Material emitido o LoteMaterialPreparado identificado y vinculado con su OP y lotes de origen.',
-    route: '/ordenes/OP-B-TEST-001/materiales',
+    route: '/materiales/preparaciones/OP-B-TEST-001',
     routeLabel: 'Abrir OP-B-TEST-001',
     statusNote: 'El ejemplo conecta la OP liberada de planificación con virgen, recuperado y masterbatch trazables.',
     anatomy: [
@@ -200,7 +200,7 @@ export const scmGuideStages = [
     input: 'OP, lote de producción, material emitido, máquina, molde, trabajador y turno.',
     decision: 'Confirmar cantidades buenas, rechazo, merma, paradas y consumos reales de cada corrida.',
     output: 'LoteSalidaPiezaColor y balance de transformación listo para pesaje y recuperación.',
-    route: '/registros',
+    route: '/produccion/registros',
     routeLabel: 'Abrir registros actuales',
     statusNote: 'La lista actual puede demostrarse, pero todavía debe adoptar los contratos trazables de US-010C.',
     anatomy: [
@@ -237,7 +237,7 @@ export const scmGuideStages = [
     input: 'LoteSalidaPiezaColor, bulto o recipiente, balanza, tara, trabajador y ubicación.',
     decision: 'Aceptar el peso, formar unidades logísticas y decidir el destino trazable de la merma.',
     output: 'Bultos etiquetados de PiezaColor o LoteMaterial recuperado con genealogía hacia su origen.',
-    route: '/pesaje/avance',
+    route: '/produccion/avance',
     routeLabel: 'Abrir avance por pesajes',
     statusNote: 'US-011A ya permite monitorear kilos por OP desde central; la unidad logística trazable continúa pendiente de US-010D.',
     anatomy: [

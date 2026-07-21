@@ -36,11 +36,10 @@ import RateReviewIcon from '@mui/icons-material/RateReview';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PendingIcon from '@mui/icons-material/Pending';
 import EditNoteIcon from '@mui/icons-material/EditNote';
-import FilterListIcon from '@mui/icons-material/FilterList';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import SearchIcon from '@mui/icons-material/Search';
 import CategoryIcon from '@mui/icons-material/Category';
 import InventoryIcon from '@mui/icons-material/Inventory2';
+import DataTableToolbar from './ui/DataTableToolbar';
 import {
   listarProductosRevision,
   actualizarRevisionProducto,
@@ -137,13 +136,6 @@ function RevisionProductos() {
     setBusqueda('');
     setSelected([]);
   }, [tabIndex]);
-
-  const handleSearch = (e) => {
-    if (e.key === 'Enter') {
-      setPage(1);
-      fetchItems();
-    }
-  };
 
   const getItemKey = (item) => {
     return tipoActual === 'productos' ? item.cod_sku_pt : item.sku;
@@ -262,37 +254,40 @@ function RevisionProductos() {
   );
 
   const renderFilters = () => (
-    <Paper sx={{ p: 2, mb: 2 }}>
-      <Stack direction="row" spacing={2} alignItems="center">
-        <FilterListIcon color="action" />
-        <TextField
-          size="small"
-          placeholder={`Buscar ${tipoActual === 'productos' ? 'producto' : 'pieza'}, SKU...`}
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          onKeyDown={handleSearch}
-          InputProps={{
-            endAdornment: <SearchIcon color="action" />
-          }}
-          sx={{ width: 300 }}
-        />
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>Estado</InputLabel>
-          <Select
-            value={filtroEstado}
-            label="Estado"
-            onChange={(e) => { setFiltroEstado(e.target.value); setPage(1); }}
-          >
-            <MenuItem value="">Todos</MenuItem>
-            <MenuItem value="IMPORTADO">Importados</MenuItem>
-            <MenuItem value="EN_REVISION">En Revisión</MenuItem>
-            <MenuItem value="VERIFICADO">Verificados</MenuItem>
-          </Select>
-        </FormControl>
-        
-        {/* Bulk Actions */}
-        {selected.length > 0 && (
-          <Stack direction="row" spacing={1} sx={{ ml: 'auto' }}>
+    <DataTableToolbar
+      searchValue={busqueda}
+      onSearchChange={(value) => {
+        setBusqueda(value);
+        setPage(1);
+      }}
+      searchPlaceholder={`Buscar cualquier dato de ${tipoActual === 'productos' ? 'producto' : 'pieza'}`}
+      resultCount={items.length}
+      totalCount={pagination.total}
+      filters={[
+        {
+          id: 'status',
+          label: 'Estado',
+          value: filtroEstado,
+          allValue: '',
+          onChange: (value) => {
+            setFiltroEstado(value);
+            setPage(1);
+          },
+          options: [
+            { value: '', label: 'Todos' },
+            { value: 'IMPORTADO', label: 'Importados' },
+            { value: 'EN_REVISION', label: 'En revisión' },
+            { value: 'VERIFICADO', label: 'Verificados' },
+          ],
+        },
+      ]}
+      onClear={() => {
+        setBusqueda('');
+        setFiltroEstado('');
+        setPage(1);
+      }}
+      actions={selected.length > 0 ? (
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ ml: 'auto' }}>
             <Typography variant="body2" sx={{ alignSelf: 'center', mr: 1 }}>
               {selected.length} seleccionados:
             </Typography>
@@ -313,35 +308,34 @@ function RevisionProductos() {
               Marcar Verificados
             </Button>
           </Stack>
-        )}
-      </Stack>
-    </Paper>
+        ) : null}
+      sx={{ mb: 2 }}
+    />
   );
 
   const renderTable = () => (
     <TableContainer component={Paper}>
       {loading && <LinearProgress />}
       <Table size="small">
-        <TableHead sx={{ bgcolor: '#1E3A5F' }}>
+        <TableHead>
           <TableRow>
-            <TableCell padding="checkbox" sx={{ color: 'white' }}>
+            <TableCell padding="checkbox">
               <Checkbox
                 indeterminate={selected.length > 0 && selected.length < items.length}
                 checked={items.length > 0 && selected.length === items.length}
                 onChange={handleSelectAll}
-                sx={{ color: 'white', '&.Mui-checked': { color: 'white' } }}
               />
             </TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 600 }}>SKU</TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 600 }}>
+            <TableCell>SKU</TableCell>
+            <TableCell>
               {tipoActual === 'productos' ? 'Producto' : 'Pieza'}
             </TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 600 }}>Línea</TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 600 }}>Familia</TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 600 }}>Estado</TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 600 }}>Importado</TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 600 }}>Notas</TableCell>
-            <TableCell sx={{ color: 'white', fontWeight: 600 }} align="center">Acciones</TableCell>
+            <TableCell>Línea</TableCell>
+            <TableCell>Familia</TableCell>
+            <TableCell>Estado</TableCell>
+            <TableCell>Importado</TableCell>
+            <TableCell>Notas</TableCell>
+            <TableCell align="center">Acciones</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>

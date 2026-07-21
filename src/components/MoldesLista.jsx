@@ -26,14 +26,18 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import SettingsIcon from '@mui/icons-material/Settings';
 import { obtenerMoldes, crearMolde, eliminarMolde } from '../services/api';
+import DataTableToolbar from './ui/DataTableToolbar';
+import PageHeader from './ui/PageHeader';
+import { matchesOmniSearch } from '../utils/tableSearch';
 
 function MoldesLista() {
   const navigate = useNavigate();
   const [moldes, setMoldes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [search, setSearch] = useState('');
+  const [configuration, setConfiguration] = useState('TODOS');
   
   // Dialog for new Molde
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -105,50 +109,82 @@ function MoldesLista() {
     );
   }
 
+  const visibleMoldes = moldes.filter((molde) => {
+    const hasForms = (molde.formas?.length || 0) > 0;
+    const matchesConfiguration = configuration === 'TODOS'
+      || (configuration === 'CONFIGURADOS' && hasForms)
+      || (configuration === 'SIN_FORMAS' && !hasForms);
+
+    return matchesConfiguration && matchesOmniSearch(molde, search);
+  });
+
   return (
     <Box>
-      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h5" fontWeight={600}>
-          <SettingsIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-          Catálogo de Moldes
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={handleOpenDialog}
-          sx={{ bgcolor: '#1E3A5F' }}
-        >
-          Nuevo Molde
-        </Button>
+      <Box sx={{ mb: 2 }}>
+        <PageHeader
+          eyebrow="Datos maestros"
+          title="Moldes"
+          description="Configuración física, cavidades y formas producidas por cada molde."
+        />
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
+      <DataTableToolbar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Buscar código, molde, forma o cavidades"
+        resultCount={visibleMoldes.length}
+        totalCount={moldes.length}
+        filters={[
+          {
+            id: 'configuration',
+            label: 'Configuración',
+            value: configuration,
+            onChange: setConfiguration,
+            options: [
+              { value: 'TODOS', label: 'Todos' },
+              { value: 'CONFIGURADOS', label: 'Con formas' },
+              { value: 'SIN_FORMAS', label: 'Sin formas' },
+            ],
+          },
+        ]}
+        onClear={() => {
+          setSearch('');
+          setConfiguration('TODOS');
+        }}
+        actions={(
+          <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenDialog}>
+            Nuevo molde
+          </Button>
+        )}
+      />
+
       <TableContainer component={Paper}>
         <Table>
-          <TableHead sx={{ bgcolor: '#1E3A5F' }}>
+          <TableHead>
             <TableRow>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Código</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Nombre</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="right">Peso Tiro (g)</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="right">Peso Neto (g)</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="right">Cavidades Totales</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="right">T. Ciclo (s)</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }}>Formas</TableCell>
-              <TableCell sx={{ color: 'white', fontWeight: 600 }} align="center">Acciones</TableCell>
+              <TableCell>Código</TableCell>
+              <TableCell>Nombre</TableCell>
+              <TableCell align="right">Peso Tiro (g)</TableCell>
+              <TableCell align="right">Peso Neto (g)</TableCell>
+              <TableCell align="right">Cavidades Totales</TableCell>
+              <TableCell align="right">T. Ciclo (s)</TableCell>
+              <TableCell>Formas</TableCell>
+              <TableCell align="center">Acciones</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {moldes.length === 0 ? (
+            {visibleMoldes.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">
-                    No hay moldes registrados. Crea uno nuevo.
+                    No hay moldes que coincidan con los filtros.
                   </Typography>
                 </TableCell>
               </TableRow>
             ) : (
-              moldes.map((molde) => (
+              visibleMoldes.map((molde) => (
                 <TableRow key={molde.codigo} hover>
                   <TableCell>
                     <Typography variant="body2" fontWeight={600}>{molde.codigo}</Typography>
@@ -170,7 +206,7 @@ function MoldesLista() {
                   </TableCell>
                   <TableCell align="center">
                     <Tooltip title="Ver Detalle y Editar Formas/SKUs">
-                      <IconButton size="small" onClick={() => navigate(`/catalogo/moldes/${molde.codigo}`)}>
+                      <IconButton size="small" onClick={() => navigate(`/datos-maestros/moldes/${molde.codigo}`)}>
                         <EditIcon fontSize="small" color="primary" />
                       </IconButton>
                     </Tooltip>

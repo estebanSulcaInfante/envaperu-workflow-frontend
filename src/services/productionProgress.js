@@ -2,6 +2,8 @@ import api from './api';
 
 
 export const getProductionProgress = async ({
+  period,
+  month,
   date,
   op,
   machine_code: machineCode,
@@ -9,6 +11,8 @@ export const getProductionProgress = async ({
   signal,
 } = {}) => {
   const params = {};
+  if (period) params.period = period;
+  if (month) params.month = month;
   if (date) params.date = date;
   if (op) params.op = op;
   if (machineCode) params.machine_code = machineCode;

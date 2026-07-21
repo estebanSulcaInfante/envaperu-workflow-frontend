@@ -35,16 +35,14 @@ import PrintIcon from '@mui/icons-material/Print';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 import LockIcon from '@mui/icons-material/Lock';
-import SearchIcon from '@mui/icons-material/Search';
 import TextField from '@mui/material/TextField';
-import InputAdornment from '@mui/material/InputAdornment';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import BuildIcon from '@mui/icons-material/Build'; // Icono para ajustes tecnicos
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import { Link } from 'react-router-dom';
 import { obtenerOrdenes, descargarExcel, getQRImageUrl, toggleEstadoOrden, actualizarMetricasOrden } from '../services/api';
 import RegistroForm from './RegistroForm';
+import DataTableToolbar from './ui/DataTableToolbar';
+import { matchesOmniSearch } from '../utils/tableSearch';
 
 function LoteRow({ lote }) {
   return (
@@ -255,7 +253,7 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
             <Tooltip title="Preparación de materiales">
               <IconButton
                 component={Link}
-                to={`/ordenes/${orden.numero_op}/materiales`}
+                to={`/materiales/preparaciones/${orden.numero_op}`}
                 size="small"
                 color="primary"
                 onClick={(event) => event.stopPropagation()}
@@ -471,7 +469,7 @@ function OrdenesLista() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('TODAS');
 
   const fetchOrdenes = async () => {
     setLoading(true);
@@ -494,15 +492,12 @@ function OrdenesLista() {
   // Filtrar órdenes
   const filteredOrdenes = ordenes.filter(orden => {
     // Filtro de búsqueda
-    const matchesSearch = searchTerm === '' || 
-      orden.numero_op?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      orden.producto?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      orden.maquina?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = matchesOmniSearch(orden, searchTerm);
     
     // Filtro de estado
-    const matchesStatus = statusFilter === 'all' || 
-      (statusFilter === 'activa' && orden.activa !== false) ||
-      (statusFilter === 'cerrada' && orden.activa === false);
+    const matchesStatus = statusFilter === 'TODAS' ||
+      (statusFilter === 'ACTIVAS' && orden.activa !== false) ||
+      (statusFilter === 'CERRADAS' && orden.activa === false);
     
     return matchesSearch && matchesStatus;
   });
@@ -560,41 +555,24 @@ function OrdenesLista() {
         boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
       }}
     >
-      <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>
-          📋 Órdenes de Producción ({filteredOrdenes.length}/{ordenes.length})
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-          <TextField
-            size="small"
-            placeholder="Buscar OP, producto, máquina..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            sx={{ minWidth: 220 }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon color="action" />
-                </InputAdornment>
-              ),
-            }}
-          />
-          <ToggleButtonGroup
-            size="small"
-            value={statusFilter}
-            exclusive
-            onChange={(e, value) => value && setStatusFilter(value)}
-          >
-            <ToggleButton value="all">Todas</ToggleButton>
-            <ToggleButton value="activa">Activas</ToggleButton>
-            <ToggleButton value="cerrada">Cerradas</ToggleButton>
-          </ToggleButtonGroup>
-          <IconButton onClick={fetchOrdenes} color="primary">
-            <RefreshIcon />
-          </IconButton>
-        </Box>
+      <Box sx={{ p: 2 }}>
+        <Typography variant="h5" sx={{ fontWeight: 750, mb: 1.5 }}>Órdenes de producción</Typography>
+        <DataTableToolbar
+          searchValue={searchTerm}
+          onSearchChange={setSearchTerm}
+          searchPlaceholder="Buscar OP, producto, máquina, molde o color"
+          filters={[{ id: 'estado', label: 'Estado', value: statusFilter, onChange: setStatusFilter, options: [{ value: 'TODAS', label: 'Todas' }, { value: 'ACTIVAS', label: 'Activas' }, { value: 'CERRADAS', label: 'Cerradas' }] }]}
+          resultCount={filteredOrdenes.length}
+          totalCount={ordenes.length}
+          onClear={() => { setSearchTerm(''); setStatusFilter('TODAS'); }}
+          actions={(
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Tooltip title="Actualizar órdenes"><IconButton onClick={fetchOrdenes} color="primary"><RefreshIcon /></IconButton></Tooltip>
+              <Button component={Link} to="/produccion/ordenes/nueva-excepcional" size="small" variant="outlined" startIcon={<AddCircleOutlineIcon />}>OP excepcional</Button>
+            </Box>
+          )}
+        />
       </Box>
-      <Divider sx={{ borderColor: '#E0E0E0' }} />
       <Table>
         <TableHead>
           <TableRow sx={{ background: '#E3F2FD' }}>

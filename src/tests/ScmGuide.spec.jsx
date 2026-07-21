@@ -61,7 +61,7 @@ describe('Guía operativa SCM', () => {
     expect(screen.getByRole('heading', { name: 'Pesaje, empaque y material recuperado' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Abrir avance por pesajes' })).toHaveAttribute(
       'href',
-      '/pesaje/avance',
+      '/produccion/avance',
     );
     expect(screen.getByText(/Fuente autoritativa de OC, proveedores, inventario/i)).toBeInTheDocument();
 
