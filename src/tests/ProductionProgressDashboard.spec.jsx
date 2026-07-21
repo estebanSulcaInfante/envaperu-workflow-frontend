@@ -59,10 +59,13 @@ const response = {
         {
           station_id: 'station-1',
           station_code: 'PESAJE-01',
-          ot: 'OT-0041',
+          ot: null,
+          ots: ['OT-0040', 'OT-0041'],
           mold: 'TAPA 38 MM',
+          molds: ['TAPA 38 MM'],
           color: 'ROJO SOLIDO',
           machine_code: 'HT-250B',
+          machine_codes: ['HT-250B'],
           shift: null,
           shifts: ['DIURNO', 'NOCTURNO'],
           operational_dates: ['2026-07-02', '2026-07-17'],
@@ -97,9 +100,12 @@ const response = {
           station_id: 'station-1',
           station_code: 'PESAJE-01',
           ot: 'OT-0042',
+          ots: ['OT-0042'],
           mold: 'BOTELLA 1 L',
+          molds: ['BOTELLA 1 L'],
           color: 'NATURAL',
           machine_code: 'SOP-01',
+          machine_codes: ['SOP-01'],
           shift: 'DIURNO',
           shifts: ['DIURNO'],
           operational_dates: ['2026-07-17'],
@@ -174,6 +180,7 @@ describe('US-011A: Dashboard gerencial temporal por pesajes', () => {
     await user.click(screen.getByRole('button', { name: 'Ver detalle de OP-1401' }));
 
     const detail = screen.getByTestId('progress-detail-OP-1401');
+    expect(within(detail).getByText('OT-0040')).toBeInTheDocument();
     expect(within(detail).getByText('OT-0041')).toBeInTheDocument();
     expect(within(detail).getByText('TAPA 38 MM')).toBeInTheDocument();
     expect(within(detail).getByText('ROJO SOLIDO')).toBeInTheDocument();

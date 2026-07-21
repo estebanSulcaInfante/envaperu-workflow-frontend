@@ -223,6 +223,19 @@ function DetailCell({ label, children }) {
   );
 }
 
+function DimensionValues({ values, value, emptyLabel }) {
+  const entries = values?.length ? values : value ? [value] : [];
+  if (!entries.length) return <Typography variant="body2">{emptyLabel}</Typography>;
+  if (entries.length === 1) return <Typography variant="body2">{entries[0]}</Typography>;
+  return (
+    <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+      {entries.map((entry) => (
+        <Chip key={entry} label={entry} size="small" variant="outlined" />
+      ))}
+    </Stack>
+  );
+}
+
 function DetailRows({ item }) {
   const rowId = item.op || 'SIN-OP';
   return (
@@ -250,7 +263,7 @@ function DetailRows({ item }) {
         return (
           <Box
             data-testid={`color-group-${detail.color || 'SIN-COLOR'}`}
-            key={`${detail.station_id}-${detail.color || 'sin-color'}-${detail.ot || 'sin-ot'}-${index}`}
+            key={`${detail.color || 'sin-color'}-${index}`}
             sx={{
               display: 'grid',
               gridTemplateColumns: {
@@ -269,13 +282,17 @@ function DetailRows({ item }) {
               <Typography variant="body2" sx={{ fontWeight: 800 }}>{detail.color || 'Sin color'}</Typography>
             </DetailCell>
             <DetailCell label="OT">
-              <Typography variant="body2" sx={{ fontWeight: 700 }}>{detail.ot || 'Sin OT'}</Typography>
+              <DimensionValues emptyLabel="Sin OT" value={detail.ot} values={detail.ots} />
             </DetailCell>
             <DetailCell label="Molde">
-              <Typography variant="body2">{detail.mold || 'Sin molde'}</Typography>
+              <DimensionValues emptyLabel="Sin molde" value={detail.mold} values={detail.molds} />
             </DetailCell>
             <DetailCell label="Máquina">
-              <Typography variant="body2">{detail.machine_code || 'Sin máquina'}</Typography>
+              <DimensionValues
+                emptyLabel="Sin máquina"
+                value={detail.machine_code}
+                values={detail.machine_codes}
+              />
             </DetailCell>
             <DetailCell label="Turnos">
               <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
@@ -465,9 +482,12 @@ export default function ProductionProgressDashboard({ initialDate, initialPeriod
         const reportedShifts = details.flatMap((detail) => (
           detail.shifts?.length ? detail.shifts : [detail.shift]
         )).filter(Boolean);
+        const reportedMachines = details.flatMap((detail) => (
+          detail.machine_codes?.length ? detail.machine_codes : [detail.machine_code]
+        )).filter(Boolean);
         setFilterOptions((current) => ({
           ops: [...new Set([...current.ops, ...payload.items.map((item) => item.op).filter(Boolean)])].sort(),
-          machines: [...new Set([...current.machines, ...details.map((detail) => detail.machine_code).filter(Boolean)])].sort(),
+          machines: [...new Set([...current.machines, ...reportedMachines])].sort(),
           shifts: [...new Set([...current.shifts, ...reportedShifts])].sort(),
         }));
       } catch (requestError) {
