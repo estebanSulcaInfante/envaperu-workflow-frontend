@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Paper,
   Typography,
@@ -44,91 +45,167 @@ import RegistroForm from './RegistroForm';
 import DataTableToolbar from './ui/DataTableToolbar';
 import { matchesOmniSearch } from '../utils/tableSearch';
 
-function LoteRow({ lote }) {
+const numberFormatter = new Intl.NumberFormat('es-PE', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 3
+});
+
+const formatNumber = (value, fallback = '-') => {
+  const number = Number(value);
+  return Number.isFinite(number) ? numberFormatter.format(number) : fallback;
+};
+
+const formatDate = (value) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('es-PE');
+};
+
+const validHex = (value) => /^#[0-9a-f]{6}$/i.test(value || '');
+
+function ColorSwatch({ lote, size = 22 }) {
+  const hex = validHex(lote.color_hex) ? lote.color_hex : null;
   return (
-    <Card 
-      sx={{ 
-        mb: 1, 
-        background: '#FAFAFA',
-        border: '1px solid #E0E0E0'
+    <Box
+      component="span"
+      role="img"
+      aria-label={hex ? `Color ${lote.Color}: ${hex}` : `Color ${lote.Color} sin HEX definido`}
+      sx={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: size, height: size, flex: `0 0 ${size}px`, borderRadius: '50%',
+        bgcolor: hex || 'grey.100', border: '2px solid #fff',
+        boxShadow: '0 0 0 1px rgba(0,0,0,.22)'
       }}
     >
-      <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-        <Grid container spacing={2} alignItems="center">
-          <Grid size={{ xs: 12, sm: 3 }}>
-            <Typography variant="subtitle2" color="secondary">
-              🎨 {lote.Color}
-            </Typography>
-          </Grid>
-          <Grid size={{ xs: 6, sm: 2 }}>
-            <Typography variant="caption" color="text.secondary">Peso (Kg)</Typography>
-            <Typography variant="body2">
-              {lote['Peso (Kg)'] || lote['Por Cantidad (Kg)'] || lote['Stock (Kg)'] || '-'}
-            </Typography>
-          </Grid>
-          <Grid size={{ xs: 6, sm: 2 }}>
-            <Typography variant="caption" color="text.secondary">Extra (Kg)</Typography>
-            <Typography variant="body2">{lote['Extra (Kg)']}</Typography>
-          </Grid>
-          <Grid size={{ xs: 6, sm: 2 }}>
-            <Typography variant="caption" color="text.secondary">Total + Extra</Typography>
-            <Typography variant="body2" color="primary">{lote['TOTAL + EXTRA (Kg)']}</Typography>
-          </Grid>
-          <Grid size={{ xs: 6, sm: 3 }}>
-            <Typography variant="caption" color="text.secondary">Coladas</Typography>
-            <Chip 
-              size="small" 
-              label={lote.coladas_calculadas} 
-              color="primary"
-              sx={{ ml: 1 }}
-            />
-          </Grid>
-        </Grid>
-        
-        {/* Materiales y Pigmentos */}
-        {(lote.materiales?.length > 0 || lote.pigmentos?.length > 0) && (
-          <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-            <Grid container spacing={2}>
-              {lote.materiales?.length > 0 && (
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <Typography variant="caption" color="text.secondary">Materiales:</Typography>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-                    {lote.materiales.map((mat, i) => (
-                      <Chip 
-                        key={i}
-                        size="small"
-                        variant="outlined"
-                        label={`${mat.nombre}: ${mat.peso_kg} kg`}
-                      />
-                    ))}
-                  </Box>
-                </Grid>
-              )}
-              {lote.pigmentos?.length > 0 && (
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <Typography variant="caption" color="text.secondary">Pigmentos:</Typography>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-                    {lote.pigmentos.map((pig, i) => (
-                      <Chip 
-                        key={i}
-                        size="small"
-                        variant="outlined"
-                        color="secondary"
-                        label={`${pig.nombre}: ${pig.dosis_gr} gr`}
-                      />
-                    ))}
-                  </Box>
-                </Grid>
-              )}
-            </Grid>
+      {!hex && <Typography component="span" sx={{ fontSize: size * 0.55, lineHeight: 1 }}>🎨</Typography>}
+    </Box>
+  );
+}
+
+function Metric({ label, value, unit }) {
+  return (
+    <Box className="lot-metric">
+      <Typography variant="caption" color="text.secondary">{label}</Typography>
+      <Typography variant="body2" sx={{ fontWeight: 700 }}>{value}{unit ? ` ${unit}` : ''}</Typography>
+    </Box>
+  );
+}
+
+function LoteRow({ lote, printMode = false }) {
+  const recipe = lote.receta_aplicada;
+  const people = lote.mano_obra?.personas ?? lote.personas;
+  const hours = lote.mano_obra?.horas_hombre;
+
+  return (
+    <Card className={printMode ? 'lot-card lot-card-print' : 'lot-card'} variant="outlined" sx={{ mb: printMode ? 1 : 1.5 }}>
+      <CardContent sx={{ p: printMode ? 1.25 : 2, '&:last-child': { pb: printMode ? 1.25 : 2 } }}>
+        <Box className="lot-card-header" sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mb: 1.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ColorSwatch lote={lote} size={printMode ? 18 : 24} />
+            <Box>
+              <Typography variant={printMode ? 'subtitle2' : 'subtitle1'} sx={{ fontWeight: 750, lineHeight: 1.2 }}>
+                {lote.Color || 'Sin color'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {recipe ? `Receta ${recipe.nombre} · revisión ${recipe.revision}` : 'Sin receta asociada'}
+              </Typography>
+            </Box>
           </Box>
-        )}
+          <Box className="lot-metrics" sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(92px, 1fr))', gap: 1.5 }}>
+            <Metric label="Meta" value={formatNumber(lote.meta_kg)} unit="kg" />
+            <Metric label="Coladas objetivo" value={formatNumber(lote.coladas ?? lote.coladas_calculadas)} />
+            <Metric label="Personas" value={people != null ? formatNumber(people) : '-'} />
+            <Metric label="Horas-hombre" value={hours != null ? formatNumber(hours) : '-'} />
+          </Box>
+        </Box>
+
+        <Box className="lot-body-grid">
+          <Grid container spacing={printMode ? 1 : 2} className="lot-composition">
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Typography variant="overline" color="text.secondary">Composición de resinas</Typography>
+              <Box className="lot-detail-list">
+                {lote.materiales?.length ? lote.materiales.map((material, index) => (
+                  <Box className="lot-detail-row" key={material.id || `${material.nombre}-${index}`}>
+                    <span>{material.nombre}</span><strong>{formatNumber(material.peso_kg)} kg</strong>
+                  </Box>
+                )) : <Typography variant="body2" color="text.secondary">Sin materiales registrados</Typography>}
+              </Box>
+            </Grid>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Typography variant="overline" color="text.secondary">
+                {printMode ? 'Dosificación' : 'Dosificación de colorantes / aditivos'}
+              </Typography>
+              <Box className="lot-detail-list">
+                {lote.pigmentos?.length ? lote.pigmentos.map((pigmento, index) => (
+                  <Box className="lot-detail-row" key={pigmento.id || `${pigmento.nombre}-${index}`}>
+                    <span>{pigmento.nombre}</span><strong>{formatNumber(pigmento.dosis_gr)} g</strong>
+                  </Box>
+                )) : <Typography variant="body2" color="text.secondary">Sin dosificación registrada</Typography>}
+              </Box>
+            </Grid>
+          </Grid>
+
+          {lote.salidas?.length > 0 && (
+            <Box className="lot-outputs" sx={{ mt: 1.5 }}>
+              <Typography variant="overline" color="text.secondary">Salidas físicas objetivo</Typography>
+              <Box className="lot-output-table" component="table">
+                <thead><tr><th>Pieza</th><th>SKU</th><th>Cav.</th><th>Unidades</th><th>Kg netos</th></tr></thead>
+                <tbody>{lote.salidas.map((salida) => (
+                  <tr key={salida.id || `${salida.pieza_id}-${salida.pieza_color_sku}`}>
+                    <td>{salida.pieza_nombre || '-'}</td><td>{salida.pieza_color_sku || '-'}</td>
+                    <td>{formatNumber(salida.cavidades_snapshot ?? salida.cavidades)}</td><td>{formatNumber(salida.cantidad_objetivo)}</td>
+                    <td>{formatNumber(salida.kg_objetivo_neto)} kg</td>
+                  </tr>
+                ))}</tbody>
+              </Box>
+            </Box>
+          )}
+        </Box>
       </CardContent>
     </Card>
   );
 }
 
-function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
+function OrderPrintSheet({ orden }) {
+  if (!orden) return null;
+  const resumen = orden.resumen_totales || {};
+  const technical = orden.snapshot_tecnico || {};
+  const metaKg = orden.meta_kg || resumen['Peso(Kg) PRODUCCION'] || 0;
+  const wastePercent = Number(resumen['%Merma']);
+  const cycleSeconds = Number(technical.tiempo_ciclo_seg);
+  const cyclesPerHour = cycleSeconds > 0 ? 3600 / cycleSeconds : null;
+  return (
+    <Box className="order-print-sheet" aria-label={`Versión imprimible ${orden.numero_op}`}>
+      <Box className="print-header">
+        <Box><Typography variant="overline">ENVAPERÚ · ORDEN DE PRODUCCIÓN</Typography><Typography variant="h4" sx={{ fontWeight: 800 }}>{orden.numero_op}</Typography></Box>
+      </Box>
+      <Box className="print-order-grid">
+        <div><span>Producto</span><strong>{orden.producto || '-'}</strong></div>
+        <div><span>Máquina</span><strong>{orden.maquina || '-'}</strong></div>
+        <div><span>Molde</span><strong>{orden.molde || '-'}</strong></div>
+        <div><span>Inicio programado</span><strong>{formatDate(orden.fecha_inicio)}</strong></div>
+        <div><span>Fin estimado</span><strong>{formatDate(resumen['F. Fin'])}</strong></div>
+        <div><span>Meta neta</span><strong>{formatNumber(metaKg)} kg</strong></div>
+        <div><span>Merma</span><strong>{Number.isFinite(wastePercent) ? formatNumber(wastePercent * 100) : '-'}%</strong></div>
+        <div><span>Merma a recuperar</span><strong>{formatNumber(resumen['Merma Natural Kg'])} kg</strong></div>
+      </Box>
+      <Box className="print-technical-grid">
+        <div><span>Ciclo</span><strong>{formatNumber(cycleSeconds)} s</strong></div>
+        <div><span>Coladas/hora</span><strong>{formatNumber(cyclesPerHour)}</strong></div>
+        <div><span>Horas/turno</span><strong>{formatNumber(technical.horas_turno)} h</strong></div>
+        <div><span>Peso neto/golpe</span><strong>{formatNumber(technical.peso_neto_golpe_gr)} g</strong></div>
+        <div><span>Ramal/colada</span><strong>{formatNumber(technical.peso_colada_gr)} g</strong></div>
+        <div><span>Peso de tiro</span><strong>{formatNumber(technical.peso_tiro_gr)} g</strong></div>
+        <div><span>Duración estimada</span><strong>{formatNumber(resumen['Horas'])} h / {formatNumber(resumen['Días'])} días</strong></div>
+      </Box>
+      <Typography variant="h6" sx={{ mt: 2, mb: 1, fontWeight: 750 }}>Lotes de color</Typography>
+      {orden.lotes?.map((lote, index) => <LoteRow key={lote.id || index} lote={lote} printMode />)}
+      <Box className="print-footer">Generado el {new Date().toLocaleString('es-PE')}</Box>
+    </Box>
+  );
+}
+
+function OrdenRow({ orden, onRegistroCreado, onRefresh, onPrint }) {
   const [open, setOpen] = useState(false);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
   const [registroDialogOpen, setRegistroDialogOpen] = useState(false);
@@ -300,14 +377,25 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
                 <QrCode2Icon fontSize="small" />
               </IconButton>
             </Tooltip>
-            <Tooltip title="Descargar Excel para Imprimir">
+            <Tooltip title="Descargar Excel">
               <IconButton 
                 size="small" 
                 color="primary" 
                 onClick={handleDownloadExcel}
                 disabled={downloading}
+                aria-label={`Descargar Excel ${orden.numero_op}`}
               >
-                {downloading ? <CircularProgress size={18} /> : <PrintIcon fontSize="small" />}
+                {downloading ? <CircularProgress size={18} /> : <DownloadIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Imprimir / Guardar como PDF A4">
+              <IconButton
+                size="small"
+                color="primary"
+                onClick={(event) => { event.stopPropagation(); onPrint?.(orden); }}
+                aria-label={`Imprimir PDF A4 ${orden.numero_op}`}
+              >
+                <PrintIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           </Box>
@@ -392,7 +480,7 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
       </Dialog>
 
       <TableRow>
-        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={9}>
+        <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={10}>
           <Collapse in={open} timeout="auto" unmountOnExit>
             <Box sx={{ py: 2, px: 1 }}>
               {/* Resumen de la orden */}
@@ -465,29 +553,46 @@ function OrdenRow({ orden, onRegistroCreado, onRefresh }) {
 }
 
 function OrdenesLista() {
+  const printTarget = new URLSearchParams(window.location.search).get('print');
   const [ordenes, setOrdenes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('TODAS');
+  const [printOrder, setPrintOrder] = useState(null);
 
-  const fetchOrdenes = async () => {
+  const fetchOrdenes = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await obtenerOrdenes();
       setOrdenes(data);
+      if (printTarget) {
+        setPrintOrder(data.find((orden) => orden.numero_op === printTarget) || null);
+      }
     } catch (err) {
       setError('Error al cargar las órdenes. Verifica que el servidor esté corriendo.');
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [printTarget]);
 
   useEffect(() => {
     fetchOrdenes();
-  }, []);
+  }, [fetchOrdenes]);
+
+  useEffect(() => {
+    if (!printOrder || printTarget) return undefined;
+    const previousTitle = document.title;
+    const timer = window.setTimeout(() => {
+      document.title = `${printOrder.numero_op}-orden-produccion`;
+      window.print();
+      document.title = previousTitle;
+      setPrintOrder(null);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [printOrder, printTarget]);
 
   // Filtrar órdenes
   const filteredOrdenes = ordenes.filter(orden => {
@@ -547,7 +652,9 @@ function OrdenesLista() {
   }
 
   return (
-    <TableContainer 
+    <>
+    <TableContainer
+      className="orders-screen-view"
       component={Paper}
       sx={{ 
         background: '#FFFFFF',
@@ -590,11 +697,13 @@ function OrdenesLista() {
         </TableHead>
         <TableBody>
           {filteredOrdenes.map((orden) => (
-            <OrdenRow key={orden.numero_op} orden={orden} onRefresh={fetchOrdenes} />
+            <OrdenRow key={orden.numero_op} orden={orden} onRefresh={fetchOrdenes} onPrint={setPrintOrder} />
           ))}
         </TableBody>
       </Table>
     </TableContainer>
+    {printOrder ? createPortal(<OrderPrintSheet orden={printOrder} />, document.body) : null}
+    </>
   );
 }
 

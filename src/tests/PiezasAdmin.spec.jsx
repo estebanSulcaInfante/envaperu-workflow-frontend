@@ -1,0 +1,184 @@
+import { render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ThemeProvider, createTheme } from '@mui/material';
+import PiezasAdmin from '../components/PiezasAdmin';
+
+vi.mock('../services/api', () => ({
+  actualizarPiezaGlobal: vi.fn(),
+  buscarPiezasGlobales: vi.fn(),
+  crearFamiliaEnLinea: vi.fn(),
+  crearLinea: vi.fn(),
+  crearPiezaGlobal: vi.fn(),
+  obtenerFamilias: vi.fn(),
+  obtenerLineas: vi.fn(),
+}));
+
+import {
+  actualizarPiezaGlobal,
+  buscarPiezasGlobales,
+  crearFamiliaEnLinea,
+  crearLinea,
+  crearPiezaGlobal,
+  obtenerFamilias,
+  obtenerLineas,
+} from '../services/api';
+
+const pieces = [{
+  id: 10,
+  codigo: 'PZ-000010',
+  nombre: 'Tapa universal',
+  peso_nominal_gr: 18.5,
+  linea_id: 1,
+  familia_id: 2,
+  activo: true,
+  version: 3,
+  variantes_count: 4,
+  moldes: [
+    { composicion_id: 81, molde_id: 'MOL-A', molde_nombre: 'Molde A' },
+    { composicion_id: 82, molde_id: 'MOL-B', molde_nombre: 'Molde B' },
+  ],
+}];
+
+const renderPage = () => render(
+  <ThemeProvider theme={createTheme()}>
+    <PiezasAdmin />
+  </ThemeProvider>,
+);
+
+describe('PiezasAdmin: maestro global Pieza', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    buscarPiezasGlobales.mockResolvedValue(pieces);
+    obtenerLineas.mockResolvedValue([{ id: 1, nombre: 'Inyección' }]);
+    obtenerFamilias.mockResolvedValue([{ id: 2, nombre: 'Tapas' }]);
+    crearPiezaGlobal.mockResolvedValue({ id: 11 });
+    crearLinea.mockResolvedValue({ id: 3, codigo: 30, nombre: 'SOPLADO' });
+    crearFamiliaEnLinea.mockResolvedValue({
+      familia: { id: 4, codigo: 40, nombre: 'BOTELLAS' },
+    });
+    actualizarPiezaGlobal.mockResolvedValue({ id: 10 });
+  });
+
+  it('muestra una pieza reutilizada por varios moldes sin atribuirle cavidades', async () => {
+    renderPage();
+
+    expect(await screen.findByText('Tapa universal')).toBeInTheDocument();
+    expect(screen.getByText('MOL-A')).toBeInTheDocument();
+    expect(screen.getByText('MOL-B')).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /cavidades/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /peso nominal/i })).toBeInTheDocument();
+  });
+
+  it('crea el maestro sin enviar cavidades ni datos de color', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Tapa universal');
+
+    await user.click(screen.getByRole('button', { name: /nueva pieza/i }));
+    const identifier = screen.getByLabelText(/código estable/i);
+    expect(identifier).toHaveValue('Se asignará automáticamente al guardar');
+    expect(identifier).toHaveAttribute('readonly');
+    await user.type(screen.getByLabelText(/^nombre/i), 'Base compartida');
+    await user.type(screen.getByLabelText(/peso nominal/i), '42.25');
+    await user.click(screen.getByRole('button', { name: /crear pieza/i }));
+
+    await waitFor(() => expect(crearPiezaGlobal).toHaveBeenCalledTimes(1));
+    const payload = crearPiezaGlobal.mock.calls[0][0];
+    expect(payload).toMatchObject({ nombre: 'Base compartida', peso_nominal_gr: 42.25, activo: true });
+    expect(payload).not.toHaveProperty('cavidades');
+    expect(payload).not.toHaveProperty('cavidad');
+    expect(payload).not.toHaveProperty('color');
+    expect(payload).not.toHaveProperty('codigo');
+  });
+
+  it('muestra el código existente como identificador inmutable y no intenta actualizarlo', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Tapa universal');
+
+    await user.click(screen.getByRole('button', { name: /editar PZ-000010/i }));
+    const identifier = screen.getByLabelText(/código estable/i);
+    expect(identifier).toHaveValue('PZ-000010');
+    expect(identifier).toHaveAttribute('readonly');
+    await user.click(screen.getByRole('button', { name: /guardar cambios/i }));
+
+    await waitFor(() => expect(actualizarPiezaGlobal).toHaveBeenCalledTimes(1));
+    expect(actualizarPiezaGlobal.mock.calls[0][1]).not.toHaveProperty('codigo');
+  });
+
+  it('desactiva de forma lógica conservando el id global', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    await screen.findByText('Tapa universal');
+
+    await user.click(screen.getByRole('button', { name: /desactivar PZ-000010/i }));
+
+    await waitFor(() => expect(actualizarPiezaGlobal).toHaveBeenCalledWith(10, {
+      activo: false,
+      version: 3,
+    }));
+  });
+
+  it('filtra familias por línea y limpia una familia al cambiar a otra línea', async () => {
+    const user = userEvent.setup();
+    obtenerLineas.mockResolvedValue([
+      { id: 1, nombre: 'Inyección' },
+      { id: 3, nombre: 'Soplado' },
+    ]);
+    obtenerFamilias.mockImplementation((params = {}) => {
+      if (params.linea_id === 1) return Promise.resolve([{ id: 2, nombre: 'Tapas' }]);
+      if (params.linea_id === 3) return Promise.resolve([{ id: 4, nombre: 'Botellas' }]);
+      return Promise.resolve([
+        { id: 2, nombre: 'Tapas' },
+        { id: 4, nombre: 'Botellas' },
+      ]);
+    });
+    renderPage();
+    await screen.findByText('Tapa universal');
+
+    await user.click(screen.getByRole('button', { name: /nueva pieza/i }));
+    await user.click(screen.getByRole('combobox', { name: 'Línea' }));
+    await user.click(screen.getByRole('option', { name: 'Inyección' }));
+    await waitFor(() => expect(obtenerFamilias).toHaveBeenCalledWith({ linea_id: 1 }));
+
+    await user.click(screen.getByRole('combobox', { name: 'Familia' }));
+    await user.click(screen.getByRole('option', { name: 'Tapas' }));
+    expect(screen.getByRole('combobox', { name: 'Familia' })).toHaveValue('Tapas');
+
+    await user.click(screen.getByRole('combobox', { name: 'Línea' }));
+    await user.click(screen.getByRole('option', { name: 'Soplado' }));
+    await waitFor(() => expect(obtenerFamilias).toHaveBeenCalledWith({ linea_id: 3 }));
+    expect(screen.getByRole('combobox', { name: 'Familia' })).not.toHaveValue('Tapas');
+  });
+
+  it('permite crear la Línea y luego su primera Familia desde la pieza', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Tapa universal');
+    await user.click(screen.getByRole('button', { name: /nueva pieza/i }));
+
+    const lineInput = screen.getByRole('combobox', { name: 'Línea' });
+    await user.type(lineInput, 'soplado');
+    await user.click(await screen.findByRole('option', { name: /Crear Línea “soplado”/i }));
+    expect(screen.getByLabelText('Código automático')).toHaveValue('LIN-######');
+    await user.click(screen.getByRole('button', { name: /Crear y seleccionar/i }));
+
+    await waitFor(() => expect(crearLinea).toHaveBeenCalledWith({ nombre: 'SOPLADO' }));
+    await waitForElementToBeRemoved(() => screen.queryByRole('dialog', { name: /Nueva Línea/i }));
+    expect(screen.getByRole('combobox', { name: 'Línea' })).toHaveValue('SOPLADO');
+
+    const familyInput = screen.getByRole('combobox', { name: 'Familia' });
+    await user.type(familyInput, 'botellas');
+    await user.click(await screen.findByRole('option', { name: /Crear Familia “botellas”/i }));
+    expect(screen.getByLabelText('Código automático')).toHaveValue('FAM-######');
+    await user.click(screen.getByRole('button', { name: /Crear y seleccionar/i }));
+
+    await waitFor(() => expect(crearFamiliaEnLinea).toHaveBeenCalledWith(3, {
+      nombre: 'BOTELLAS',
+    }));
+    await waitForElementToBeRemoved(() => screen.queryByRole('dialog', { name: /Nueva Familia/i }));
+    expect(screen.getByRole('combobox', { name: 'Familia' })).toHaveValue('BOTELLAS');
+  });
+});

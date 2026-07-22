@@ -1,6 +1,7 @@
 import { Paper, Tab, Tabs } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
+import AutoFixHighOutlinedIcon from '@mui/icons-material/AutoFixHighOutlined';
 import CategoryOutlinedIcon from '@mui/icons-material/CategoryOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
@@ -30,6 +31,8 @@ const icons = {
   products: CategoryOutlinedIcon,
   pieces: CategoryOutlinedIcon,
   molds: PrecisionManufacturingOutlinedIcon,
+  wizard: AutoFixHighOutlinedIcon,
+  catalog: CategoryOutlinedIcon,
   materials: Inventory2OutlinedIcon,
   workers: GroupsOutlinedIcon,
   machines: FactoryOutlinedIcon,

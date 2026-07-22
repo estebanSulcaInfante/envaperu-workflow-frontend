@@ -12,16 +12,9 @@ import {
   Button,
   IconButton,
   Chip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
   CircularProgress,
   Alert,
   Tooltip,
-  Autocomplete,
-  Stack,
   Collapse
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -32,14 +25,12 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { 
   buscarProductos, 
-  crearProducto, 
-  actualizarProducto, 
   eliminarProducto, 
-  obtenerProducto,
-  buscarPiezas 
+  obtenerProducto
 } from '../services/api';
 import DataTableToolbar from './ui/DataTableToolbar';
 import PageHeader from './ui/PageHeader';
+import ProductoDialog from './ProductoDialog';
 import { matchesOmniSearch, uniqueOptions } from '../utils/tableSearch';
 
 function ProductosAdmin() {
@@ -48,22 +39,6 @@ function ProductosAdmin() {
   const [error, setError] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProducto, setEditingProducto] = useState(null);
-  
-  const [formData, setFormData] = useState({
-    cod_sku_pt: '',
-    producto: '',
-    familia: '',
-    linea: '',
-    peso_g: '',
-    precio_estimado: '',
-    status: 'Activo',
-    piezas: []
-  });
-  
-  // Estado para selector de piezas
-  const [piezasOptions, setPiezasOptions] = useState([]);
-  const [piezasLoading, setPiezasLoading] = useState(false);
-  const [piezaInput, setPiezaInput] = useState('');
   
   // Estado para filas expandidas
   const [expandedRows, setExpandedRows] = useState({});
@@ -87,57 +62,17 @@ function ProductosAdmin() {
     fetchProductos();
   }, []);
 
-  // Buscar piezas para agregar al BOM
-  useEffect(() => {
-    if (piezaInput.length < 2) {
-      setPiezasOptions([]);
-      return;
-    }
-    const timeoutId = setTimeout(async () => {
-      setPiezasLoading(true);
-      try {
-        const piezas = await buscarPiezas(piezaInput);
-        setPiezasOptions(piezas);
-      } catch {
-        setPiezasOptions([]);
-      } finally {
-        setPiezasLoading(false);
-      }
-    }, 300);
-    return () => clearTimeout(timeoutId);
-  }, [piezaInput]);
-
   const handleOpenDialog = async (producto = null) => {
     if (producto) {
       try {
         const full = await obtenerProducto(producto.cod_sku_pt);
         setEditingProducto(full);
-        setFormData({
-          cod_sku_pt: full.cod_sku_pt,
-          producto: full.producto,
-          familia: full.familia || '',
-          linea: full.linea || '',
-          peso_g: full.peso_g || '',
-          precio_estimado: full.precio_estimado || '',
-          status: full.status || 'Activo',
-          piezas: full.piezas?.map(p => ({ pieza_sku: p.sku, nombre: p.nombre, cantidad: p.cantidad })) || []
-        });
       } catch {
         setError('Error cargando producto');
         return;
       }
     } else {
       setEditingProducto(null);
-      setFormData({
-        cod_sku_pt: '',
-        producto: '',
-        familia: '',
-        linea: '',
-        peso_g: '',
-        precio_estimado: '',
-        status: 'Activo',
-        piezas: []
-      });
     }
     setDialogOpen(true);
   };
@@ -145,53 +80,6 @@ function ProductosAdmin() {
   const handleCloseDialog = () => {
     setDialogOpen(false);
     setEditingProducto(null);
-  };
-
-  const handleAddPieza = (pieza) => {
-    if (!pieza) return;
-    const exists = formData.piezas.find(p => p.pieza_sku === (pieza.sku || pieza.pieza_sku));
-    if (exists) return;
-    
-    setFormData(prev => ({
-      ...prev,
-      piezas: [...prev.piezas, { pieza_sku: pieza.sku, nombre: pieza.piezas, color: pieza.color, cantidad: 1 }]
-    }));
-    setPiezaInput('');
-  };
-
-  const handleRemovePieza = (sku) => {
-    setFormData(prev => ({
-      ...prev,
-      piezas: prev.piezas.filter(p => p.pieza_sku !== sku)
-    }));
-  };
-
-  const handleQuantityChange = (sku, qty) => {
-    setFormData(prev => ({
-      ...prev,
-      piezas: prev.piezas.map(p => p.pieza_sku === sku ? { ...p, cantidad: parseInt(qty) || 1 } : p)
-    }));
-  };
-
-  const handleSubmit = async () => {
-    try {
-      const data = {
-        ...formData,
-        peso_g: formData.peso_g ? parseFloat(formData.peso_g) : null,
-        precio_estimado: formData.precio_estimado ? parseFloat(formData.precio_estimado) : null
-      };
-      
-      if (editingProducto) {
-        await actualizarProducto(editingProducto.cod_sku_pt, data);
-      } else {
-        await crearProducto(data);
-      }
-      
-      handleCloseDialog();
-      fetchProductos();
-    } catch {
-      setError('Error guardando producto');
-    }
   };
 
   const handleDelete = async (sku) => {
@@ -357,130 +245,12 @@ function ProductosAdmin() {
         </Table>
       </TableContainer>
 
-      {/* Dialog para crear/editar */}
-      <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="md" fullWidth>
-        <DialogTitle>
-          {editingProducto ? 'Editar Producto' : 'Nuevo Producto'}
-        </DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            <Stack direction="row" spacing={2}>
-              <TextField
-                label="SKU"
-                value={formData.cod_sku_pt}
-                onChange={(e) => setFormData({ ...formData, cod_sku_pt: e.target.value })}
-                disabled={!!editingProducto}
-                fullWidth
-              />
-              <TextField
-                label="Nombre Producto"
-                value={formData.producto}
-                onChange={(e) => setFormData({ ...formData, producto: e.target.value })}
-                fullWidth
-              />
-            </Stack>
-            <Stack direction="row" spacing={2}>
-              <TextField
-                label="Familia"
-                value={formData.familia}
-                onChange={(e) => setFormData({ ...formData, familia: e.target.value })}
-                fullWidth
-              />
-              <TextField
-                label="Línea"
-                value={formData.linea}
-                onChange={(e) => setFormData({ ...formData, linea: e.target.value })}
-                fullWidth
-              />
-            </Stack>
-            <Stack direction="row" spacing={2}>
-              <TextField
-                label="Peso (g)"
-                type="number"
-                value={formData.peso_g}
-                onChange={(e) => setFormData({ ...formData, peso_g: e.target.value })}
-                fullWidth
-              />
-              <TextField
-                label="Precio Estimado"
-                type="number"
-                value={formData.precio_estimado}
-                onChange={(e) => setFormData({ ...formData, precio_estimado: e.target.value })}
-                fullWidth
-              />
-            </Stack>
-            
-            {/* BOM - Lista de Piezas */}
-            <Box>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>Piezas (BOM)</Typography>
-              <Autocomplete
-                options={piezasOptions}
-                getOptionLabel={(option) => option.piezas || ''}
-                loading={piezasLoading}
-                inputValue={piezaInput}
-                onInputChange={(_, v) => setPiezaInput(v)}
-                onChange={(_, v) => handleAddPieza(v)}
-                renderInput={(params) => (
-                  <TextField {...params} size="small" placeholder="Buscar pieza para agregar..." />
-                )}
-                renderOption={(props, option) => (
-                  <li {...props} key={option.sku}>
-                    <Box>
-                      <Typography variant="body2">{option.piezas}</Typography>
-                      <Typography variant="caption" color="text.secondary">{option.sku}</Typography>
-                    </Box>
-                  </li>
-                )}
-              />
-              <Box sx={{ mt: 2 }}>
-                {formData.piezas.length > 0 && (
-                  <TableContainer component={Paper} variant="outlined">
-                    <Table size="small">
-                      <TableHead sx={{ bgcolor: '#f5f5f5' }}>
-                        <TableRow>
-                          <TableCell>SKU</TableCell>
-                          <TableCell>Nombre</TableCell>
-                          <TableCell width="120px" align="center">Cantidad</TableCell>
-                          <TableCell width="50px"></TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {formData.piezas.map((p) => (
-                          <TableRow key={p.pieza_sku}>
-                            <TableCell>{p.pieza_sku}</TableCell>
-                            <TableCell>{p.nombre}</TableCell>
-                            <TableCell align="center">
-                              <TextField
-                                type="number"
-                                size="small"
-                                inputProps={{ min: 1 }}
-                                value={p.cantidad}
-                                onChange={(e) => handleQuantityChange(p.pieza_sku, e.target.value)}
-                                sx={{ width: '80px' }}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <IconButton size="small" color="error" onClick={() => handleRemovePieza(p.pieza_sku)}>
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                )}
-              </Box>
-            </Box>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDialog}>Cancelar</Button>
-          <Button variant="contained" onClick={handleSubmit} sx={{ bgcolor: '#1E3A5F' }}>
-            {editingProducto ? 'Guardar' : 'Crear'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ProductoDialog
+        open={dialogOpen}
+        producto={editingProducto}
+        onClose={handleCloseDialog}
+        onSaved={fetchProductos}
+      />
     </Box>
   );
 }

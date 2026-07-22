@@ -117,7 +117,9 @@ function TrabajadoresAdmin() {
       if (editingId) {
         await updateTrabajador(editingId, formData);
       } else {
-        await createTrabajador(formData);
+        const payload = { ...formData };
+        delete payload.codigo;
+        await createTrabajador(payload);
       }
       handleClose();
       fetchData();
@@ -267,11 +269,11 @@ function TrabajadoresAdmin() {
         <DialogContent dividers>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
             <TextField
-              label="Código"
-              value={formData.codigo}
-              onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
+              label="Código automático"
+              value={editingId ? formData.codigo : 'TRB-######'}
               fullWidth
-              helperText="Dejar en blanco para autogenerar"
+              disabled
+              helperText={editingId ? 'Código interno inmutable' : 'Se asignará al guardar'}
             />
             <TextField
               label="Apellidos"

@@ -10,6 +10,12 @@ const api = axios.create({
   },
 });
 
+const withoutInternalIdentifiers = (data, identifiers) => {
+  const payload = { ...data };
+  identifiers.forEach((identifier) => delete payload[identifier]);
+  return payload;
+};
+
 // Crear nueva orden de producción
 export const crearOrden = async (data) => {
   const response = await api.post('/ordenes', data);
@@ -71,32 +77,103 @@ export const buscarProductos = async (query = '') => {
 };
 
 // Buscar piezas/moldes para autocomplete
-export const buscarPiezas = async (query = '') => {
-  const response = await api.get('/piezas', { params: { q: query, limit: 20 } });
+export const buscarPiezasGlobales = async (query = '', limit = 200) => {
+  const response = await api.get('/piezas', { params: { q: query, limit } });
+  return response.data;
+};
+
+export const buscarPiezasColor = async (query = '') => {
+  const response = await api.get('/piezas-color', { params: { q: query, limit: 20 } });
   return response.data;
 };
 
 // Obtener todos los colores
-export const obtenerColores = async () => {
-  const response = await api.get('/colores');
+export const obtenerColores = async (params = {}) => {
+  const response = await api.get('/colores', { params });
   return response.data;
 };
 
 // Obtener todas las líneas
-export const obtenerLineas = async () => {
-  const response = await api.get('/catalogo/lineas');
+export const obtenerLineas = async (params = {}) => {
+  const response = await api.get('/catalogo/lineas', { params });
   return response.data;
 };
 
 // Obtener todas las familias
-export const obtenerFamilias = async () => {
-  const response = await api.get('/catalogo/familias');
+export const obtenerFamilias = async (params = {}) => {
+  const response = await api.get('/catalogo/familias', { params });
+  return response.data;
+};
+
+export const crearLinea = async (data) => {
+  const response = await api.post('/catalogo/lineas', data);
+  return response.data;
+};
+
+export const actualizarLinea = async (id, data) => {
+  const response = await api.put(`/catalogo/lineas/${id}`, data);
+  return response.data;
+};
+
+export const inactivarLinea = async (id, version) => {
+  const response = await api.delete(`/catalogo/lineas/${id}`, { params: { version } });
+  return response.data;
+};
+
+export const crearFamilia = async (data) => {
+  const response = await api.post('/catalogo/familias', data);
+  return response.data;
+};
+
+export const actualizarFamilia = async (id, data) => {
+  const response = await api.put(`/catalogo/familias/${id}`, data);
+  return response.data;
+};
+
+export const inactivarFamilia = async (id, version) => {
+  const response = await api.delete(`/catalogo/familias/${id}`, { params: { version } });
+  return response.data;
+};
+
+export const obtenerFamiliasDeLinea = async (lineaId, params = {}) => {
+  const response = await api.get(`/catalogo/lineas/${lineaId}/familias`, { params });
+  return response.data;
+};
+
+export const asociarFamiliaALinea = async (lineaId, familiaId) => {
+  const response = await api.post(`/catalogo/lineas/${lineaId}/familias`, { familia_id: familiaId });
+  return response.data;
+};
+
+// Crea una Familia y su asociación con la Línea dentro de la misma transacción.
+export const crearFamiliaEnLinea = async (lineaId, familia) => {
+  const response = await api.post(`/catalogo/lineas/${lineaId}/familias`, { familia });
+  return response.data;
+};
+
+export const desasociarFamiliaDeLinea = async (lineaId, familiaId) => {
+  const response = await api.delete(`/catalogo/lineas/${lineaId}/familias/${familiaId}`);
   return response.data;
 };
 
 // Obtener todas las familias de color
-export const obtenerFamiliasColor = async () => {
-  const response = await api.get('/familias-color');
+export const obtenerFamiliasColor = async (params = {}) => {
+  const response = await api.get('/familias-color', { params });
+  return response.data;
+};
+
+export const crearFamiliaColor = async (data) => {
+  const response = await api.post('/familias-color', data);
+  return response.data;
+};
+
+export const actualizarFamiliaColor = async (id, data) => {
+  const response = await api.put(`/familias-color/${id}`, data);
+  return response.data;
+};
+
+export const inactivarFamiliaColor = async (id, version) => {
+  const response = await api.delete(`/familias-color/${id}`, { params: { version } });
   return response.data;
 };
 
@@ -106,18 +183,69 @@ export const obtenerFormas = async () => {
   return response.data;
 };
 
-// Crear color on-the-fly
-export const crearColor = async (nombre) => {
-  const response = await api.post('/colores', { nombre });
+// Crear ColorProduccion on-the-fly. Acepta el string legacy o el contrato
+// normalizado { nombre, familia_color_id }.
+export const crearColor = async (color) => {
+  const payload = typeof color === 'string' ? { nombre: color } : color;
+  const response = await api.post('/colores', payload);
   return response.data;
 };
 
-// Validar pre-requisitos para crear orden
-export const validarOrdenPrereq = async (moldeId, colorIds = []) => {
-  const params = { molde_id: moldeId };
-  if (colorIds.length > 0) {
-    params.color_ids = colorIds.join(',');
-  }
+export const actualizarColor = async (id, data) => {
+  const response = await api.put(`/colores/${id}`, data);
+  return response.data;
+};
+
+export const inactivarColor = async (id, version) => {
+  const response = await api.delete(`/colores/${id}`, { params: { version } });
+  return response.data;
+};
+
+export const obtenerIngredientesRecetaColor = async (params = {}) => {
+  const response = await api.get('/catalogo/ingredientes-receta-color', { params });
+  return response.data;
+};
+
+export const obtenerRecetasColorMaestras = async (params = {}) => {
+  const response = await api.get('/catalogo/recetas-color', { params });
+  return response.data;
+};
+
+export const crearRecetaColorMaestra = async (data) => {
+  const response = await api.post('/catalogo/recetas-color', data);
+  return response.data;
+};
+
+export const actualizarRecetaColorMaestra = async (id, data) => {
+  const response = await api.put(`/catalogo/recetas-color/${id}`, data);
+  return response.data;
+};
+
+export const inactivarRecetaColorMaestra = async (id, version) => {
+  const response = await api.delete(`/catalogo/recetas-color/${id}`, { params: { version } });
+  return response.data;
+};
+
+// Validar pre-requisitos para crear orden. Conserva la firma
+// (moldeId, colorIds) y admite el contexto completo de una OP excepcional.
+export const validarOrdenPrereq = async (moldeOrContext, legacyColorIds = []) => {
+  const context = moldeOrContext && typeof moldeOrContext === 'object' && !Array.isArray(moldeOrContext)
+    ? moldeOrContext
+    : { moldeId: moldeOrContext, colorIds: legacyColorIds };
+  const params = {};
+  const addIfPresent = (key, value) => {
+    if (value !== undefined && value !== null && value !== '') params[key] = value;
+  };
+
+  addIfPresent('molde_id', context.moldeId);
+  const normalizedColorIds = Array.isArray(context.colorIds)
+    ? context.colorIds.filter((id) => id !== undefined && id !== null && id !== '').join(',')
+    : context.colorIds;
+  addIfPresent('color_ids', normalizedColorIds);
+  addIfPresent('producto_sku', context.productoSku);
+  addIfPresent('maquina_id', context.maquinaId);
+  addIfPresent('numero_op', context.numeroOp);
+
   const response = await api.get('/validar-orden-prereq', { params });
   return response.data;
 };
@@ -204,7 +332,7 @@ export const obtenerMolde = async (codigo) => {
 
 // Crear molde
 export const crearMolde = async (data) => {
-  const response = await api.post('/moldes', data);
+  const response = await api.post('/moldes', withoutInternalIdentifiers(data, ['codigo']));
   return response.data;
 };
 
@@ -223,28 +351,42 @@ export const eliminarMolde = async (codigo) => {
 // ==================== CATÁLOGO PIEZAS ====================
 
 // Obtener pieza específica
-export const obtenerPieza = async (sku) => {
-  const response = await api.get(`/piezas/${sku}`);
+export const crearPiezaGlobal = async (data) => {
+  const response = await api.post('/piezas', withoutInternalIdentifiers(data, ['codigo']));
   return response.data;
 };
 
-// Crear pieza
-export const crearPieza = async (data) => {
-  const response = await api.post('/piezas', data);
+export const actualizarPiezaGlobal = async (piezaId, data) => {
+  const response = await api.put(`/piezas/${piezaId}`, data);
   return response.data;
 };
 
-// Actualizar pieza
-export const actualizarPieza = async (sku, data) => {
-  const response = await api.put(`/piezas/${sku}`, data);
+export const obtenerPiezaColor = async (sku) => {
+  const response = await api.get(`/piezas-color/${sku}`);
   return response.data;
 };
 
-// Eliminar pieza
-export const eliminarPieza = async (sku) => {
-  const response = await api.delete(`/piezas/${sku}`);
+export const crearPiezaColor = async (data) => {
+  const response = await api.post('/piezas-color', withoutInternalIdentifiers(data, ['sku']));
   return response.data;
 };
+
+export const actualizarPiezaColor = async (sku, data) => {
+  const response = await api.put(`/piezas-color/${sku}`, data);
+  return response.data;
+};
+
+export const eliminarPiezaColor = async (sku) => {
+  const response = await api.delete(`/piezas-color/${sku}`);
+  return response.data;
+};
+
+// Alias de compatibilidad para consumidores de variantes de color.
+export const buscarPiezas = buscarPiezasColor;
+export const obtenerPieza = obtenerPiezaColor;
+export const crearPieza = crearPiezaColor;
+export const actualizarPieza = actualizarPiezaColor;
+export const eliminarPieza = eliminarPiezaColor;
 
 // Obtener piezas producibles (con molde asignado)
 export const obtenerPiezasProducibles = async () => {
@@ -256,7 +398,7 @@ export const obtenerPiezasProducibles = async () => {
 
 // Crear producto
 export const crearProducto = async (data) => {
-  const response = await api.post('/productos', data);
+  const response = await api.post('/productos', withoutInternalIdentifiers(data, ['cod_sku_pt', 'sku']));
   return response.data;
 };
 
@@ -424,10 +566,11 @@ export const obtenerEstadisticasRevisionPiezas = async () => {
  * @param {number|null} metaKg   - Si se provee, la API calcula gramos absolutos
  * @returns {{ tiene_receta: boolean, n_muestras_min: number, pigmentos: Array }}
  */
-export const obtenerRecetaColor = async (colorId, productoSku = null, metaKg = null) => {
-  const params = { color_id: colorId };
+export const obtenerRecetaColor = async (colorId, productoSku = null, metaKg = null, kgVirgenBase = null) => {
+  const params = { color_produccion_id: colorId };
   if (productoSku) params.producto_sku = productoSku;
   if (metaKg)      params.meta_kg = metaKg;
+  if (kgVirgenBase) params.kg_virgen_base = kgVirgenBase;
   const response = await api.get('/catalogo/receta-color', { params });
   return response.data;
 };
@@ -451,6 +594,11 @@ export const updateMolde = async (codigo, data) => {
 
 export const addFormaMolde = async (codigo, data) => {
   const response = await api.post(`/moldes/${codigo}/formas`, data);
+  return response.data;
+};
+
+export const updateFormaMolde = async (formaId, data) => {
+  const response = await api.put(`/formas/${formaId}`, data);
   return response.data;
 };
 
@@ -513,8 +661,23 @@ export const toggleEstadoMaquina = async (id, estado) => {
   return response.data;
 };
 
-export const getTiposMaquina = async () => {
-  const response = await api.get('/catalogo/tipos-maquina');
+export const getTiposMaquina = async (params = {}) => {
+  const response = await api.get('/catalogo/tipos-maquina', { params });
+  return response.data;
+};
+
+export const createTipoMaquina = async (data) => {
+  const response = await api.post('/catalogo/tipos-maquina', data);
+  return response.data;
+};
+
+export const updateTipoMaquina = async (id, data) => {
+  const response = await api.put(`/catalogo/tipos-maquina/${id}`, data);
+  return response.data;
+};
+
+export const deactivateTipoMaquina = async (id, version) => {
+  const response = await api.delete(`/catalogo/tipos-maquina/${id}`, { params: { version } });
   return response.data;
 };
 

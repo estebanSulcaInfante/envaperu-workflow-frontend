@@ -31,4 +31,21 @@ describe('navegación SCM por procesos', () => {
     expect(workspaceTabIsActive('/datos-maestros', overview)).toBe(true);
     expect(workspaceTabIsActive('/datos-maestros/productos', overview)).toBe(false);
   });
+
+  it('expone el catálogo de líneas y familias dentro de datos maestros', () => {
+    const masterWorkspace = workspaceNavigation.find((item) => item.id === 'maestros');
+    const classification = masterWorkspace.tabs.find((tab) => tab.path === '/datos-maestros/clasificacion');
+
+    expect(classification?.label).toBe('Líneas y familias');
+    expect(workspaceTabIsActive('/datos-maestros/clasificacion', classification)).toBe(true);
+  });
+
+  it('ubica la configuración guiada junto a moldes y piezas', () => {
+    const masterWorkspace = workspaceNavigation.find((item) => item.id === 'maestros');
+    const wizard = masterWorkspace.tabs.find((tab) => tab.path === '/datos-maestros/configuracion-guiada');
+
+    expect(wizard?.label).toBe('Configuración guiada');
+    expect(workspaceTabIsActive('/datos-maestros/configuracion-guiada', wizard)).toBe(true);
+    expect(getWorkspaceNavigation('/catalogo/configurar')?.id).toBe('maestros');
+  });
 });

@@ -26,7 +26,9 @@ import ScmGuide from './components/ScmGuide';
 import ProductionProgressDashboard from './components/ProductionProgressDashboard';
 import LegacyProductionOrders from './components/LegacyProductionOrders';
 import MasterDataHub from './components/MasterDataHub';
+import ColoresRecetasAdmin from './components/ColoresRecetasAdmin';
 import MaterialCatalogPage from './components/MaterialCatalogPage';
+import LineasFamiliasAdmin from './components/LineasFamiliasAdmin';
 import ErrorBoundary from './components/ErrorBoundary';
 
 // Tema claro corporativo ENVAPERU
@@ -126,6 +128,7 @@ function App() {
                 <Route path="/planificacion" element={<PlanificacionProduccion />} />
                 <Route path="/planificacion/:solicitudId" element={<PlanificacionProduccion />} />
                 <Route path="/produccion/ordenes" element={<OrdenesLista />} />
+                <Route path="/produccion" element={<Navigate to="/produccion/ordenes" replace />} />
                 <Route path="/produccion/ordenes/nueva-excepcional" element={<OrdenForm />} />
                 <Route path="/produccion/registros" element={<RegistrosLista />} />
                 <Route path="/produccion/talonarios" element={<TalonariosAdmin />} />
@@ -150,9 +153,13 @@ function App() {
                 <Route path="/datos-maestros/maquinas" element={<MaquinasAdmin />} />
                 <Route path="/datos-maestros/moldes" element={<MoldesLista />} />
                 <Route path="/datos-maestros/moldes/:codigo" element={<MoldeDetalle />} />
+                <Route path="/datos-maestros/configuracion-guiada" element={<ConfigurarProducto />} />
                 <Route path="/datos-maestros/materiales" element={<MaterialCatalogPage />} />
+                <Route path="/datos-maestros/clasificacion" element={<LineasFamiliasAdmin />} />
+                <Route path="/datos-maestros/colores" element={<ColoresRecetasAdmin />} />
                 <Route path="/catalogo/importar" element={<ImportarCatalogo />} />
-                <Route path="/catalogo/configurar" element={<ConfigurarProducto />} />
+                <Route path="/catalogo/configurar" element={<Navigate to="/datos-maestros/configuracion-guiada" replace />} />
+                <Route path="/datos-maestros/configurar" element={<Navigate to="/datos-maestros/configuracion-guiada" replace />} />
                 <Route path="/catalogo/revision" element={<RevisionProductos />} />
                 <Route path="/configuracion" element={<RecepcionMateriales forcedSection="configuracion" />} />
 
@@ -170,6 +177,7 @@ function App() {
                 <Route path="/catalogo/trabajadores" element={<Navigate to="/datos-maestros/trabajadores" replace />} />
                 <Route path="/catalogo/maquinas" element={<Navigate to="/datos-maestros/maquinas" replace />} />
                 <Route path="/catalogo/moldes" element={<Navigate to="/datos-maestros/moldes" replace />} />
+                <Route path="/catalogo/clasificacion" element={<Navigate to="/datos-maestros/clasificacion" replace />} />
                 <Route path="/catalogo/moldes/:codigo" element={<MoldeDetalle />} />
             </Routes>
           </ErrorBoundary>

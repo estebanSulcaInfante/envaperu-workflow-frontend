@@ -42,7 +42,6 @@ function MoldesLista() {
   // Dialog for new Molde
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formData, setFormData] = useState({
-    codigo: '',
     nombre: '',
     peso_tiro_gr: '',
     tiempo_ciclo_std: 30,
@@ -67,7 +66,6 @@ function MoldesLista() {
 
   const handleOpenDialog = () => {
     setFormData({
-      codigo: '',
       nombre: '',
       peso_tiro_gr: '',
       tiempo_ciclo_std: 30,
@@ -230,10 +228,11 @@ function MoldesLista() {
           <Grid container spacing={2}>
             <Grid item xs={12} sm={6}>
               <TextField
-                label="Código Molde (Ej. MOL-123)"
+                label="Código del molde"
                 fullWidth
-                value={formData.codigo}
-                onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
+                value="Se asignará automáticamente al guardar"
+                helperText="El backend asignará el siguiente correlativo disponible."
+                slotProps={{ input: { readOnly: true } }}
               />
             </Grid>
             <Grid item xs={12} sm={6}>

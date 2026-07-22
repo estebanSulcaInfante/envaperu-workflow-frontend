@@ -33,9 +33,11 @@ import PaletteIcon from '@mui/icons-material/Palette';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import CalculateIcon from '@mui/icons-material/Calculate';
-import LockIcon from '@mui/icons-material/Lock';
-import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
-import { crearOrden, buscarProductos, obtenerPiezasProducibles, obtenerColores, validarOrdenPrereq, crearColor, obtenerMaquinas, obtenerProducto } from '../services/api';
+import ScienceOutlinedIcon from '@mui/icons-material/ScienceOutlined';
+import { crearOrden, buscarProductos, obtenerColores, obtenerRecetaColor, validarOrdenPrereq, obtenerMaquinas, obtenerMoldes } from '../services/api';
+import { listarMaterialesScm } from '../services/scmCatalogApi';
+import CreateOptionAutocomplete from './ui/CreateOptionAutocomplete';
+import ColorQuickCreateDialog from './ui/ColorQuickCreateDialog';
 
 const initialOrden = {
   numero_op: '',
@@ -50,7 +52,8 @@ const initialOrden = {
   snapshot_tiempo_ciclo: '',
   snapshot_horas_turno: '24',
   fecha_inicio: new Date().toISOString().slice(0, 16),
-  // Composición manual del molde (cuando no viene del catálogo)
+  // Compatibilidad con borradores anteriores. La OP nueva siempre usa el
+  // snapshot automático de la composición MoldePieza seleccionada.
   snapshot_composicion: [],
   lotes: []
 };
@@ -66,6 +69,36 @@ const initialLote = {
 };
 
 const STORAGE_KEY = 'envaperu_orden_form_draft';
+
+const normalizedColorHex = (value) => (
+  /^#[0-9A-F]{6}$/i.test(String(value || '').trim())
+    ? String(value).trim().toUpperCase()
+    : null
+);
+
+function LoteColorMarker({ hex }) {
+  const normalizedHex = normalizedColorHex(hex);
+  if (!normalizedHex) return <PaletteIcon color="secondary" />;
+
+  return (
+    <Box
+      component="span"
+      role="img"
+      aria-label={`Muestra de color ${normalizedHex}`}
+      title={normalizedHex}
+      sx={{
+        width: 24,
+        height: 24,
+        flex: '0 0 24px',
+        borderRadius: '50%',
+        bgcolor: normalizedHex,
+        border: '2px solid',
+        borderColor: 'common.white',
+        boxShadow: '0 0 0 1px rgba(15, 23, 42, 0.28)',
+      }}
+    />
+  );
+}
 
 function OrdenForm({ onOrdenCreada }) {
   const [orden, setOrden] = useState(() => {
@@ -99,13 +132,19 @@ function OrdenForm({ onOrdenCreada }) {
   const [productosLoading, setProductosLoading] = useState(false);
   const [productoInputValue, setProductoInputValue] = useState('');
 
-  // Estado para Autocomplete de Piezas/Moldes
-  const [piezasProducibles, setPiezasProducibles] = useState([]);
-  const [piezasLoading, setPiezasLoading] = useState(false);
+  // Estado para el catálogo normalizado de moldes
+  const [moldesOptions, setMoldesOptions] = useState([]);
+  const [moldesLoading, setMoldesLoading] = useState(false);
   
   // Estado para Colores
   const [coloresOptions, setColoresOptions] = useState([]);
   const [coloresLoading, setColoresLoading] = useState(false);
+  const [materialesCatalogo, setMaterialesCatalogo] = useState([]);
+  const [colorCreateDialog, setColorCreateDialog] = useState({
+    open: false,
+    loteIndex: null,
+    initialName: '',
+  });
 
   // Estado para Pre-validación
   const [validationResult, setValidationResult] = useState(null);
@@ -118,100 +157,18 @@ function OrdenForm({ onOrdenCreada }) {
   // Errores de validación de campos del formulario
   const [errors, setErrors] = useState({});
 
-  // Moldes filtrados por producto seleccionado (cascada)
-  const [filteredMoldes, setFilteredMoldes] = useState([]);
-  const [moldesOptions, setMoldesOptions] = useState([]); // Unique molds from piezasProducibles
-
+  // Fetch moldes, máquinas y colores al cargar
   useEffect(() => {
-    // Generar moldesOptions únicos a partir de piezasProducibles
-    if (piezasProducibles.length > 0) {
-      const uniqueMoldesMap = new Map();
-      piezasProducibles.forEach(p => {
-        if (p.molde && p.molde.codigo) {
-          if (!uniqueMoldesMap.has(p.molde.codigo)) {
-            uniqueMoldesMap.set(p.molde.codigo, {
-              ...p.molde,
-              // Guardar la pieza asociada por defecto para auto-rellenar
-              _defaultPieza: p
-            });
-          }
-        }
-      });
-      setMoldesOptions(Array.from(uniqueMoldesMap.values()));
-    }
-  }, [piezasProducibles]);
-
-  useEffect(() => {
-    const filterAndAutoSelect = async () => {
-      // Si no hay producto, mostrar todos los moldes
-      if (!orden.producto_sku) {
-        setFilteredMoldes(moldesOptions);
-        return;
-      }
-      
+    const fetchMoldes = async () => {
+      setMoldesLoading(true);
       try {
-        const prodDetails = await obtenerProducto(orden.producto_sku);
-        
-        if (prodDetails && prodDetails.piezas) {
-            const pieceSkus = prodDetails.piezas.map(p => p.sku);
-            const piezasAsociadas = piezasProducibles.filter(p => pieceSkus.includes(p.sku));
-            
-            // Extraer moldes únicos de las piezas asociadas
-            const moldesMap = new Map();
-            piezasAsociadas.forEach(p => {
-                if (p.molde && p.molde.codigo) {
-                    if (!moldesMap.has(p.molde.codigo)) {
-                        moldesMap.set(p.molde.codigo, {
-                          ...p.molde,
-                          _defaultPieza: p
-                        });
-                    }
-                }
-            });
-            const moldesFiltrados = Array.from(moldesMap.values());
-            setFilteredMoldes(moldesFiltrados);
-            
-            // Auto-select si solo hay 1 molde
-            if (moldesFiltrados.length === 1) {
-                const m = moldesFiltrados[0];
-                const defaultP = m._defaultPieza;
-                setOrden(prev => ({
-                    ...prev,
-                    molde: m.nombre,
-                    molde_id: m.codigo,
-                    peso_unitario_gr: defaultP ? String(defaultP.peso_unitario_gr) : prev.peso_unitario_gr,
-                    cavidades: defaultP ? String(defaultP.cavidades) : prev.cavidades,
-                    snapshot_peso_colada_gr: m.peso_tiro_gr && defaultP 
-                      ? String(parseFloat(m.peso_tiro_gr) - parseFloat(defaultP.peso_unitario_gr || 0) * parseInt(defaultP.cavidades || 1))
-                      : prev.snapshot_peso_colada_gr,
-                    snapshot_tiempo_ciclo: m.tiempo_ciclo_std ? String(m.tiempo_ciclo_std) : prev.snapshot_tiempo_ciclo,
-                    snapshot_composicion: [],
-                    tipo_estrategia: 'POR_PESO'
-                }));
-            }
-        }
-      } catch (err) {
-        console.error("Error cascading product details:", err);
-        setFilteredMoldes(moldesOptions); // Fallback
-      }
-    };
-    
-    if (piezasProducibles.length > 0 && moldesOptions.length > 0) {
-        filterAndAutoSelect();
-    }
-  }, [orden.producto_sku, piezasProducibles, moldesOptions]);
-
-  // Fetch piezas producibles, máquinas y colores al cargar
-  useEffect(() => {
-    const fetchPiezasProducibles = async () => {
-      setPiezasLoading(true);
-      try {
-        const piezas = await obtenerPiezasProducibles();
-        setPiezasProducibles(piezas);
+        const moldes = await obtenerMoldes();
+        setMoldesOptions((moldes || []).filter((molde) => molde.activo !== false));
       } catch (error) {
-        console.error('Error cargando piezas producibles:', error);
+        console.error('Error cargando moldes:', error);
+        setMoldesOptions([]);
       } finally {
-        setPiezasLoading(false);
+        setMoldesLoading(false);
       }
     };
     
@@ -239,19 +196,40 @@ function OrdenForm({ onOrdenCreada }) {
         }
     };
 
-    fetchPiezasProducibles();
+    fetchMoldes();
     fetchMaquinas();
     fetchColores();
+    listarMaterialesScm()
+      .then((items) => setMaterialesCatalogo(items.filter((item) => item.activo !== false)))
+      .catch((error) => console.error('Error cargando catálogo SCM de materiales:', error));
   }, []);
 
   const validateForm = () => {
     const newErrors = {};
-    if (!orden.numero_op) newErrors.numero_op = 'Requerido';
+    if (!orden.numero_op.trim()) newErrors.numero_op = 'Requerido';
     if (!orden.maquina_id) newErrors.maquina_id = 'Requerido';
-    if (!orden.producto) newErrors.producto = 'Requerido';
-    if (!orden.molde_id) newErrors.molde = 'Requerido para parámetros técnicos';
-    
-    if (orden.meta_total_kg && parseFloat(orden.meta_total_kg) <= 0) newErrors.meta_total_kg = 'Debe ser mayor a 0';
+    if (!orden.molde_id) newErrors.molde = 'Seleccione un molde del catálogo';
+    if (!(Number(orden.snapshot_tiempo_ciclo) > 0)) newErrors.snapshot_tiempo_ciclo = 'Debe ser mayor a 0';
+    if (!(Number(orden.snapshot_horas_turno) > 0)) newErrors.snapshot_horas_turno = 'Debe ser mayor a 0';
+    if (orden.snapshot_peso_colada_gr === '' || Number(orden.snapshot_peso_colada_gr) < 0) {
+      newErrors.snapshot_peso_colada_gr = 'Debe ser mayor o igual a 0';
+    }
+
+    if (orden.lotes.length === 0) {
+      newErrors.lotes = 'Agregue al menos un lote de color.';
+    } else {
+      const invalidLots = orden.lotes.reduce((result, lote, index) => {
+        const lotErrors = {};
+        if (!lote.color_id) lotErrors.color_id = 'Seleccione un color.';
+        if (!(Number(lote.meta_kg) > 0)) lotErrors.meta_kg = 'La meta debe ser mayor a 0.';
+        if (!Number.isInteger(Number(lote.personas)) || Number(lote.personas) <= 0) {
+          lotErrors.personas = 'Debe ser un entero mayor a 0.';
+        }
+        if (Object.keys(lotErrors).length > 0) result[index] = lotErrors;
+        return result;
+      }, {});
+      if (Object.keys(invalidLots).length > 0) newErrors.lotes = invalidLots;
+    }
     
     setErrors(newErrors);
     // Return true if NO errors
@@ -279,64 +257,65 @@ function OrdenForm({ onOrdenCreada }) {
     return () => clearTimeout(timeoutId);
   }, [productoInputValue]);
 
-  // Pre-validación cuando cambia molde o lotes
+  const validationColorIdsKey = orden.lotes
+    .map((lote) => lote.color_id)
+    .filter((id) => id !== null && id !== '')
+    .join(',');
+
+  // Pre-validación cuando cambia una referencia de catálogo relevante.
   useEffect(() => {
+    let active = true;
+    if (!orden.molde_id) {
+      setValidationResult(null);
+      setValidationLoading(false);
+      return () => { active = false; };
+    }
+
+    setValidationResult(null);
+    setValidationLoading(true);
     const validatePrereq = async () => {
-      if (!orden.molde_id) {
-        setValidationResult(null);
-        return;
-      }
-      
-      setValidationLoading(true);
       try {
-        const colorIds = orden.lotes
-          .map(l => l.color_id)
-          .filter(id => id !== null);
+        const colorIds = validationColorIdsKey
+          ? validationColorIdsKey.split(',')
+          : [];
         
-        const result = await validarOrdenPrereq(orden.molde_id, colorIds);
-        setValidationResult(result);
+        const result = await validarOrdenPrereq({
+          moldeId: orden.molde_id,
+          colorIds,
+          productoSku: orden.producto_sku,
+          maquinaId: orden.maquina_id,
+          numeroOp: orden.numero_op.trim(),
+        });
+        if (active) setValidationResult(result);
       } catch (err) {
         console.error('Error validando pre-requisitos:', err);
-        setValidationResult(null);
+        if (active) {
+          setValidationResult({
+            valid: false,
+            errors: ['No se pudo validar la integridad de catálogos. Reintente antes de guardar.'],
+            warnings: [],
+            issues: [{
+              codigo: 'PREFLIGHT_NO_DISPONIBLE',
+              mensaje: 'No se pudo validar la integridad de catálogos. Reintente antes de guardar.',
+              status: 503,
+            }],
+          });
+        }
       } finally {
-        setValidationLoading(false);
+        if (active) setValidationLoading(false);
       }
     };
     
     const timer = setTimeout(validatePrereq, 500); // Debounce
-    return () => clearTimeout(timer);
-  }, [orden.molde_id, orden.lotes]);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [orden.molde_id, orden.producto_sku, orden.maquina_id, orden.numero_op, validationColorIdsKey]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setOrden(prev => ({ ...prev, [name]: value }));
-  };
-
-  // ---- Handlers Composición de Molde ----
-  const handleAddComposicion = () => {
-    setOrden(prev => ({
-      ...prev,
-      snapshot_composicion: [
-        ...prev.snapshot_composicion,
-        { pieza_sku: null, cavidades: 1, peso_unit_gr: '' }
-      ]
-    }));
-  };
-
-  const handleComposicionChange = (idx, field, value) => {
-    setOrden(prev => ({
-      ...prev,
-      snapshot_composicion: prev.snapshot_composicion.map((row, i) =>
-        i === idx ? { ...row, [field]: value } : row
-      )
-    }));
-  };
-
-  const handleRemoveComposicion = (idx) => {
-    setOrden(prev => ({
-      ...prev,
-      snapshot_composicion: prev.snapshot_composicion.filter((_, i) => i !== idx)
-    }));
   };
 
   // ---- Handlers Lotes ----
@@ -357,10 +336,65 @@ function OrdenForm({ onOrdenCreada }) {
   const handleLoteChange = (index, field, value) => {
     setOrden(prev => ({
       ...prev,
-      lotes: prev.lotes.map((lote, i) => 
-        i === index ? { ...lote, [field]: value } : lote
+      lotes: prev.lotes.map((lote, i) =>
+        i === index ? {
+          ...lote,
+          [field]: value,
+          ...(['meta_kg', 'color_id'].includes(field) ? { _receta_sugerida: null } : {}),
+        } : lote
       )
     }));
+  };
+
+  const handleColorSelected = (loteIndex, color) => {
+    setOrden(prev => ({
+      ...prev,
+      lotes: prev.lotes.map((lote, index) => (
+        index === loteIndex
+          ? {
+              ...lote,
+              color_id: color?.id ?? null,
+              color_nombre: color?.nombre ?? '',
+              _receta_sugerida: null,
+            }
+          : lote
+      )),
+    }));
+  };
+
+  const handleOpenColorCreate = (loteIndex, initialName) => {
+    setColorCreateDialog({
+      open: true,
+      loteIndex,
+      initialName: initialName || '',
+    });
+  };
+
+  const handleColorCreated = async (createdColor) => {
+    let refreshedColors;
+    try {
+      refreshedColors = await obtenerColores();
+    } catch (error) {
+      console.error('El color se creó, pero no se pudo refrescar el catálogo:', error);
+      refreshedColors = [...coloresOptions, createdColor];
+    }
+
+    const uniqueColors = Array.from(
+      new Map(refreshedColors.map((color) => [String(color.id), color])).values()
+    ).sort((a, b) => a.nombre.localeCompare(b.nombre));
+    const selectedColor = uniqueColors.find(
+      (color) => String(color.id) === String(createdColor.id)
+    ) || createdColor;
+
+    setColoresOptions(uniqueColors);
+    handleColorSelected(colorCreateDialog.loteIndex, selectedColor);
+    setSnackbar({
+      open: true,
+      message: createdColor.existed
+        ? `El color "${selectedColor.nombre}" ya existía y quedó seleccionado`
+        : `Color "${selectedColor.nombre}" creado y seleccionado`,
+      severity: createdColor.existed ? 'info' : 'success',
+    });
   };
 
   const handleAddMaterial = (loteIndex) => {
@@ -368,7 +402,7 @@ function OrdenForm({ onOrdenCreada }) {
       ...prev,
       lotes: prev.lotes.map((lote, i) => 
         i === loteIndex 
-          ? { ...lote, materiales: [...lote.materiales, { nombre: '', tipo: 'VIRGEN', fraccion: '' }] }
+          ? { ...lote, materiales: [...lote.materiales, { nombre: '', tipo: 'VIRGEN', fraccion: '' }], _receta_sugerida: null }
           : lote
       )
     }));
@@ -379,7 +413,7 @@ function OrdenForm({ onOrdenCreada }) {
       ...prev,
       lotes: prev.lotes.map((lote, i) => 
         i === loteIndex 
-          ? { ...lote, materiales: lote.materiales.filter((_, j) => j !== matIndex) }
+          ? { ...lote, materiales: lote.materiales.filter((_, j) => j !== matIndex), _receta_sugerida: null }
           : lote
       )
     }));
@@ -394,7 +428,8 @@ function OrdenForm({ onOrdenCreada }) {
               ...lote, 
               materiales: lote.materiales.map((mat, j) => 
                 j === matIndex ? { ...mat, [field]: value } : mat
-              ) 
+              ),
+              _receta_sugerida: null,
             }
           : lote
       )
@@ -406,7 +441,7 @@ function OrdenForm({ onOrdenCreada }) {
       ...prev,
       lotes: prev.lotes.map((lote, i) => 
         i === loteIndex 
-          ? { ...lote, pigmentos: [...lote.pigmentos, { nombre: '', gramos: '' }] }
+          ? { ...lote, pigmentos: [...lote.pigmentos, { nombre: '', gramos: '' }], _receta_sugerida: null }
           : lote
       )
     }));
@@ -417,7 +452,7 @@ function OrdenForm({ onOrdenCreada }) {
       ...prev,
       lotes: prev.lotes.map((lote, i) => 
         i === loteIndex 
-          ? { ...lote, pigmentos: lote.pigmentos.filter((_, j) => j !== pigIndex) }
+          ? { ...lote, pigmentos: lote.pigmentos.filter((_, j) => j !== pigIndex), _receta_sugerida: null }
           : lote
       )
     }));
@@ -432,7 +467,8 @@ function OrdenForm({ onOrdenCreada }) {
               ...lote, 
               pigmentos: lote.pigmentos.map((pig, j) => 
                 j === pigIndex ? { ...pig, [field]: value } : pig
-              ) 
+              ),
+              _receta_sugerida: null,
             }
           : lote
       )
@@ -441,20 +477,78 @@ function OrdenForm({ onOrdenCreada }) {
 
   // Calcular proporción neta del golpe (peso neto = piezas, sin colada)
   // Los parámetros técnicos ahora usan los snapshots reales del modelo refactorizado
-  const getParamsTecnicos = () => ({
-    pesoNeto: parseFloat(orden.peso_unitario_gr) * (parseInt(orden.cavidades) || 1) || 0,  // cav × peso_unit
-    cavidades: parseInt(orden.cavidades) || 0,
-    tiempoCiclo: parseFloat(orden.snapshot_tiempo_ciclo) || 0,
-    horasTurno: parseFloat(orden.snapshot_horas_turno) || 24,
-    pesoColada: parseFloat(orden.snapshot_peso_colada_gr) || 0,
-  });
+  const getParamsTecnicos = () => {
+    const selectedMold = moldesOptions.find(
+      (molde) => String(molde.codigo) === String(orden.molde_id)
+    );
+    const forms = (selectedMold?.formas || []).filter((forma) => forma.activo !== false);
+    const catalogNetWeight = forms.reduce(
+      (total, forma) => total + Number(forma.cavidades || 0) * Number(forma.peso_unitario_gr || 0),
+      0,
+    );
+    const catalogCavities = forms.reduce(
+      (total, forma) => total + Number(forma.cavidades || 0),
+      0,
+    );
+    return {
+      pesoNeto: catalogNetWeight || Number(orden.peso_unitario_gr) || 0,
+      cavidades: catalogCavities || Number(orden.cavidades) || 0,
+      tiempoCiclo: Number(orden.snapshot_tiempo_ciclo) || 0,
+      horasTurno: Number(orden.snapshot_horas_turno) || 0,
+      pesoColada: Number(orden.snapshot_peso_colada_gr) || 0,
+    };
+  };
+
+  const applyMasterRecipe = async (loteIndex) => {
+    const lote = orden.lotes[loteIndex];
+    const metaKg = Number(lote?.meta_kg);
+    if (!lote?.color_id || !(metaKg > 0)) {
+      setSnackbar({ open: true, message: 'Selecciona un color e ingresa la meta en kg antes de aplicar la receta.', severity: 'warning' });
+      return;
+    }
+    try {
+      const recipe = await obtenerRecetaColor(lote.color_id, orden.producto_sku || null, metaKg);
+      if (!recipe.tiene_receta || recipe.fuente !== 'RECETA_MAESTRA') {
+        setSnackbar({ open: true, message: 'El color no tiene una receta maestra aprobada y predeterminada.', severity: 'warning' });
+        return;
+      }
+      const materials = (recipe.materias_primas || []).map((item) => ({
+        material_id: item.material_id,
+        nombre: item.nombre,
+        tipo: item.modalidad_recepcion === 'SEGUNDA_PESAJE_BOLSA' ? 'SEGUNDA' : 'VIRGEN',
+        fraccion: item.fraccion,
+      }));
+      const virginFraction = (recipe.materias_primas || []).reduce((sum, item) => (
+        item.modalidad_recepcion === 'VIRGEN_CONFIANZA_PROVEEDOR'
+          ? sum + Number(item.fraccion || 0)
+          : sum
+      ), 0);
+      const kgVirgin = metaKg * virginFraction;
+      const pigments = (recipe.pigmentos || []).map((item) => ({
+        material_id: item.material_id,
+        nombre: item.nombre,
+        gramos: Number((Number(item.dosis_gramos) * kgVirgin / Number(item.base_kg)).toFixed(2)),
+        tipo_componente: item.tipo_componente,
+      }));
+      setOrden((current) => ({
+        ...current,
+        lotes: current.lotes.map((item, index) => index === loteIndex ? {
+          ...item,
+          materiales: materials,
+          pigmentos: pigments,
+          _receta_sugerida: { id: recipe.receta.id, revision: recipe.receta.revision, fuente: recipe.fuente, kg_virgen_base: kgVirgin },
+        } : item),
+      }));
+      setSnackbar({ open: true, message: `Receta ${recipe.receta.nombre_variante} · revisión ${recipe.receta.revision} aplicada.`, severity: 'success' });
+    } catch (error) {
+      setSnackbar({ open: true, message: error?.response?.data?.error || 'No se pudo aplicar la receta maestra.', severity: 'error' });
+    }
+  };
 
   const preparePayload = () => {
     const p = getParamsTecnicos();
-    // Si hay molde_id del catálogo → auto_snapshot_molde = true
-    const autoSnap = !!orden.molde_id && orden.snapshot_composicion.length === 0;
     return {
-      numero_op:              orden.numero_op,
+      numero_op:              orden.numero_op.trim(),
       maquina_id:             orden.maquina_id,
       producto:               orden.producto,
       producto_sku:           orden.producto_sku || null,
@@ -465,23 +559,27 @@ function OrdenForm({ onOrdenCreada }) {
       snapshot_horas_turno:   p.horasTurno,
       snapshot_peso_colada_gr: p.pesoColada,
       fecha_inicio:           orden.fecha_inicio,
-      auto_snapshot_molde:    autoSnap,
-      snapshot_composicion:   autoSnap ? [] : orden.snapshot_composicion.map(row => ({
-        pieza_sku:    row.pieza_sku || null,
-        cavidades:    parseInt(row.cavidades) || 1,
-        peso_unit_gr: parseFloat(row.peso_unit_gr) || 0,
-      })),
+      auto_snapshot_molde:    true,
+      snapshot_composicion:   [],
       lotes: orden.lotes.map(lote => ({
         color_id:   lote.color_id,
         color_nombre: lote.color_nombre,
         meta_kg:    lote.meta_kg ? parseFloat(lote.meta_kg) : 0.0,
         personas:   parseInt(lote.personas) || 1,
+        ...(lote._receta_sugerida ? {
+          receta_aplicada: {
+            id: lote._receta_sugerida.id,
+            revision: lote._receta_sugerida.revision,
+          },
+        } : {}),
         materiales: lote.materiales.map(mat => ({
+          material_id: mat.material_id || null,
           nombre:   mat.nombre,
           tipo:     mat.tipo || 'VIRGEN',
           fraccion: parseFloat(mat.fraccion)
         })),
         pigmentos: lote.pigmentos.map(pig => ({
+          material_id: pig.material_id || null,
           nombre: pig.nombre,
           gramos: parseFloat(pig.gramos)
         }))
@@ -495,6 +593,16 @@ function OrdenForm({ onOrdenCreada }) {
     if (!validateForm()) {
         setSnackbar({ open: true, message: 'Faltan campos requeridos', severity: 'error' });
         return;
+    }
+    if (validationLoading || validationResult?.valid !== true) {
+      setSnackbar({
+        open: true,
+        message: validationLoading
+          ? 'Espere a que termine la validación de catálogos.'
+          : 'Complete la validación de catálogo y corrija los conflictos indicados.',
+        severity: 'error',
+      });
+      return;
     }
 
     setLoading(true);
@@ -526,15 +634,16 @@ function OrdenForm({ onOrdenCreada }) {
 
   // Precalculos globales (basados en parámetros técnicos del molde)
   const calcularEstimacionesGlobales = () => {
-    const peso = parseFloat(orden.peso_unitario_gr) || 0;
-    const cavidades = parseInt(orden.cavidades) || 0;
-    const tiempoCiclo = parseFloat(orden.snapshot_tiempo_ciclo) || 0;
-    const horasTurno = parseFloat(orden.snapshot_horas_turno) || 24;
+    const params = getParamsTecnicos();
+    const pesoNetoGolpe = params.pesoNeto;
+    const cavidades = params.cavidades;
+    const tiempoCiclo = params.tiempoCiclo;
+    const horasTurno = params.horasTurno;
 
     const ciclosPorHora = tiempoCiclo > 0 ? 3600 / tiempoCiclo : 0;
     const piezasPorHora = ciclosPorHora * cavidades;
     const docenasPorHora = piezasPorHora / 12;
-    const kgPorHora = (piezasPorHora * peso) / 1000;
+    const kgPorHora = (ciclosPorHora * pesoNetoGolpe) / 1000;
     const kgDia = kgPorHora * horasTurno;
     const docDia = docenasPorHora * horasTurno;
 
@@ -545,7 +654,7 @@ function OrdenForm({ onOrdenCreada }) {
       kgPorHora: kgPorHora.toFixed(2),
       kgDia: kgDia.toFixed(1),
       docDia: docDia.toFixed(0),
-      esValido: peso > 0 && cavidades > 0 && tiempoCiclo > 0,
+      esValido: pesoNetoGolpe > 0 && cavidades > 0 && tiempoCiclo > 0 && horasTurno > 0,
       _kgPorHoraRaw: kgPorHora,
       _horasTurno: horasTurno,
     };
@@ -563,6 +672,7 @@ function OrdenForm({ onOrdenCreada }) {
     };
   };
 
+  const paramsTecnicos = getParamsTecnicos();
   const estimacionesGlobales = calcularEstimacionesGlobales();
 
   return (
@@ -592,7 +702,7 @@ function OrdenForm({ onOrdenCreada }) {
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent'
         }}>
-          Nueva Orden de Producción
+          Nueva OP excepcional
         </Typography>
         <Button
           variant="outlined"
@@ -611,17 +721,22 @@ function OrdenForm({ onOrdenCreada }) {
       {validationLoading && <LinearProgress sx={{ mb: 2 }} />}
       {validationResult && !validationLoading && (
         <Box sx={{ mb: 2 }}>
-          {validationResult.errors.map((err, i) => (
-            <Alert key={`err-${i}`} severity="error" sx={{ mb: 1 }}>
-              {err}
+          {(validationResult.issues || []).map((issue, i) => (
+            <Alert key={`${issue.codigo || 'issue'}-${i}`} severity="error" sx={{ mb: 1 }}>
+              <strong>{issue.codigo || 'CATÁLOGO_INVALIDO'}:</strong> {issue.mensaje}
             </Alert>
           ))}
-          {validationResult.warnings.map((warn, i) => (
+          {(validationResult.errors || []).map((err, i) => (
+            (validationResult.issues || []).some((issue) => issue.mensaje === err) ? null : (
+              <Alert key={`err-${i}`} severity="error" sx={{ mb: 1 }}>{err}</Alert>
+            )
+          ))}
+          {(validationResult.warnings || []).map((warn, i) => (
             <Alert key={`warn-${i}`} severity="warning" sx={{ mb: 1 }}>
               {warn}
             </Alert>
           ))}
-          {validationResult.valid && validationResult.warnings.length === 0 && validationResult.errors.length === 0 && (
+          {validationResult.valid && (validationResult.warnings || []).length === 0 && (validationResult.errors || []).length === 0 && (
             <Alert severity="success" icon={<CheckCircleIcon />}>
               ✅ Todos los requisitos cumplidos - Molde: {validationResult.molde?.nombre} ({validationResult.molde?.piezas_count} piezas)
             </Alert>
@@ -651,18 +766,20 @@ function OrdenForm({ onOrdenCreada }) {
             />
             {/* Selector de Máquina */}
             <FormControl fullWidth size="small" error={!!errors.maquina_id}>
-              <InputLabel>Máquina</InputLabel>
+              <InputLabel id="orden-maquina-label">Máquina</InputLabel>
               <Select
+                id="orden-maquina-select"
+                labelId="orden-maquina-label"
                 name="maquina_id"
                 label="Máquina"
                 value={orden.maquina_id || ''}
                 onChange={(e) => {
                   const maqId = e.target.value;
-                  const maqObj = maquinasOptions.find(m => m.id === maqId);
+                  const maqObj = maquinasOptions.find((m) => String(m.id) === String(maqId));
                   setOrden(prev => ({
                     ...prev,
                     maquina_id: maqId,
-                    tipo_maquina: maqObj ? maqObj.tipo : prev.tipo_maquina
+                    tipo_maquina: maqObj ? (maqObj.tipo || maqObj.tipo_maquina?.nombre || '') : ''
                   }));
                 }}
                 disabled={maquinasLoading}
@@ -671,8 +788,13 @@ function OrdenForm({ onOrdenCreada }) {
                   <MenuItem disabled>Cargando...</MenuItem>
                 ) : (
                   maquinasOptions.map((m) => (
-                    <MenuItem key={m.id} value={m.id}>
-                      {m.nombre} ({m.tipo})
+                    <MenuItem
+                      key={m.id}
+                      value={m.id}
+                      disabled={m.activo === false || (m.estado && m.estado !== 'OPERATIVA')}
+                    >
+                      {m.nombre} ({m.tipo || m.tipo_maquina?.nombre || 'Sin tipo'})
+                      {m.estado && m.estado !== 'OPERATIVA' ? ` · ${m.estado}` : ''}
                     </MenuItem>
                   ))
                 )}
@@ -723,24 +845,18 @@ function OrdenForm({ onOrdenCreada }) {
                     ...prev,
                     producto: newValue.producto,
                     producto_sku: newValue.cod_sku_pt,
-                    peso_unitario_gr: newValue.peso_g ? String(newValue.peso_g) : prev.peso_unitario_gr
                   }));
-                  // Filter pieces based on selected product using useEffect
-                  // const filtered = piezasProducibles.filter(p => p.producto_sku === newValue.cod_sku_pt);
-                  // setFilteredPiezas(filtered);
                 } else {
-                  setOrden(prev => ({ ...prev, producto: newValue || '', producto_sku: '' }));
-                  setFilteredMoldes([]); // Clear filter if no product selected
+                  setOrden(prev => ({ ...prev, producto: '', producto_sku: '' }));
                 }
               }}
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="Producto"
+                  label="Producto terminado (opcional)"
                   size="small"
                   placeholder="Buscar producto (min. 2 caracteres)..."
-                  error={!!errors.producto}
-                  helperText={errors.producto || "Escriba para buscar productos"}
+                  helperText="Puede omitirse para reposición excepcional de PiezaColor."
                   InputProps={{
                     ...params.InputProps,
                     endAdornment: (
@@ -764,34 +880,47 @@ function OrdenForm({ onOrdenCreada }) {
               )}
             />
             <Autocomplete
-              options={filteredMoldes.length > 0 ? filteredMoldes : moldesOptions}
+              options={moldesOptions}
               getOptionLabel={(option) => 
                 typeof option === 'string' ? option : option.nombre || ''
               }
-              loading={piezasLoading}
+              loading={moldesLoading}
               value={
-                // Buscar por nombre de molde o código
-                moldesOptions.find(m => m.nombre === orden.molde || m.codigo === orden.molde_id) || null
+                moldesOptions.find((m) => String(m.codigo) === String(orden.molde_id)) || null
               }
               onChange={(_, newValue) => {
                 if (newValue && typeof newValue === 'object') {
-                  // Molde del catálogo: auto-rellenar datos técnicos y limpiar composición manual
-                  const defaultP = newValue._defaultPieza;
+                  const forms = (newValue.formas || []).filter((forma) => forma.activo !== false);
+                  const cavities = forms.reduce(
+                    (total, forma) => total + Number(forma.cavidades || 0),
+                    0,
+                  );
+                  const netWeight = forms.reduce(
+                    (total, forma) => total + Number(forma.cavidades || 0) * Number(forma.peso_unitario_gr || 0),
+                    0,
+                  );
+                  const runnerWeight = Math.max(0, Number(newValue.peso_tiro_gr || 0) - netWeight);
                   setOrden(prev => ({
                     ...prev,
                     molde: newValue.nombre,
                     molde_id: newValue.codigo,
-                    cavidades: defaultP?.cavidades ? String(defaultP.cavidades) : prev.cavidades,
-                    peso_unitario_gr: defaultP?.peso_unitario_gr ? String(defaultP.peso_unitario_gr) : prev.peso_unitario_gr,
-                    snapshot_peso_colada_gr: newValue.peso_tiro_gr && defaultP
-                      ? String(parseFloat(newValue.peso_tiro_gr) - parseFloat(defaultP.peso_unitario_gr || 0) * parseInt(defaultP.cavidades || 1))
-                      : prev.snapshot_peso_colada_gr,
+                    cavidades: String(cavities),
+                    peso_unitario_gr: String(netWeight),
+                    snapshot_peso_colada_gr: String(runnerWeight),
                     snapshot_tiempo_ciclo: newValue.tiempo_ciclo_std ? String(newValue.tiempo_ciclo_std) : prev.snapshot_tiempo_ciclo,
-                    // Si el molde viene del catálogo, no necesitamos composición manual
                     snapshot_composicion: [],
                   }));
                 } else {
-                  setOrden(prev => ({ ...prev, molde: '', molde_id: '' }));
+                  setOrden(prev => ({
+                    ...prev,
+                    molde: '',
+                    molde_id: '',
+                    cavidades: '',
+                    peso_unitario_gr: '',
+                    snapshot_peso_colada_gr: '',
+                    snapshot_tiempo_ciclo: '',
+                    snapshot_composicion: [],
+                  }));
                 }
               }}
               renderInput={(params) => (
@@ -800,12 +929,13 @@ function OrdenForm({ onOrdenCreada }) {
                   label="Molde"
                   size="small"
                   placeholder="Seleccionar molde a usar..."
-                  helperText={errors.molde || (filteredMoldes.length > 0 && filteredMoldes.length < moldesOptions.length ? "Filtrado por Producto" : "Solo moldes asociados")}
+                  error={!!errors.molde}
+                  helperText={errors.molde || 'La compatibilidad con el producto se valida por sus Piezas abstractas.'}
                   InputProps={{
                     ...params.InputProps,
                     endAdornment: (
                       <>
-                        {piezasLoading ? <CircularProgress color="inherit" size={18} /> : null}
+                        {moldesLoading ? <CircularProgress color="inherit" size={18} /> : null}
                         {params.InputProps.endAdornment}
                       </>
                     ),
@@ -833,76 +963,33 @@ function OrdenForm({ onOrdenCreada }) {
             <Typography variant="subtitle2" color="primary" sx={{ fontWeight: 600 }}>
               🔩 Composición del Molde
             </Typography>
-            {orden.molde_id && orden.snapshot_composicion.length === 0 ? (
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Chip
-                  label="Auto desde catálogo"
-                  size="small"
-                  color="success"
-                  variant="outlined"
-                />
-                <Tooltip title="Cambiar a personalizado para editar cavidades/pesos">
-                  <IconButton size="small" onClick={() => {
-                    const molde = moldesOptions.find(m => m.codigo === orden.molde_id);
-                    const preFills = molde && molde.formas ? molde.formas : [];
-                    
-                    setOrden(prev => ({
-                      ...prev,
-                      snapshot_composicion: preFills.map(f => ({
-                        pieza_sku: null,
-                        nombre: f.nombre, // For UI label tracking
-                        cavidades: f.cavidades || 1,
-                        peso_unit_gr: f.peso_unitario_gr || 0
-                      }))
-                    }));
-                  }}>
-                    <AutoFixHighIcon fontSize="small" color="primary" />
-                  </IconButton>
-                </Tooltip>
-              </Stack>
-            ) : (
-              <Button size="small" startIcon={<AddIcon />} onClick={handleAddComposicion}>
-                Fila
-              </Button>
+            {orden.molde_id && (
+              <Chip label="Snapshot automático" size="small" color="success" variant="outlined" />
             )}
           </Box>
 
           {(() => {
-            const isAutoMode = orden.molde_id && orden.snapshot_composicion.length === 0;
-            // Derivar datos solo-lectura si estamos en auto mode
-            let vistaTabla = orden.snapshot_composicion;
-            
-            if (isAutoMode) {
-              const molde = moldesOptions.find(m => m.codigo === orden.molde_id);
-              if (molde && molde.formas) {
-                vistaTabla = molde.formas.map(f => ({
-                  pieza_sku: null,
-                  nombre: f.nombre,
-                  cavidades: f.cavidades,
-                  peso_unit_gr: f.peso_unitario_gr,
-                  _readonly: true
-                }));
-              }
-            }
+            const selectedMold = moldesOptions.find(
+              (molde) => String(molde.codigo) === String(orden.molde_id)
+            );
+            const vistaTabla = (selectedMold?.formas || []).filter((forma) => forma.activo !== false);
 
             return (
               <>
-                {vistaTabla.length === 0 && !isAutoMode && (
+                {vistaTabla.length === 0 && (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                    Sin molde en catálogo — ingresa la composición manualmente.
+                    Seleccione un molde con composición activa en Datos maestros.
                   </Typography>
                 )}
                 {vistaTabla.map((row, idx) => (
-                  <Grid  container spacing={1} key={idx} sx={{ mb: 1, alignItems: 'center' }}>
+                  <Grid container spacing={1} key={row.id || row.pieza_id || idx} sx={{ mb: 1, alignItems: 'center' }}>
                     <Grid  size={{ xs: 5 }}>
                       <TextField
                         fullWidth
                         label="Pieza"
                         size="small"
-                        placeholder="Opcional"
-                        disabled={row._readonly}
-                        value={row.nombre || row.pieza_sku || ''}
-                        onChange={(e) => handleComposicionChange(idx, 'pieza_sku', e.target.value || null)}
+                        disabled
+                        value={row.nombre || row.pieza?.nombre || `Pieza #${row.pieza_id}`}
                       />
                     </Grid>
                     <Grid  size={{ xs: 3 }}>
@@ -911,9 +998,8 @@ function OrdenForm({ onOrdenCreada }) {
                         label="Cav."
                         size="small"
                         type="number"
-                        disabled={row._readonly}
+                        disabled
                         value={row.cavidades}
-                        onChange={(e) => handleComposicionChange(idx, 'cavidades', e.target.value)}
                       />
                     </Grid>
                     <Grid  size={{ xs: 3 }}>
@@ -922,18 +1008,10 @@ function OrdenForm({ onOrdenCreada }) {
                         label="Peso (gr)"
                         size="small"
                         type="number"
-                        disabled={row._readonly}
-                        value={row.peso_unit_gr}
-                        onChange={(e) => handleComposicionChange(idx, 'peso_unit_gr', e.target.value)}
+                        disabled
+                        value={row.peso_unitario_gr}
                       />
                     </Grid>
-                    {!row._readonly && (
-                      <Grid  size={{ xs: 1 }}>
-                        <IconButton size="small" color="error" onClick={() => handleRemoveComposicion(idx)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Grid>
-                    )}
                   </Grid>
                 ))}
               </>
@@ -951,13 +1029,13 @@ function OrdenForm({ onOrdenCreada }) {
           <Grid  size={{ xs: 6, sm: 4, md: 2 }}>
             <TextField
               fullWidth
-              label="Peso Unit. (gr)"
+              label="Peso neto/golpe (gr)"
               name="peso_unitario_gr"
               type="number"
-              value={orden.peso_unitario_gr || ''}
-              onChange={handleChange}
+              value={paramsTecnicos.pesoNeto || ''}
               size="small"
-              helperText="Peso de 1 pieza"
+              helperText="Suma de cavidades × peso en MoldePieza"
+              disabled
             />
           </Grid>
           <Grid  size={{ xs: 6, sm: 4, md: 2 }}>
@@ -969,18 +1047,21 @@ function OrdenForm({ onOrdenCreada }) {
               value={orden.snapshot_peso_colada_gr}
               onChange={handleChange}
               size="small"
-              helperText="Ramal / runner"
+              error={!!errors.snapshot_peso_colada_gr}
+              helperText={errors.snapshot_peso_colada_gr || 'Ramal / runner'}
+              inputProps={{ min: 0, step: 0.01 }}
             />
           </Grid>
           <Grid  size={{ xs: 6, sm: 4, md: 2 }}>
             <TextField
               fullWidth
-              label="Cavidades"
+              label="Cavidades totales"
               name="cavidades"
               type="number"
-              value={orden.cavidades || ''}
-              onChange={handleChange}
+              value={paramsTecnicos.cavidades || ''}
               size="small"
+              helperText="Derivadas de MoldePieza"
+              disabled
             />
           </Grid>
           <Grid  size={{ xs: 6, sm: 4, md: 2 }}>
@@ -992,6 +1073,9 @@ function OrdenForm({ onOrdenCreada }) {
               value={orden.snapshot_tiempo_ciclo}
               onChange={handleChange}
               size="small"
+              error={!!errors.snapshot_tiempo_ciclo}
+              helperText={errors.snapshot_tiempo_ciclo}
+              inputProps={{ min: 0.001, step: 0.001 }}
             />
           </Grid>
           <Grid  size={{ xs: 6, sm: 4, md: 2 }}>
@@ -1003,6 +1087,9 @@ function OrdenForm({ onOrdenCreada }) {
               value={orden.snapshot_horas_turno}
               onChange={handleChange}
               size="small"
+              error={!!errors.snapshot_horas_turno}
+              helperText={errors.snapshot_horas_turno}
+              inputProps={{ min: 0.5, step: 0.5 }}
             />
           </Grid>
           <Grid  size={{ xs: 6, sm: 4, md: 2 }}>
@@ -1066,6 +1153,10 @@ function OrdenForm({ onOrdenCreada }) {
         </Button>
       </Box>
 
+      {typeof errors.lotes === 'string' && (
+        <Alert severity="error" sx={{ mb: 2 }}>{errors.lotes}</Alert>
+      )}
+
       {orden.lotes.map((lote, loteIndex) => (
         <Accordion 
           key={loteIndex}
@@ -1078,7 +1169,11 @@ function OrdenForm({ onOrdenCreada }) {
         >
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
-              <PaletteIcon color="secondary" />
+              <LoteColorMarker
+                hex={coloresOptions.find(
+                  (color) => String(color.id) === String(lote.color_id)
+                )?.hex_referencia}
+              />
               <Typography sx={{ flexGrow: 1 }}>
                 {lote.color_nombre || `Lote #${loteIndex + 1}`}
               </Typography>
@@ -1106,104 +1201,30 @@ function OrdenForm({ onOrdenCreada }) {
           <AccordionDetails>
             <Grid  container spacing={2}>
               <Grid  size={{ xs: 12, sm: 4 }}>
-                <Autocomplete
-                    fullWidth
-                    options={coloresOptions}
-                    isOptionEqualToValue={(option, value) => option.id === value?.id || option.nombre === value?.nombre}
-                    getOptionLabel={(option) => typeof option === 'string' ? option : option.nombre}
-                    value={coloresOptions.find(c => c.id === lote.color_id) || (lote.color_nombre ? { nombre: lote.color_nombre, id: lote.color_id } : null)}
-                    loading={coloresLoading}
-                    onChange={async (_, newValue) => {
-                        if (typeof newValue === 'string') {
-                            // Usuario escribió un nuevo color - crear on-the-fly
-                            try {
-                                const nuevoColor = await crearColor(newValue);
-                                setOrden(prev => ({
-                                    ...prev,
-                                    lotes: prev.lotes.map((l, i) => 
-                                        i === loteIndex ? { ...l, color_id: nuevoColor.id, color_nombre: nuevoColor.nombre } : l
-                                    )
-                                }));
-                                // Agregar a la lista si es nuevo
-                                if (!nuevoColor.existed) {
-                                    setColoresOptions(prev => [...prev, nuevoColor].sort((a, b) => a.nombre.localeCompare(b.nombre)));
-                                    setSnackbar({ 
-                                        open: true, 
-                                        message: `✨ Color "${nuevoColor.nombre}" creado exitosamente`, 
-                                        severity: 'success' 
-                                    });
-                                }
-                            } catch (err) {
-                                console.error('Error creando color:', err);
-                                setSnackbar({ open: true, message: 'Error creando color', severity: 'error' });
-                            }
-                        } else if (newValue && typeof newValue === 'object') {
-                            // Selección de opción existente
-                            setOrden(prev => ({
-                                ...prev,
-                                lotes: prev.lotes.map((l, i) => 
-                                    i === loteIndex ? { ...l, color_id: newValue.id, color_nombre: newValue.nombre, _receta_sugerida: null } : l
-                                )
-                            }));
-                        } else {
-                            // Clear
-                            setOrden(prev => ({
-                                ...prev,
-                                lotes: prev.lotes.map((l, i) => 
-                                    i === loteIndex ? { ...l, color_id: null, color_nombre: '', _receta_sugerida: null } : l
-                                )
-                            }));
-                        }
-                    }}
-                    filterOptions={(options, params) => {
-                        const filtered = options.filter(opt => 
-                            opt.nombre.toLowerCase().includes(params.inputValue.toLowerCase())
-                        );
-                        // Sugerir crear nuevo si no existe
-                        if (params.inputValue !== '' && !filtered.some(o => o.nombre.toLowerCase() === params.inputValue.toLowerCase())) {
-                            filtered.push({
-                                inputValue: params.inputValue,
-                                nombre: `➕ Crear "${params.inputValue.toUpperCase()}"`,
-                                isNew: true
-                            });
-                        }
-                        return filtered;
-                    }}
-                    renderInput={(params) => (
-                        <TextField
-                            {...params}
-                            fullWidth
-                            label="Seleccionar o crear Color"
-                            size="small"
-                            required
-                            placeholder="Escribe para buscar o crear..."
-                            InputProps={{
-                                ...params.InputProps,
-                                endAdornment: (
-                                    <>
-                                        {coloresLoading ? <CircularProgress color="inherit" size={18} /> : null}
-                                        {params.InputProps.endAdornment}
-                                    </>
-                                ),
-                            }}
-                        />
-                    )}
-                    renderOption={(props, option) => (
-                        <li {...props} key={option.id || option.inputValue}>
-                            <Typography 
-                                sx={{ 
-                                    color: option.isNew ? 'success.main' : 'text.primary',
-                                    fontWeight: option.isNew ? 600 : 400
-                                }}
-                            >
-                                {option.nombre}
-                            </Typography>
-                        </li>
-                    )}
-                    freeSolo
-                    selectOnFocus
-                    clearOnBlur
-                    handleHomeEndKeys
+                <CreateOptionAutocomplete
+                  options={coloresOptions}
+                  value={
+                    coloresOptions.find((color) => String(color.id) === String(lote.color_id))
+                    || (lote.color_nombre ? { nombre: lote.color_nombre, id: lote.color_id } : null)
+                  }
+                  onChange={(color) => handleColorSelected(loteIndex, color)}
+                  onCreateOption={(initialName) => handleOpenColorCreate(loteIndex, initialName)}
+                  getOptionLabel={(color) => color.nombre}
+                  isOptionEqualToValue={(option, selected) => (
+                    String(option.id) === String(selected?.id)
+                    || option.nombre === selected?.nombre
+                  )}
+                  createLabel={(inputValue) => (
+                    inputValue
+                      ? `Crear "${inputValue.toUpperCase()}"…`
+                      : 'Crear nuevo color…'
+                  )}
+                  label="Color de producción"
+                  loading={coloresLoading}
+                  required
+                  placeholder="Buscar color…"
+                  error={!!errors.lotes?.[loteIndex]?.color_id}
+                  helperText={errors.lotes?.[loteIndex]?.color_id || 'Selecciona uno existente o créalo sin salir de la OP'}
                 />
               </Grid>
               {/* --- Meta Kg por lote + Estimación de tiempo --- */}
@@ -1216,7 +1237,9 @@ function OrdenForm({ onOrdenCreada }) {
                   onChange={(e) => handleLoteChange(loteIndex, 'meta_kg', e.target.value)}
                   size="small"
                   required
-                  helperText="Kg objetivo para este color"
+                  error={!!errors.lotes?.[loteIndex]?.meta_kg}
+                  helperText={errors.lotes?.[loteIndex]?.meta_kg || 'Kg objetivo para este color'}
+                  inputProps={{ min: 0.001, step: 0.001 }}
                   InputProps={{
                     endAdornment: <InputAdornment position="end">kg</InputAdornment>
                   }}
@@ -1230,6 +1253,10 @@ function OrdenForm({ onOrdenCreada }) {
                   value={lote.personas}
                   onChange={(e) => handleLoteChange(loteIndex, 'personas', e.target.value)}
                   size="small"
+                  required
+                  error={!!errors.lotes?.[loteIndex]?.personas}
+                  helperText={errors.lotes?.[loteIndex]?.personas}
+                  inputProps={{ min: 1, step: 1 }}
                 />
               </Grid>
             </Grid>
@@ -1265,12 +1292,17 @@ function OrdenForm({ onOrdenCreada }) {
               {lote.materiales.map((mat, matIndex) => (
                 <Grid  container spacing={1} key={matIndex} sx={{ mb: 1 }}>
                   <Grid  size={{ xs: 5 }}>
-                    <TextField
-                      fullWidth
-                      label="Nombre Material"
-                      value={mat.nombre}
-                      onChange={(e) => handleMaterialChange(loteIndex, matIndex, 'nombre', e.target.value)}
-                      size="small"
+                    <Autocomplete
+                      options={materialesCatalogo.filter((item) => item.clase === 'MATERIA_PRIMA')}
+                      getOptionLabel={(item) => `${item.codigo} · ${item.nombre}`}
+                      isOptionEqualToValue={(option, selected) => option.id === selected?.id}
+                      value={materialesCatalogo.find((item) => item.id === mat.material_id) || null}
+                      onChange={(_, selected) => {
+                        handleMaterialChange(loteIndex, matIndex, 'material_id', selected?.id || null);
+                        handleMaterialChange(loteIndex, matIndex, 'nombre', selected?.nombre || '');
+                        handleMaterialChange(loteIndex, matIndex, 'tipo', selected?.categoria_recepcion?.modalidad_default === 'SEGUNDA_PESAJE_BOLSA' ? 'SEGUNDA' : 'VIRGEN');
+                      }}
+                      renderInput={(params) => <TextField {...params} fullWidth label="Materia prima del catálogo" size="small" />}
                     />
                   </Grid>
                   <Grid  size={{ xs: 5 }}>
@@ -1300,16 +1332,17 @@ function OrdenForm({ onOrdenCreada }) {
                   Colorantes / Pigmentos
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Tooltip title="API pendiente: la receta debe dosificar por 25 kg de material virgen" arrow>
+                  <Tooltip title="Aplica la receta maestra aprobada y calcula dosis sobre los kg de material virgen" arrow>
                     <span>
                       <Button
                         size="small"
                         variant="outlined"
-                        startIcon={<LockIcon />}
-                        disabled
+                        startIcon={<ScienceOutlinedIcon />}
+                        disabled={!lote.color_id || !(Number(lote.meta_kg) > 0)}
+                        onClick={() => applyMasterRecipe(loteIndex)}
                         sx={{ whiteSpace: 'nowrap' }}
                       >
-                        Receta trazable
+                        Aplicar receta maestra
                       </Button>
                     </span>
                   </Tooltip>
@@ -1321,12 +1354,17 @@ function OrdenForm({ onOrdenCreada }) {
               {lote.pigmentos.map((pig, pigIndex) => (
                 <Grid  container spacing={1} key={pigIndex} sx={{ mb: 1 }}>
                   <Grid  size={{ xs: 5 }}>
-                    <TextField
-                      fullWidth
-                      label="Nombre Colorante"
-                      value={pig.nombre}
-                      onChange={(e) => handlePigmentoChange(loteIndex, pigIndex, 'nombre', e.target.value)}
-                      size="small"
+                    <Autocomplete
+                      options={materialesCatalogo.filter((item) => item.clase === 'COLORANTE')}
+                      getOptionLabel={(item) => `${item.codigo} · ${item.nombre}${item.tipo_colorante === 'ADITIVO' ? ' · ADITIVO' : ''}`}
+                      isOptionEqualToValue={(option, selected) => option.id === selected?.id}
+                      value={materialesCatalogo.find((item) => item.id === pig.material_id) || null}
+                      onChange={(_, selected) => {
+                        handlePigmentoChange(loteIndex, pigIndex, 'material_id', selected?.id || null);
+                        handlePigmentoChange(loteIndex, pigIndex, 'nombre', selected?.nombre || '');
+                        handlePigmentoChange(loteIndex, pigIndex, 'tipo_componente', selected?.tipo_colorante || 'COLORANTE');
+                      }}
+                      renderInput={(params) => <TextField {...params} fullWidth label="Colorante o aditivo del catálogo" size="small" />}
                     />
                   </Grid>
                   <Grid  size={{ xs: 5 }}>
@@ -1354,13 +1392,20 @@ function OrdenForm({ onOrdenCreada }) {
 
       <Divider sx={{ my: 3, borderColor: '#E0E0E0' }} />
 
+      <ColorQuickCreateDialog
+        open={colorCreateDialog.open}
+        initialName={colorCreateDialog.initialName}
+        onClose={() => setColorCreateDialog({ open: false, loteIndex: null, initialName: '' })}
+        onCreated={handleColorCreated}
+      />
+
       {/* Botón Submit */}
       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
         <Button
           type="submit"
           variant="contained"
           size="large"
-          disabled={loading}
+          disabled={loading || validationLoading || validationResult?.valid !== true}
           endIcon={loading ? <CircularProgress size={20} /> : <SendIcon />}
           sx={{
             px: 4,

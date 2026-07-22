@@ -92,3 +92,312 @@ body {
   border-color: var(--accent);
 }
 
+.lot-card {
+  background: #fff;
+  border-color: #d9e1ea;
+  box-shadow: 0 1px 3px rgba(13, 33, 55, 0.08);
+}
+
+.lot-metric {
+  min-width: 0;
+  padding-left: 10px;
+  border-left: 2px solid #dbe7f2;
+}
+
+.lot-detail-list {
+  overflow: hidden;
+  border: 1px solid #e3e8ee;
+  border-radius: 6px;
+}
+
+.lot-detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 9px;
+  font-size: 0.875rem;
+}
+
+.lot-detail-row + .lot-detail-row {
+  border-top: 1px solid #edf0f3;
+}
+
+.lot-detail-row strong {
+  white-space: nowrap;
+  color: #1e3a5f;
+}
+
+.lot-output-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.lot-output-table th,
+.lot-output-table td {
+  padding: 6px 8px;
+  border: 1px solid #e3e8ee;
+  text-align: right;
+}
+
+.lot-output-table th:first-child,
+.lot-output-table td:first-child,
+.lot-output-table th:nth-child(2),
+.lot-output-table td:nth-child(2) {
+  text-align: left;
+}
+
+.lot-output-table th {
+  color: #52606d;
+  background: #f4f7fa;
+  font-weight: 650;
+}
+
+.order-print-sheet {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .lot-card-header {
+    flex-direction: column;
+  }
+
+  .lot-metrics {
+    grid-template-columns: repeat(2, minmax(100px, 1fr)) !important;
+  }
+
+  .lot-output-table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+@page {
+  size: A4 portrait;
+  margin: 8mm;
+}
+
+@media print {
+  html,
+  body {
+    width: 100%;
+    min-height: 0;
+    height: auto;
+    background: #fff !important;
+  }
+
+  body > * {
+    display: none !important;
+  }
+
+  body > .order-print-sheet {
+    display: block !important;
+  }
+
+  .order-print-sheet {
+    display: block !important;
+    position: static;
+    width: 100%;
+    max-width: none;
+    box-sizing: border-box;
+    padding: 0;
+    color: #101820;
+    background: #fff;
+    font-size: 8pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .print-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 1.5mm;
+    border-bottom: 2px solid #1e3a5f;
+  }
+
+  .print-order-grid {
+    display: grid;
+    grid-template-columns:
+      minmax(0, 2fr) minmax(0, 0.8fr) minmax(0, 1.2fr)
+      minmax(0, 0.85fr) minmax(0, 0.85fr) minmax(0, 0.7fr)
+      minmax(0, 0.55fr) minmax(0, 0.85fr);
+    gap: 1.4mm;
+    padding: 2mm 0;
+    border-bottom: 1px solid #ccd5df;
+  }
+
+  .print-order-grid div {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .print-order-grid span {
+    color: #5c6773;
+    font-size: 6.5pt;
+    line-height: 1.1;
+  }
+
+  .print-order-grid strong {
+    overflow-wrap: anywhere;
+    font-size: 7.5pt;
+    line-height: 1.2;
+  }
+
+  .print-technical-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr)) minmax(0, 1.5fr);
+    gap: 1.5mm;
+    padding: 1.4mm 2mm;
+    border-bottom: 1px solid #ccd5df;
+    background: #f4f7fa;
+  }
+
+  .print-technical-grid div {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .print-technical-grid span {
+    color: #5c6773;
+    font-size: 6.5pt;
+    line-height: 1.1;
+  }
+
+  .print-technical-grid strong {
+    font-size: 7.5pt;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .order-print-sheet > .MuiTypography-h6 {
+    margin: 2mm 0 1mm !important;
+    font-size: 12pt;
+    line-height: 1.2;
+  }
+
+  .print-header .MuiTypography-h4 {
+    font-size: 21pt;
+    line-height: 1.05;
+  }
+
+  .print-header .MuiTypography-overline {
+    font-size: 7pt;
+    line-height: 1.2;
+  }
+
+  .lot-card-print {
+    width: 100%;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 1.5mm !important;
+    border: 1px solid #aeb9c4 !important;
+    box-shadow: none !important;
+  }
+
+  .lot-card-print .MuiCardContent-root {
+    padding: 1.5mm 2mm !important;
+  }
+
+  .lot-card-print .lot-card-header {
+    align-items: center;
+    flex-direction: row !important;
+    justify-content: space-between;
+    margin-bottom: 1mm !important;
+  }
+
+  .lot-card-print .lot-metrics {
+    grid-template-columns: repeat(4, minmax(22mm, 1fr)) !important;
+    gap: 1mm !important;
+  }
+
+  .lot-card-print .lot-metric {
+    padding-left: 1.5mm;
+    border-left-width: 1px;
+  }
+
+  .lot-card-print .lot-metric .MuiTypography-caption {
+    font-size: 6.5pt;
+    line-height: 1.1;
+  }
+
+  .lot-card-print .lot-metric .MuiTypography-body2 {
+    font-size: 7.5pt;
+    line-height: 1.2;
+  }
+
+  .lot-card-print .lot-body-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.15fr) minmax(0, 2fr);
+    align-items: start;
+    gap: 1.5mm;
+  }
+
+  .lot-card-print .lot-composition {
+    display: contents;
+  }
+
+  .lot-card-print .lot-composition > .MuiGrid-root {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .lot-card-print .lot-outputs {
+    min-width: 0;
+    margin-top: 0 !important;
+  }
+
+  .lot-card-print .lot-detail-list {
+    border-radius: 3px;
+  }
+
+  .lot-card-print .lot-detail-row {
+    gap: 1mm;
+  }
+
+  .lot-card-print .lot-detail-row span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .lot-card-print .MuiTypography-overline {
+    font-size: 7pt;
+    line-height: 1.5;
+  }
+
+  .lot-card-print .lot-detail-row,
+  .lot-card-print .lot-output-table {
+    font-size: 6.5pt;
+  }
+
+  .lot-card-print .lot-detail-row,
+  .lot-card-print .lot-output-table th,
+  .lot-card-print .lot-output-table td {
+    padding: 0.65mm 0.8mm;
+  }
+
+  .lot-card-print .lot-output-table th:nth-child(3),
+  .lot-card-print .lot-output-table td:nth-child(3) {
+    width: 8mm;
+  }
+
+  .lot-card-print .lot-output-table th:nth-child(4),
+  .lot-card-print .lot-output-table td:nth-child(4),
+  .lot-card-print .lot-output-table th:nth-child(5),
+  .lot-card-print .lot-output-table td:nth-child(5) {
+    white-space: nowrap;
+  }
+
+  .print-footer {
+    margin-top: 1mm;
+    padding-top: 1mm;
+    border-top: 1px solid #ccd5df;
+    color: #66717d;
+    font-size: 7pt;
+    text-align: right;
+  }
+}
+

@@ -28,7 +28,17 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
-import { getMaquinas, createMaquina, updateMaquina, getTiposMaquina, toggleEstadoMaquina } from '../services/api';
+import SettingsIcon from '@mui/icons-material/Settings';
+import {
+  getMaquinas,
+  createMaquina,
+  updateMaquina,
+  getTiposMaquina,
+  createTipoMaquina,
+  updateTipoMaquina,
+  deactivateTipoMaquina,
+  toggleEstadoMaquina,
+} from '../services/api';
 import DataTableToolbar from './ui/DataTableToolbar';
 import PageHeader from './ui/PageHeader';
 import { matchesOmniSearch } from '../utils/tableSearch';
@@ -42,6 +52,10 @@ function MaquinasAdmin() {
   const [typeFilter, setTypeFilter] = useState('TODOS');
   const [physicalStatus, setPhysicalStatus] = useState('TODOS');
   const [visibility, setVisibility] = useState('TODOS');
+  const [typesDialogOpen, setTypesDialogOpen] = useState(false);
+  const [editingType, setEditingType] = useState(null);
+  const [typeForm, setTypeForm] = useState({ nombre: '', proceso: 'INYECCION', fabricante: '', modelo: '', capacidad_toneladas: '' });
+  const [typeError, setTypeError] = useState('');
 
   // Formulario
   const [openDialog, setOpenDialog] = useState(false);
@@ -61,7 +75,7 @@ function MaquinasAdmin() {
       setLoading(true);
       const [maqRes, tiposRes] = await Promise.all([
         getMaquinas(),
-        getTiposMaquina()
+        getTiposMaquina({ include_inactive: true })
       ]);
       setMaquinas(maqRes);
       setTipos(tiposRes);
@@ -110,12 +124,64 @@ function MaquinasAdmin() {
     setError(null);
   };
 
+  const resetTypeForm = () => {
+    setEditingType(null);
+    setTypeForm({ nombre: '', proceso: 'INYECCION', fabricante: '', modelo: '', capacidad_toneladas: '' });
+    setTypeError('');
+  };
+
+  const editType = (item) => {
+    setEditingType(item);
+    setTypeForm({
+      nombre: item.nombre || '',
+      proceso: item.proceso || 'INYECCION',
+      fabricante: item.fabricante || '',
+      modelo: item.modelo || '',
+      capacidad_toneladas: item.capacidad_toneladas ?? '',
+    });
+    setTypeError('');
+  };
+
+  const saveType = async () => {
+    if (!typeForm.nombre.trim()) {
+      setTypeError('El nombre es obligatorio.');
+      return;
+    }
+    const values = {
+      nombre: typeForm.nombre.trim(),
+      proceso: typeForm.proceso,
+      fabricante: typeForm.fabricante.trim() || null,
+      modelo: typeForm.modelo.trim() || null,
+      capacidad_toneladas: typeForm.capacidad_toneladas === '' ? null : Number(typeForm.capacidad_toneladas),
+    };
+    try {
+      if (editingType) await updateTipoMaquina(editingType.id, { ...values, version: editingType.version });
+      else await createTipoMaquina(values);
+      resetTypeForm();
+      await fetchData();
+    } catch (err) {
+      setTypeError(err.response?.data?.error || 'No se pudo guardar el tipo de máquina.');
+    }
+  };
+
+  const toggleType = async (item) => {
+    try {
+      if (item.activo) await deactivateTipoMaquina(item.id, item.version);
+      else await updateTipoMaquina(item.id, { version: item.version, activo: true });
+      await fetchData();
+    } catch (err) {
+      setTypeError(err.response?.data?.error || 'No se pudo cambiar el estado del tipo.');
+    }
+  };
+
   const handleSave = async () => {
     try {
       if (editingId) {
         await updateMaquina(editingId, formData);
       } else {
-        await createMaquina(formData);
+        const payload = { ...formData };
+        delete payload.codigo;
+        await createMaquina(payload);
       }
       handleClose();
       fetchData();
@@ -151,7 +217,7 @@ function MaquinasAdmin() {
     }
   };
 
-  const typeOptions = tipos.map((type) => ({
+  const typeOptions = tipos.filter((type) => type.activo !== false).map((type) => ({
     value: String(type.id),
     label: type.nombre,
   }));
@@ -227,11 +293,7 @@ function MaquinasAdmin() {
           setPhysicalStatus('TODOS');
           setVisibility('TODOS');
         }}
-        actions={(
-          <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenNew}>
-            Nueva máquina
-          </Button>
-        )}
+        actions={(<Box sx={{ display: 'flex', gap: 1 }}><Button variant="outlined" startIcon={<SettingsIcon />} onClick={() => setTypesDialogOpen(true)}>Tipos</Button><Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenNew}>Nueva máquina</Button></Box>)}
       />
 
       <TableContainer component={Paper}>
@@ -312,11 +374,11 @@ function MaquinasAdmin() {
         <DialogContent dividers>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
             <TextField
-              label="Código"
-              value={formData.codigo}
-              onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
+              label="Código automático"
+              value={editingId ? formData.codigo : 'MAQ-######'}
               fullWidth
-              helperText="Dejar en blanco para autogenerar"
+              disabled
+              helperText={editingId ? 'Código interno inmutable' : 'Se asignará al guardar'}
             />
             <TextField
               label="Nombre"
@@ -333,7 +395,7 @@ function MaquinasAdmin() {
                 onChange={(e) => setFormData({ ...formData, tipo_maquina_id: e.target.value })}
                 label="Tipo de Máquina"
               >
-                {tipos.map((t) => (
+                {tipos.filter((t) => t.activo !== false || t.id === formData.tipo_maquina_id).map((t) => (
                   <MenuItem key={t.id} value={t.id}>
                     {t.nombre} ({t.proceso})
                   </MenuItem>
@@ -389,6 +451,27 @@ function MaquinasAdmin() {
             Guardar
           </Button>
         </DialogActions>
+      </Dialog>
+
+      <Dialog open={typesDialogOpen} onClose={() => setTypesDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Tipos de máquina</DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {typeError && <Alert severity="error">{typeError}</Alert>}
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.2fr 1fr 1fr 1fr' }, gap: 1 }}>
+              <TextField label="Código automático" value={editingType ? editingType.codigo : 'TMQ-######'} disabled helperText="Código inmutable" />
+              <TextField label="Nombre" value={typeForm.nombre} onChange={(event) => setTypeForm((current) => ({ ...current, nombre: event.target.value }))} />
+              <TextField select label="Proceso" value={typeForm.proceso} onChange={(event) => setTypeForm((current) => ({ ...current, proceso: event.target.value }))}><MenuItem value="INYECCION">Inyección</MenuItem><MenuItem value="SOPLADO">Soplado</MenuItem><MenuItem value="OTRO">Otro</MenuItem></TextField>
+              <Button variant="contained" onClick={saveType}>{editingType ? 'Guardar' : 'Crear'}</Button>
+              <TextField label="Fabricante" value={typeForm.fabricante} onChange={(event) => setTypeForm((current) => ({ ...current, fabricante: event.target.value }))} />
+              <TextField label="Modelo" value={typeForm.modelo} onChange={(event) => setTypeForm((current) => ({ ...current, modelo: event.target.value }))} />
+              <TextField type="number" label="Capacidad (t)" value={typeForm.capacidad_toneladas} onChange={(event) => setTypeForm((current) => ({ ...current, capacidad_toneladas: event.target.value }))} />
+              {editingType && <Button onClick={resetTypeForm}>Cancelar edición</Button>}
+            </Box>
+            <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 340 }}><Table size="small" stickyHeader><TableHead><TableRow><TableCell>Código</TableCell><TableCell>Tipo</TableCell><TableCell>Proceso</TableCell><TableCell>Estado</TableCell><TableCell align="right">Acciones</TableCell></TableRow></TableHead><TableBody>{tipos.map((item) => <TableRow key={item.id}><TableCell>{item.codigo}</TableCell><TableCell>{item.nombre}</TableCell><TableCell>{item.proceso}</TableCell><TableCell><Chip size="small" label={item.activo === false ? 'INACTIVO' : 'ACTIVO'} color={item.activo === false ? 'default' : 'success'} variant="outlined" /></TableCell><TableCell align="right"><Button size="small" onClick={() => editType(item)}>Editar</Button><Button size="small" color={item.activo ? 'error' : 'success'} onClick={() => toggleType(item)}>{item.activo ? 'Inactivar' : 'Reactivar'}</Button></TableCell></TableRow>)}</TableBody></Table></TableContainer>
+          </Box>
+        </DialogContent>
+        <DialogActions><Button onClick={() => setTypesDialogOpen(false)}>Cerrar</Button></DialogActions>
       </Dialog>
     </Box>
   );

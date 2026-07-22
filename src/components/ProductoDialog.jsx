@@ -5,23 +5,23 @@ import {
   TableContainer, TableHead, TableRow, Paper, IconButton
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import CreateOptionAutocomplete from './ui/CreateOptionAutocomplete';
+import ClassificationQuickCreateDialog from './ui/ClassificationQuickCreateDialog';
 import { 
   crearProducto, 
   actualizarProducto, 
-  buscarPiezas,
+  buscarPiezasColor,
   obtenerLineas,
-  obtenerFamilias,
-  obtenerFamiliasColor
+  obtenerFamilias
 } from '../services/api';
 
-function ProductoDialog({ open, onClose, producto }) {
+function ProductoDialog({ open, onClose, onSaved, producto }) {
   const [formData, setFormData] = useState({
     cod_sku_pt: '',
     producto: '',
     cod_producto: '',
     familia_id: '',
     linea_id: '',
-    familia_color_id: '',
     peso_g: '',
     precio_estimado: '',
     precio_sin_igv: '',
@@ -36,24 +36,20 @@ function ProductoDialog({ open, onClose, producto }) {
 
   const [maestros, setMaestros] = useState({
     lineas: [],
-    familias: [],
-    familiasColor: []
+    familias: []
+  });
+  const [classificationDialog, setClassificationDialog] = useState({
+    open: false,
+    entity: 'linea',
+    initialName: '',
   });
 
   useEffect(() => {
     // Cargar listas maestras
     const loadMaestros = async () => {
       try {
-        const [resLineas, resFamilias, resFamColor] = await Promise.all([
-          obtenerLineas(),
-          obtenerFamilias(),
-          obtenerFamiliasColor()
-        ]);
-        setMaestros({
-          lineas: resLineas,
-          familias: resFamilias,
-          familiasColor: resFamColor
-        });
+        const resLineas = await obtenerLineas();
+        setMaestros((current) => ({ ...current, lineas: resLineas }));
       } catch (err) {
         console.error('Error cargando maestros', err);
       }
@@ -73,7 +69,6 @@ function ProductoDialog({ open, onClose, producto }) {
         cod_producto: producto.cod_producto || '',
         familia_id: producto.familia_id || '',
         linea_id: producto.linea_id || '',
-        familia_color_id: producto.familia_color_id || '',
         peso_g: producto.peso_g || '',
         precio_estimado: producto.precio_estimado || '',
         precio_sin_igv: producto.precio_sin_igv || '',
@@ -91,12 +86,35 @@ function ProductoDialog({ open, onClose, producto }) {
       });
     } else {
       setFormData({
-        cod_sku_pt: '', producto: '', cod_producto: '', familia_id: '', linea_id: '', familia_color_id: '',
+        cod_sku_pt: '', producto: '', cod_producto: '', familia_id: '', linea_id: '',
         peso_g: '', precio_estimado: '', precio_sin_igv: '', doc_x_paq: '', doc_x_bulto: '',
         codigo_barra: '', marca: '', um: 'Docena', status: 'Activo', piezas: []
       });
     }
   }, [producto, open]);
+
+  useEffect(() => {
+    let active = true;
+    if (!open || !formData.linea_id) {
+      return () => { active = false; };
+    }
+
+    obtenerFamilias({ linea_id: formData.linea_id })
+      .then((familias) => {
+        if (!active) return;
+        setMaestros((current) => ({ ...current, familias }));
+        setFormData((current) => (
+          current.familia_id && !familias.some((familia) => familia.id === current.familia_id)
+            ? { ...current, familia_id: '' }
+            : current
+        ));
+      })
+      .catch(() => {
+        if (active) setMaestros((current) => ({ ...current, familias: [] }));
+      });
+
+    return () => { active = false; };
+  }, [open, formData.linea_id]);
 
   useEffect(() => {
     if (piezaInput.length < 2) {
@@ -106,7 +124,7 @@ function ProductoDialog({ open, onClose, producto }) {
     const timeoutId = setTimeout(async () => {
       setPiezasLoading(true);
       try {
-        const piezas = await buscarPiezas(piezaInput);
+        const piezas = await buscarPiezasColor(piezaInput);
         setPiezasOptions(piezas);
       } catch {
         setPiezasOptions([]);
@@ -143,21 +161,48 @@ function ProductoDialog({ open, onClose, producto }) {
     }));
   };
 
+  const abrirAltaClasificacion = (entity, initialName = '') => {
+    if (entity === 'familia' && !formData.linea_id) return;
+    setClassificationDialog({ open: true, entity, initialName });
+  };
+
+  const registrarClasificacionCreada = (created) => {
+    if (classificationDialog.entity === 'linea') {
+      setMaestros((current) => ({
+        ...current,
+        lineas: current.lineas.some((item) => item.id === created.id)
+          ? current.lineas
+          : [...current.lineas, created],
+        familias: [],
+      }));
+      setFormData((current) => ({ ...current, linea_id: created.id, familia_id: '' }));
+      return;
+    }
+
+    setMaestros((current) => ({
+      ...current,
+      familias: current.familias.some((item) => item.id === created.id)
+        ? current.familias
+        : [...current.familias, created],
+    }));
+    setFormData((current) => ({ ...current, familia_id: created.id }));
+  };
+
   const handleSubmit = async () => {
     try {
+      const { cod_sku_pt, ...editableData } = formData;
       const data = {
-        ...formData,
+        ...editableData,
         peso_g: formData.peso_g ? parseFloat(formData.peso_g) : null,
         precio_estimado: formData.precio_estimado ? parseFloat(formData.precio_estimado) : null
       };
       
-      if (producto) {
-        await actualizarProducto(formData.cod_sku_pt, data);
-      } else {
-        await crearProducto(data);
-      }
+      const saved = producto
+        ? await actualizarProducto(cod_sku_pt, data)
+        : await crearProducto(data);
+      await onSaved?.(saved);
       onClose();
-    } catch (err) {
+    } catch {
       alert('Error guardando producto');
     }
   };
@@ -169,10 +214,10 @@ function ProductoDialog({ open, onClose, producto }) {
         <Stack spacing={2} sx={{ pt: 1 }}>
           <Stack direction="row" spacing={2}>
             <TextField
-              label="SKU (Auto generado si vacío)"
-              value={formData.cod_sku_pt}
-              onChange={(e) => setFormData({ ...formData, cod_sku_pt: e.target.value })}
-              disabled={!!producto}
+              label="SKU"
+              value={producto ? formData.cod_sku_pt : 'Se asignará automáticamente al guardar'}
+              helperText={producto ? 'Identificador inmutable.' : 'El backend asignará el siguiente correlativo disponible.'}
+              slotProps={{ input: { readOnly: true } }}
               fullWidth
             />
             <TextField
@@ -190,29 +235,43 @@ function ProductoDialog({ open, onClose, producto }) {
             />
           </Stack>
           <Stack direction="row" spacing={2}>
-            <Autocomplete
+            <CreateOptionAutocomplete
               options={maestros.lineas}
               getOptionLabel={(option) => option.nombre}
               value={maestros.lineas.find(l => l.id === formData.linea_id) || null}
-              onChange={(_, v) => setFormData({ ...formData, linea_id: v ? v.id : '' })}
-              renderInput={(params) => <TextField {...params} label="Línea" />}
-              fullWidth
+              onChange={(selected) => {
+                setMaestros((current) => ({ ...current, familias: [] }));
+                setFormData((current) => ({
+                  ...current,
+                  linea_id: selected?.id || '',
+                  familia_id: '',
+                }));
+              }}
+              onCreateOption={(initialName) => abrirAltaClasificacion('linea', initialName)}
+              createLabel={(inputValue) => (
+                inputValue ? `Crear Línea “${inputValue}”…` : 'Crear nueva Línea…'
+              )}
+              label="Línea"
+              required
             />
-            <Autocomplete
+            <CreateOptionAutocomplete
               options={maestros.familias}
               getOptionLabel={(option) => option.nombre}
               value={maestros.familias.find(f => f.id === formData.familia_id) || null}
-              onChange={(_, v) => setFormData({ ...formData, familia_id: v ? v.id : '' })}
-              renderInput={(params) => <TextField {...params} label="Familia" />}
-              fullWidth
-            />
-            <Autocomplete
-              options={maestros.familiasColor}
-              getOptionLabel={(option) => option.nombre}
-              value={maestros.familiasColor.find(fc => fc.id === formData.familia_color_id) || null}
-              onChange={(_, v) => setFormData({ ...formData, familia_color_id: v ? v.id : '' })}
-              renderInput={(params) => <TextField {...params} label="Familia Color" />}
-              fullWidth
+              onChange={(selected) => setFormData((current) => ({
+                ...current,
+                familia_id: selected?.id || '',
+              }))}
+              onCreateOption={(initialName) => abrirAltaClasificacion('familia', initialName)}
+              createLabel={(inputValue) => (
+                inputValue ? `Crear Familia “${inputValue}”…` : 'Crear nueva Familia en esta Línea…'
+              )}
+              label="Familia"
+              disabled={!formData.linea_id}
+              required
+              helperText={formData.linea_id
+                ? 'Solo Familias asociadas a la Línea.'
+                : 'Selecciona una Línea antes de crear una Familia.'}
             />
           </Stack>
           
@@ -347,6 +406,14 @@ function ProductoDialog({ open, onClose, producto }) {
           {producto ? 'Guardar' : 'Crear'}
         </Button>
       </DialogActions>
+      <ClassificationQuickCreateDialog
+        open={classificationDialog.open}
+        entity={classificationDialog.entity}
+        linea={maestros.lineas.find((linea) => linea.id === formData.linea_id) || null}
+        initialName={classificationDialog.initialName}
+        onClose={() => setClassificationDialog((current) => ({ ...current, open: false }))}
+        onCreated={registrarClasificacionCreada}
+      />
     </Dialog>
   );
 }
