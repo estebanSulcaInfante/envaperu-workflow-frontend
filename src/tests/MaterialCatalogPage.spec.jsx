@@ -18,6 +18,7 @@ vi.mock('../services/scmCatalogApi', () => ({
 }));
 
 import {
+  crearProveedorScm,
   crearMaterialScm,
   listarCategoriasRecepcionScm,
   listarMaterialesScm,
@@ -41,6 +42,7 @@ beforeEach(() => {
   listarProveedoresScm.mockResolvedValue([]);
   listarCategoriasRecepcionScm.mockResolvedValue([category]);
   crearMaterialScm.mockResolvedValue({ id: 20, version: 1 });
+  crearProveedorScm.mockResolvedValue({ id: 21, version: 1 });
 });
 
 const renderPage = (entry = '/datos-maestros/materiales?catalogo=materials') => render(
@@ -95,6 +97,32 @@ describe('MaterialCatalogPage conectado a SCM API', () => {
 
     expect(await screen.findByText(/Ya existe MP-000033/i)).toBeInTheDocument();
     expect(crearMaterialScm).not.toHaveBeenCalled();
+  });
+
+  it('crea un proveedor con sus datos de contacto opcionales', async () => {
+    const user = userEvent.setup();
+    renderPage('/datos-maestros/materiales?catalogo=providers');
+
+    await screen.findByText('Catálogos maestros de materiales');
+    await user.click(screen.getByRole('button', { name: 'Nuevo proveedor' }));
+    const form = screen.getByText('Crear Proveedor').closest('.MuiPaper-root');
+    await user.type(within(form).getByLabelText(/Razón social/), 'Proveedor de contacto');
+    await user.type(within(form).getByLabelText('RUC (opcional)'), '20524360366');
+    await user.type(within(form).getByLabelText('Persona de contacto (opcional)'), 'Piero');
+    await user.type(within(form).getByLabelText('Teléfono (opcional)'), '01 708-2613');
+    await user.type(within(form).getByLabelText('WhatsApp (opcional)'), '+51 998 123 628');
+    await user.type(within(form).getByLabelText('Correo (opcional)'), 'COMPRAS@PROVEEDOR.PE');
+    await user.click(within(form).getByRole('button', { name: 'Guardar proveedor' }));
+
+    await waitFor(() => expect(crearProveedorScm).toHaveBeenCalledWith({
+      razon_social: 'Proveedor de contacto',
+      ruc: '20524360366',
+      contacto: 'Piero',
+      telefono: '01 708-2613',
+      whatsapp: '+51 998 123 628',
+      correo: 'compras@proveedor.pe',
+      activo: true,
+    }));
   });
 
   it('no presenta datos simulados para un catálogo sin API', async () => {

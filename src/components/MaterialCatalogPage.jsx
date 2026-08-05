@@ -50,7 +50,7 @@ const tabs = [
 
 const emptyForms = {
   materials: { codigo: '', nombre: '', clase: 'MATERIA_PRIMA', tipo_colorante: 'COLORANTE', categoria_recepcion_id: '', unidad_base: 'KG', activo: true },
-  providers: { codigo: '', razon_social: '', ruc: '', activo: true },
+  providers: { codigo: '', razon_social: '', ruc: '', contacto: '', telefono: '', whatsapp: '', correo: '', activo: true },
   categoryRules: { codigo: '', nombre: '', modalidad_default: 'POR_CONFIGURAR', lote_externo_obligatorio: false, recepcion_habilitada: false, activo: true },
 };
 
@@ -94,7 +94,13 @@ function CatalogForm({ kind, value, categories, saving, onChange, onSave, onCanc
             <Grid size={{ xs: 12, md: 6 }}><TextField select required fullWidth label="Categoría de recepción" value={value.categoria_recepcion_id} onChange={(event) => onChange('categoria_recepcion_id', event.target.value)} helperText="Define cómo se recibe y controla este material.">{categories.filter((item) => item.activo || item.id === Number(value.categoria_recepcion_id)).map((item) => <MenuItem key={item.id} value={item.id}>{item.codigo} · {item.nombre}</MenuItem>)}</TextField></Grid>
             <Grid size={{ xs: 12, md: 2 }}><TextField fullWidth label="Unidad base" value="KG" disabled helperText={value.clase === 'COLORANTE' ? 'Las recetas pueden dosificar en gramos.' : 'Unidad de inventario.'} /></Grid>
           </>}
-          {kind === 'providers' && <Grid size={{ xs: 12, md: 5 }}><TextField fullWidth label="RUC (opcional)" value={value.ruc || ''} onChange={(event) => onChange('ruc', event.target.value.replace(/\D/g, '').slice(0, 11))} /></Grid>}
+          {kind === 'providers' && <>
+            <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="RUC (opcional)" value={value.ruc || ''} onChange={(event) => onChange('ruc', event.target.value.replace(/\D/g, '').slice(0, 11))} inputProps={{ inputMode: 'numeric' }} /></Grid>
+            <Grid size={{ xs: 12, md: 8 }}><TextField fullWidth label="Persona de contacto (opcional)" value={value.contacto || ''} onChange={(event) => onChange('contacto', event.target.value)} inputProps={{ maxLength: 200 }} /></Grid>
+            <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="Teléfono (opcional)" value={value.telefono || ''} onChange={(event) => onChange('telefono', event.target.value)} inputProps={{ maxLength: 50 }} /></Grid>
+            <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="WhatsApp (opcional)" value={value.whatsapp || ''} onChange={(event) => onChange('whatsapp', event.target.value)} inputProps={{ maxLength: 50 }} /></Grid>
+            <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth type="email" label="Correo (opcional)" value={value.correo || ''} onChange={(event) => onChange('correo', event.target.value)} inputProps={{ maxLength: 254 }} /></Grid>
+          </>}
           {kind === 'categoryRules' && <>
             <Grid size={{ xs: 12, md: 5 }}><TextField select fullWidth label="Modalidad predeterminada" value={value.modalidad_default} onChange={(event) => onChange('modalidad_default', event.target.value)}><MenuItem value="VIRGEN_CONFIANZA_PROVEEDOR">Virgen · confianza en proveedor</MenuItem><MenuItem value="SEGUNDA_PESAJE_BOLSA">Segunda · pesaje bolsa por bolsa</MenuItem><MenuItem value="POR_CONFIGURAR">Por configurar</MenuItem></TextField></Grid>
             <Grid size={{ xs: 12, md: 3 }}><FormControlLabel control={<Switch checked={value.lote_externo_obligatorio} onChange={(event) => onChange('lote_externo_obligatorio', event.target.checked)} />} label="Exige lote proveedor" /></Grid>
@@ -167,6 +173,7 @@ function MaterialCatalogPage() {
     if (kind !== 'providers' && !form.nombre?.trim()) return 'El nombre es obligatorio.';
     if (kind === 'materials' && !form.categoria_recepcion_id) return 'Selecciona una categoría de recepción.';
     if (kind === 'providers' && form.ruc && form.ruc.length !== 11) return 'El RUC debe tener 11 dígitos.';
+    if (kind === 'providers' && form.correo && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.correo.trim())) return 'El correo del proveedor no tiene un formato válido.';
     const name = kind === 'providers' ? form.razon_social : form.nombre;
     const normalized = name?.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleUpperCase('es-PE');
     const duplicate = rows.find((item) => {
@@ -195,9 +202,15 @@ function MaterialCatalogPage() {
           : { nombre: form.nombre.trim(), clase: form.clase, categoria_recepcion_id: Number(form.categoria_recepcion_id), unidad_base: 'KG', activo: true, ...(form.clase === 'COLORANTE' ? { tipo_colorante: form.tipo_colorante || 'COLORANTE' } : {}) };
         await (editing ? actualizarMaterialScm(form.id, payload) : crearMaterialScm(payload));
       } else if (kind === 'providers') {
+        const contact = {
+          contacto: form.contacto?.trim() || null,
+          telefono: form.telefono?.trim() || null,
+          whatsapp: form.whatsapp?.trim() || null,
+          correo: form.correo?.trim().toLocaleLowerCase('es-PE') || null,
+        };
         const payload = editing
-          ? { version: form.version, razon_social: form.razon_social.trim(), ruc: form.ruc || null, activo: form.activo }
-          : { razon_social: form.razon_social.trim(), ruc: form.ruc || null, activo: true };
+          ? { version: form.version, razon_social: form.razon_social.trim(), ruc: form.ruc || null, ...contact, activo: form.activo }
+          : { razon_social: form.razon_social.trim(), ruc: form.ruc || null, ...contact, activo: true };
         await (editing ? actualizarProveedorScm(form.id, payload) : crearProveedorScm(payload));
       } else {
         const values = { nombre: form.nombre.trim(), modalidad_default: form.modalidad_default, lote_externo_obligatorio: form.lote_externo_obligatorio, recepcion_habilitada: form.recepcion_habilitada, activo: editing ? form.activo : true };
@@ -205,7 +218,7 @@ function MaterialCatalogPage() {
         await (editing ? actualizarCategoriaRecepcionScm(form.id, payload) : crearCategoriaRecepcionScm(payload));
       }
       setForm(null);
-      setNotice(`${titleFor(kind)} guardado en la base local.`);
+      setNotice(`${titleFor(kind)} guardado correctamente.`);
       await load();
     } catch (requestError) {
       setError(apiError(requestError));
@@ -232,7 +245,13 @@ function MaterialCatalogPage() {
 
   const detail = (item) => {
     if (kind === 'materials') return `${item.clase === 'COLORANTE' ? item.tipo_colorante || 'COLORANTE' : 'MATERIA_PRIMA'} · ${item.categoria_recepcion_codigo} · ${item.unidad_base}`;
-    if (kind === 'providers') return item.ruc ? `RUC ${item.ruc}` : 'RUC no informado';
+    if (kind === 'providers') return [
+      item.ruc ? `RUC ${item.ruc}` : 'RUC no informado',
+      item.contacto ? `Contacto: ${item.contacto}` : null,
+      item.telefono ? `Tel: ${item.telefono}` : null,
+      item.whatsapp ? `WhatsApp: ${item.whatsapp}` : null,
+      item.correo || null,
+    ].filter(Boolean).join(' · ');
     return `${item.modalidad_default} · ${item.recepcion_habilitada ? 'Recepción habilitada' : 'No recibible'}`;
   };
 
