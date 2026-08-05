@@ -29,6 +29,7 @@ export const scmGuideStages = [
       'Las correcciones, anulaciones y reversas requieren motivo y quedan auditadas.',
     ],
     procedure: [
+      'En el primer acceso, abra la invitación recibida por correo y defina una contraseña personal de al menos 10 caracteres.',
       'Inicie sesión con su correo y contraseña personal.',
       'Abra en esta guía la tarea que necesita realizar.',
       'Confirme los requisitos previos y el estado esperado.',
