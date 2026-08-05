@@ -174,20 +174,20 @@ function App() {
                 <Route path="/datos-maestros" element={permitted(<MasterDataHub />, ['ARTICULO_VER', 'EMPAQUE_VER', 'CONFIG_RECEPCION_ADMINISTRAR'])} />
                 <Route path="/datos-maestros/productos" element={permitted(<ProductosAdmin />, ['ARTICULO_VER'])} />
                 <Route path="/datos-maestros/piezas" element={permitted(<PiezasAdmin />, ['ARTICULO_VER'])} />
-                <Route path="/datos-maestros/trabajadores" element={permitted(<TrabajadoresAdmin />, ['AUTORIZACION_SCM_ADMINISTRAR', 'CONFIG_RECEPCION_ADMINISTRAR'])} />
-                <Route path="/datos-maestros/maquinas" element={permitted(<MaquinasAdmin />, ['OF_EDITAR_BORRADOR', 'CONFIG_RECEPCION_ADMINISTRAR'])} />
+                <Route path="/datos-maestros/trabajadores" element={permitted(<TrabajadoresAdmin />, ['AUTORIZACION_SCM_ADMINISTRAR'])} />
+                <Route path="/datos-maestros/maquinas" element={permitted(<MaquinasAdmin />, ['CATALOGO_PLANTA_ADMINISTRAR', 'OF_EDITAR_BORRADOR', 'CONFIG_RECEPCION_ADMINISTRAR'])} />
                 <Route path="/datos-maestros/moldes" element={permitted(<MoldesLista />, ['ARTICULO_VER', 'RUTA_VER'])} />
                 <Route path="/datos-maestros/moldes/:codigo" element={permitted(<MoldeDetalle />, ['ARTICULO_ADMINISTRAR', 'RUTA_ADMINISTRAR'])} />
                 <Route path="/datos-maestros/configuracion-guiada" element={permitted(<ConfigurarProducto />, ['ARTICULO_ADMINISTRAR'])} />
-                <Route path="/datos-maestros/materiales" element={permitted(<MaterialCatalogPage />, ['CONFIG_RECEPCION_ADMINISTRAR', 'PROVEEDOR_ADMINISTRAR'])} />
+                <Route path="/datos-maestros/materiales" element={permitted(<MaterialCatalogPage />, ['CATALOGO_MATERIAL_ADMINISTRAR', 'CONFIG_RECEPCION_ADMINISTRAR', 'PROVEEDOR_ADMINISTRAR'])} />
                 <Route path="/datos-maestros/clasificacion" element={permitted(<LineasFamiliasAdmin />, ['ARTICULO_ADMINISTRAR'])} />
                 <Route path="/datos-maestros/colores" element={permitted(<ColoresRecetasAdmin />, ['ARTICULO_ADMINISTRAR', 'EMPAQUE_ADMINISTRAR'])} />
                 <Route path="/datos-maestros/ingenieria-scm" element={permitted(<ScmEngineeringAdmin />, ['ESTRUCTURA_VER', 'RUTA_VER', 'EMPAQUE_VER'])} />
                 <Route path="/datos-maestros/reproceso" element={permitted(<ReprocessingScm initialTab={4} />, ['MOLIENDA_VER', 'MOLIENDA_REGLA_ADMINISTRAR'])} />
-                <Route path="/catalogo/importar" element={<ImportarCatalogo />} />
+                <Route path="/catalogo/importar" element={permitted(<ImportarCatalogo />, ['ARTICULO_ADMINISTRAR', 'CATALOGO_MATERIAL_ADMINISTRAR'])} />
                 <Route path="/catalogo/configurar" element={<Navigate to="/datos-maestros/configuracion-guiada" replace />} />
                 <Route path="/datos-maestros/configurar" element={<Navigate to="/datos-maestros/configuracion-guiada" replace />} />
-                <Route path="/catalogo/revision" element={<RevisionProductos />} />
+                <Route path="/catalogo/revision" element={permitted(<RevisionProductos />, ['ARTICULO_ADMINISTRAR'])} />
                 <Route path="/configuracion" element={<RecepcionMateriales forcedSection="configuracion" />} />
 
                 <Route path="/ordenes" element={<Navigate to="/produccion/ordenes" replace />} />

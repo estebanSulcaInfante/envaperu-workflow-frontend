@@ -60,9 +60,9 @@ export const workspaceNavigation = [
       { label: 'Reproceso', path: '/datos-maestros/reproceso', icon: 'recycling', requiredAny: ['MOLIENDA_VER', 'MOLIENDA_REGLA_ADMINISTRAR'] },
       { label: 'Líneas y familias', path: '/datos-maestros/clasificacion', icon: 'catalog', requiredAny: ['ARTICULO_ADMINISTRAR'] },
       { label: 'Colores y recetas', path: '/datos-maestros/colores', icon: 'catalog', requiredAny: ['ARTICULO_ADMINISTRAR', 'EMPAQUE_ADMINISTRAR'] },
-      { label: 'Materias primas', path: '/datos-maestros/materiales', icon: 'materials', requiredAny: ['CONFIG_RECEPCION_ADMINISTRAR', 'PROVEEDOR_ADMINISTRAR'] },
-      { label: 'Trabajadores', path: '/datos-maestros/trabajadores', icon: 'workers', requiredAny: ['AUTORIZACION_SCM_ADMINISTRAR', 'CONFIG_RECEPCION_ADMINISTRAR'] },
-      { label: 'Máquinas', path: '/datos-maestros/maquinas', icon: 'machines', requiredAny: ['OF_EDITAR_BORRADOR', 'CONFIG_RECEPCION_ADMINISTRAR'] },
+      { label: 'Materias primas', path: '/datos-maestros/materiales', icon: 'materials', requiredAny: ['CATALOGO_MATERIAL_ADMINISTRAR', 'CONFIG_RECEPCION_ADMINISTRAR', 'PROVEEDOR_ADMINISTRAR'] },
+      { label: 'Trabajadores', path: '/datos-maestros/trabajadores', icon: 'workers', requiredAny: ['AUTORIZACION_SCM_ADMINISTRAR'] },
+      { label: 'Máquinas', path: '/datos-maestros/maquinas', icon: 'machines', requiredAny: ['CATALOGO_PLANTA_ADMINISTRAR', 'OF_EDITAR_BORRADOR', 'CONFIG_RECEPCION_ADMINISTRAR'] },
     ],
   },
 ];

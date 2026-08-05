@@ -20,6 +20,7 @@ import {
 import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
 import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined';
 import { useScmActor } from '../../context/ScmActorContext';
+import { SCM_PROFILE_SWITCH_ENABLED } from '../../config/runtime';
 
 const initials = (name = '') => name
   .split(/\s+/)
@@ -79,23 +80,30 @@ export default function ActorWorkspaceBar() {
               </Typography>
             </Box>
           </Stack>
-          <Button
-            size="small"
-            variant="outlined"
-            startIcon={<SwapHorizOutlinedIcon />}
-            onClick={async () => {
-              await refreshActors();
-              setSelectedId(actorId);
-              setOpen(true);
-            }}
-          >
-            Cambiar perfil
-          </Button>
+          {SCM_PROFILE_SWITCH_ENABLED && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<SwapHorizOutlinedIcon />}
+              onClick={async () => {
+                await refreshActors();
+                setSelectedId(actorId);
+                setOpen(true);
+              }}
+            >
+              Cambiar perfil
+            </Button>
+          )}
         </Stack>
         {error && <Alert severity="warning" sx={{ mt: 1 }}>{error}</Alert>}
       </Paper>
 
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
+      <Dialog
+        open={SCM_PROFILE_SWITCH_ENABLED && open}
+        onClose={() => setOpen(false)}
+        fullWidth
+        maxWidth="sm"
+      >
         <DialogTitle>¿Quién está realizando esta tarea?</DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>

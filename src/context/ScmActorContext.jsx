@@ -28,6 +28,10 @@ const STANDALONE_CONTEXT = {
 const ScmActorContext = createContext(STANDALONE_CONTEXT);
 
 const ROLE_EXPERIENCE = {
+  GESTOR_MAESTROS: {
+    label: 'Gestor de datos maestros',
+    focus: 'Cargar, revisar y mantener los catálogos técnicos habilitados para el piloto.',
+  },
   GERENCIA: {
     label: 'Gerencia',
     focus: 'Decisiones, aprobaciones y visibilidad del cumplimiento.',
@@ -84,6 +88,7 @@ const ROLE_EXPERIENCE = {
 
 const ROLE_PRIORITY = [
   'GERENCIA',
+  'GESTOR_MAESTROS',
   'JEFE_PRODUCCION',
   'JEFE_ENSAMBLE',
   'SUPERVISOR',

@@ -65,4 +65,37 @@ describe('navegación SCM por procesos', () => {
     expect(visible.map((item) => item.id)).toEqual(['inicio', 'planificacion', 'produccion']);
     expect(visibleProductionTabs.map((item) => item.label)).toEqual(['Órdenes de producción']);
   });
+
+  it('limita al gestor de maestros a catálogos y oculta participantes y producción', () => {
+    const capabilities = new Set([
+      'ARTICULO_VER',
+      'ARTICULO_ADMINISTRAR',
+      'ESTRUCTURA_VER',
+      'RUTA_VER',
+      'EMPAQUE_VER',
+      'CATALOGO_PROVEEDOR_ADMINISTRAR',
+      'CATALOGO_MATERIAL_ADMINISTRAR',
+      'CATALOGO_PLANTA_ADMINISTRAR',
+    ]);
+    const canAny = (required) => !required.length
+      || required.some((item) => capabilities.has(item));
+    const visiblePrimary = visibleByCapabilities(primaryNavigation, canAny);
+    const masters = workspaceNavigation.find((item) => item.id === 'maestros');
+    const visibleMasterTabs = visibleByCapabilities(masters.tabs, canAny);
+
+    expect(visiblePrimary.map((item) => item.id)).toEqual(['inicio']);
+    expect(visibleMasterTabs.map((item) => item.label)).toEqual([
+      'Resumen',
+      'Productos',
+      'Piezas y SKU',
+      'Moldes',
+      'Configuración guiada',
+      'Ingeniería SCM',
+      'Líneas y familias',
+      'Colores y recetas',
+      'Materias primas',
+      'Máquinas',
+    ]);
+    expect(visibleMasterTabs.map((item) => item.label)).not.toContain('Trabajadores');
+  });
 });

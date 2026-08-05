@@ -60,6 +60,7 @@ export const scmGuideStages = [
     ],
     roleMatrix: [
       { role: 'GERENTE_GENERAL', use: 'Administración inicial y contingencia', permissions: 'Todas las capacidades; puede publicar estructuras, rutas y reglas de empaque directamente con auditoría.' },
+      { role: 'GESTOR_MAESTROS', use: 'Carga y mantenimiento de catálogos', permissions: 'Administra productos, piezas, moldes, colores, materiales, máquinas, estructuras, rutas y empaque; no accede a participantes ni a la operación productiva.' },
       { role: 'PLANIFICACION', use: 'Demanda y plan industrial', permissions: 'Crea OP/OT, calcula y confirma planificación, planifica mangas y ensamble.' },
       { role: 'JEFE_PRODUCCION', use: 'Dirección productiva', permissions: 'Administra y publica estructuras, rutas y reglas de empaque; dirige OT/OF/OE, excepciones, correcciones y anulaciones.' },
       { role: 'SUPERVISOR', use: 'Coordinación de turno', permissions: 'Inicia/cierra OT, planifica mangas, genera preetiquetas y solicita excepciones.' },
