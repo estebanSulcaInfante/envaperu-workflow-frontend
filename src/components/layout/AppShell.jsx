@@ -2,6 +2,8 @@ import { Box } from '@mui/material';
 import { useLocation } from 'react-router-dom';
 import Sidebar from '../Sidebar';
 import ModuleTabs from '../ui/ModuleTabs';
+import ActorWorkspaceBar from './ActorWorkspaceBar';
+import { useScmActor } from '../../context/ScmActorContext';
 import {
   getWorkspaceNavigation,
   workspaceTabIsActive,
@@ -9,6 +11,7 @@ import {
 
 function AppShell({ children }) {
   const location = useLocation();
+  const { actorId } = useScmActor();
   const workspace = getWorkspaceNavigation(location.pathname);
 
   return (
@@ -26,14 +29,17 @@ function AppShell({ children }) {
           minHeight: '100vh',
         }}
       >
-        {workspace && (
-          <ModuleTabs
-            workspace={workspace}
-            pathname={location.pathname}
-            isActive={workspaceTabIsActive}
-          />
-        )}
-        {children}
+        <ActorWorkspaceBar />
+        <Box key={actorId}>
+          {workspace && (
+            <ModuleTabs
+              workspace={workspace}
+              pathname={location.pathname}
+              isActive={workspaceTabIsActive}
+            />
+          )}
+          {children}
+        </Box>
       </Box>
     </Box>
   );

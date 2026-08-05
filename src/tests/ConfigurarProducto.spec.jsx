@@ -200,9 +200,9 @@ describe('configuración guiada Molde–Pieza–PiezaColor', () => {
     expect(screen.getAllByLabelText(/^Cavidades/i).map((input) => input.value)).toEqual(['2', '1']);
     await user.click(screen.getByRole('button', { name: 'Siguiente' }));
 
-    expect(screen.getByText(/no se crearán PiezaColor ni kits/i)).toBeVisible();
+    expect(screen.getByText(/no se crearán variantes PiezaColor/i)).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Siguiente' }));
-    expect(screen.getByText(/Para formar un kit primero selecciona al menos un color/i)).toBeVisible();
+    expect(screen.getByText(/Este asistente configura el molde/i)).toBeVisible();
     expect(screen.queryByRole('switch', { name: /formar un Kit/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Revisar' }));
     expect(screen.getByText('ML-000020 - Molde regadera completo')).toBeVisible();

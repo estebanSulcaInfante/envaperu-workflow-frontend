@@ -35,8 +35,10 @@ import { getTrabajadores, createTrabajador, updateTrabajador, getRolesOperativos
 import DataTableToolbar from './ui/DataTableToolbar';
 import PageHeader from './ui/PageHeader';
 import { matchesOmniSearch } from '../utils/tableSearch';
+import { useScmActor } from '../context/ScmActorContext';
 
 function TrabajadoresAdmin() {
+  const { refreshActors } = useScmActor();
   const [trabajadores, setTrabajadores] = useState([]);
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -122,7 +124,7 @@ function TrabajadoresAdmin() {
         await createTrabajador(payload);
       }
       handleClose();
-      fetchData();
+      await Promise.all([fetchData(), refreshActors()]);
     } catch (err) {
       setError(err.response?.data?.error || 'Error guardando trabajador');
     }
@@ -131,7 +133,7 @@ function TrabajadoresAdmin() {
   const handleToggleEstado = async (id, currentEstado) => {
     try {
       await toggleEstadoTrabajador(id, !currentEstado);
-      fetchData();
+      await Promise.all([fetchData(), refreshActors()]);
     } catch {
       alert('Error cambiando estado');
     }

@@ -173,7 +173,7 @@ function FamiliaBreakdown({ ordenes }) {
   );
 }
 
-function Dashboard() {
+function Dashboard({ compact = false }) {
   const [loading, setLoading] = useState(true);
   const [ordenes, setOrdenes] = useState([]);
   const [maquinas, setMaquinas] = useState([]);
@@ -248,12 +248,16 @@ function Dashboard() {
 
   return (
     <Box>
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
-        Dashboard
-      </Typography>
-      <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-        Visión general de la planta • {new Date().toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' })}
-      </Typography>
+      {!compact && (
+        <>
+          <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
+            Dashboard
+          </Typography>
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+            Visión general de la planta • {new Date().toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </Typography>
+        </>
+      )}
 
       {/* KPIs Principales */}
       <Grid container spacing={2} sx={{ mb: 3 }}>

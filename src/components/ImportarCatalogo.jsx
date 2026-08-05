@@ -165,7 +165,7 @@ function ImportarCatalogo() {
                 overflow: 'auto'
               }}>
                 {tipoImport === 'productos' 
-                  ? 'Cod Linea, Linea, Cod Familia, Familia, Cod Producto, Producto, Cod Color, Familia Color, COD SKU PT, ...'
+                  ? 'Cod Linea, Linea, Cod Familia, Familia, Producto, COD SKU PT, ...'
                   : 'SKU, Cod Linea, Linea, FAMILIA, PRODUCTO, Cod Pieza, PIEZAS, Cod Col, Tipo Color, Cavidad, Peso, ...'}
               </Typography>
             </CardContent>

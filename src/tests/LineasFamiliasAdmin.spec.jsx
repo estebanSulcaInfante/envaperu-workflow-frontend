@@ -95,6 +95,20 @@ describe('LineasFamiliasAdmin', () => {
     }));
   });
 
+  it('evita crear otra línea con el mismo nombre', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Industrial');
+
+    await user.click(screen.getByRole('button', { name: 'Nueva línea' }));
+    const dialog = screen.getByRole('dialog');
+    await user.type(within(dialog).getByLabelText(/Nombre/), 'hogar');
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+
+    expect(await screen.findByText(/Ya existe la línea/i)).toBeInTheDocument();
+    expect(crearLinea).not.toHaveBeenCalled();
+  });
+
   it('asocia y desasocia familias desde la línea seleccionada', async () => {
     const user = userEvent.setup();
     renderPage();

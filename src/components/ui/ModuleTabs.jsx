@@ -15,6 +15,10 @@ import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import ScaleOutlinedIcon from '@mui/icons-material/ScaleOutlined';
 import SpaceDashboardOutlinedIcon from '@mui/icons-material/SpaceDashboardOutlined';
 import TrendingUpOutlinedIcon from '@mui/icons-material/TrendingUpOutlined';
+import RecyclingOutlinedIcon from '@mui/icons-material/RecyclingOutlined';
+import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
+import { useScmActor } from '../../context/ScmActorContext';
+import { visibleByCapabilities } from '../../config/navigation';
 
 const icons = {
   receipts: MoveToInboxOutlinedIcon,
@@ -36,10 +40,16 @@ const icons = {
   materials: Inventory2OutlinedIcon,
   workers: GroupsOutlinedIcon,
   machines: FactoryOutlinedIcon,
+  recycling: RecyclingOutlinedIcon,
+  alerts: NotificationsActiveOutlinedIcon,
 };
 
 function ModuleTabs({ workspace, pathname, isActive }) {
-  const activeTab = workspace.tabs.find((tab) => isActive(pathname, tab));
+  const { canAny } = useScmActor();
+  const tabs = visibleByCapabilities(workspace.tabs, canAny);
+  const activeTab = tabs.find((tab) => isActive(pathname, tab));
+
+  if (!tabs.length) return null;
 
   return (
     <Paper variant="outlined" sx={{ mb: 2.25, overflow: 'hidden', borderRadius: 1 }}>
@@ -49,7 +59,7 @@ function ModuleTabs({ workspace, pathname, isActive }) {
         scrollButtons="auto"
         aria-label={`Navegación de ${workspace.label}`}
       >
-        {workspace.tabs.map((tab) => {
+        {tabs.map((tab) => {
           const Icon = icons[tab.icon] || AssignmentOutlinedIcon;
           return (
             <Tab

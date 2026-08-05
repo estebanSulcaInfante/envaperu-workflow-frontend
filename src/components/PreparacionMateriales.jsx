@@ -7,6 +7,10 @@ import {
   Chip,
   CircularProgress,
   Divider,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControl,
   Grid,
   IconButton,
@@ -27,11 +31,11 @@ import {
   TableRow,
   Tabs,
   Tooltip,
+  TextField,
   Typography,
   useMediaQuery,
   useTheme,
 } from '@mui/material';
-import CloudOffOutlinedIcon from '@mui/icons-material/CloudOffOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ScienceOutlinedIcon from '@mui/icons-material/ScienceOutlined';
@@ -40,10 +44,16 @@ import RouteOutlinedIcon from '@mui/icons-material/RouteOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import ArrowForwardOutlinedIcon from '@mui/icons-material/ArrowForwardOutlined';
-import ApiPendingButton from './ApiPendingButton';
 import DataTableToolbar from './ui/DataTableToolbar';
 import PageHeader from './ui/PageHeader';
-import { obtenerPreparacionMateriales } from '../services/preparacionMateriales';
+import {
+  confirmarPremezclaCorrida,
+  devolverEmisionMaterial,
+  emitirReservaMaterial,
+  generarRequerimientosMaterial,
+  obtenerPreparacionMateriales,
+  reservarMaterialesCorrida,
+} from '../services/preparacionMateriales';
 import { matchesOmniSearch, uniqueOptions } from '../utils/tableSearch';
 
 const stages = ['Plan', 'Reserva', 'Emisión', 'Premezcla', 'Máquina'];
@@ -152,7 +162,7 @@ function PreparationQueue({ workspace, onOpen }) {
         eyebrow="Materias primas"
         title="Reservas y entregas a producción"
         description="Órdenes liberadas con requerimientos de material pendientes de reservar, emitir o preparar."
-        actions={<Chip data-testid="data-source" icon={<ScienceOutlinedIcon />} label="Datos mock" color="info" variant="outlined" />}
+        actions={<Chip data-testid="data-source" icon={<CheckCircleOutlineIcon />} label="API SCM" color="success" variant="outlined" />}
       />
       <DataTableToolbar
         searchValue={search}
@@ -290,7 +300,7 @@ function ReservationPanel({ lote }) {
   );
 }
 
-function EmissionPanel({ lote, capabilities }) {
+function EmissionPanel({ lote, onReturn }) {
   return (
     <Stack spacing={2}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -298,7 +308,13 @@ function EmissionPanel({ lote, capabilities }) {
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Movimientos hacia preparación</Typography>
           <Typography variant="body2" color="text.secondary">La emisión todavía no demuestra consumo</Typography>
         </Box>
-        <ApiPendingButton label="Registrar devolución" capability={capabilities.devolver} />
+        <Button
+          variant="outlined"
+          disabled={!lote.emisiones.some((item) => item.netaKg > 0)}
+          onClick={onReturn}
+        >
+          Registrar devolución
+        </Button>
       </Box>
       {lote.emisiones.length === 0 ? (
         <Alert severity="info">No existen emisiones para este lote de producción.</Alert>
@@ -428,6 +444,10 @@ function PreparacionMateriales() {
   const [tab, setTab] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [feedback, setFeedback] = useState(null);
+  const [commandBusy, setCommandBusy] = useState(false);
+  const [returnDialog, setReturnDialog] = useState(null);
+  const [premixDialog, setPremixDialog] = useState(null);
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
@@ -454,7 +474,7 @@ function PreparacionMateriales() {
     return <Box sx={{ minHeight: 320, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>;
   }
 
-  if (error || !workspace) {
+  if (!workspace) {
     return <Alert severity="error">{error || 'No existen datos de preparación.'}</Alert>;
   }
 
@@ -462,12 +482,73 @@ function PreparacionMateriales() {
     return <PreparationQueue workspace={workspace} onOpen={(op) => navigate(`/materiales/preparaciones/${op}`)} />;
   }
 
+  if (!workspace.ordenes.length) {
+    return <Alert severity="info">No hay órdenes de fabricación disponibles para preparar materiales.</Alert>;
+  }
+
   const order = workspace.ordenes.find((item) => item.numeroOp === selectedOp) || workspace.ordenes[0];
   const lote = order.lotes.find((item) => item.id === selectedLot) || order.lotes[0];
   const completedRequirements = lote.requerimientos.filter((item) => item.reservadoKg >= item.planKg).length;
   const issuedRequirements = lote.requerimientos.filter((item) => item.emitidoKg >= item.planKg).length;
-  const pendingCommandCount = ['reservar', 'emitir', 'devolver', 'confirmarPremezcla']
-    .filter((key) => !workspace.capabilities[key].apiReady).length;
+  const reservations = lote.requerimientos.flatMap((item) => item.reservas || []);
+  const pendingEmission = reservations.filter(
+    (item) => Number(item.cantidad_kg) > Number(item.emitida_neta_kg),
+  );
+
+  const command = async (operation, successMessage) => {
+    setCommandBusy(true);
+    setError(null);
+    setFeedback(null);
+    try {
+      await operation();
+      await loadWorkspace();
+      setFeedback(successMessage);
+    } catch (commandError) {
+      console.error(commandError);
+      setError(commandError?.response?.data?.error?.message || 'No fue posible completar la operación.');
+    } finally {
+      setCommandBusy(false);
+    }
+  };
+
+  const handleEmitAll = () => command(async () => {
+    for (const reservation of pendingEmission) {
+      const quantity = Number(reservation.cantidad_kg) - Number(reservation.emitida_neta_kg);
+      await emitirReservaMaterial(reservation.id, {
+        cantidad_kg: quantity.toFixed(3),
+        motivo: `Emisión para ${lote.id}`,
+      });
+    }
+  }, 'Materiales pendientes emitidos hacia Preparación de producción.');
+
+  const openReturnDialog = () => {
+    const emission = lote.emisiones.find((item) => item.netaKg > 0);
+    if (emission) setReturnDialog({ emissionId: emission.id, cantidadKg: emission.netaKg, motivo: '' });
+  };
+
+  const submitReturn = () => {
+    const payload = returnDialog;
+    setReturnDialog(null);
+    command(
+      () => devolverEmisionMaterial(payload.emissionId, {
+        cantidad_kg: Number(payload.cantidadKg).toFixed(3),
+        motivo: payload.motivo,
+      }),
+      'Devolución registrada y saldo restituido al almacén de origen.',
+    );
+  };
+
+  const submitPremix = () => {
+    const payload = premixDialog;
+    setPremixDialog(null);
+    command(
+      () => confirmarPremezclaCorrida(lote.runId, {
+        motivo: payload.motivo,
+        genealogia_tipo: payload.genealogiaTipo,
+      }),
+      'Premezcla confirmada. Los materiales emitidos quedaron incorporados al WIP trazable.',
+    );
+  };
 
   const handleOrderChange = (event) => {
     const nextOrder = workspace.ordenes.find((item) => item.numeroOp === event.target.value);
@@ -490,21 +571,21 @@ function PreparacionMateriales() {
         <Stack direction="row" spacing={1} alignItems="center">
           <Chip
             data-testid="data-source"
-            icon={<ScienceOutlinedIcon />}
-            label="Datos mock"
-            color="info"
+            icon={<CheckCircleOutlineIcon />}
+            label="API SCM"
+            color="success"
             variant="outlined"
           />
-          <Tooltip title="Los comandos de inventario están pendientes de API" arrow>
-            <Chip icon={<CloudOffOutlinedIcon />} label={`${pendingCommandCount} APIs pendientes`} variant="outlined" />
-          </Tooltip>
-          <Tooltip title="Restablecer fixture">
-            <IconButton aria-label="Restablecer datos mock" onClick={loadWorkspace} color="primary">
+          <Tooltip title="Actualizar desde la API">
+            <IconButton aria-label="Actualizar preparación" onClick={loadWorkspace} color="primary">
               <RefreshIcon />
             </IconButton>
           </Tooltip>
         </Stack>
       </Box>
+
+      {feedback && <Alert severity="success" onClose={() => setFeedback(null)} sx={{ mb: 2 }}>{feedback}</Alert>}
+      {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 1 }}>
         <Grid container spacing={2} alignItems="center">
@@ -531,9 +612,39 @@ function PreparacionMateriales() {
           </Grid>
           <Grid size={{ xs: 12, md: 6 }}>
             <Stack direction="row" spacing={1} justifyContent={{ xs: 'flex-start', md: 'flex-end' }} useFlexGap flexWrap="wrap">
-              <ApiPendingButton label="Confirmar reserva" capability={workspace.capabilities.reservar} />
-              <ApiPendingButton label="Emitir material" capability={workspace.capabilities.emitir} />
-              <ApiPendingButton label="Confirmar premezcla" capability={workspace.capabilities.confirmarPremezcla} />
+              {lote.requerimientos.length === 0 && (
+                <Button
+                  variant="contained"
+                  disabled={commandBusy}
+                  onClick={() => command(
+                    () => generarRequerimientosMaterial(order.orderId),
+                    'Requerimientos calculados y congelados desde la receta aprobada.',
+                  )}
+                >Generar requerimientos</Button>
+              )}
+              {lote.requerimientos.length > 0 && completedRequirements < lote.requerimientos.length && (
+                <Button
+                  variant="contained"
+                  disabled={commandBusy || reservations.length > 0}
+                  onClick={() => command(
+                    () => reservarMaterialesCorrida(lote.runId),
+                    'Saldo libre reservado para la corrida.',
+                  )}
+                >Reservar materiales</Button>
+              )}
+              <Button variant="contained" disabled={commandBusy || pendingEmission.length === 0} onClick={handleEmitAll}>
+                Emitir pendientes
+              </Button>
+              <Tooltip title={lote.emisiones.some((item) => item.netaKg > 0)
+                ? 'Transforma los materiales emitidos en un lote WIP trazable'
+                : 'Primero emite todos los componentes de la receta'}>
+                <span>
+                  <Button
+                    disabled={commandBusy || !lote.emisiones.some((item) => item.netaKg > 0)}
+                    onClick={() => setPremixDialog({ motivo: '', genealogiaTipo: '' })}
+                  >Confirmar premezcla</Button>
+                </span>
+              </Tooltip>
             </Stack>
           </Grid>
         </Grid>
@@ -576,11 +687,111 @@ function PreparacionMateriales() {
         <Box sx={{ p: { xs: 1.5, md: 2.5 }, minHeight: 360 }}>
           {tab === 0 && <PlanPanel lote={lote} />}
           {tab === 1 && <ReservationPanel lote={lote} />}
-          {tab === 2 && <EmissionPanel lote={lote} capabilities={workspace.capabilities} />}
+          {tab === 2 && <EmissionPanel lote={lote} onReturn={openReturnDialog} />}
           {tab === 3 && <PremixPanel lote={lote} />}
           {tab === 4 && <TracePanel lote={lote} />}
         </Box>
       </Paper>
+
+      <Dialog open={Boolean(returnDialog)} onClose={() => setReturnDialog(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Registrar devolución al almacén</DialogTitle>
+        <DialogContent>
+          {returnDialog && (
+            <Stack spacing={2} sx={{ pt: 1 }}>
+              <FormControl fullWidth>
+                <InputLabel id="emission-return-label">Emisión</InputLabel>
+                <Select
+                  labelId="emission-return-label"
+                  label="Emisión"
+                  value={returnDialog.emissionId}
+                  onChange={(event) => {
+                    const selected = lote.emisiones.find((item) => item.id === event.target.value);
+                    setReturnDialog((current) => ({
+                      ...current,
+                      emissionId: event.target.value,
+                      cantidadKg: selected?.netaKg || 0,
+                    }));
+                  }}
+                >
+                  {lote.emisiones.filter((item) => item.netaKg > 0).map((item) => (
+                    <MenuItem key={item.id} value={item.id}>
+                      {item.material} · disponible {formatKg(item.netaKg)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <TextField
+                label="Cantidad a devolver (kg)"
+                type="number"
+                value={returnDialog.cantidadKg}
+                onChange={(event) => setReturnDialog((current) => ({ ...current, cantidadKg: event.target.value }))}
+                slotProps={{ htmlInput: { min: 0.001, step: 0.001 } }}
+              />
+              <TextField
+                label="Motivo"
+                required
+                multiline
+                minRows={2}
+                value={returnDialog.motivo}
+                onChange={(event) => setReturnDialog((current) => ({ ...current, motivo: event.target.value }))}
+              />
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReturnDialog(null)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            disabled={!returnDialog?.motivo.trim() || Number(returnDialog?.cantidadKg) <= 0}
+            onClick={submitReturn}
+          >Confirmar devolución</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(premixDialog)} onClose={() => setPremixDialog(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Confirmar transformación de premezcla</DialogTitle>
+        <DialogContent>
+          {premixDialog && (
+            <Stack spacing={2} sx={{ pt: 1 }}>
+              <Alert severity="info">
+                Esta acción incorpora los saldos emitidos a un nuevo lote WIP y ya no podrán devolverse como materiales separados.
+              </Alert>
+              <FormControl fullWidth>
+                <InputLabel id="premix-genealogy-label">Genealogía</InputLabel>
+                <Select
+                  labelId="premix-genealogy-label"
+                  label="Genealogía"
+                  value={premixDialog.genealogiaTipo}
+                  onChange={(event) => setPremixDialog((current) => ({
+                    ...current,
+                    genealogiaTipo: event.target.value,
+                  }))}
+                >
+                  <MenuItem value="" disabled>Selecciona según la trazabilidad observada</MenuItem>
+                  <MenuItem value="EXACTA">Exacta — emisiones identificadas</MenuItem>
+                  <MenuItem value="CONJUNTO_CANDIDATOS">Conjunto de proveedores candidatos</MenuItem>
+                </Select>
+              </FormControl>
+              <TextField
+                label="Motivo / referencia de preparación"
+                required
+                multiline
+                minRows={2}
+                value={premixDialog.motivo}
+                onChange={(event) => setPremixDialog((current) => ({ ...current, motivo: event.target.value }))}
+              />
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPremixDialog(null)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            disabled={!premixDialog?.motivo.trim() || !premixDialog?.genealogiaTipo}
+            onClick={submitPremix}
+          >Confirmar transformación</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

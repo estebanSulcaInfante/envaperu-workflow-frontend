@@ -33,6 +33,7 @@ vi.mock('../services/api', () => ({
 }));
 
 import {
+  actualizarProducto,
   buscarPiezasGlobales,
   buscarProductos,
   crearMolde,
@@ -89,16 +90,16 @@ describe('identificadores internos automáticos', () => {
     renderWithShell(<ProductosAdmin />);
 
     await user.click(await screen.findByRole('button', { name: /nuevo producto/i }));
-    const identifier = screen.getByLabelText(/^sku$/i);
-    expect(identifier).toHaveValue('Se asignará automáticamente al guardar');
+    const identifier = screen.getByLabelText(/sku automático/i);
+    expect(identifier).toHaveValue('PT-###### · se asignará al guardar');
     expect(identifier).toHaveAttribute('readonly');
     await user.click(screen.getByRole('combobox', { name: 'Línea' }));
     await user.click(await screen.findByRole('option', { name: 'HOGAR' }));
     await waitFor(() => expect(obtenerFamilias).toHaveBeenCalledWith({ linea_id: 1 }));
     await user.click(screen.getByRole('combobox', { name: 'Familia' }));
     await user.click(await screen.findByRole('option', { name: 'ENVASES' }));
-    await user.type(screen.getByLabelText(/nombre producto/i), 'Producto de prueba');
-    await user.click(screen.getByRole('button', { name: /^crear$/i }));
+    await user.type(screen.getByLabelText(/nombre del producto/i), 'Producto de prueba');
+    await user.click(screen.getByRole('button', { name: /crear producto/i }));
 
     await waitFor(() => expect(crearProducto).toHaveBeenCalledTimes(1));
     expect(crearProducto.mock.calls[0][0]).not.toHaveProperty('cod_sku_pt');
@@ -106,6 +107,32 @@ describe('identificadores internos automáticos', () => {
       linea_id: 1,
       familia_id: 7,
     });
+  });
+
+  it('desactiva el producto sin ofrecer eliminación directa', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    buscarProductos
+      .mockResolvedValueOnce([{
+        cod_sku_pt: 'PT-000001',
+        producto: 'Jarra Regadera',
+        familia: 'JARDIN',
+        linea: 'Hogar',
+        status: 'ACTIVO',
+      }])
+      .mockResolvedValueOnce([]);
+    actualizarProducto.mockResolvedValue({ cod_sku_pt: 'PT-000001' });
+
+    renderWithShell(<ProductosAdmin />);
+
+    expect(await screen.findByRole('button', { name: 'Desactivar PT-000001' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /eliminar/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Desactivar PT-000001' }));
+
+    await waitFor(() => expect(actualizarProducto).toHaveBeenCalledWith(
+      'PT-000001',
+      { status: 'INACTIVO' },
+    ));
   });
 
   it('crea PiezaColor sin SKU manual en el diálogo legacy', async () => {
@@ -124,14 +151,21 @@ describe('identificadores internos automáticos', () => {
 
   it('conserva el código de barras externo al crear un producto sin SKU manual', async () => {
     const user = userEvent.setup();
+    obtenerLineas.mockResolvedValue([{ id: 1, codigo: 10, nombre: 'HOGAR' }]);
+    obtenerFamilias.mockResolvedValue([{ id: 7, codigo: 14, nombre: 'ENVASES' }]);
     renderWithShell(<ProductoDialog open onClose={vi.fn()} producto={null} />);
 
-    const identifier = screen.getByLabelText(/^sku$/i);
-    expect(identifier).toHaveValue('Se asignará automáticamente al guardar');
+    const identifier = screen.getByLabelText(/sku automático/i);
+    expect(identifier).toHaveValue('PT-###### · se asignará al guardar');
     expect(identifier).toHaveAttribute('readonly');
-    await user.type(screen.getByLabelText(/nombre producto/i), 'Producto con barras');
+    await user.type(screen.getByLabelText(/nombre del producto/i), 'Producto con barras');
+    await user.click(screen.getByRole('combobox', { name: 'Línea' }));
+    await user.click(await screen.findByRole('option', { name: 'HOGAR' }));
+    await waitFor(() => expect(obtenerFamilias).toHaveBeenCalledWith({ linea_id: 1 }));
+    await user.click(screen.getByRole('combobox', { name: 'Familia' }));
+    await user.click(await screen.findByRole('option', { name: 'ENVASES' }));
     await user.type(screen.getByLabelText(/barras/i), '7751234567890');
-    await user.click(screen.getByRole('button', { name: /^crear$/i }));
+    await user.click(screen.getByRole('button', { name: /crear producto/i }));
 
     await waitFor(() => expect(crearProducto).toHaveBeenCalledTimes(1));
     expect(crearProducto.mock.calls[0][0]).not.toHaveProperty('cod_sku_pt');

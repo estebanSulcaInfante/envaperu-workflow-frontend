@@ -1,17 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
   Chip,
   CircularProgress,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControl,
   IconButton,
+  InputLabel,
+  MenuItem,
   Paper,
   Stack,
+  Select,
   Table,
   TableBody,
   TableCell,
@@ -26,10 +31,18 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
 import RestoreIcon from '@mui/icons-material/Restore';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
+import PaletteOutlinedIcon from '@mui/icons-material/PaletteOutlined';
+import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
 import {
   actualizarPiezaGlobal,
   buscarPiezasGlobales,
   crearPiezaGlobal,
+  eliminarImagenPiezaColor,
+  guardarImagenPiezaColor,
+  habilitarColorMolde,
+  obtenerColores,
   obtenerFamilias,
   obtenerLineas,
 } from '../services/api';
@@ -38,6 +51,7 @@ import PageHeader from './ui/PageHeader';
 import CreateOptionAutocomplete from './ui/CreateOptionAutocomplete';
 import ClassificationQuickCreateDialog from './ui/ClassificationQuickCreateDialog';
 import { matchesOmniSearch } from '../utils/tableSearch';
+import { useScmActor } from '../context/ScmActorContext';
 
 const emptyForm = {
   codigo: '',
@@ -52,9 +66,12 @@ const emptyForm = {
 const catalogName = (items, id) => items.find((item) => item.id === id)?.nombre || 'Sin asignar';
 
 function PiezasAdmin() {
+  const { can, experience } = useScmActor();
+  const canAdmin = can('ARTICULO_ADMINISTRAR');
   const [piezas, setPiezas] = useState([]);
   const [lineas, setLineas] = useState([]);
   const [familias, setFamilias] = useState([]);
+  const [colores, setColores] = useState([]);
   const [familiasLinea, setFamiliasLinea] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -62,6 +79,12 @@ function PiezasAdmin() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPieza, setEditingPieza] = useState(null);
   const [formData, setFormData] = useState(emptyForm);
+  const [expanded, setExpanded] = useState(() => new Set());
+  const [colorDialog, setColorDialog] = useState({ open: false, pieza: null, moldeId: '', colorId: '' });
+  const [imageDialog, setImageDialog] = useState({ open: false, variante: null });
+  const [variantImageFile, setVariantImageFile] = useState(null);
+  const [removeVariantImage, setRemoveVariantImage] = useState(false);
+  const [attempted, setAttempted] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ACTIVAS');
   const [classificationDialog, setClassificationDialog] = useState({
@@ -73,14 +96,16 @@ function PiezasAdmin() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [pieceData, lineData, familyData] = await Promise.all([
+      const [pieceData, lineData, familyData, colorData] = await Promise.all([
         buscarPiezasGlobales(),
         obtenerLineas(),
         obtenerFamilias(),
+        obtenerColores(),
       ]);
       setPiezas(pieceData);
       setLineas(lineData);
       setFamilias(familyData);
+      setColores(colorData);
     } catch (err) {
       setError(err.response?.data?.error || 'No se pudo cargar el maestro de piezas.');
     } finally {
@@ -125,12 +150,14 @@ function PiezasAdmin() {
   const openCreate = () => {
     setEditingPieza(null);
     setFormData(emptyForm);
+    setAttempted(false);
     setFamiliasLinea([]);
     setDialogOpen(true);
   };
 
   const openEdit = (pieza) => {
     setEditingPieza(pieza);
+    setAttempted(false);
     setFamiliasLinea([]);
     setFormData({
       codigo: pieza.codigo || '',
@@ -175,6 +202,7 @@ function PiezasAdmin() {
   };
 
   const handleSubmit = async () => {
+    setAttempted(true);
     const nombre = formData.nombre.trim();
     const pesoNominal = Number(formData.peso_nominal_gr);
     if (!nombre || !Number.isFinite(pesoNominal) || pesoNominal <= 0) {
@@ -193,16 +221,72 @@ function PiezasAdmin() {
 
     try {
       setSaving(true);
-      if (editingPieza) {
-        await actualizarPiezaGlobal(editingPieza.id, payload);
-      } else {
-        await crearPiezaGlobal(payload);
-      }
+      editingPieza
+        ? await actualizarPiezaGlobal(editingPieza.id, payload)
+        : await crearPiezaGlobal(payload);
       setDialogOpen(false);
       setEditingPieza(null);
       await fetchData();
     } catch (err) {
       setError(err.response?.data?.error || 'No se pudo guardar la pieza.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleExpanded = (piezaId) => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(piezaId)) next.delete(piezaId);
+      else next.add(piezaId);
+      return next;
+    });
+  };
+
+  const openColorDialog = (pieza) => {
+    const moldes = pieza.moldes || [];
+    setColorDialog({
+      open: true,
+      pieza,
+      moldeId: moldes.length === 1 ? moldes[0].molde_id : '',
+      colorId: '',
+    });
+  };
+
+  const saveMoldColor = async () => {
+    if (!colorDialog.moldeId || !colorDialog.colorId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await habilitarColorMolde(colorDialog.moldeId, Number(colorDialog.colorId));
+      setColorDialog({ open: false, pieza: null, moldeId: '', colorId: '' });
+      await fetchData();
+      setExpanded((current) => new Set(current).add(colorDialog.pieza.id));
+    } catch (err) {
+      setError(err.response?.data?.error || 'No se pudo habilitar el color para el molde completo.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openVariantImage = (variante) => {
+    setImageDialog({ open: true, variante });
+    setVariantImageFile(null);
+    setRemoveVariantImage(false);
+  };
+
+  const saveVariantImage = async () => {
+    const variante = imageDialog.variante;
+    if (!variante || (!variantImageFile && !removeVariantImage)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      if (variantImageFile) await guardarImagenPiezaColor(variante.sku, variantImageFile);
+      else if (removeVariantImage && variante.imagen_url) await eliminarImagenPiezaColor(variante.sku);
+      setImageDialog({ open: false, variante: null });
+      await fetchData();
+    } catch (err) {
+      setError(err.response?.data?.error || 'No se pudo guardar la imagen del SKU.');
     } finally {
       setSaving(false);
     }
@@ -247,6 +331,12 @@ function PiezasAdmin() {
           {error}
         </Alert>
       )}
+      {!canAdmin && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Vista de consulta para {experience.label}. Las altas y cambios corresponden a
+          Ingeniería o Configuración SCM.
+        </Alert>
+      )}
 
       <DataTableToolbar
         searchValue={search}
@@ -269,11 +359,11 @@ function PiezasAdmin() {
           setSearch('');
           setStatusFilter('ACTIVAS');
         }}
-        actions={(
+        actions={canAdmin ? (
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             Nueva pieza
           </Button>
-        )}
+        ) : null}
         sx={{ mb: 2 }}
       />
 
@@ -281,6 +371,7 @@ function PiezasAdmin() {
         <Table size="small">
           <TableHead>
             <TableRow>
+              <TableCell padding="checkbox" />
               <TableCell>Código</TableCell>
               <TableCell>Nombre</TableCell>
               <TableCell>Línea / familia</TableCell>
@@ -288,75 +379,155 @@ function PiezasAdmin() {
               <TableCell>Moldes asociados</TableCell>
               <TableCell align="right">Variantes</TableCell>
               <TableCell>Estado</TableCell>
-              <TableCell align="center">Acciones</TableCell>
+              {canAdmin && <TableCell align="center">Acciones</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
             {visiblePiezas.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={canAdmin ? 9 : 8} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">No hay piezas para los filtros seleccionados.</Typography>
                 </TableCell>
               </TableRow>
             ) : visiblePiezas.map((pieza) => (
-              <TableRow key={pieza.id} hover sx={{ opacity: pieza.activo === false ? 0.62 : 1 }}>
-                <TableCell>
-                  <Typography variant="body2" fontWeight={700}>{pieza.codigo}</Typography>
-                </TableCell>
-                <TableCell>{pieza.nombre}</TableCell>
-                <TableCell>
-                  <Typography variant="body2">{pieza.linea || catalogName(lineas, pieza.linea_id)}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {pieza.familia || catalogName(familias, pieza.familia_id)}
-                  </Typography>
-                </TableCell>
-                <TableCell align="right">{Number(pieza.peso_nominal_gr).toFixed(2)}</TableCell>
-                <TableCell>
-                  {(pieza.moldes || []).length === 0 ? (
-                    <Typography variant="caption" color="text.secondary">Sin molde</Typography>
-                  ) : (pieza.moldes || []).map((molde) => (
-                    <Chip
-                      key={molde.composicion_id || molde.molde_id}
-                      size="small"
-                      variant="outlined"
-                      label={molde.molde_id}
-                      title={molde.molde_nombre || molde.molde_id}
-                      sx={{ mr: 0.5, mb: 0.5 }}
-                    />
-                  ))}
-                </TableCell>
-                <TableCell align="right">{pieza.variantes_count || 0}</TableCell>
-                <TableCell>
-                  <Chip
-                    size="small"
-                    color={pieza.activo === false ? 'default' : 'success'}
-                    label={pieza.activo === false ? 'Inactiva' : 'Activa'}
-                  />
-                </TableCell>
-                <TableCell align="center">
-                  <Tooltip title="Editar maestro">
-                    <IconButton aria-label={`Editar ${pieza.codigo}`} size="small" onClick={() => openEdit(pieza)}>
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title={pieza.activo === false ? 'Reactivar' : 'Desactivar'}>
+              <Fragment key={pieza.id}>
+                <TableRow hover sx={{ opacity: pieza.activo === false ? 0.62 : 1 }}>
+                  <TableCell padding="checkbox">
                     <IconButton
-                      aria-label={`${pieza.activo === false ? 'Reactivar' : 'Desactivar'} ${pieza.codigo}`}
                       size="small"
-                      color={pieza.activo === false ? 'success' : 'warning'}
-                      onClick={() => toggleActive(pieza)}
+                      aria-label={`${expanded.has(pieza.id) ? 'Ocultar' : 'Mostrar'} SKU de ${pieza.codigo}`}
+                      onClick={() => toggleExpanded(pieza.id)}
                     >
-                      {pieza.activo === false ? <RestoreIcon fontSize="small" /> : <LinkOffIcon fontSize="small" />}
+                      {expanded.has(pieza.id) ? <KeyboardArrowDownIcon /> : <KeyboardArrowRightIcon />}
                     </IconButton>
-                  </Tooltip>
-                </TableCell>
-              </TableRow>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight={700}>{pieza.codigo}</Typography>
+                  </TableCell>
+                  <TableCell>{pieza.nombre}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2">{pieza.linea || catalogName(lineas, pieza.linea_id)}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {pieza.familia || catalogName(familias, pieza.familia_id)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right">{Number(pieza.peso_nominal_gr).toFixed(2)}</TableCell>
+                  <TableCell>
+                    {(pieza.moldes || []).length === 0 ? (
+                      <Typography variant="caption" color="text.secondary">Sin molde</Typography>
+                    ) : (pieza.moldes || []).map((molde) => (
+                      <Chip
+                        key={molde.composicion_id || molde.molde_id}
+                        size="small"
+                        variant="outlined"
+                        label={molde.molde_id}
+                        title={molde.molde_nombre || molde.molde_id}
+                        sx={{ mr: 0.5, mb: 0.5 }}
+                      />
+                    ))}
+                  </TableCell>
+                  <TableCell align="right">{(pieza.variantes || []).length}</TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      color={pieza.activo === false ? 'default' : 'success'}
+                      label={pieza.activo === false ? 'Inactiva' : 'Activa'}
+                    />
+                  </TableCell>
+                  {canAdmin && <TableCell align="center">
+                    <Tooltip title="Habilitar color para todo el molde">
+                      <span>
+                        <IconButton
+                          aria-label={`Habilitar color desde ${pieza.codigo}`}
+                          size="small"
+                          color="primary"
+                          disabled={pieza.activo === false || (pieza.moldes || []).length === 0}
+                          onClick={() => openColorDialog(pieza)}
+                        >
+                          <PaletteOutlinedIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title="Editar maestro">
+                      <IconButton aria-label={`Editar ${pieza.codigo}`} size="small" onClick={() => openEdit(pieza)}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title={pieza.activo === false ? 'Reactivar' : 'Desactivar'}>
+                      <IconButton
+                        aria-label={`${pieza.activo === false ? 'Reactivar' : 'Desactivar'} ${pieza.codigo}`}
+                        size="small"
+                        color={pieza.activo === false ? 'success' : 'warning'}
+                        onClick={() => toggleActive(pieza)}
+                      >
+                        {pieza.activo === false ? <RestoreIcon fontSize="small" /> : <LinkOffIcon fontSize="small" />}
+                      </IconButton>
+                    </Tooltip>
+                  </TableCell>}
+                </TableRow>
+                <TableRow>
+                  <TableCell colSpan={canAdmin ? 9 : 8} sx={{ py: 0, bgcolor: 'grey.50' }}>
+                    <Collapse in={expanded.has(pieza.id)} timeout="auto" unmountOnExit>
+                      <Box sx={{ py: 1.5, pl: 2 }}>
+                        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                          SKU físicos por color
+                        </Typography>
+                        {(pieza.variantes || []).length === 0 ? (
+                          <Alert severity="info">
+                            Sin PiezaColor. Habilita un color en uno de sus moldes; se crearán todas las salidas del golpe.
+                          </Alert>
+                        ) : (
+                          <Table size="small" aria-label={`SKU de ${pieza.codigo}`}>
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>Imagen</TableCell>
+                                <TableCell>SKU</TableCell>
+                                <TableCell>Variante</TableCell>
+                                <TableCell>Color</TableCell>
+                                <TableCell align="right">Peso (g)</TableCell>
+                                <TableCell>Revisión</TableCell>
+                                {canAdmin && <TableCell align="center">Acción</TableCell>}
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {(pieza.variantes || []).map((variante) => (
+                                <TableRow key={variante.sku}>
+                                  <TableCell>
+                                    {variante.imagen_url ? (
+                                      <Box component="img" src={variante.imagen_url} alt={`Imagen ${variante.sku}`} sx={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 1, border: '1px solid', borderColor: 'divider' }} />
+                                    ) : <ImageOutlinedIcon color="disabled" />}
+                                  </TableCell>
+                                  <TableCell><Typography fontWeight={750}>{variante.sku}</Typography></TableCell>
+                                  <TableCell>{variante.nombre}</TableCell>
+                                  <TableCell>
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                      <Box sx={{ width: 18, height: 18, borderRadius: '50%', bgcolor: variante.color_hex || 'grey.300', border: '1px solid', borderColor: 'divider' }} />
+                                      <Typography variant="body2">{variante.color || 'Sin color'}</Typography>
+                                    </Stack>
+                                  </TableCell>
+                                  <TableCell align="right">{Number(variante.peso || pieza.peso_nominal_gr).toFixed(2)}</TableCell>
+                                  <TableCell><Chip size="small" variant="outlined" label={variante.estado_revision || 'SIN REVISAR'} /></TableCell>
+                                  {canAdmin && <TableCell align="center">
+                                    <Button size="small" startIcon={<ImageOutlinedIcon />} onClick={() => openVariantImage(variante)}>
+                                      Imagen
+                                    </Button>
+                                  </TableCell>}
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        )}
+                      </Box>
+                    </Collapse>
+                  </TableCell>
+                </TableRow>
+              </Fragment>
             ))}
           </TableBody>
         </Table>
       </TableContainer>
 
-      <Dialog open={dialogOpen} onClose={closeDialog} maxWidth="sm" fullWidth>
+      {canAdmin && <Dialog open={dialogOpen} onClose={closeDialog} maxWidth="sm" fullWidth>
         <DialogTitle>{editingPieza ? 'Editar pieza' : 'Nueva pieza'}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
@@ -372,6 +543,8 @@ function PiezasAdmin() {
               value={formData.nombre}
               onChange={(event) => setFormData({ ...formData, nombre: event.target.value })}
               required
+              error={attempted && !formData.nombre.trim()}
+              helperText={attempted && !formData.nombre.trim() ? 'El nombre es obligatorio.' : ''}
               fullWidth
             />
             <TextField
@@ -381,9 +554,13 @@ function PiezasAdmin() {
               onChange={(event) => setFormData({ ...formData, peso_nominal_gr: event.target.value })}
               inputProps={{ min: 0.001, step: 0.001 }}
               helperText="Referencia del maestro; cada molde puede tener un peso operativo distinto."
+              error={attempted && !(Number(formData.peso_nominal_gr) > 0)}
               required
               fullWidth
             />
+            <Alert severity="info">
+              Pieza representa una forma abstracta. Las fotografías se administran en cada SKU PiezaColor.
+            </Alert>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <CreateOptionAutocomplete
                 options={lineas}
@@ -431,15 +608,113 @@ function PiezasAdmin() {
             {saving ? 'Guardando…' : editingPieza ? 'Guardar cambios' : 'Crear pieza'}
           </Button>
         </DialogActions>
-      </Dialog>
-      <ClassificationQuickCreateDialog
+      </Dialog>}
+      {canAdmin && <Dialog
+        open={colorDialog.open}
+        onClose={() => !saving && setColorDialog({ open: false, pieza: null, moldeId: '', colorId: '' })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Habilitar color en molde</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Alert severity="warning">
+              El color se aplicará al golpe completo. Se crearán o reutilizarán los SKU de todas las piezas activas del molde seleccionado.
+            </Alert>
+            <FormControl fullWidth required>
+              <InputLabel id="mold-color-mold-label">Molde</InputLabel>
+              <Select
+                labelId="mold-color-mold-label"
+                label="Molde"
+                value={colorDialog.moldeId}
+                onChange={(event) => setColorDialog((current) => ({ ...current, moldeId: event.target.value }))}
+              >
+                {(colorDialog.pieza?.moldes || []).map((molde) => (
+                  <MenuItem key={molde.molde_id} value={molde.molde_id}>
+                    {molde.molde_id} · {molde.molde_nombre}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth required>
+              <InputLabel id="mold-color-color-label">Color de producción</InputLabel>
+              <Select
+                labelId="mold-color-color-label"
+                label="Color de producción"
+                value={colorDialog.colorId}
+                onChange={(event) => setColorDialog((current) => ({ ...current, colorId: event.target.value }))}
+              >
+                {colores.filter((color) => color.activo !== false).map((color) => (
+                  <MenuItem key={color.id} value={color.id}>
+                    {color.nombre}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setColorDialog({ open: false, pieza: null, moldeId: '', colorId: '' })} disabled={saving}>Cancelar</Button>
+          <Button variant="contained" onClick={saveMoldColor} disabled={saving || !colorDialog.moldeId || !colorDialog.colorId}>
+            {saving ? 'Habilitando…' : 'Habilitar para todo el molde'}
+          </Button>
+        </DialogActions>
+      </Dialog>}
+      {canAdmin && <Dialog
+        open={imageDialog.open}
+        onClose={() => !saving && setImageDialog({ open: false, variante: null })}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Imagen de {imageDialog.variante?.sku || 'PiezaColor'}</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} alignItems="center">
+            <Typography variant="body2" align="center">
+              {imageDialog.variante?.nombre}<br />{imageDialog.variante?.color}
+            </Typography>
+            <Box
+              component="img"
+              src={variantImageFile
+                ? URL.createObjectURL(variantImageFile)
+                : (!removeVariantImage && imageDialog.variante?.imagen_url) || undefined}
+              alt={`Vista previa ${imageDialog.variante?.sku || ''}`}
+              sx={{ width: 180, height: 180, objectFit: 'contain', border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: 'grey.50' }}
+            />
+            <Button component="label" variant="outlined" startIcon={<ImageOutlinedIcon />}>
+              {variantImageFile || imageDialog.variante?.imagen_url ? 'Cambiar imagen' : 'Seleccionar imagen'}
+              <input hidden type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
+                const file = event.target.files?.[0] || null;
+                if (file && file.size > 2 * 1024 * 1024) {
+                  setError('La imagen no puede superar 2 MB.');
+                  return;
+                }
+                setVariantImageFile(file);
+                setRemoveVariantImage(false);
+              }} />
+            </Button>
+            {(variantImageFile || (!removeVariantImage && imageDialog.variante?.imagen_url)) && (
+              <Button color="error" onClick={() => { setVariantImageFile(null); setRemoveVariantImage(true); }}>
+                Quitar imagen
+              </Button>
+            )}
+            <Typography variant="caption" color="text.secondary">JPG, PNG o WebP; máximo 2 MB.</Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImageDialog({ open: false, variante: null })} disabled={saving}>Cancelar</Button>
+          <Button variant="contained" onClick={saveVariantImage} disabled={saving || (!variantImageFile && !removeVariantImage)}>
+            {saving ? 'Guardando…' : 'Guardar imagen'}
+          </Button>
+        </DialogActions>
+      </Dialog>}
+      {canAdmin && <ClassificationQuickCreateDialog
         open={classificationDialog.open}
         entity={classificationDialog.entity}
         linea={lineas.find((linea) => linea.id === formData.linea_id) || null}
         initialName={classificationDialog.initialName}
         onClose={() => setClassificationDialog((current) => ({ ...current, open: false }))}
         onCreated={registrarClasificacionCreada}
-      />
+      />}
     </Box>
   );
 }

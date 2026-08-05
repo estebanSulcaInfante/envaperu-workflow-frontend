@@ -1,47 +1,31 @@
-import { useState, useEffect, Fragment } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Box,
-  Paper,
+  Alert, Box, Button, Chip, CircularProgress, IconButton, Paper, Table,
+  TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip,
   Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Button,
-  IconButton,
-  Chip,
-  CircularProgress,
-  Alert,
-  Tooltip,
-  Collapse
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import InventoryIcon from '@mui/icons-material/Inventory2';
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
-import { 
-  buscarProductos, 
-  eliminarProducto, 
-  obtenerProducto
+import LinkOffIcon from '@mui/icons-material/LinkOff';
+import RestoreIcon from '@mui/icons-material/Restore';
+import {
+  actualizarProducto, buscarProductos, obtenerProducto,
 } from '../services/api';
 import DataTableToolbar from './ui/DataTableToolbar';
 import PageHeader from './ui/PageHeader';
 import ProductoDialog from './ProductoDialog';
 import { matchesOmniSearch, uniqueOptions } from '../utils/tableSearch';
+import { useScmActor } from '../context/ScmActorContext';
 
-function ProductosAdmin() {
+export default function ProductosAdmin() {
+  const { can, experience } = useScmActor();
+  const canAdmin = can('ARTICULO_ADMINISTRAR');
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProducto, setEditingProducto] = useState(null);
-  
-  // Estado para filas expandidas
-  const [expandedRows, setExpandedRows] = useState({});
   const [search, setSearch] = useState('');
   const [familyFilter, setFamilyFilter] = useState('TODAS');
   const [statusFilter, setStatusFilter] = useState('TODOS');
@@ -49,210 +33,198 @@ function ProductosAdmin() {
   const fetchProductos = async () => {
     try {
       setLoading(true);
-      const data = await buscarProductos();
-      setProductos(data);
-    } catch {
-      setError('Error cargando productos');
+      setProductos(await buscarProductos());
+    } catch (requestError) {
+      setError(
+        requestError?.response?.data?.error
+        || 'No se pudo cargar el catálogo de productos.',
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchProductos();
-  }, []);
+  useEffect(() => { fetchProductos(); }, []);
 
-  const handleOpenDialog = async (producto = null) => {
-    if (producto) {
-      try {
-        const full = await obtenerProducto(producto.cod_sku_pt);
-        setEditingProducto(full);
-      } catch {
-        setError('Error cargando producto');
-        return;
-      }
-    } else {
+  const openDialog = async (product = null) => {
+    setError('');
+    if (!product) {
       setEditingProducto(null);
+      setDialogOpen(true);
+      return;
     }
-    setDialogOpen(true);
+    if (!String(product.cod_sku_pt || '').trim()) {
+      setError('El producto no tiene un SKU válido y debe normalizarse antes de editarlo.');
+      return;
+    }
+    try {
+      setEditingProducto(await obtenerProducto(product.cod_sku_pt));
+      setDialogOpen(true);
+    } catch (requestError) {
+      setError(
+        requestError?.response?.data?.error
+        || 'No se pudo cargar el producto seleccionado.',
+      );
+    }
   };
 
-  const handleCloseDialog = () => {
-    setDialogOpen(false);
-    setEditingProducto(null);
-  };
-
-  const handleDelete = async (sku) => {
-    if (window.confirm('¿Eliminar este producto?')) {
-      try {
-        await eliminarProducto(sku);
-        fetchProductos();
-      } catch {
-        setError('No se pudo eliminar el producto');
-      }
+  const toggleProduct = async (product) => {
+    const inactive = String(product.status || 'ACTIVO').toUpperCase() === 'INACTIVO';
+    const nextStatus = inactive ? 'ACTIVO' : 'INACTIVO';
+    const action = inactive ? 'reactivar' : 'desactivar';
+    if (!window.confirm(`¿Desea ${action} el producto ${product.cod_sku_pt}?`)) return;
+    try {
+      await actualizarProducto(product.cod_sku_pt, { status: nextStatus });
+      setNotice(`${product.cod_sku_pt} ${inactive ? 'reactivado' : 'desactivado'}.`);
+      await fetchProductos();
+    } catch (requestError) {
+      setError(
+        requestError?.response?.data?.error
+        || `No se pudo ${action} el producto.`,
+      );
     }
   };
 
   if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress />
-      </Box>
-    );
+    return <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>;
   }
 
   const families = uniqueOptions(productos, 'familia');
-  const visibleProductos = productos.filter((producto) => (
-    (familyFilter === 'TODAS' || producto.familia === familyFilter)
-    && (statusFilter === 'TODOS' || String(producto.status || 'Activo').toUpperCase() === statusFilter)
-    && matchesOmniSearch(producto, search)
+  const visibleProducts = productos.filter((product) => (
+    (familyFilter === 'TODAS' || product.familia === familyFilter)
+    && (
+      statusFilter === 'TODOS'
+      || String(product.status || 'Activo').toUpperCase() === statusFilter
+    )
+    && matchesOmniSearch(product, search)
   ));
 
   return (
     <Box sx={{ mt: 2 }}>
-      <Box sx={{ mb: 2 }}>
-        <PageHeader
-          eyebrow="Datos maestros"
-          title="Productos terminados"
-          description="Paquetes comerciales definidos por su BOM de PiezaColor."
-        />
-      </Box>
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+      <PageHeader
+        eyebrow="Datos maestros"
+        title="Productos terminados"
+        description="Identidades comerciales estables. La composición productiva se gobierna mediante BOM revisionadas en Ingeniería SCM."
+      />
+      {error && <Alert severity="error" sx={{ my: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {notice && <Alert severity="success" sx={{ my: 2 }} onClose={() => setNotice('')}>{notice}</Alert>}
+      {!canAdmin && (
+        <Alert severity="info" sx={{ my: 2 }}>
+          Vista de consulta para {experience.label}. Las altas y cambios corresponden a
+          Ingeniería o Configuración SCM.
+        </Alert>
+      )}
 
       <DataTableToolbar
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Buscar SKU, producto, familia, línea o pieza BOM"
+        searchPlaceholder="Buscar SKU, producto, familia o línea"
         filters={[
-          { id: 'familia', label: 'Familia', value: familyFilter, onChange: setFamilyFilter, options: [{ value: 'TODAS', label: 'Todas' }, ...families.map((value) => ({ value, label: value }))] },
-          { id: 'estado', label: 'Estado', value: statusFilter, onChange: setStatusFilter, options: [{ value: 'TODOS', label: 'Todos' }, { value: 'ACTIVO', label: 'Activos' }, { value: 'INACTIVO', label: 'Inactivos' }] },
+          {
+            id: 'familia',
+            label: 'Familia',
+            value: familyFilter,
+            onChange: setFamilyFilter,
+            options: [
+              { value: 'TODAS', label: 'Todas' },
+              ...families.map((value) => ({ value, label: value })),
+            ],
+          },
+          {
+            id: 'estado',
+            label: 'Estado',
+            value: statusFilter,
+            onChange: setStatusFilter,
+            options: [
+              { value: 'TODOS', label: 'Todos' },
+              { value: 'ACTIVO', label: 'Activos' },
+              { value: 'INACTIVO', label: 'Inactivos' },
+            ],
+          },
         ]}
-        resultCount={visibleProductos.length}
+        resultCount={visibleProducts.length}
         totalCount={productos.length}
-        onClear={() => { setSearch(''); setFamilyFilter('TODAS'); setStatusFilter('TODOS'); }}
-        actions={<Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>Nuevo producto</Button>}
-        sx={{ mb: 2 }}
+        onClear={() => {
+          setSearch('');
+          setFamilyFilter('TODAS');
+          setStatusFilter('TODOS');
+        }}
+        actions={canAdmin ? (
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => openDialog()}>
+            Nuevo producto
+          </Button>
+        ) : null}
+        sx={{ my: 2 }}
       />
 
       <TableContainer component={Paper}>
         <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ width: 50 }}></TableCell>
-              <TableCell>SKU</TableCell>
-              <TableCell>Producto</TableCell>
-              <TableCell>Familia</TableCell>
-              <TableCell>Línea</TableCell>
-              <TableCell align="right">Peso (g)</TableCell>
-              <TableCell>Piezas (BOM)</TableCell>
-              <TableCell align="center">Acciones</TableCell>
-            </TableRow>
-          </TableHead>
+          <TableHead><TableRow>
+            <TableCell>SKU</TableCell>
+            <TableCell>Producto</TableCell>
+            <TableCell>Familia</TableCell>
+            <TableCell>Línea</TableCell>
+            <TableCell align="right">Peso ref. (g)</TableCell>
+            <TableCell>Estado</TableCell>
+            {canAdmin && <TableCell align="center">Acciones</TableCell>}
+          </TableRow></TableHead>
           <TableBody>
-            {visibleProductos.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">No hay productos para los filtros seleccionados.</Typography>
+            {visibleProducts.map((product) => (
+              <TableRow key={product.cod_sku_pt} hover>
+                <TableCell><Typography variant="body2" fontWeight={700}>{product.cod_sku_pt}</Typography></TableCell>
+                <TableCell>{product.producto}</TableCell>
+                <TableCell>{product.familia}</TableCell>
+                <TableCell>{product.linea}</TableCell>
+                <TableCell align="right">{product.peso_g ?? '—'}</TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={product.status || 'Activo'}
+                    color={String(product.status).toUpperCase() === 'INACTIVO' ? 'default' : 'success'}
+                  />
                 </TableCell>
+                {canAdmin && <TableCell align="center">
+                  <Tooltip title="Editar identidad y referencias">
+                    <IconButton size="small" onClick={() => openDialog(product)}>
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title={String(product.status || 'ACTIVO').toUpperCase() === 'INACTIVO' ? 'Reactivar' : 'Desactivar'}>
+                    <IconButton
+                      size="small"
+                      color={String(product.status || 'ACTIVO').toUpperCase() === 'INACTIVO' ? 'success' : 'warning'}
+                      aria-label={`${String(product.status || 'ACTIVO').toUpperCase() === 'INACTIVO' ? 'Reactivar' : 'Desactivar'} ${product.cod_sku_pt}`}
+                      onClick={() => toggleProduct(product)}
+                    >
+                      {String(product.status || 'ACTIVO').toUpperCase() === 'INACTIVO'
+                        ? <RestoreIcon fontSize="small" />
+                        : <LinkOffIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                </TableCell>}
               </TableRow>
-            ) : (
-              visibleProductos.map((producto) => (
-                <Fragment key={producto.cod_sku_pt}>
-                  <TableRow hover sx={{ '& > *': { borderBottom: 'unset' } }}>
-                    <TableCell>
-                      <IconButton
-                        size="small"
-                        onClick={async () => {
-                          if (!expandedRows[producto.cod_sku_pt]) {
-                            try {
-                              const full = await obtenerProducto(producto.cod_sku_pt);
-                              setExpandedRows(prev => ({ ...prev, [producto.cod_sku_pt]: full.piezas || [] }));
-                            } catch {
-                              setExpandedRows(prev => ({ ...prev, [producto.cod_sku_pt]: [] }));
-                            }
-                          } else {
-                            setExpandedRows(prev => ({ ...prev, [producto.cod_sku_pt]: null }));
-                          }
-                        }}
-                      >
-                        {expandedRows[producto.cod_sku_pt] ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
-                      </IconButton>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={600}>{producto.cod_sku_pt}</Typography>
-                    </TableCell>
-                    <TableCell>{producto.producto}</TableCell>
-                    <TableCell>{producto.familia}</TableCell>
-                    <TableCell>{producto.linea}</TableCell>
-                    <TableCell align="right">{producto.peso_g}</TableCell>
-                    <TableCell>
-                      <Chip size="small" label={`${producto.num_piezas || 0} piezas`} color={producto.num_piezas > 0 ? 'primary' : 'default'} />
-                    </TableCell>
-                    <TableCell align="center">
-                      <Tooltip title="Editar">
-                        <IconButton size="small" onClick={() => handleOpenDialog(producto)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Eliminar">
-                        <IconButton size="small" color="error" onClick={() => handleDelete(producto.cod_sku_pt)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
-                      <Collapse in={!!expandedRows[producto.cod_sku_pt]} timeout="auto" unmountOnExit>
-                        <Box sx={{ margin: 1, ml: 6, mb: 2 }}>
-                          <Typography variant="subtitle2" gutterBottom sx={{ color: '#1E3A5F' }}>
-                            📦 Piezas (BOM)
-                          </Typography>
-                          {expandedRows[producto.cod_sku_pt]?.length > 0 ? (
-                            <Table size="small">
-                              <TableHead>
-                                <TableRow sx={{ bgcolor: '#f5f5f5' }}>
-                                  <TableCell>SKU Pieza</TableCell>
-                                  <TableCell>Nombre</TableCell>
-                                  <TableCell>Color</TableCell>
-                                  <TableCell align="right">Peso (g)</TableCell>
-                                </TableRow>
-                              </TableHead>
-                              <TableBody>
-                                {expandedRows[producto.cod_sku_pt].map((pieza) => (
-                                  <TableRow key={pieza.sku}>
-                                    <TableCell>{pieza.sku}</TableCell>
-                                    <TableCell>{pieza.nombre}</TableCell>
-                                    <TableCell>{pieza.color}</TableCell>
-                                    <TableCell align="right">{pieza.peso}</TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          ) : (
-                            <Typography variant="body2" color="text.secondary">
-                              No hay piezas asociadas a este producto.
-                            </Typography>
-                          )}
-                        </Box>
-                      </Collapse>
-                    </TableCell>
-                  </TableRow>
-                </Fragment>
-              ))
+            ))}
+            {visibleProducts.length === 0 && (
+              <TableRow><TableCell colSpan={canAdmin ? 7 : 6} align="center" sx={{ py: 5 }}>
+                <Typography color="text.secondary">No hay productos para los filtros seleccionados.</Typography>
+              </TableCell></TableRow>
             )}
           </TableBody>
         </Table>
       </TableContainer>
 
-      <ProductoDialog
+      {canAdmin && <ProductoDialog
         open={dialogOpen}
         producto={editingProducto}
-        onClose={handleCloseDialog}
-        onSaved={fetchProductos}
-      />
+        onClose={() => {
+          setDialogOpen(false);
+          setEditingProducto(null);
+        }}
+        onSaved={async (saved) => {
+          await fetchProductos();
+          setNotice(`${saved.cod_sku_pt} guardado correctamente.`);
+        }}
+      />}
     </Box>
   );
 }
-
-export default ProductosAdmin;

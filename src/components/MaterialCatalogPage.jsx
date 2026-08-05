@@ -37,7 +37,6 @@ import {
   listarCategoriasRecepcionScm,
   listarMaterialesScm,
   listarProveedoresScm,
-  obtenerActorScmLocal,
 } from '../services/scmCatalogApi';
 
 const tabs = [
@@ -77,6 +76,7 @@ const titleFor = (kind) => ({
 
 function CatalogForm({ kind, value, categories, saving, onChange, onSave, onCancel }) {
   const editing = Boolean(value.id);
+  const noun = titleFor(kind).toLocaleLowerCase('es-PE');
   return (
     <Paper variant="outlined" sx={{ p: 2, bgcolor: '#FAFBFC' }}>
       <Stack spacing={1.5}>
@@ -84,15 +84,15 @@ function CatalogForm({ kind, value, categories, saving, onChange, onSave, onCanc
         <Grid container spacing={1.5}>
           <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth label="Código automático" value={automaticCode(kind, value)} disabled helperText={editing ? 'Código interno inmutable' : 'Se asignará al guardar'} /></Grid>
           {kind === 'providers' ? (
-            <Grid size={{ xs: 12, md: 8 }}><TextField fullWidth label="Razón social" value={value.razon_social} onChange={(event) => onChange('razon_social', event.target.value)} /></Grid>
+            <Grid size={{ xs: 12, md: 8 }}><TextField fullWidth required autoFocus label="Razón social" value={value.razon_social} onChange={(event) => onChange('razon_social', event.target.value)} helperText="Busca primero por razón social o RUC para evitar duplicados." /></Grid>
           ) : (
-            <Grid size={{ xs: 12, md: 8 }}><TextField fullWidth label="Nombre" value={value.nombre} onChange={(event) => onChange('nombre', event.target.value)} /></Grid>
+            <Grid size={{ xs: 12, md: 8 }}><TextField fullWidth required autoFocus label="Nombre" value={value.nombre} onChange={(event) => onChange('nombre', event.target.value)} helperText="Usa la denominación que reconocerán compras y producción." /></Grid>
           )}
           {kind === 'materials' && <>
             <Grid size={{ xs: 12, md: 4 }}><TextField select fullWidth label="Clase" value={value.clase} disabled={editing} onChange={(event) => onChange('clase', event.target.value)}><MenuItem value="MATERIA_PRIMA">Materia prima</MenuItem><MenuItem value="COLORANTE">Colorante / aditivo</MenuItem></TextField></Grid>
             {value.clase === 'COLORANTE' && <Grid size={{ xs: 12, md: 4 }}><TextField select fullWidth label="Tipo de dosificador" value={value.tipo_colorante || 'COLORANTE'} onChange={(event) => onChange('tipo_colorante', event.target.value)}><MenuItem value="COLORANTE">Colorante</MenuItem><MenuItem value="ADITIVO">Aditivo</MenuItem></TextField></Grid>}
-            <Grid size={{ xs: 12, md: 6 }}><TextField select fullWidth label="Categoría de recepción" value={value.categoria_recepcion_id} onChange={(event) => onChange('categoria_recepcion_id', event.target.value)}>{categories.filter((item) => item.activo || item.id === Number(value.categoria_recepcion_id)).map((item) => <MenuItem key={item.id} value={item.id}>{item.codigo} · {item.nombre}</MenuItem>)}</TextField></Grid>
-            <Grid size={{ xs: 12, md: 2 }}><TextField fullWidth label="Unidad" value="KG" disabled /></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><TextField select required fullWidth label="Categoría de recepción" value={value.categoria_recepcion_id} onChange={(event) => onChange('categoria_recepcion_id', event.target.value)} helperText="Define cómo se recibe y controla este material.">{categories.filter((item) => item.activo || item.id === Number(value.categoria_recepcion_id)).map((item) => <MenuItem key={item.id} value={item.id}>{item.codigo} · {item.nombre}</MenuItem>)}</TextField></Grid>
+            <Grid size={{ xs: 12, md: 2 }}><TextField fullWidth label="Unidad base" value="KG" disabled helperText={value.clase === 'COLORANTE' ? 'Las recetas pueden dosificar en gramos.' : 'Unidad de inventario.'} /></Grid>
           </>}
           {kind === 'providers' && <Grid size={{ xs: 12, md: 5 }}><TextField fullWidth label="RUC (opcional)" value={value.ruc || ''} onChange={(event) => onChange('ruc', event.target.value.replace(/\D/g, '').slice(0, 11))} /></Grid>}
           {kind === 'categoryRules' && <>
@@ -102,7 +102,7 @@ function CatalogForm({ kind, value, categories, saving, onChange, onSave, onCanc
           </>}
           {editing && <Grid size={{ xs: 12 }}><FormControlLabel control={<Switch checked={value.activo} onChange={(event) => onChange('activo', event.target.checked)} />} label="Registro activo" /></Grid>}
         </Grid>
-        <Stack direction="row" justifyContent="flex-end" spacing={1}><Button onClick={onCancel} disabled={saving}>Cancelar</Button><Button variant="contained" onClick={onSave} disabled={saving}>{saving ? 'Guardando…' : 'Guardar en API'}</Button></Stack>
+        <Stack direction="row" justifyContent="flex-end" spacing={1}><Button onClick={onCancel} disabled={saving}>Cancelar</Button><Button variant="contained" onClick={onSave} disabled={saving}>{saving ? 'Guardando…' : `Guardar ${noun}`}</Button></Stack>
       </Stack>
     </Paper>
   );
@@ -167,6 +167,18 @@ function MaterialCatalogPage() {
     if (kind !== 'providers' && !form.nombre?.trim()) return 'El nombre es obligatorio.';
     if (kind === 'materials' && !form.categoria_recepcion_id) return 'Selecciona una categoría de recepción.';
     if (kind === 'providers' && form.ruc && form.ruc.length !== 11) return 'El RUC debe tener 11 dígitos.';
+    const name = kind === 'providers' ? form.razon_social : form.nombre;
+    const normalized = name?.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleUpperCase('es-PE');
+    const duplicate = rows.find((item) => {
+      if (item.id === form.id) return false;
+      const candidate = kind === 'providers' ? item.razon_social : item.nombre;
+      return candidate?.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleUpperCase('es-PE') === normalized;
+    });
+    if (duplicate) return `Ya existe ${duplicate.codigo} con ese nombre. Revísalo antes de crear otro registro.`;
+    if (kind === 'providers' && form.ruc) {
+      const duplicateRuc = rows.find((item) => item.id !== form.id && item.ruc === form.ruc);
+      if (duplicateRuc) return `El RUC ya pertenece a ${duplicateRuc.codigo} · ${duplicateRuc.razon_social}.`;
+    }
     return '';
   };
 
@@ -230,7 +242,7 @@ function MaterialCatalogPage() {
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
-        <Box sx={{ p: 2, bgcolor: '#FAFBFC' }}><Typography variant="h5" sx={{ fontWeight: 850 }}>Catálogos maestros de materiales</Typography><Typography variant="body2" color="text.secondary">Conectado a la API local · actor temporal #{obtenerActorScmLocal()} hasta integrar autenticación.</Typography></Box>
+        <Box sx={{ p: 2, bgcolor: '#FAFBFC' }}><Typography variant="h5" sx={{ fontWeight: 850 }}>Catálogos maestros de materiales</Typography><Typography variant="body2" color="text.secondary">Los códigos se generan automáticamente. Busca antes de crear y completa primero las categorías de recepción.</Typography></Box>
         <Tabs value={kind} onChange={(_, value) => { setSearchParams({ catalogo: value }); setForm(null); setSearch(''); setStatus('TODOS'); }} variant="scrollable" scrollButtons="auto">{tabs.map((item) => <Tab key={item.key} value={item.key} label={item.label} />)}</Tabs>
         <Stack spacing={2} sx={{ p: { xs: 1.5, md: 2.5 } }}>
           {!activeTab.api ? (
@@ -238,7 +250,16 @@ function MaterialCatalogPage() {
           ) : loading ? (
             <Box sx={{ minHeight: 260, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>
           ) : <>
-            <Stack direction="row" justifyContent="flex-end"><Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openNew}>Nuevo</Button></Stack>
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={1}>
+              <Typography variant="body2" color="text.secondary">
+                {kind === 'materials' && 'Alta de resinas, recuperado, colorantes y aditivos.'}
+                {kind === 'providers' && 'Identidades de proveedores utilizadas en compras y recepciones.'}
+                {kind === 'categoryRules' && 'Reglas que determinan cómo se controla cada recepción.'}
+              </Typography>
+              <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openNew}>
+                Nuevo {titleFor(kind).toLocaleLowerCase('es-PE')}
+              </Button>
+            </Stack>
             {form && <CatalogForm kind={kind} value={form} categories={categories} saving={saving} onChange={changeForm} onSave={save} onCancel={() => setForm(null)} />}
             <DataTableToolbar searchValue={search} onSearchChange={setSearch} searchPlaceholder="Buscar por código, nombre o clasificación" filters={[{ id: 'estado', label: 'Estado', value: status, onChange: setStatus, options: [{ value: 'TODOS', label: 'Todos' }, { value: 'ACTIVOS', label: 'Activos' }, { value: 'INACTIVOS', label: 'Inactivos' }] }]} resultCount={visibleRows.length} totalCount={rows.length} onClear={() => { setSearch(''); setStatus('TODOS'); }} />
             <TableContainer><Table size="small" aria-label={`Catálogo API ${kind}`}><TableHead><TableRow><TableCell>Código</TableCell><TableCell>Nombre</TableCell><TableCell>Clasificación</TableCell><TableCell>Estado</TableCell><TableCell align="right">Acciones</TableCell></TableRow></TableHead><TableBody>{visibleRows.map((item) => <TableRow key={item.id}><TableCell sx={{ fontWeight: 800 }}>{item.codigo}</TableCell><TableCell>{kind === 'providers' ? item.razon_social : item.nombre}</TableCell><TableCell>{detail(item)}</TableCell><TableCell><Chip size="small" label={item.activo ? 'ACTIVO' : 'INACTIVO'} color={item.activo ? 'success' : 'default'} variant="outlined" /></TableCell><TableCell align="right"><Button size="small" onClick={() => openEdit(item)}>Editar</Button><Button size="small" disabled={saving} color={item.activo ? 'error' : 'success'} onClick={() => toggle(item)}>{item.activo ? 'Inactivar' : 'Reactivar'}</Button></TableCell></TableRow>)}{visibleRows.length === 0 && <TableRow><TableCell colSpan={5} align="center" sx={{ py: 5 }}>No hay registros.</TableCell></TableRow>}</TableBody></Table></TableContainer>

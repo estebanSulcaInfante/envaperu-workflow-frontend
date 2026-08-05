@@ -3,6 +3,7 @@ import {
   getWorkspaceNavigation,
   navigationItemIsActive,
   primaryNavigation,
+  visibleByCapabilities,
   workspaceNavigation,
   workspaceTabIsActive,
 } from '../config/navigation';
@@ -47,5 +48,21 @@ describe('navegación SCM por procesos', () => {
     expect(wizard?.label).toBe('Configuración guiada');
     expect(workspaceTabIsActive('/datos-maestros/configuracion-guiada', wizard)).toBe(true);
     expect(getWorkspaceNavigation('/catalogo/configurar')?.id).toBe('maestros');
+  });
+
+  it('presenta solamente los espacios que corresponden a las capacidades del actor', () => {
+    const capabilities = new Set(['OP_VER', 'OP_APROBAR']);
+    const visible = visibleByCapabilities(
+      primaryNavigation,
+      (required) => !required.length || required.some((item) => capabilities.has(item)),
+    );
+    const production = workspaceNavigation.find((item) => item.id === 'produccion');
+    const visibleProductionTabs = visibleByCapabilities(
+      production.tabs,
+      (required) => !required.length || required.some((item) => capabilities.has(item)),
+    );
+
+    expect(visible.map((item) => item.id)).toEqual(['inicio', 'planificacion', 'produccion']);
+    expect(visibleProductionTabs.map((item) => item.label)).toEqual(['Órdenes de producción']);
   });
 });

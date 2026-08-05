@@ -60,8 +60,8 @@ describe('ProductoDialog: alta contextual de clasificación', () => {
     await waitForElementToBeRemoved(() => screen.queryByRole('dialog', { name: /Nueva Familia/i }));
     expect(screen.getByRole('combobox', { name: 'Familia' })).toHaveValue('ENVASES');
 
-    await user.type(screen.getByLabelText(/Nombre Producto/i), 'Botella de prueba');
-    await user.click(screen.getByRole('button', { name: /^Crear$/i }));
+    await user.type(screen.getByLabelText(/Nombre del producto/i), 'Botella de prueba');
+    await user.click(screen.getByRole('button', { name: /Crear producto/i }));
 
     await waitFor(() => expect(crearProducto).toHaveBeenCalledTimes(1));
     expect(crearProducto.mock.calls[0][0]).toMatchObject({

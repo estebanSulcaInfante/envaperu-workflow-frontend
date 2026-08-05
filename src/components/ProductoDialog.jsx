@@ -1,244 +1,232 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField,
-  Stack, Box, Typography, Autocomplete, Chip, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, Paper, IconButton
+  Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle,
+  Box, Divider, Stack, TextField, Typography,
 } from '@mui/material';
-import DeleteIcon from '@mui/icons-material/Delete';
 import CreateOptionAutocomplete from './ui/CreateOptionAutocomplete';
 import ClassificationQuickCreateDialog from './ui/ClassificationQuickCreateDialog';
-import { 
-  crearProducto, 
-  actualizarProducto, 
-  buscarPiezasColor,
+import {
+  actualizarProducto,
+  crearProducto,
+  eliminarImagenProducto,
+  guardarImagenProducto,
+  obtenerFamilias,
   obtenerLineas,
-  obtenerFamilias
 } from '../services/api';
 
-function ProductoDialog({ open, onClose, onSaved, producto }) {
-  const [formData, setFormData] = useState({
-    cod_sku_pt: '',
-    producto: '',
-    cod_producto: '',
-    familia_id: '',
-    linea_id: '',
-    peso_g: '',
-    precio_estimado: '',
-    precio_sin_igv: '',
-    doc_x_paq: '',
-    doc_x_bulto: '',
-    codigo_barra: '',
-    marca: '',
-    um: 'Docena',
-    status: 'Activo',
-    piezas: []
-  });
+const emptyProduct = {
+  cod_sku_pt: '',
+  producto: '',
+  familia_id: '',
+  linea_id: '',
+  peso_g: '',
+  doc_x_paq: '',
+  doc_x_bulto: '',
+  codigo_barra: '',
+  marca: '',
+  um: 'Unidad',
+};
 
-  const [maestros, setMaestros] = useState({
-    lineas: [],
-    familias: []
-  });
+const optionalNumber = (value) => (
+  value === '' || value === null || value === undefined
+    ? null : Number(value)
+);
+
+export default function ProductoDialog({
+  open, onClose, onSaved, producto,
+}) {
+  const [formData, setFormData] = useState(emptyProduct);
+  const [maestros, setMaestros] = useState({ lineas: [], familias: [] });
   const [classificationDialog, setClassificationDialog] = useState({
     open: false,
     entity: 'linea',
     initialName: '',
   });
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [attempted, setAttempted] = useState(false);
+  const [imageFile, setImageFile] = useState(null);
+  const [removeImage, setRemoveImage] = useState(false);
 
   useEffect(() => {
-    // Cargar listas maestras
-    const loadMaestros = async () => {
-      try {
-        const resLineas = await obtenerLineas();
-        setMaestros((current) => ({ ...current, lineas: resLineas }));
-      } catch (err) {
-        console.error('Error cargando maestros', err);
-      }
-    };
-    loadMaestros();
+    obtenerLineas()
+      .then((lineas) => setMaestros((current) => ({ ...current, lineas })))
+      .catch(() => setSaveError('No se pudieron cargar las líneas.'));
   }, []);
 
-  const [piezasOptions, setPiezasOptions] = useState([]);
-  const [piezasLoading, setPiezasLoading] = useState(false);
-  const [piezaInput, setPiezaInput] = useState('');
-
   useEffect(() => {
-    if (producto) {
-      setFormData({
-        cod_sku_pt: producto.cod_sku_pt || producto.sku || '',
-        producto: producto.producto || producto.nombre || '',
-        cod_producto: producto.cod_producto || '',
-        familia_id: producto.familia_id || '',
-        linea_id: producto.linea_id || '',
-        peso_g: producto.peso_g || '',
-        precio_estimado: producto.precio_estimado || '',
-        precio_sin_igv: producto.precio_sin_igv || '',
-        doc_x_paq: producto.doc_x_paq || '',
-        doc_x_bulto: producto.doc_x_bulto || '',
-        codigo_barra: producto.codigo_barra || '',
-        marca: producto.marca || '',
-        um: producto.um || 'Docena',
-        status: producto.status || 'Activo',
-        piezas: Array.isArray(producto.piezas) ? producto.piezas.map(p => ({ 
-          pieza_sku: p.sku || p.pieza_sku, 
-          nombre: p.nombre || p.piezas, 
-          cantidad: p.cantidad || 1
-        })) : []
-      });
-    } else {
-      setFormData({
-        cod_sku_pt: '', producto: '', cod_producto: '', familia_id: '', linea_id: '',
-        peso_g: '', precio_estimado: '', precio_sin_igv: '', doc_x_paq: '', doc_x_bulto: '',
-        codigo_barra: '', marca: '', um: 'Docena', status: 'Activo', piezas: []
-      });
-    }
+    setSaveError('');
+    setAttempted(false);
+    setImageFile(null);
+    setRemoveImage(false);
+    setFormData(producto ? {
+      ...emptyProduct,
+      cod_sku_pt: producto.cod_sku_pt || producto.sku || '',
+      producto: producto.producto || producto.nombre || '',
+      familia_id: producto.familia_id || '',
+      linea_id: producto.linea_id || '',
+      peso_g: producto.peso_g ?? '',
+      doc_x_paq: producto.doc_x_paq ?? '',
+      doc_x_bulto: producto.doc_x_bulto ?? '',
+      codigo_barra: producto.codigo_barra || '',
+      marca: producto.marca || '',
+      um: producto.um || 'Unidad',
+    } : emptyProduct);
   }, [producto, open]);
 
   useEffect(() => {
     let active = true;
     if (!open || !formData.linea_id) {
+      setMaestros((current) => ({ ...current, familias: [] }));
       return () => { active = false; };
     }
-
     obtenerFamilias({ linea_id: formData.linea_id })
       .then((familias) => {
         if (!active) return;
         setMaestros((current) => ({ ...current, familias }));
         setFormData((current) => (
-          current.familia_id && !familias.some((familia) => familia.id === current.familia_id)
-            ? { ...current, familia_id: '' }
-            : current
+          current.familia_id
+          && !familias.some((familia) => familia.id === current.familia_id)
+            ? { ...current, familia_id: '' } : current
         ));
       })
       .catch(() => {
-        if (active) setMaestros((current) => ({ ...current, familias: [] }));
+        if (active) setSaveError('No se pudieron cargar las familias de la línea.');
       });
-
     return () => { active = false; };
   }, [open, formData.linea_id]);
 
-  useEffect(() => {
-    if (piezaInput.length < 2) {
-      setPiezasOptions([]);
-      return;
-    }
-    const timeoutId = setTimeout(async () => {
-      setPiezasLoading(true);
-      try {
-        const piezas = await buscarPiezasColor(piezaInput);
-        setPiezasOptions(piezas);
-      } catch {
-        setPiezasOptions([]);
-      } finally {
-        setPiezasLoading(false);
-      }
-    }, 300);
-    return () => clearTimeout(timeoutId);
-  }, [piezaInput]);
+  const validation = useMemo(() => {
+    const validateNumber = (value, { integer = false, min = 0 } = {}) => {
+      if (value === '' || value === null || value === undefined) return '';
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return 'Ingresa un número válido.';
+      if (parsed < min) return `Debe ser mayor o igual a ${min}.`;
+      if (integer && !Number.isInteger(parsed)) return 'Debe ser un número entero.';
+      return '';
+    };
+    return {
+      producto: formData.producto.trim() ? '' : 'El nombre es obligatorio.',
+      linea_id: formData.linea_id ? '' : 'Selecciona una línea.',
+      familia_id: formData.familia_id ? '' : 'Selecciona una familia.',
+      peso_g: validateNumber(formData.peso_g),
+      doc_x_paq: validateNumber(formData.doc_x_paq, { integer: true, min: 1 }),
+      doc_x_bulto: validateNumber(formData.doc_x_bulto, { integer: true, min: 1 }),
+    };
+  }, [formData]);
+  const complete = useMemo(
+    () => Object.values(validation).every((message) => !message),
+    [validation],
+  );
 
-  const handleAddPieza = (pieza) => {
-    if (!pieza) return;
-    const exists = formData.piezas.find(p => p.pieza_sku === (pieza.sku || pieza.pieza_sku));
-    if (exists) return;
-    
-    setFormData(prev => ({
-      ...prev,
-      piezas: [...prev.piezas, { pieza_sku: pieza.sku, nombre: pieza.piezas, color: pieza.color, cantidad: 1 }]
-    }));
-    setPiezaInput('');
-  };
-
-  const handleRemovePieza = (sku) => {
-    setFormData(prev => ({
-      ...prev,
-      piezas: prev.piezas.filter(p => p.pieza_sku !== sku)
-    }));
-  };
-
-  const handleQuantityChange = (sku, qty) => {
-    setFormData(prev => ({
-      ...prev,
-      piezas: prev.piezas.map(p => p.pieza_sku === sku ? { ...p, cantidad: parseInt(qty) || 1 } : p)
-    }));
-  };
-
-  const abrirAltaClasificacion = (entity, initialName = '') => {
+  const openClassification = (entity, initialName = '') => {
     if (entity === 'familia' && !formData.linea_id) return;
     setClassificationDialog({ open: true, entity, initialName });
   };
 
-  const registrarClasificacionCreada = (created) => {
+  const registerClassification = (created) => {
     if (classificationDialog.entity === 'linea') {
       setMaestros((current) => ({
         ...current,
         lineas: current.lineas.some((item) => item.id === created.id)
-          ? current.lineas
-          : [...current.lineas, created],
+          ? current.lineas : [...current.lineas, created],
         familias: [],
       }));
-      setFormData((current) => ({ ...current, linea_id: created.id, familia_id: '' }));
-      return;
+      setFormData((current) => ({
+        ...current, linea_id: created.id, familia_id: '',
+      }));
+    } else {
+      setMaestros((current) => ({
+        ...current,
+        familias: current.familias.some((item) => item.id === created.id)
+          ? current.familias : [...current.familias, created],
+      }));
+      setFormData((current) => ({ ...current, familia_id: created.id }));
     }
-
-    setMaestros((current) => ({
-      ...current,
-      familias: current.familias.some((item) => item.id === created.id)
-        ? current.familias
-        : [...current.familias, created],
-    }));
-    setFormData((current) => ({ ...current, familia_id: created.id }));
   };
 
   const handleSubmit = async () => {
+    setSaveError('');
+    setAttempted(true);
+    if (!complete) {
+      setSaveError('Revisa los campos señalados antes de guardar.');
+      return;
+    }
+    setSaving(true);
     try {
-      const { cod_sku_pt, ...editableData } = formData;
-      const data = {
-        ...editableData,
-        peso_g: formData.peso_g ? parseFloat(formData.peso_g) : null,
-        precio_estimado: formData.precio_estimado ? parseFloat(formData.precio_estimado) : null
+      const payload = {
+        producto: formData.producto.trim(),
+        linea_id: Number(formData.linea_id),
+        familia_id: Number(formData.familia_id),
+        peso_g: optionalNumber(formData.peso_g),
+        doc_x_paq: optionalNumber(formData.doc_x_paq),
+        doc_x_bulto: optionalNumber(formData.doc_x_bulto),
+        codigo_barra: formData.codigo_barra.trim() || null,
+        marca: formData.marca.trim() || null,
+        um: formData.um.trim() || 'Unidad',
       };
-      
       const saved = producto
-        ? await actualizarProducto(cod_sku_pt, data)
-        : await crearProducto(data);
+        ? await actualizarProducto(formData.cod_sku_pt, payload)
+        : await crearProducto(payload);
+      const sku = saved.cod_sku_pt || formData.cod_sku_pt;
+      if (imageFile) await guardarImagenProducto(sku, imageFile);
+      else if (removeImage && producto?.imagen_url) await eliminarImagenProducto(sku);
       await onSaved?.(saved);
       onClose();
-    } catch {
-      alert('Error guardando producto');
+    } catch (error) {
+      setSaveError(
+        error?.response?.data?.error
+        || error?.response?.data?.message
+        || error?.message
+        || 'No se pudo guardar el producto.',
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>{producto ? 'Editar Producto' : 'Nuevo Producto'}</DialogTitle>
+    <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="md" fullWidth>
+      <DialogTitle>{producto ? 'Editar ProductoTerminado' : 'Nuevo ProductoTerminado'}</DialogTitle>
       <DialogContent>
-        <Stack spacing={2} sx={{ pt: 1 }}>
-          <Stack direction="row" spacing={2}>
+        <Stack spacing={2.5} sx={{ pt: 1 }}>
+          {saveError && <Alert severity="error">{saveError}</Alert>}
+          <Alert severity="info">
+            El alta crea únicamente la identidad maestra. La BOM se define y aprueba
+            posteriormente en Ingeniería SCM.
+          </Alert>
+
+          <Typography variant="subtitle2" color="primary">Identidad obligatoria</Typography>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField
-              label="SKU"
-              value={producto ? formData.cod_sku_pt : 'Se asignará automáticamente al guardar'}
-              helperText={producto ? 'Identificador inmutable.' : 'El backend asignará el siguiente correlativo disponible.'}
+              label="SKU automático"
+              value={producto
+                ? formData.cod_sku_pt
+                : 'PT-###### · se asignará al guardar'}
+              helperText="Identificador estable e inmutable."
               slotProps={{ input: { readOnly: true } }}
               fullWidth
             />
             <TextField
-              label="Nombre Producto"
+              label="Nombre del producto"
               value={formData.producto}
-              onChange={(e) => setFormData({ ...formData, producto: e.target.value })}
-              fullWidth
-            />
-            <TextField
-              label="Cod Producto (Núm)"
-              type="number"
-              value={formData.cod_producto}
-              onChange={(e) => setFormData({ ...formData, cod_producto: e.target.value })}
+              onChange={(event) => setFormData({
+                ...formData, producto: event.target.value,
+              })}
+              required
+              error={attempted && Boolean(validation.producto)}
+              helperText={attempted ? validation.producto : ''}
+              autoFocus
               fullWidth
             />
           </Stack>
-          <Stack direction="row" spacing={2}>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <CreateOptionAutocomplete
               options={maestros.lineas}
               getOptionLabel={(option) => option.nombre}
-              value={maestros.lineas.find(l => l.id === formData.linea_id) || null}
+              value={maestros.lineas.find(
+                (line) => line.id === formData.linea_id,
+              ) || null}
               onChange={(selected) => {
                 setMaestros((current) => ({ ...current, familias: [] }));
                 setFormData((current) => ({
@@ -247,175 +235,176 @@ function ProductoDialog({ open, onClose, onSaved, producto }) {
                   familia_id: '',
                 }));
               }}
-              onCreateOption={(initialName) => abrirAltaClasificacion('linea', initialName)}
-              createLabel={(inputValue) => (
-                inputValue ? `Crear Línea “${inputValue}”…` : 'Crear nueva Línea…'
+              onCreateOption={(name) => openClassification('linea', name)}
+              createLabel={(name) => (
+                name ? `Crear Línea “${name}”…` : 'Crear nueva Línea…'
               )}
               label="Línea"
               required
+              error={attempted && Boolean(validation.linea_id)}
+              helperText={attempted ? validation.linea_id : ''}
             />
             <CreateOptionAutocomplete
               options={maestros.familias}
               getOptionLabel={(option) => option.nombre}
-              value={maestros.familias.find(f => f.id === formData.familia_id) || null}
+              value={maestros.familias.find(
+                (family) => family.id === formData.familia_id,
+              ) || null}
               onChange={(selected) => setFormData((current) => ({
-                ...current,
-                familia_id: selected?.id || '',
+                ...current, familia_id: selected?.id || '',
               }))}
-              onCreateOption={(initialName) => abrirAltaClasificacion('familia', initialName)}
-              createLabel={(inputValue) => (
-                inputValue ? `Crear Familia “${inputValue}”…` : 'Crear nueva Familia en esta Línea…'
+              onCreateOption={(name) => openClassification('familia', name)}
+              createLabel={(name) => (
+                name
+                  ? `Crear Familia “${name}”…`
+                  : 'Crear nueva Familia en esta Línea…'
               )}
               label="Familia"
               disabled={!formData.linea_id}
               required
-              helperText={formData.linea_id
-                ? 'Solo Familias asociadas a la Línea.'
-                : 'Selecciona una Línea antes de crear una Familia.'}
+              error={attempted && Boolean(validation.familia_id)}
+              helperText={attempted && validation.familia_id
+                ? validation.familia_id
+                : formData.linea_id
+                  ? 'Solo familias asociadas a la línea seleccionada.'
+                  : 'Selecciona primero una línea.'}
             />
           </Stack>
-          
-          <Typography variant="subtitle2" color="primary">Logística y Precios</Typography>
-          <Stack direction="row" spacing={2}>
+
+          <Divider />
+          <Typography variant="subtitle2" color="primary">Imagen opcional</Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
+            <Box
+              component="img"
+              src={imageFile
+                ? URL.createObjectURL(imageFile)
+                : (!removeImage && producto?.imagen_url) || undefined}
+              alt="Vista previa del producto"
+              sx={{ width: 112, height: 112, objectFit: 'contain', border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: 'grey.50' }}
+            />
+            <Stack spacing={1} alignItems={{ xs: 'stretch', sm: 'flex-start' }}>
+              <Button component="label" variant="outlined">
+                {imageFile || producto?.imagen_url ? 'Cambiar imagen' : 'Seleccionar imagen'}
+                <input
+                  hidden
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] || null;
+                    if (file && file.size > 2 * 1024 * 1024) {
+                      setSaveError('La imagen no puede superar 2 MB.');
+                      return;
+                    }
+                    setImageFile(file);
+                    setRemoveImage(false);
+                  }}
+                />
+              </Button>
+              {(imageFile || (!removeImage && producto?.imagen_url)) && (
+                <Button color="error" onClick={() => { setImageFile(null); setRemoveImage(true); }}>
+                  Quitar imagen
+                </Button>
+              )}
+              <Typography variant="caption" color="text.secondary">JPG, PNG o WebP; máximo 2 MB.</Typography>
+            </Stack>
+          </Stack>
+
+          <Divider />
+          <Typography variant="subtitle2" color="primary">
+            Referencias logísticas opcionales
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            No forman parte de la identidad ni son necesarias para guardar.
+          </Typography>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField
-              label="Peso (g)"
+              label="Peso referencial (g)"
               type="number"
               value={formData.peso_g}
-              onChange={(e) => setFormData({ ...formData, peso_g: e.target.value })}
+              onChange={(event) => setFormData({
+                ...formData, peso_g: event.target.value,
+              })}
+              slotProps={{ htmlInput: { min: 0, step: 0.001 } }}
+              error={attempted && Boolean(validation.peso_g)}
+              helperText={attempted ? validation.peso_g : ''}
               fullWidth
             />
             <TextField
-              label="Doc x Paq"
+              label="Unidades por paquete"
               type="number"
               value={formData.doc_x_paq}
-              onChange={(e) => setFormData({ ...formData, doc_x_paq: e.target.value })}
+              onChange={(event) => setFormData({
+                ...formData, doc_x_paq: event.target.value,
+              })}
+              slotProps={{ htmlInput: { min: 1, step: 1 } }}
+              error={attempted && Boolean(validation.doc_x_paq)}
+              helperText={attempted ? validation.doc_x_paq : ''}
               fullWidth
             />
             <TextField
-              label="Doc x Bulto"
+              label="Unidades por bulto"
               type="number"
               value={formData.doc_x_bulto}
-              onChange={(e) => setFormData({ ...formData, doc_x_bulto: e.target.value })}
+              onChange={(event) => setFormData({
+                ...formData, doc_x_bulto: event.target.value,
+              })}
+              slotProps={{ htmlInput: { min: 1, step: 1 } }}
+              error={attempted && Boolean(validation.doc_x_bulto)}
+              helperText={attempted ? validation.doc_x_bulto : ''}
               fullWidth
             />
           </Stack>
-          <Stack direction="row" spacing={2}>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField
-              label="Precio Estimado"
-              type="number"
-              value={formData.precio_estimado}
-              onChange={(e) => setFormData({ ...formData, precio_estimado: e.target.value })}
-              fullWidth
-            />
-            <TextField
-              label="Precio s/IGV"
-              type="number"
-              value={formData.precio_sin_igv}
-              onChange={(e) => setFormData({ ...formData, precio_sin_igv: e.target.value })}
-              fullWidth
-            />
-            <TextField
-              label="Unidad (UM)"
+              label="Unidad comercial"
               value={formData.um}
-              onChange={(e) => setFormData({ ...formData, um: e.target.value })}
+              onChange={(event) => setFormData({
+                ...formData, um: event.target.value,
+              })}
+              helperText="La unidad base SCM permanece en UN."
               fullWidth
             />
-          </Stack>
-          
-          <Stack direction="row" spacing={2}>
             <TextField
               label="Marca"
               value={formData.marca}
-              onChange={(e) => setFormData({ ...formData, marca: e.target.value })}
+              onChange={(event) => setFormData({
+                ...formData, marca: event.target.value,
+              })}
               fullWidth
             />
             <TextField
-              label="Código de Barras"
+              label="Código de barras"
               value={formData.codigo_barra}
-              onChange={(e) => setFormData({ ...formData, codigo_barra: e.target.value })}
+              onChange={(event) => setFormData({
+                ...formData, codigo_barra: event.target.value,
+              })}
               fullWidth
             />
           </Stack>
-          
-          <Box>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>Piezas (BOM)</Typography>
-            <Autocomplete
-              options={piezasOptions}
-              getOptionLabel={(option) => option.piezas || ''}
-              loading={piezasLoading}
-              inputValue={piezaInput}
-              onInputChange={(_, v) => setPiezaInput(v)}
-              onChange={(_, v) => handleAddPieza(v)}
-              renderInput={(params) => (
-                <TextField {...params} size="small" placeholder="Buscar pieza para agregar..." />
-              )}
-              renderOption={(props, option) => (
-                <li {...props} key={option.sku}>
-                  <Box>
-                    <Typography variant="body2">{option.piezas}</Typography>
-                    <Typography variant="caption" color="text.secondary">{option.sku}</Typography>
-                  </Box>
-                </li>
-              )}
-            />
-            <Box sx={{ mt: 2 }}>
-              {formData.piezas.length > 0 && (
-                <TableContainer component={Paper} variant="outlined">
-                  <Table size="small">
-                    <TableHead sx={{ bgcolor: '#f5f5f5' }}>
-                      <TableRow>
-                        <TableCell>SKU</TableCell>
-                        <TableCell>Nombre</TableCell>
-                        <TableCell width="120px" align="center">Cantidad</TableCell>
-                        <TableCell width="50px"></TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {formData.piezas.map((p) => (
-                        <TableRow key={p.pieza_sku}>
-                          <TableCell>{p.pieza_sku}</TableCell>
-                          <TableCell>{p.nombre}</TableCell>
-                          <TableCell align="center">
-                            <TextField
-                              type="number"
-                              size="small"
-                              inputProps={{ min: 1 }}
-                              value={p.cantidad}
-                              onChange={(e) => handleQuantityChange(p.pieza_sku, e.target.value)}
-                              sx={{ width: '80px' }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <IconButton size="small" color="error" onClick={() => handleRemovePieza(p.pieza_sku)}>
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
-            </Box>
-          </Box>
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancelar</Button>
-        <Button variant="contained" onClick={handleSubmit} sx={{ bgcolor: '#1E3A5F' }}>
-          {producto ? 'Guardar' : 'Crear'}
+        <Button onClick={onClose} disabled={saving}>Cancelar</Button>
+        <Button
+          variant="contained"
+          onClick={handleSubmit}
+          disabled={saving}
+        >
+          {saving ? 'Guardando…' : producto ? 'Guardar cambios' : 'Crear producto'}
         </Button>
       </DialogActions>
       <ClassificationQuickCreateDialog
         open={classificationDialog.open}
         entity={classificationDialog.entity}
-        linea={maestros.lineas.find((linea) => linea.id === formData.linea_id) || null}
+        linea={maestros.lineas.find(
+          (line) => line.id === formData.linea_id,
+        ) || null}
         initialName={classificationDialog.initialName}
-        onClose={() => setClassificationDialog((current) => ({ ...current, open: false }))}
-        onCreated={registrarClasificacionCreada}
+        onClose={() => setClassificationDialog((current) => ({
+          ...current, open: false,
+        }))}
+        onCreated={registerClassification}
       />
     </Dialog>
   );
 }
-
-export default ProductoDialog;

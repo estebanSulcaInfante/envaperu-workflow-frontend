@@ -361,6 +361,20 @@ export const actualizarPiezaGlobal = async (piezaId, data) => {
   return response.data;
 };
 
+export const guardarImagenPiezaColor = async (sku, file) => {
+  const body = new FormData();
+  body.append('imagen', file);
+  const response = await api.put(`/piezas-color/${encodeURIComponent(sku)}/imagen`, body, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return response.data;
+};
+
+export const eliminarImagenPiezaColor = async (sku) => {
+  const response = await api.delete(`/piezas-color/${encodeURIComponent(sku)}/imagen`);
+  return response.data;
+};
+
 export const obtenerPiezaColor = async (sku) => {
   const response = await api.get(`/piezas-color/${sku}`);
   return response.data;
@@ -597,6 +611,20 @@ export const addFormaMolde = async (codigo, data) => {
   return response.data;
 };
 
+export const guardarImagenProducto = async (sku, file) => {
+  const body = new FormData();
+  body.append('imagen', file);
+  const response = await api.put(`/productos/${encodeURIComponent(sku)}/imagen`, body, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return response.data;
+};
+
+export const eliminarImagenProducto = async (sku) => {
+  const response = await api.delete(`/productos/${encodeURIComponent(sku)}/imagen`);
+  return response.data;
+};
+
 export const updateFormaMolde = async (formaId, data) => {
   const response = await api.put(`/formas/${formaId}`, data);
   return response.data;
@@ -604,6 +632,13 @@ export const updateFormaMolde = async (formaId, data) => {
 
 export const addColorForma = async (formaId, colorId) => {
   const response = await api.post(`/formas/${formaId}/colores`, { color_id: colorId });
+  return response.data;
+};
+
+export const habilitarColorMolde = async (moldeCodigo, colorId) => {
+  const response = await api.post(`/moldes/${encodeURIComponent(moldeCodigo)}/colores`, {
+    color_id: colorId,
+  });
   return response.data;
 };
 

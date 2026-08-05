@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import {
   Alert,
@@ -7,6 +7,8 @@ import {
   Chip,
   Divider,
   Grid,
+  InputAdornment,
+  Link,
   List,
   ListItemButton,
   ListItemIcon,
@@ -15,6 +17,7 @@ import {
   Stack,
   Tab,
   Tabs,
+  TextField,
   Tooltip,
   Typography,
   useMediaQuery,
@@ -36,7 +39,8 @@ import MoveToInboxOutlinedIcon from '@mui/icons-material/MoveToInboxOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import RouteOutlinedIcon from '@mui/icons-material/RouteOutlined';
 import ScaleOutlinedIcon from '@mui/icons-material/ScaleOutlined';
-import ScienceOutlinedIcon from '@mui/icons-material/ScienceOutlined';
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
+
 import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined';
 import {
   scmGlossary,
@@ -57,8 +61,8 @@ const stageIcons = {
 };
 
 const legendIcons = {
-  mock: ScienceOutlinedIcon,
-  lock: LockOutlinedIcon,
+  available: TaskAltOutlinedIcon,
+  permission: LockOutlinedIcon,
   status: TaskAltOutlinedIcon,
   event: RouteOutlinedIcon,
 };
@@ -147,8 +151,8 @@ function DesktopNavigation({ selectedIndex, onSelect }) {
   return (
     <Paper variant="outlined" sx={{ borderRadius: 1, position: 'sticky', top: 24, overflow: 'hidden' }}>
       <Box sx={{ px: 1.75, py: 1.5, bgcolor: '#EEF2F5', borderBottom: '1px solid #D9E0E5' }}>
-        <Typography variant="overline" sx={{ fontWeight: 800, color: '#43515C' }}>Recorrido completo</Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>20 a 25 minutos</Typography>
+        <Typography variant="overline" sx={{ fontWeight: 800, color: '#43515C' }}>Contenido</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Capítulos de la documentación</Typography>
       </Box>
       <List disablePadding aria-label="Etapas de la guía SCM">
         {scmGuideStages.map((stage, index) => (
@@ -229,6 +233,82 @@ function Anatomy({ items }) {
   );
 }
 
+function RoleMatrix({ roles }) {
+  if (!roles?.length) return null;
+
+  return (
+    <Box sx={{ mt: 2.5 }}>
+      <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 800, mb: 0.5 }}>Qué puede hacer cada rol</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        Resumen operativo del piloto. Los permisos efectivos de una persona son la unión de todos sus roles.
+      </Typography>
+      <Box role="table" aria-label="Roles y permisos del piloto" sx={{ border: '1px solid #DDE2E6' }}>
+        <Box role="row" sx={{ display: { xs: 'none', md: 'grid' }, gridTemplateColumns: '220px 240px minmax(0, 1fr)', bgcolor: '#EEF2F5', borderBottom: '1px solid #DDE2E6' }}>
+          {['Rol', 'Responsabilidad', 'Permisos principales'].map((label) => (
+            <Typography role="columnheader" key={label} variant="subtitle2" sx={{ p: 1.25, fontWeight: 800 }}>{label}</Typography>
+          ))}
+        </Box>
+        {roles.map((item, index) => (
+          <Box role="row" key={item.role} sx={{
+            display: { xs: 'block', md: 'grid' },
+            gridTemplateColumns: '220px 240px minmax(0, 1fr)',
+            borderBottom: index < roles.length - 1 ? '1px solid #E3E7EA' : 0,
+            p: { xs: 1.25, md: 0 },
+          }}>
+            <Typography role="cell" variant="body2" sx={{ p: { md: 1.25 }, fontWeight: 800, color: '#1E3A5F' }}>{item.role}</Typography>
+            <Typography role="cell" variant="body2" sx={{ p: { md: 1.25 }, fontWeight: 700 }}>{item.use}</Typography>
+            <Typography role="cell" variant="body2" color="text.secondary" sx={{ p: { md: 1.25 }, mt: { xs: 0.5, md: 0 } }}>{item.permissions}</Typography>
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+function ReferenceSections({ sections }) {
+  if (!sections?.length) return null;
+
+  return (
+    <Box sx={{ mt: 3 }}>
+      <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#F8FAFB' }}>
+        <Typography variant="overline" sx={{ fontWeight: 800, color: '#52616C' }}>En esta página</Typography>
+        <Stack component="nav" aria-label="Contenido de esta página" spacing={0.5} sx={{ mt: 0.75, alignItems: 'flex-start' }}>
+          {sections.map((section) => (
+            <Link key={section.id} href={`#${section.id}`} underline="hover" sx={{ fontSize: 14, fontWeight: 700 }}>
+              {section.title}
+            </Link>
+          ))}
+        </Stack>
+      </Paper>
+
+      {sections.map((section) => (
+        <Box key={section.id} id={section.id} component="section" sx={{ py: 2, scrollMarginTop: 24, borderTop: '1px solid #DDE2E6' }}>
+          <Typography component="h3" variant="h6" sx={{ fontSize: 19, fontWeight: 800, color: '#172B3A' }}>
+            {section.title}
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 0.75, maxWidth: 900, lineHeight: 1.75 }}>
+            {section.summary}
+          </Typography>
+          {section.items?.length > 0 && (
+            <Box component="ul" sx={{ mt: 1.25, mb: 0, pl: 2.5, maxWidth: 920 }}>
+              {section.items.map((item) => (
+                <Typography component="li" variant="body2" key={item} sx={{ mb: 0.75, lineHeight: 1.65 }}>
+                  {item}
+                </Typography>
+              ))}
+            </Box>
+          )}
+          {section.note && (
+            <Alert severity={section.noteSeverity || 'info'} sx={{ mt: 1.5 }}>
+              {section.note}
+            </Alert>
+          )}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
 function BulletSection({ title, items, icon, background }) {
   const SectionIcon = icon;
   return (
@@ -258,7 +338,7 @@ function StageDetail({ stage, index, onPrevious, onNext }) {
         <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={1.5} alignItems="flex-start">
           <Box>
             <Typography variant="overline" sx={{ fontWeight: 800, color: '#5C6972' }}>
-              Etapa {index + 1} de {scmGuideStages.length} · {stage.scope}
+              Capítulo {index + 1} de {scmGuideStages.length} · {stage.scope}
             </Typography>
             <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mt: 0.25 }}>
               <Box sx={{ color: '#1E3A5F', display: 'flex' }}><StageIcon stage={stage} /></Box>
@@ -290,25 +370,29 @@ function StageDetail({ stage, index, onPrevious, onNext }) {
       </Grid>
 
       <Alert severity="info" icon={<AccountTreeOutlinedIcon />} sx={{ borderRadius: 0, borderTop: '1px solid #D9E8F1', borderBottom: '1px solid #D9E8F1' }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Decisión que debe quedar clara</Typography>
+        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Qué debe cumplirse</Typography>
         <Typography variant="body2">{stage.decision}</Typography>
       </Alert>
 
       <Box sx={{ px: { xs: 1.75, md: 2.5 }, py: 2.5 }}>
-        {stage.id === 'lectura' && <FlowMap />}
+        {stage.id === 'inicio' && <FlowMap />}
 
-        <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 800, mb: 0.5 }}>Anatomía de la pantalla</Typography>
+        <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 800, mb: 0.5 }}>Conceptos y elementos</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          Los números siguen el orden recomendado para explicar la etapa durante la reunión.
+          Revise estos elementos antes de ejecutar el procedimiento.
         </Typography>
         <Anatomy items={stage.anatomy} />
+
+        <ReferenceSections sections={stage.referenceSections} />
+
+        <RoleMatrix roles={stage.roleMatrix} />
 
         <Grid container spacing={2} sx={{ mt: 1.5 }}>
           <Grid size={{ xs: 12, lg: 6 }}>
             <BulletSection title="Reglas que esta etapa protege" items={stage.invariants} icon={CheckCircleOutlineIcon} background="#F2F7F4" />
           </Grid>
           <Grid size={{ xs: 12, lg: 6 }}>
-            <BulletSection title="Guion sugerido para la demostración" items={stage.talkTrack} icon={MenuBookOutlinedIcon} background="#F4F6F8" />
+            <BulletSection title="Procedimiento recomendado" items={stage.procedure} icon={MenuBookOutlinedIcon} background="#F4F6F8" />
           </Grid>
         </Grid>
 
@@ -339,10 +423,10 @@ function StageDetail({ stage, index, onPrevious, onNext }) {
               {stage.routeLabel}
             </Button>
           ) : (
-            <Tooltip title="Esta vista todavía no está implementada" arrow>
+            <Tooltip title="Esta función no está disponible en el alcance actual" arrow>
               <span>
                 <Button disabled variant="outlined" startIcon={<LockOutlinedIcon />} sx={{ width: { xs: '100%', sm: 'auto' } }}>
-                  Vista pendiente
+                  No disponible en el piloto
                 </Button>
               </span>
             </Tooltip>
@@ -364,9 +448,9 @@ function ManagementClose() {
   return (
     <Paper variant="outlined" sx={{ mt: 2, borderRadius: 1, overflow: 'hidden' }}>
       <Box sx={{ px: 2.5, py: 2, bgcolor: '#172B3A', color: 'white' }}>
-        <Typography component="h2" variant="h6" sx={{ fontSize: 18, fontWeight: 800 }}>Cierre de la reunión</Typography>
+        <Typography component="h2" variant="h6" sx={{ fontSize: 18, fontWeight: 800 }}>Comprobaciones antes de terminar</Typography>
         <Typography variant="body2" sx={{ mt: 0.5, color: 'rgba(255,255,255,0.78)' }}>
-          Estas decisiones convierten la demostración en políticas implementables; los nombres reales pueden configurarse durante el piloto.
+          Antes de continuar con otra tarea, confirme que la operación quedó registrada correctamente.
         </Typography>
       </Box>
       <Grid container>
@@ -390,13 +474,13 @@ function Glossary() {
     <Box id="glosario" sx={{ mt: 3, scrollMarginTop: 24 }}>
       <Typography component="h2" variant="h6" sx={{ fontSize: 18, fontWeight: 800 }}>Glosario rápido</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.25 }}>
-        Términos que deben utilizarse de la misma forma durante toda la validación.
+        Términos utilizados en las pantallas y procedimientos del SCM.
       </Typography>
       <Grid container columnSpacing={3}>
         {scmGlossary.map((item) => (
           <Grid key={item.term} size={{ xs: 12, sm: 6, lg: 4 }}>
             <Box sx={{ py: 1.25, borderTop: '1px solid #DDE2E6' }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{item.term}</Typography>
+              <Typography component="div" variant="subtitle2" sx={{ fontWeight: 800 }}>{item.term}</Typography>
               <Typography variant="body2" color="text.secondary">{item.definition}</Typography>
             </Box>
           </Grid>
@@ -410,12 +494,25 @@ function ScmGuide() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [searchParams, setSearchParams] = useSearchParams();
+  const [query, setQuery] = useState('');
   const requestedStage = searchParams.get('etapa');
   const selectedIndex = useMemo(() => {
     const index = scmGuideStages.findIndex((stage) => stage.id === requestedStage);
     return index >= 0 ? index : 0;
   }, [requestedStage]);
   const selectedStage = scmGuideStages[selectedIndex];
+  const searchResults = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase('es').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (!normalized) return [];
+    const terms = normalized.split(/\s+/).filter(Boolean);
+    return scmGuideStages.filter((stage) => {
+      const content = JSON.stringify(stage)
+        .toLocaleLowerCase('es')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+      return terms.every((term) => content.includes(term));
+    });
+  }, [query]);
 
   const selectStage = (index) => {
     setSearchParams({ etapa: scmGuideStages[index].id });
@@ -426,25 +523,61 @@ function ScmGuide() {
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap', mb: 2.5 }}>
         <Box>
           <Typography component="h1" variant="h4" sx={{ fontSize: 28, fontWeight: 800, color: '#172B3A' }}>
-            Guía operativa SCM
+            Documentación oficial SCM
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Recorrido gerencial desde los datos maestros hasta la trazabilidad de despacho
+            Conceptos, procedimientos y reglas de operación del piloto EnvaPerú SCM
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-          <Chip icon={<MenuBookOutlinedIcon />} label="Modo reunión" color="primary" variant="outlined" />
-          <Chip icon={<ScienceOutlinedIcon />} label="3 etapas con mock" color="info" variant="outlined" />
-          <Button component="a" href="#glosario" variant="outlined" startIcon={<MenuBookOutlinedIcon />}>Glosario</Button>
+        <Stack spacing={1} sx={{ width: { xs: '100%', sm: 390 } }}>
+          <TextField
+            size="small"
+            fullWidth
+            label="Buscar en la documentación"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchOutlinedIcon fontSize="small" /></InputAdornment> } }}
+          />
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+            <Chip icon={<MenuBookOutlinedIcon />} label="Manual oficial" color="primary" variant="outlined" />
+            <Chip icon={<TaskAltOutlinedIcon />} label="Piloto v1" color="success" variant="outlined" />
+            <Button component="a" href="#glosario" variant="outlined" startIcon={<MenuBookOutlinedIcon />}>Glosario</Button>
+          </Stack>
         </Stack>
       </Box>
 
+      {query.trim() && (
+        <Paper variant="outlined" sx={{ mb: 2, overflow: 'hidden' }}>
+          <Box sx={{ px: 2, py: 1, bgcolor: '#EEF2F5' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+              {searchResults.length} resultado{searchResults.length === 1 ? '' : 's'}
+            </Typography>
+          </Box>
+          <List disablePadding aria-label="Resultados de búsqueda de la documentación">
+            {searchResults.map((stage) => (
+              <ListItemButton
+                key={stage.id}
+                onClick={() => {
+                  selectStage(scmGuideStages.findIndex((item) => item.id === stage.id));
+                  setQuery('');
+                }}
+              >
+                <ListItemText primary={stage.title} secondary={stage.purpose} />
+              </ListItemButton>
+            ))}
+            {searchResults.length === 0 && (
+              <Box sx={{ px: 2, py: 1.5 }}><Typography variant="body2" color="text.secondary">No se encontraron capítulos relacionados.</Typography></Box>
+            )}
+          </List>
+        </Paper>
+      )}
+
       <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 1 }}>
         <Grid container spacing={2}>
-          <Grid size={{ xs: 6, md: 3 }}><Metric label="Duración sugerida" value="20-25 min" accent="#1E3A5F" /></Grid>
-          <Grid size={{ xs: 6, md: 3 }}><Metric label="Etapas del recorrido" value={scmGuideStages.length} accent="#176B52" /></Grid>
-          <Grid size={{ xs: 6, md: 3 }}><Metric label="Mocks conectados" value="US-010A / P / B" accent="#6B4F83" /></Grid>
-          <Grid size={{ xs: 6, md: 3 }}><Metric label="Objetivo" value="Validar decisiones" accent="#9A3B26" /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><Metric label="Documento" value="Manual oficial" accent="#1E3A5F" /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><Metric label="Procesos documentados" value={scmGuideStages.length - 1} accent="#176B52" /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><Metric label="Cobertura" value="Operación SCM" accent="#6B4F83" /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><Metric label="Versión" value="Piloto v1" accent="#9A3B26" /></Grid>
         </Grid>
       </Paper>
 

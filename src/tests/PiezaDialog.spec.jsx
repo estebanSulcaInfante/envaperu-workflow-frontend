@@ -79,6 +79,7 @@ describe('PiezaDialog: datos derivados y alta rápida', () => {
     await user.click(screen.getByRole('button', { name: /^crear$/i }));
 
     await waitFor(() => expect(crearPiezaColor).toHaveBeenCalledTimes(1));
+    expect(screen.queryByLabelText(/^Tipo$/)).not.toBeInTheDocument();
     expect(crearPiezaColor.mock.calls[0][0]).toMatchObject({
       pieza_id: 10,
       linea_id: 4,

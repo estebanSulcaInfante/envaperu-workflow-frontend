@@ -54,13 +54,13 @@ describe('MaterialCatalogPage conectado a SCM API', () => {
 
     expect(await screen.findByText('Catálogos maestros de materiales')).toBeInTheDocument();
     expect(screen.queryByText(/mock|prototipo|en memoria/i)).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Nuevo' }));
+    await user.click(screen.getByRole('button', { name: 'Nuevo material' }));
     const form = screen.getByText('Crear Material').closest('.MuiPaper-root');
     expect(within(form).getByLabelText('Código automático')).toHaveValue('MP-######');
-    await user.type(within(form).getByLabelText('Nombre'), 'PP virgen local');
+    await user.type(within(form).getByLabelText(/Nombre/), 'PP virgen local');
     await user.click(within(form).getByRole('combobox', { name: 'Categoría de recepción' }));
     await user.click(screen.getByRole('option', { name: /RESINA_VIRGEN/ }));
-    await user.click(within(form).getByRole('button', { name: 'Guardar en API' }));
+    await user.click(within(form).getByRole('button', { name: 'Guardar material' }));
 
     await waitFor(() => expect(crearMaterialScm).toHaveBeenCalledWith({
       nombre: 'PP virgen local',
@@ -69,6 +69,32 @@ describe('MaterialCatalogPage conectado a SCM API', () => {
       unidad_base: 'KG',
       activo: true,
     }));
+  });
+
+  it('advierte un nombre duplicado antes de llamar a la API', async () => {
+    listarMaterialesScm.mockResolvedValue([{
+      id: 33,
+      codigo: 'MP-000033',
+      nombre: 'PP Virgen',
+      clase: 'MATERIA_PRIMA',
+      categoria_recepcion_id: 10,
+      categoria_recepcion_codigo: 'RESINA_VIRGEN',
+      unidad_base: 'KG',
+      activo: true,
+    }]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('PP Virgen');
+    await user.click(screen.getByRole('button', { name: 'Nuevo material' }));
+    const form = screen.getByText('Crear Material').closest('.MuiPaper-root');
+    await user.type(within(form).getByLabelText(/Nombre/), 'pp virgen');
+    await user.click(within(form).getByRole('combobox', { name: 'Categoría de recepción' }));
+    await user.click(screen.getByRole('option', { name: /RESINA_VIRGEN/ }));
+    await user.click(within(form).getByRole('button', { name: 'Guardar material' }));
+
+    expect(await screen.findByText(/Ya existe MP-000033/i)).toBeInTheDocument();
+    expect(crearMaterialScm).not.toHaveBeenCalled();
   });
 
   it('no presenta datos simulados para un catálogo sin API', async () => {

@@ -75,6 +75,12 @@ const apiErrorMessage = (error, fallback) => (
   || fallback
 );
 
+const normalizedName = (value = '') => value
+  .trim()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLocaleUpperCase('es-PE');
+
 function CatalogTable({
   title,
   noun,
@@ -278,6 +284,18 @@ function LineasFamiliasAdmin() {
       setError('Ingresa un nombre.');
       return;
     }
+    const comparisonRows = dialog.type === 'linea' ? lineas : familias;
+    const duplicate = comparisonRows.find((row) => (
+      row.id !== dialog.item?.id
+      && normalizedName(row.nombre) === normalizedName(nombre)
+    ));
+    if (duplicate) {
+      setError(
+        `Ya existe ${dialog.type === 'linea' ? 'la línea' : 'la familia'} `
+        + `${duplicate.codigo_display || duplicate.codigo} con ese nombre. Revísala antes de crear otra.`,
+      );
+      return;
+    }
 
     setSaving(true);
     setError('');
@@ -378,6 +396,11 @@ function LineasFamiliasAdmin() {
         title="Líneas y familias"
         description="Catálogos de clasificación y combinaciones válidas para productos y piezas."
       />
+
+      <Alert severity="info">
+        Flujo recomendado: crea la línea y la familia; después selecciona la línea y asocia las
+        familias válidas. Los formularios de piezas y productos solo mostrarán combinaciones asociadas.
+      </Alert>
 
       {error && (
         <Alert severity="error" action={!lineas.length && <Button color="inherit" onClick={loadCatalogs}>Reintentar</Button>}>
@@ -521,6 +544,7 @@ function LineasFamiliasAdmin() {
               onChange={(event) => setFormData((current) => ({ ...current, nombre: event.target.value }))}
               required
               autoFocus
+              helperText="Usa un nombre corto, único y reconocible para planta."
             />
             <FormControlLabel
               control={(
@@ -535,7 +559,11 @@ function LineasFamiliasAdmin() {
         </DialogContent>
         <DialogActions>
           <Button onClick={closeDialog} disabled={saving}>Cancelar</Button>
-          <Button variant="contained" onClick={saveCatalog} disabled={saving}>
+          <Button
+            variant="contained"
+            onClick={saveCatalog}
+            disabled={saving || !formData.nombre.trim()}
+          >
             {saving ? 'Guardando…' : 'Guardar'}
           </Button>
         </DialogActions>

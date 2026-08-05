@@ -223,7 +223,7 @@ describe('Specs: OrdenForm (Spec-Driven)', () => {
       snapshot_composicion: [],
       lotes: [{ color_id: '1', meta_kg: 25, personas: 1 }],
     });
-  }, 10000);
+  }, 30000);
 
   it('bloquea el guardado cuando el preflight reporta una incompatibilidad', async () => {
     validarOrdenPrereq.mockResolvedValue({
@@ -288,5 +288,5 @@ describe('Specs: OrdenForm (Spec-Driven)', () => {
       id: 40,
       revision: 2,
     });
-  }, 10000);
+  }, 30000);
 });

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField,
-  Stack, Box, FormControl, InputLabel, Select, MenuItem, Autocomplete, Typography, Alert
+  Stack, Box, Autocomplete, Typography, Alert
 } from '@mui/material';
 import { 
   crearPiezaColor,
@@ -18,7 +18,6 @@ function PiezaDialog({ open, onClose, pieza }) {
   const [formData, setFormData] = useState({
     sku: '',
     nombre: '',
-    tipo: 'SIMPLE',
     peso: '',
     linea_id: '',
     familia_id: '',
@@ -67,7 +66,6 @@ function PiezaDialog({ open, onClose, pieza }) {
       setFormData({
         sku: pieza.sku,
         nombre: pieza.piezas || pieza.nombre || '',
-        tipo: pieza.tipo || 'SIMPLE',
         peso: pieza.peso || '',
         linea_id: pieza.linea_id || '',
         familia_id: pieza.familia_id || '',
@@ -81,7 +79,7 @@ function PiezaDialog({ open, onClose, pieza }) {
       });
     } else {
       setFormData({
-        sku: '', nombre: '', tipo: 'SIMPLE', peso: '',
+        sku: '', nombre: '', peso: '',
         linea_id: '', familia_id: '', color_produccion_id: '', pieza_id: '',
         cod_pieza: '', cod_extru: '', tipo_extruccion: '', cod_mp: '', mp: ''
       });
@@ -250,17 +248,6 @@ function PiezaDialog({ open, onClose, pieza }) {
           </Stack>
           
           <Stack direction="row" spacing={2}>
-            <FormControl fullWidth>
-              <InputLabel>Tipo</InputLabel>
-              <Select
-                value={formData.tipo}
-                label="Tipo"
-                onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
-              >
-                <MenuItem value="SIMPLE">Simple</MenuItem>
-                <MenuItem value="KIT">Kit</MenuItem>
-              </Select>
-            </FormControl>
             <CreateOptionAutocomplete
               options={maestros.colores}
               getOptionLabel={(option) => option.nombre}

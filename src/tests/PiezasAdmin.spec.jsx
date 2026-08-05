@@ -10,6 +10,10 @@ vi.mock('../services/api', () => ({
   crearFamiliaEnLinea: vi.fn(),
   crearLinea: vi.fn(),
   crearPiezaGlobal: vi.fn(),
+  eliminarImagenPiezaColor: vi.fn(),
+  guardarImagenPiezaColor: vi.fn(),
+  habilitarColorMolde: vi.fn(),
+  obtenerColores: vi.fn(),
   obtenerFamilias: vi.fn(),
   obtenerLineas: vi.fn(),
 }));
@@ -20,6 +24,8 @@ import {
   crearFamiliaEnLinea,
   crearLinea,
   crearPiezaGlobal,
+  habilitarColorMolde,
+  obtenerColores,
   obtenerFamilias,
   obtenerLineas,
 } from '../services/api';
@@ -38,6 +44,15 @@ const pieces = [{
     { composicion_id: 81, molde_id: 'MOL-A', molde_nombre: 'Molde A' },
     { composicion_id: 82, molde_id: 'MOL-B', molde_nombre: 'Molde B' },
   ],
+  variantes: [{
+    sku: 'PC-000010',
+    nombre: 'Tapa universal Azul Sólido',
+    color: 'Azul Sólido',
+    color_hex: '#1756A9',
+    peso: 18.5,
+    estado_revision: 'VERIFICADO',
+    imagen_url: '/api/piezas-color/PC-000010/imagen',
+  }],
 }];
 
 const renderPage = () => render(
@@ -52,12 +67,14 @@ describe('PiezasAdmin: maestro global Pieza', () => {
     buscarPiezasGlobales.mockResolvedValue(pieces);
     obtenerLineas.mockResolvedValue([{ id: 1, nombre: 'Inyección' }]);
     obtenerFamilias.mockResolvedValue([{ id: 2, nombre: 'Tapas' }]);
+    obtenerColores.mockResolvedValue([{ id: 7, nombre: 'Azul Sólido', activo: true }]);
     crearPiezaGlobal.mockResolvedValue({ id: 11 });
     crearLinea.mockResolvedValue({ id: 3, codigo: 30, nombre: 'SOPLADO' });
     crearFamiliaEnLinea.mockResolvedValue({
       familia: { id: 4, codigo: 40, nombre: 'BOTELLAS' },
     });
     actualizarPiezaGlobal.mockResolvedValue({ id: 10 });
+    habilitarColorMolde.mockResolvedValue({ variantes_creadas: [] });
   });
 
   it('muestra una pieza reutilizada por varios moldes sin atribuirle cavidades', async () => {
@@ -68,6 +85,37 @@ describe('PiezasAdmin: maestro global Pieza', () => {
     expect(screen.getByText('MOL-B')).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: /cavidades/i })).not.toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: /peso nominal/i })).toBeInTheDocument();
+  });
+
+  it('despliega los SKU PiezaColor con color, imagen y estado', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Tapa universal');
+
+    await user.click(screen.getByRole('button', { name: 'Mostrar SKU de PZ-000010' }));
+
+    expect(screen.getByText('PC-000010')).toBeInTheDocument();
+    expect(screen.getByText('Azul Sólido')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Imagen PC-000010' })).toHaveAttribute(
+      'src',
+      '/api/piezas-color/PC-000010/imagen',
+    );
+    expect(screen.getByText('VERIFICADO')).toBeInTheDocument();
+  });
+
+  it('habilita el color en el molde completo, no en una salida aislada', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Tapa universal');
+
+    await user.click(screen.getByRole('button', { name: 'Habilitar color desde PZ-000010' }));
+    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    await user.click(screen.getByRole('option', { name: 'MOL-A · Molde A' }));
+    await user.click(screen.getByRole('combobox', { name: 'Color de producción' }));
+    await user.click(screen.getByRole('option', { name: 'Azul Sólido' }));
+    await user.click(screen.getByRole('button', { name: 'Habilitar para todo el molde' }));
+
+    await waitFor(() => expect(habilitarColorMolde).toHaveBeenCalledWith('MOL-A', 7));
   });
 
   it('crea el maestro sin enviar cavidades ni datos de color', async () => {

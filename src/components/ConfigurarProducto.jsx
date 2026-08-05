@@ -73,10 +73,6 @@ function ConfigurarProducto() {
   
   const [piezas, setPiezas] = useState([nuevaPiezaVacia()]);
 
-  // Kit state (NUEVO)
-  const [crearKit, setCrearKit] = useState(false);
-  const [kitNombre, setKitNombre] = useState('');
-  
   const [coloresSeleccionados, setColoresSeleccionados] = useState([]);
   const [colorDialogOpen, setColorDialogOpen] = useState(false);
   const [colorInitialName, setColorInitialName] = useState('');
@@ -105,9 +101,6 @@ function ConfigurarProducto() {
   
   // Resultado
   const [resultado, setResultado] = useState(null);
-  const nombreMoldeActual = molde.usar_existente
-    ? molde.molde_seleccionado?.nombre || ''
-    : molde.nombre;
   const composicionesMoldeSeleccionado = (
     molde.molde_seleccionado?.formas || molde.molde_seleccionado?.piezas || []
   ).filter((forma) => forma.activo !== false);
@@ -181,20 +174,6 @@ function ConfigurarProducto() {
 
     return () => { active = false; };
   }, [lineaSeleccionada?.id]);
-
-  // Auto-generar nombre del Kit basado en el molde
-  useEffect(() => {
-    if (crearKit && !kitNombre && nombreMoldeActual) {
-      setKitNombre(`${nombreMoldeActual} Completo`);
-    }
-  }, [crearKit, kitNombre, nombreMoldeActual]);
-
-  useEffect(() => {
-    if (coloresSeleccionados.length === 0 && crearKit) {
-      setCrearKit(false);
-      setKitNombre('');
-    }
-  }, [coloresSeleccionados.length, crearKit]);
 
   // Handlers
   const handleMoldeChange = (field, value) => {
@@ -371,12 +350,6 @@ function ConfigurarProducto() {
       setActiveStep(2);
       return;
     }
-    if (!isStep3Valid()) {
-      setError('Un kit requiere al menos dos piezas, un color seleccionado y un nombre.');
-      setActiveStep(3);
-      return;
-    }
-
     setLoading(true);
     
     try {
@@ -399,10 +372,8 @@ function ConfigurarProducto() {
           cavidades: parseInt(pieza.cavidades, 10),
           peso_unitario_gr: parseFloat(pieza.peso_unitario_gr)
         })),
-        // Kit (solo si se activó y hay >1 pieza)
-        kit: (crearKit && piezas.length > 1 && coloresSeleccionados.length > 0) ? {
-          nombre: kitNombre.trim()
-        } : null,
+        // Compatibilidad del contrato: la composición se define luego como BOM.
+        kit: null,
         color_ids: coloresSeleccionados.map(c => c.id),
 
         linea_id: lineaSeleccionada.id,
@@ -462,15 +433,6 @@ function ConfigurarProducto() {
     ));
   };
 
-  const isStep3Valid = () => (
-    !crearKit
-    || (
-      piezas.length > 1
-      && coloresSeleccionados.length > 0
-      && Boolean(kitNombre.trim())
-    )
-  );
-
   // Calcular peso total estimado
   const pesoNetoCalculado = piezas.reduce((sum, p) => {
     return sum + (parseFloat(p.peso_unitario_gr) || 0) * (parseInt(p.cavidades) || 1);
@@ -485,12 +447,9 @@ function ConfigurarProducto() {
     : Array.isArray(resultado?.formas_reutilizadas)
       ? resultado.formas_reutilizadas.length
       : piezas.filter((pieza) => pieza.usar_existente).length;
-  const kitsCreados = Array.isArray(resultado?.kit_creado)
-    ? resultado.kit_creado.length
-    : resultado?.kit_creado ? 1 : 0;
   const variantesCreadas = Array.isArray(resultado?.variantes_creadas)
     ? resultado.variantes_creadas.length
-    : Math.max(0, (resultado?.piezas_creadas?.length || 0) - kitsCreados);
+    : (resultado?.piezas_creadas?.length || 0);
   const variantesReutilizadas = Array.isArray(resultado?.variantes_reutilizadas)
     ? resultado.variantes_reutilizadas.length
     : 0;
@@ -609,7 +568,7 @@ function ConfigurarProducto() {
               )}
 
               <Alert severity="info" sx={{ mt: 2, mb: 2 }}>
-                La combinación Línea–Familia clasifica las piezas nuevas y cualquier kit generado.
+                La combinación Línea–Familia clasifica las piezas nuevas.
                 Las piezas existentes conservan siempre su propia clasificación.
               </Alert>
               <Grid container spacing={2}>
@@ -883,7 +842,7 @@ function ConfigurarProducto() {
               )}
               {coloresSeleccionados.length === 0 && (
                 <Alert severity="warning" sx={{ mt: 1.5 }}>
-                  Puedes continuar sin colores, pero no se crearán PiezaColor ni kits.
+                  Puedes continuar sin colores, pero no se crearán variantes PiezaColor.
                 </Alert>
               )}
             </Box>
@@ -900,82 +859,25 @@ function ConfigurarProducto() {
           </StepContent>
         </Step>
 
-        {/* PASO 4: KIT */}
+        {/* PASO 4: COMPOSICIÓN SCM */}
         <Step>
           <StepLabel>
             <Typography sx={{ fontWeight: 600 }}>
               <BuildIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: 'middle' }} />
-              Formar Kit {piezas.length <= 1
-                ? '(no aplica)'
-                : coloresSeleccionados.length === 0 ? '(requiere color)' : ''}
+              Estructura del artículo
             </Typography>
           </StepLabel>
           <StepContent>
-            {piezas.length > 1 && coloresSeleccionados.length > 0 ? (
-              <>
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  Tu molde produce <strong>{piezas.length} piezas</strong> por golpe.
-                  ¿Se ensamblan para formar un solo producto?
-                </Alert>
-                
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={crearKit}
-                      onChange={(e) => setCrearKit(e.target.checked)}
-                    />
-                  }
-                  label="Sí, formar un Kit (pieza ensamblada)"
-                  sx={{ mb: 2, display: 'block' }}
-                />
-
-                {crearKit && (
-                  <Card variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'action.hover' }}>
-                    <Typography variant="subtitle2" color="primary" sx={{ mb: 1 }}>
-                      <BuildIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: 'middle' }} />
-                      Kit: {kitNombre || '(sin nombre)'}
-                    </Typography>
-                    <Grid container spacing={2}>
-                      <Grid size={{ xs: 12, sm: 7 }}>
-                        <TextField
-                          fullWidth
-                          size="small"
-                          label="Nombre del Kit"
-                          value={kitNombre}
-                          onChange={(e) => setKitNombre(e.target.value)}
-                          placeholder="Ej: Regadera Completa"
-                        />
-                      </Grid>
-                      <Grid size={{ xs: 12, sm: 5 }}>
-                        <TextField
-                          fullWidth
-                          size="small"
-                          label="SKU del kit"
-                          value="Se asignará automáticamente al guardar"
-                          helperText="El backend asignará el siguiente correlativo disponible."
-                          slotProps={{ input: { readOnly: true } }}
-                        />
-                      </Grid>
-                    </Grid>
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                      Componentes: {piezas.map(nombrePieza).join(' + ')}
-                    </Typography>
-                  </Card>
-                )}
-              </>
-            ) : piezas.length > 1 ? (
-              <Alert severity="warning" sx={{ mb: 2 }}>
-                Para formar un kit primero selecciona al menos un color. El backend genera un SKU de kit por color.
-              </Alert>
-            ) : (
-              <Alert severity="info" sx={{ mb: 2 }}>
-                Solo hay 1 pieza, no se necesita Kit. Continúa al siguiente paso.
-              </Alert>
-            )}
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Este asistente configura el molde y sus piezas físicas. Si el resultado
+              se prearma o ensambla, crea después un <strong>Artículo WIP</strong> y
+              define sus componentes en <strong>Estructuras y rutas SCM</strong>.
+              Ser componente es una relación de BOM, no un tipo de PiezaColor.
+            </Alert>
 
             <Box sx={{ display: 'flex', gap: 1 }}>
               <Button onClick={handleBack}>Atrás</Button>
-              <Button variant="contained" onClick={handleNext} disabled={!isStep3Valid()}>
+              <Button variant="contained" onClick={handleNext}>
                 Revisar
               </Button>
             </Box>
@@ -1037,25 +939,10 @@ function ConfigurarProducto() {
                       <Chip key={color.id} label={color.nombre} size="small" sx={{ mr: 0.5, mb: 0.5 }} />
                     )) : (
                       <Typography variant="body2" color="warning.main">
-                        Sin colores: no se crearán PiezaColor ni kits.
+                        Sin colores: no se crearán variantes PiezaColor.
                       </Typography>
                     )}
                   </Box>
-
-                  {crearKit && piezas.length > 1 && coloresSeleccionados.length > 0 && (
-                    <>
-                      <Divider />
-                      <Box>
-                        <Typography variant="subtitle2" color="primary">
-                          <BuildIcon sx={{ fontSize: 16, mr: 0.5, verticalAlign: 'middle' }} />
-                          Kit
-                        </Typography>
-                        <Typography variant="body2">
-                          {kitNombre} = {piezas.map(nombrePieza).join(' + ')}
-                        </Typography>
-                      </Box>
-                    </>
-                  )}
                 </Stack>
               </CardContent>
             </Card>
@@ -1128,14 +1015,6 @@ function ConfigurarProducto() {
                 </CardContent>
               </Card>
             )}
-            {kitsCreados > 0 && (
-              <Card variant="outlined">
-                <CardContent>
-                  <Typography variant="h4" color="info.main">{kitsCreados}</Typography>
-                  <Typography variant="body2">Kits creados</Typography>
-                </CardContent>
-              </Card>
-            )}
           </Stack>
 
           {resultado.errores?.length > 0 && (
@@ -1155,8 +1034,6 @@ function ConfigurarProducto() {
               setResultado(null);
               setMolde({ nombre: '', peso_tiro_gr: '', tiempo_ciclo_std: '30', usar_existente: false, molde_seleccionado: null });
               setPiezas([nuevaPiezaVacia()]);
-              setCrearKit(false);
-              setKitNombre('');
               setColoresSeleccionados([]);
               setLineaSeleccionada(null);
               setFamiliaSeleccionada(null);

@@ -30,8 +30,11 @@ import { obtenerMoldes, crearMolde, eliminarMolde } from '../services/api';
 import DataTableToolbar from './ui/DataTableToolbar';
 import PageHeader from './ui/PageHeader';
 import { matchesOmniSearch } from '../utils/tableSearch';
+import { useScmActor } from '../context/ScmActorContext';
 
 function MoldesLista() {
+  const { canAny, experience } = useScmActor();
+  const canAdmin = canAny(['ARTICULO_ADMINISTRAR', 'RUTA_ADMINISTRAR']);
   const navigate = useNavigate();
   const [moldes, setMoldes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -127,6 +130,12 @@ function MoldesLista() {
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {!canAdmin && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Vista de consulta para {experience.label}. La configuración física del molde
+          corresponde a Ingeniería SCM.
+        </Alert>
+      )}
 
       <DataTableToolbar
         searchValue={search}
@@ -151,11 +160,11 @@ function MoldesLista() {
           setSearch('');
           setConfiguration('TODOS');
         }}
-        actions={(
+        actions={canAdmin ? (
           <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenDialog}>
             Nuevo molde
           </Button>
-        )}
+        ) : null}
       />
 
       <TableContainer component={Paper}>
@@ -169,13 +178,13 @@ function MoldesLista() {
               <TableCell align="right">Cavidades Totales</TableCell>
               <TableCell align="right">T. Ciclo (s)</TableCell>
               <TableCell>Formas</TableCell>
-              <TableCell align="center">Acciones</TableCell>
+              {canAdmin && <TableCell align="center">Acciones</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
             {visibleMoldes.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={canAdmin ? 8 : 7} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">
                     No hay moldes que coincidan con los filtros.
                   </Typography>
@@ -202,7 +211,7 @@ function MoldesLista() {
                       />
                     ))}
                   </TableCell>
-                  <TableCell align="center">
+                  {canAdmin && <TableCell align="center">
                     <Tooltip title="Ver Detalle y Editar Formas/SKUs">
                       <IconButton size="small" onClick={() => navigate(`/datos-maestros/moldes/${molde.codigo}`)}>
                         <EditIcon fontSize="small" color="primary" />
@@ -213,7 +222,7 @@ function MoldesLista() {
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                  </TableCell>
+                  </TableCell>}
                 </TableRow>
               ))
             )}
@@ -222,7 +231,7 @@ function MoldesLista() {
       </TableContainer>
 
       {/* Dialog Nuevo Molde */}
-      <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+      {canAdmin && <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
         <DialogTitle>Nuevo Molde</DialogTitle>
         <DialogContent dividers>
           <Grid container spacing={2}>
@@ -279,7 +288,7 @@ function MoldesLista() {
             Crear Molde
           </Button>
         </DialogActions>
-      </Dialog>
+      </Dialog>}
     </Box>
   );
 }

@@ -5,7 +5,7 @@ import {
   CssBaseline,
 } from '@mui/material';
 import AppShell from './components/layout/AppShell';
-import Dashboard from './components/Dashboard';
+import RoleHome from './components/RoleHome';
 import OrdenForm from './components/OrdenForm';
 import OrdenesLista from './components/OrdenesLista';
 import RegistrosLista from './components/RegistrosLista';
@@ -20,6 +20,7 @@ import ImportarCatalogo from './components/ImportarCatalogo';
 import ConfigurarProducto from './components/ConfigurarProducto';
 import RevisionProductos from './components/RevisionProductos';
 import PlanificacionProduccion from './components/PlanificacionProduccion';
+import ProductionPlanningScm from './components/ProductionPlanningScm';
 import PreparacionMateriales from './components/PreparacionMateriales';
 import RecepcionMateriales from './components/RecepcionMateriales';
 import ScmGuide from './components/ScmGuide';
@@ -29,7 +30,22 @@ import MasterDataHub from './components/MasterDataHub';
 import ColoresRecetasAdmin from './components/ColoresRecetasAdmin';
 import MaterialCatalogPage from './components/MaterialCatalogPage';
 import LineasFamiliasAdmin from './components/LineasFamiliasAdmin';
+import ScmEngineeringAdmin from './components/ScmEngineeringAdmin';
+import OtMangasScm from './components/OtMangasScm';
+import FabricationOrdersScm from './components/FabricationOrdersScm';
+import AssemblyOrdersScm from './components/AssemblyOrdersScm';
+import InventoryScm from './components/InventoryScm';
+import ReprocessingScm from './components/ReprocessingScm';
+import OperationalAlertsScm from './components/OperationalAlertsScm';
+import WarehouseReceivingScm from './components/WarehouseReceivingScm';
+import InternalSupplyScm from './components/InternalSupplyScm';
 import ErrorBoundary from './components/ErrorBoundary';
+import CapabilityRoute from './components/CapabilityRoute';
+import { ScmActorProvider } from './context/ScmActorContext';
+
+const permitted = (element, any) => (
+  <CapabilityRoute any={any}>{element}</CapabilityRoute>
+);
 
 // Tema claro corporativo ENVAPERU
 const envaTheme = createTheme({
@@ -120,20 +136,29 @@ function App() {
     <ThemeProvider theme={envaTheme}>
       <CssBaseline />
       <BrowserRouter>
-        <AppShell>
-          <ErrorBoundary>
-            <Routes>
-                <Route path="/" element={<Dashboard />} />
+        <ScmActorProvider>
+          <AppShell>
+            <ErrorBoundary>
+              <Routes>
+                <Route path="/" element={<RoleHome />} />
                 <Route path="/guia/scm" element={<ScmGuide />} />
-                <Route path="/planificacion" element={<PlanificacionProduccion />} />
+                <Route path="/planificacion" element={permitted(<ProductionPlanningScm />, ['OP_VER', 'OP_CREAR', 'OP_APROBAR', 'PLANIFICACION_CALCULAR'])} />
                 <Route path="/planificacion/:solicitudId" element={<PlanificacionProduccion />} />
                 <Route path="/produccion/ordenes" element={<OrdenesLista />} />
                 <Route path="/produccion" element={<Navigate to="/produccion/ordenes" replace />} />
                 <Route path="/produccion/ordenes/nueva-excepcional" element={<OrdenForm />} />
                 <Route path="/produccion/registros" element={<RegistrosLista />} />
                 <Route path="/produccion/talonarios" element={<TalonariosAdmin />} />
-                <Route path="/produccion/avance" element={<ProductionProgressDashboard />} />
-                <Route path="/produccion/pesajes" element={<LegacyProductionOrders />} />
+                <Route path="/produccion/avance" element={permitted(<ProductionProgressDashboard />, ['WIP_VER'])} />
+                <Route path="/produccion/pesajes" element={permitted(<LegacyProductionOrders />, ['MANGA_PESAJE_VER'])} />
+                <Route path="/produccion/ots-mangas" element={permitted(<OtMangasScm />, ['OT_VER', 'PLAN_MANGA_VER'])} />
+                <Route path="/produccion/ordenes-fabricacion" element={permitted(<FabricationOrdersScm />, ['OF_VER'])} />
+                <Route path="/produccion/ordenes-ensamble" element={permitted(<AssemblyOrdersScm />, ['OE_VER'])} />
+                <Route path="/produccion/abastecimiento" element={permitted(<InternalSupplyScm />, ['ABASTECIMIENTO_VER'])} />
+                <Route path="/produccion/kardex" element={permitted(<InventoryScm />, ['INVENTARIO_VER'])} />
+                <Route path="/produccion/recepcion-mangas" element={permitted(<WarehouseReceivingScm />, ['RECEPCION_MANGA_VER', 'CALIDAD_MANGA_VER'])} />
+                <Route path="/produccion/reproceso" element={permitted(<ReprocessingScm />, ['MOLIENDA_VER'])} />
+                <Route path="/produccion/alertas" element={permitted(<OperationalAlertsScm />, ['ALERTA_VER'])} />
                 <Route path="/materiales/recepciones" element={<RecepcionMateriales />} />
                 <Route path="/materiales/recepciones/nueva" element={<RecepcionMateriales />} />
                 <Route path="/materiales/recepciones/:recepcionId" element={<RecepcionMateriales />} />
@@ -146,17 +171,19 @@ function App() {
                 <Route path="/materiales/preparaciones" element={<PreparacionMateriales />} />
                 <Route path="/materiales/preparaciones/:numeroOp" element={<PreparacionMateriales />} />
                 <Route path="/ordenes/:numeroOp/materiales" element={<PreparacionMateriales />} />
-                <Route path="/datos-maestros" element={<MasterDataHub />} />
-                <Route path="/datos-maestros/productos" element={<ProductosAdmin />} />
-                <Route path="/datos-maestros/piezas" element={<PiezasAdmin />} />
-                <Route path="/datos-maestros/trabajadores" element={<TrabajadoresAdmin />} />
-                <Route path="/datos-maestros/maquinas" element={<MaquinasAdmin />} />
-                <Route path="/datos-maestros/moldes" element={<MoldesLista />} />
-                <Route path="/datos-maestros/moldes/:codigo" element={<MoldeDetalle />} />
-                <Route path="/datos-maestros/configuracion-guiada" element={<ConfigurarProducto />} />
-                <Route path="/datos-maestros/materiales" element={<MaterialCatalogPage />} />
-                <Route path="/datos-maestros/clasificacion" element={<LineasFamiliasAdmin />} />
-                <Route path="/datos-maestros/colores" element={<ColoresRecetasAdmin />} />
+                <Route path="/datos-maestros" element={permitted(<MasterDataHub />, ['ARTICULO_VER', 'EMPAQUE_VER', 'CONFIG_RECEPCION_ADMINISTRAR'])} />
+                <Route path="/datos-maestros/productos" element={permitted(<ProductosAdmin />, ['ARTICULO_VER'])} />
+                <Route path="/datos-maestros/piezas" element={permitted(<PiezasAdmin />, ['ARTICULO_VER'])} />
+                <Route path="/datos-maestros/trabajadores" element={permitted(<TrabajadoresAdmin />, ['AUTORIZACION_SCM_ADMINISTRAR', 'CONFIG_RECEPCION_ADMINISTRAR'])} />
+                <Route path="/datos-maestros/maquinas" element={permitted(<MaquinasAdmin />, ['OF_EDITAR_BORRADOR', 'CONFIG_RECEPCION_ADMINISTRAR'])} />
+                <Route path="/datos-maestros/moldes" element={permitted(<MoldesLista />, ['ARTICULO_VER', 'RUTA_VER'])} />
+                <Route path="/datos-maestros/moldes/:codigo" element={permitted(<MoldeDetalle />, ['ARTICULO_ADMINISTRAR', 'RUTA_ADMINISTRAR'])} />
+                <Route path="/datos-maestros/configuracion-guiada" element={permitted(<ConfigurarProducto />, ['ARTICULO_ADMINISTRAR'])} />
+                <Route path="/datos-maestros/materiales" element={permitted(<MaterialCatalogPage />, ['CONFIG_RECEPCION_ADMINISTRAR', 'PROVEEDOR_ADMINISTRAR'])} />
+                <Route path="/datos-maestros/clasificacion" element={permitted(<LineasFamiliasAdmin />, ['ARTICULO_ADMINISTRAR'])} />
+                <Route path="/datos-maestros/colores" element={permitted(<ColoresRecetasAdmin />, ['ARTICULO_ADMINISTRAR', 'EMPAQUE_ADMINISTRAR'])} />
+                <Route path="/datos-maestros/ingenieria-scm" element={permitted(<ScmEngineeringAdmin />, ['ESTRUCTURA_VER', 'RUTA_VER', 'EMPAQUE_VER'])} />
+                <Route path="/datos-maestros/reproceso" element={permitted(<ReprocessingScm initialTab={4} />, ['MOLIENDA_VER', 'MOLIENDA_REGLA_ADMINISTRAR'])} />
                 <Route path="/catalogo/importar" element={<ImportarCatalogo />} />
                 <Route path="/catalogo/configurar" element={<Navigate to="/datos-maestros/configuracion-guiada" replace />} />
                 <Route path="/datos-maestros/configurar" element={<Navigate to="/datos-maestros/configuracion-guiada" replace />} />
@@ -179,9 +206,10 @@ function App() {
                 <Route path="/catalogo/moldes" element={<Navigate to="/datos-maestros/moldes" replace />} />
                 <Route path="/catalogo/clasificacion" element={<Navigate to="/datos-maestros/clasificacion" replace />} />
                 <Route path="/catalogo/moldes/:codigo" element={<MoldeDetalle />} />
-            </Routes>
-          </ErrorBoundary>
-        </AppShell>
+              </Routes>
+            </ErrorBoundary>
+          </AppShell>
+        </ScmActorProvider>
       </BrowserRouter>
     </ThemeProvider>
   );

@@ -31,7 +31,9 @@ import {
   navigationItemIsActive,
   primaryNavigation,
   supportNavigation,
+  visibleByCapabilities,
 } from '../config/navigation';
+import { useScmActor } from '../context/ScmActorContext';
 
 const drawerWidth = 248;
 
@@ -117,8 +119,11 @@ function Sidebar() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { canAny, experience } = useScmActor();
   const activeWorkspace = getWorkspaceNavigation(location.pathname);
   const closeOnMobile = () => { if (isMobile) setMobileOpen(false); };
+  const visiblePrimary = visibleByCapabilities(primaryNavigation, canAny);
+  const visibleSupport = visibleByCapabilities(supportNavigation, canAny);
 
   const drawer = (
     <Box sx={{ minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -130,12 +135,15 @@ function Sidebar() {
         </Box>
       </Toolbar>
       <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
-      <NavigationList title="Operación" items={primaryNavigation} pathname={location.pathname} activeWorkspace={activeWorkspace} onNavigate={closeOnMobile} />
+      <NavigationList title="Mi trabajo" items={visiblePrimary} pathname={location.pathname} activeWorkspace={activeWorkspace} onNavigate={closeOnMobile} />
       <Divider sx={{ mx: 2, my: 1, borderColor: 'rgba(255,255,255,0.1)' }} />
-      <NavigationList title="Soporte" items={supportNavigation} pathname={location.pathname} activeWorkspace={activeWorkspace} onNavigate={closeOnMobile} />
+      <NavigationList title="Consulta y soporte" items={visibleSupport} pathname={location.pathname} activeWorkspace={activeWorkspace} onNavigate={closeOnMobile} />
       <Box sx={{ flexGrow: 1 }} />
       <Box sx={{ px: 2, py: 2 }}>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.62)' }}>Piloto SCM</Typography>
+        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.82)', display: 'block', fontWeight: 700 }}>
+          {experience.label}
+        </Typography>
+        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.54)' }}>Piloto SCM · UAT local</Typography>
       </Box>
     </Box>
   );

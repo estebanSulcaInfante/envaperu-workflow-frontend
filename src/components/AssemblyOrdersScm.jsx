@@ -1,0 +1,1123 @@
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
+  DialogContent, DialogTitle, FormControl, InputLabel, MenuItem, Paper,
+  Select, Stack, Table, TableBody, TableCell, TableContainer, TableHead,
+  TableRow, TextField, Typography,
+} from '@mui/material';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import AddTaskOutlinedIcon from '@mui/icons-material/AddTaskOutlined';
+import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
+import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
+import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
+import { Link as RouterLink } from 'react-router-dom';
+import {
+  listarOrdenesEnsambleScm,
+  transicionarOrdenEnsambleScm,
+} from '../services/scmAssemblyApi';
+import {
+  mensajeErrorScm,
+  listarCentrosTrabajoScm,
+} from '../services/scmEngineeringApi';
+import { getTrabajadores } from '../services/api';
+import {
+  crearOtEnsambleScm,
+  crearSolicitudAbastecimientoScm,
+  asignarMangasSalidaEnsambleScm,
+  aprobarCorreccionMangaArmadoScm,
+  cerrarMangaArmadoScm,
+  listarOtEnsambleScm,
+  listarSolicitudesAbastecimientoScm,
+  obtenerGenealogiaMangaScm,
+  obtenerPlanMangasEnsambleScm,
+  recalcularPlanMangasEnsambleScm,
+  solicitarCorreccionMangaArmadoScm,
+} from '../services/scmInternalSupplyApi';
+import {
+  cambiarEstadoOtScm,
+  generarEtiquetasPrepesaje,
+  listarOtScm,
+} from '../services/scmOtApi';
+import PageHeader from './ui/PageHeader';
+import ProcessJourney from './ui/ProcessJourney';
+import { useScmActor } from '../context/ScmActorContext';
+
+const actions = {
+  BORRADOR: { action: 'liberar', label: 'Liberar OE', color: 'success' },
+  LIBERADA: { action: 'iniciar', label: 'Iniciar ensamble', color: 'primary' },
+  EN_EJECUCION: { action: 'cerrar', label: 'Cerrar ensamble', color: 'success' },
+};
+
+export default function AssemblyOrdersScm() {
+  const { can, experience } = useScmActor();
+  const canRelease = can('OE_LIBERAR');
+  const canExecute = can('OE_EJECUTAR');
+  const [orders, setOrders] = useState([]);
+  const [orderId, setOrderId] = useState('');
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [otOpen, setOtOpen] = useState(false);
+  const [ots, setOts] = useState([]);
+  const [fabricationOts, setFabricationOts] = useState([]);
+  const [centers, setCenters] = useState([]);
+  const [workers, setWorkers] = useState([]);
+  const [supplyRequests, setSupplyRequests] = useState([]);
+  const [outputPlan, setOutputPlan] = useState(null);
+  const [mangaCloseOpen, setMangaCloseOpen] = useState(false);
+  const [mangaToClose, setMangaToClose] = useState(null);
+  const [mangaCloseForm, setMangaCloseForm] = useState({
+    cantidad_real: '', motivo_diferencia: '',
+  });
+  const [genealogyOpen, setGenealogyOpen] = useState(false);
+  const [genealogy, setGenealogy] = useState(null);
+  const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [correctionManga, setCorrectionManga] = useState(null);
+  const [correctionForm, setCorrectionForm] = useState({ cantidad_propuesta: '', motivo: '' });
+  const [approvalReason, setApprovalReason] = useState('');
+  const [otForm, setOtForm] = useState({
+    fecha_operativa: new Date().toISOString().slice(0, 10),
+    turno: 'DIA',
+    centro_trabajo_id: '',
+    responsable_id: '',
+    cantidad_objetivo: '',
+    modo_ejecucion: 'MESA',
+    ot_fabricacion_contexto_id: '',
+  });
+  const [closeForm, setCloseForm] = useState({
+    cantidad_real: '', cantidad_rechazada: '0', motivo: '',
+  });
+
+  const selected = useMemo(
+    () => orders.find((item) => item.id === orderId) || orders[0] || null,
+    [orderId, orders],
+  );
+
+  const load = useCallback(async (preferredId = '') => {
+    setBusy(true);
+    setError('');
+    try {
+      const payload = await listarOrdenesEnsambleScm();
+      const items = payload.items || [];
+      const nextId = items.some((item) => item.id === preferredId)
+        ? preferredId : items[0]?.id || '';
+      setOrders(items);
+      setOrderId(nextId);
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudieron cargar las OE.'));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const refreshOts = useCallback(async (order = selected) => {
+    if (!order) return;
+    const [otPayload, requestPayload, planPayload] = await Promise.all([
+      listarOtEnsambleScm(order.id),
+      can('ABASTECIMIENTO_VER')
+        ? listarSolicitudesAbastecimientoScm()
+        : Promise.resolve({ items: [] }),
+      can('PLAN_MANGA_VER')
+        ? obtenerPlanMangasEnsambleScm(order.id)
+        : Promise.resolve({ plan: null }),
+    ]);
+    setOts(otPayload.items || []);
+    setSupplyRequests(requestPayload.items || []);
+    setOutputPlan(planPayload.plan || null);
+  }, [can, selected]);
+
+  useEffect(() => {
+    if (!selected?.id) {
+      setOts([]);
+      setOutputPlan(null);
+      return undefined;
+    }
+    let active = true;
+    Promise.all([
+      listarOtEnsambleScm(selected.id),
+      listarCentrosTrabajoScm(),
+      listarOtScm(undefined, 'FABRICACION'),
+      getTrabajadores({ incluir_inactivos: false }),
+      can('ABASTECIMIENTO_VER')
+        ? listarSolicitudesAbastecimientoScm()
+        : Promise.resolve({ items: [] }),
+      can('PLAN_MANGA_VER')
+        ? obtenerPlanMangasEnsambleScm(selected.id)
+        : Promise.resolve({ plan: null }),
+    ]).then(([
+      otPayload, centerItems, fabricationPayload, workerItems, requestPayload, planPayload,
+    ]) => {
+      if (!active) return;
+      const validCenters = centerItems.filter((center) => (
+        center.activo && ['PREARMADO', 'ENSAMBLE', 'ACABADO', 'EMPAQUE'].includes(center.tipo)
+      ));
+      setOts(otPayload.items || []);
+      setCenters(validCenters);
+      setFabricationOts((fabricationPayload.items || []).filter((item) => (
+        ['PLANIFICADA', 'EN_EJECUCION'].includes(item.estado)
+      )));
+      setWorkers((workerItems || []).filter((worker) => worker.activo));
+      setSupplyRequests(requestPayload.items || []);
+      setOutputPlan(planPayload.plan || null);
+      setOtForm((current) => ({
+        ...current,
+        centro_trabajo_id: current.centro_trabajo_id
+          || selected.operacion.centro_trabajo_id || validCenters[0]?.id || '',
+        responsable_id: current.responsable_id || workerItems?.[0]?.id || '',
+        cantidad_objetivo: current.cantidad_objetivo || selected.salida.cantidad_objetivo,
+      }));
+    }).catch((requestError) => {
+      if (active) setError(mensajeErrorScm(requestError, 'No se pudieron cargar las OT de Ensamble.'));
+    });
+    return () => { active = false; };
+  }, [can, selected]);
+
+  const createOt = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await crearOtEnsambleScm(selected.id, {
+        ...otForm,
+        ot_fabricacion_contexto_id: otForm.modo_ejecucion === 'CONCURRENTE'
+          ? otForm.ot_fabricacion_contexto_id : null,
+        centro_trabajo_id: Number(otForm.centro_trabajo_id),
+        responsable_id: Number(otForm.responsable_id),
+        cantidad_objetivo: Number(otForm.cantidad_objetivo),
+      });
+      setNotice(`${result.ot.codigo_ot} creada para ${result.ot.fecha_operativa}.`);
+      setOtOpen(false);
+      await refreshOts();
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudo crear la OT de Ensamble.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestSupply = async (ot) => {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await crearSolicitudAbastecimientoScm(ot.public_id);
+      setNotice(`${result.solicitud.codigo} creada desde la BOM y la cuota diaria.`);
+      await refreshOts();
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudo solicitar el abastecimiento.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const planOutputMangas = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await recalcularPlanMangasEnsambleScm(selected.id);
+      setOutputPlan(result.plan);
+      setNotice(`Plan de mangas de salida revisión ${result.plan.revision} calculado.`);
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudo calcular el plan de mangas de salida.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const assignOutputMangas = async (ot) => {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await asignarMangasSalidaEnsambleScm(ot);
+      setNotice(`${result.mangas.length} manga(s) de producto terminado asignada(s) a ${ot.codigo_ot}.`);
+      await refreshOts();
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudieron asignar las mangas de salida.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const prelabelManga = async (manga) => {
+    setBusy(true);
+    setError('');
+    try {
+      await generarEtiquetasPrepesaje([manga.public_id]);
+      setNotice(`${manga.codigo}: preetiqueta enviada a la estación de pesaje.`);
+      await refreshOts();
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudo preparar la preetiqueta.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startOt = async (ot) => {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await cambiarEstadoOtScm(ot.public_id, 'iniciar', ot.version);
+      setNotice(`${result.ot?.codigo_ot || ot.codigo_ot} iniciada.`);
+      await refreshOts();
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudo iniciar la OT de Armado.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openMangaClose = (manga) => {
+    setMangaToClose(manga);
+    setMangaCloseForm({
+      cantidad_real: manga.cantidad_planificada_un,
+      motivo_diferencia: '',
+    });
+    setMangaCloseOpen(true);
+  };
+
+  const closeManga = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const result = await cerrarMangaArmadoScm(mangaToClose, {
+        cantidad_real: Number(mangaCloseForm.cantidad_real),
+        motivo_diferencia: mangaCloseForm.motivo_diferencia || null,
+      });
+      setNotice(`${result.manga.codigo}: Armado cerrado; queda pendiente de pesaje.`);
+      setMangaCloseOpen(false);
+      await refreshOts();
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudo cerrar la manga de Armado.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const showGenealogy = async (manga) => {
+    setBusy(true);
+    setError('');
+    try {
+      setGenealogy(await obtenerGenealogiaMangaScm(manga.public_id));
+      setGenealogyOpen(true);
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudo consultar la genealogía de la manga.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestCorrection = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await solicitarCorreccionMangaArmadoScm(correctionManga.public_id, {
+        cantidad_propuesta: Number(correctionForm.cantidad_propuesta),
+        motivo: correctionForm.motivo,
+      });
+      setCorrectionOpen(false);
+      setNotice('Corrección solicitada. Debe aprobarla otro actor autorizado antes del pesaje.');
+      await load(selected?.id);
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudo solicitar la corrección.'));
+      setBusy(false);
+    }
+  };
+
+  const approveCorrection = async (correction) => {
+    if (!approvalReason.trim()) {
+      setError('Escribe qué evidencia revisaste antes de aprobar la corrección.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const result = await aprobarCorreccionMangaArmadoScm(correction.id, {
+        motivo_aprobacion: approvalReason.trim(),
+      });
+      setApprovalReason('');
+      setNotice('Corrección compensatoria aplicada. La confirmación original se conservó.');
+      setGenealogy(await obtenerGenealogiaMangaScm(result.manga.public_id));
+      await load(selected?.id);
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudo aprobar la corrección.'));
+      setBusy(false);
+    }
+  };
+
+  const run = async (action, extra = {}) => {
+    if (!selected) return;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await transicionarOrdenEnsambleScm(selected, action, extra);
+      setNotice(`${result.codigo}: ${result.estado}.`);
+      setCloseOpen(false);
+      await load(selected.id);
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudo actualizar la OE.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const currentAction = actions[selected?.estado];
+  const canRunCurrentAction = currentAction?.action === 'liberar' ? canRelease : canExecute;
+  const assignedQuota = ots.reduce(
+    (total, ot) => total + (ot.estado === 'ANULADA' ? 0 : Number(ot.cantidad_objetivo || 0)),
+    0,
+  );
+  const pendingQuota = Math.max(
+    0,
+    Number(selected?.salida?.cantidad_objetivo || 0) - assignedQuota,
+  );
+  const outputPlanLine = outputPlan?.lineas?.[0] || null;
+
+  const openOtDialog = () => {
+    setOtForm((current) => ({
+      ...current,
+      fecha_operativa: new Date().toISOString().slice(0, 10),
+      cantidad_objetivo: pendingQuota || '',
+    }));
+    setOtOpen(true);
+  };
+
+  return (
+    <Stack spacing={2.5}>
+      <PageHeader
+        eyebrow="Producción / Ensamble"
+        title="Órdenes de ensamble"
+        description="Libera y ejecuta operaciones de prearmado, ensamble, acabado o empaque contra la BOM congelada por planificación."
+        actions={(
+          <Stack direction="row" spacing={1}>
+            <Button startIcon={<RefreshIcon />} variant="outlined" onClick={() => load(selected?.id)}>
+              Actualizar
+            </Button>
+          </Stack>
+        )}
+      />
+      <ProcessJourney current="ensamble" branch="ensamble" />
+      {!canRelease && !canExecute && (
+        <Alert severity="info">
+          Vista de consulta para {experience.label}. La liberación y el registro de ejecución
+          se muestran únicamente a los responsables de producción.
+        </Alert>
+      )}
+      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      <Alert severity="info">
+        La OE define el total. Las OT reparten ese total por fecha, mesa, turno y responsable;
+        cada OT genera su propia solicitud de componentes desde la BOM congelada.
+      </Alert>
+
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
+          <FormControl sx={{ minWidth: 360 }}>
+            <InputLabel>Orden de ensamble</InputLabel>
+            <Select
+              label="Orden de ensamble"
+              value={selected?.id || ''}
+              onChange={(event) => setOrderId(event.target.value)}
+            >
+              {orders.map((order) => (
+                <MenuItem key={order.id} value={order.id}>
+                  {order.codigo} · {order.estado} · {order.salida.nombre}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          {selected && (
+            <>
+              <Chip label={selected.estado} />
+              <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
+                {selected.operacion.tipo} · {selected.operacion.centro_trabajo}
+              </Typography>
+              {currentAction && canRunCurrentAction && (
+                <Button
+                  variant="contained"
+                  color={currentAction.color}
+                  disabled={busy || (currentAction.action === 'cerrar' && ots.length > 0)}
+                  onClick={() => (
+                    currentAction.action === 'cerrar'
+                      ? setCloseOpen(true)
+                      : run(currentAction.action)
+                  )}
+                >
+                  {currentAction.label}
+                </Button>
+              )}
+            </>
+          )}
+        </Stack>
+      </Paper>
+
+      {busy && <Box sx={{ display: 'grid', placeItems: 'center', py: 4 }}><CircularProgress /></Box>}
+      {!busy && !selected && <Alert severity="info">Todavía no existen OE.</Alert>}
+
+      {!busy && selected && (
+        <>
+          <Paper variant="outlined" sx={{ p: 2 }}>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={3}>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="overline" color="text.secondary">Salida objetivo</Typography>
+                <Typography variant="h6">{selected.salida.nombre}</Typography>
+                <Typography color="text.secondary">{selected.salida.codigo}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="overline" color="text.secondary">Plan</Typography>
+                <Typography fontWeight={800}>{selected.salida.cantidad_objetivo} un</Typography>
+              </Box>
+              <Box>
+                <Typography variant="overline" color="text.secondary">Conforme</Typography>
+                <Typography fontWeight={800}>{selected.salida.cantidad_real ?? '—'}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="overline" color="text.secondary">Rechazado</Typography>
+                <Typography fontWeight={800}>{selected.salida.cantidad_rechazada ?? '—'}</Typography>
+              </Box>
+            </Stack>
+          </Paper>
+
+          <Paper variant="outlined">
+            <Typography fontWeight={800} sx={{ p: 2 }}>Entradas teóricas de la BOM</Typography>
+            <TableContainer>
+              <Table size="small">
+                <TableHead><TableRow>
+                  <TableCell>Artículo componente</TableCell>
+                  <TableCell>Clase</TableCell>
+                  <TableCell align="right">Por salida</TableCell>
+                  <TableCell align="right">Merma</TableCell>
+                  <TableCell align="right">Requerido</TableCell>
+                </TableRow></TableHead>
+                <TableBody>{selected.entradas_planificadas.map((input) => (
+                  <TableRow key={input.articulo_scm_id}>
+                    <TableCell>{input.articulo.nombre}<br /><Typography variant="caption">{input.articulo.codigo}</Typography></TableCell>
+                    <TableCell>{input.articulo.clase}</TableCell>
+                    <TableCell align="right">{input.cantidad_por_salida}</TableCell>
+                    <TableCell align="right">{input.merma_tecnica_pct}%</TableCell>
+                    <TableCell align="right">{input.cantidad_planificada} un</TableCell>
+                  </TableRow>
+                ))}</TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+
+          <Paper variant="outlined" sx={{ p: 2 }}>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={2}
+              alignItems={{ md: 'center' }}
+              justifyContent="space-between"
+            >
+              <Box>
+                <Typography fontWeight={800}>Mangas de producto terminado</Typography>
+                {outputPlanLine ? (
+                  <Typography variant="body2" color="text.secondary">
+                    Revisión {outputPlan.revision} · {outputPlanLine.mangas_propuestas} manga(s)
+                    {' · '}capacidad {outputPlanLine.capacidad_efectiva_un} un
+                    {' · '}saldo sin asignar {outputPlanLine.saldo_un} un
+                  </Typography>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    Calcula cuántas bolsas PT necesita la OE antes de repartirlas entre las jornadas.
+                  </Typography>
+                )}
+              </Box>
+              {can('ENSAMBLE_PLANIFICAR') && ['LIBERADA', 'EN_EJECUCION'].includes(selected.estado) && (
+                <Button
+                  variant={outputPlanLine ? 'outlined' : 'contained'}
+                  startIcon={<Inventory2OutlinedIcon />}
+                  disabled={busy || Boolean(outputPlanLine && Number(outputPlanLine.cantidad_asignada_un) > 0)}
+                  onClick={planOutputMangas}
+                >
+                  {outputPlanLine ? 'Recalcular plan' : 'Planificar mangas de salida'}
+                </Button>
+              )}
+            </Stack>
+            {!outputPlanLine && (
+              <Alert
+                severity="warning"
+                sx={{ mt: 2 }}
+                action={can('EMPAQUE_VER') ? (
+                  <Button
+                    size="small"
+                    component={RouterLink}
+                    to="/datos-maestros/ingenieria-scm?tab=empaque"
+                  >
+                    Configurar empaque
+                  </Button>
+                ) : null}
+              >
+                Aún no existe un plan activo. Si el cálculo informa que falta un perfil de
+                empaque, configúralo antes de crear o preimprimir mangas PT.
+              </Alert>
+            )}
+          </Paper>
+
+          <Paper variant="outlined">
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={1.5}
+              alignItems={{ md: 'center' }}
+              justifyContent="space-between"
+              sx={{ p: 2 }}
+            >
+              <Box>
+                <Typography fontWeight={800}>OT diarias de Armado</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {assignedQuota.toFixed(3)} de {selected.salida.cantidad_objetivo} un asignadas
+                  {' · '}{pendingQuota.toFixed(3)} un pendientes
+                </Typography>
+              </Box>
+              {can('OT_CREAR') && ['LIBERADA', 'EN_EJECUCION'].includes(selected.estado) && (
+                <Button
+                  variant="contained"
+                  startIcon={<AddTaskOutlinedIcon />}
+                  disabled={busy || pendingQuota <= 0}
+                  onClick={openOtDialog}
+                >
+                  Crear OT diaria
+                </Button>
+              )}
+            </Stack>
+            {!ots.length ? (
+              <Alert severity="info" sx={{ m: 2, mt: 0 }}>
+                Aún no se distribuyó el trabajo de esta OE. Crea la primera OT diaria para
+                solicitar las mangas que llegarán a la mesa.
+              </Alert>
+            ) : (
+              <TableContainer>
+                <Table size="small">
+                  <TableHead><TableRow>
+                    <TableCell>OT / jornada</TableCell>
+                    <TableCell>Mesa y responsable</TableCell>
+                    <TableCell align="right">Cuota</TableCell>
+                    <TableCell>Abastecimiento</TableCell>
+                    <TableCell align="right">Siguiente acción</TableCell>
+                  </TableRow></TableHead>
+                  <TableBody>{ots.map((ot) => {
+                    const request = supplyRequests.find(
+                      (item) => item.orden_trabajo?.public_id === ot.public_id,
+                    );
+                    const mangas = ot.mangas || [];
+                    return (
+                      <Fragment key={ot.public_id}>
+                        <TableRow>
+                          <TableCell>
+                            <Typography fontWeight={750}>{ot.codigo_ot}</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {ot.fecha_operativa} · {ot.turno} · {ot.estado}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            {ot.centro_trabajo?.nombre || 'Sin mesa'}<br />
+                            <Typography variant="caption">{ot.responsable || 'Sin responsable'}</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            {ot.cantidad_confirmada || 0} / {ot.cantidad_objetivo} un
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              color={request?.estado === 'RECIBIDA' ? 'success' : 'default'}
+                              label={request ? `${request.codigo} · ${request.estado}` : 'Sin solicitar'}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap" useFlexGap>
+                              {!request && can('ABASTECIMIENTO_SOLICITAR') && (
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  startIcon={<LocalShippingOutlinedIcon />}
+                                  disabled={busy}
+                                  onClick={() => requestSupply(ot)}
+                                >
+                                  Solicitar componentes
+                                </Button>
+                              )}
+                              {request && can('ABASTECIMIENTO_VER') && request.estado !== 'RECIBIDA' && (
+                                <Button
+                                  size="small"
+                                  component={RouterLink}
+                                  to={`/produccion/abastecimiento?solicitud=${request.id}`}
+                                >
+                                  Seguir abastecimiento
+                                </Button>
+                              )}
+                              {!mangas.length && outputPlanLine && can('ENSAMBLE_PLANIFICAR') && (
+                                <Button
+                                  size="small"
+                                  variant="contained"
+                                  startIcon={<Inventory2OutlinedIcon />}
+                                  disabled={busy}
+                                  onClick={() => assignOutputMangas(ot)}
+                                >
+                                  Asignar mangas PT
+                                </Button>
+                              )}
+                            </Stack>
+                          </TableCell>
+                        </TableRow>
+                        {mangas.length > 0 && (
+                          <TableRow>
+                            <TableCell colSpan={5} sx={{ bgcolor: 'grey.50', py: 1.5 }}>
+                              <Stack spacing={1}>
+                                {mangas.map((manga) => {
+                                  const readyToClose = (
+                                    ot.estado === 'EN_EJECUCION'
+                                    && request?.estado === 'RECIBIDA'
+                                    && ['PREETIQUETADA', 'EN_ARMADO'].includes(manga.estado)
+                                  );
+                                  return (
+                                    <Stack
+                                      key={manga.public_id}
+                                      direction={{ xs: 'column', lg: 'row' }}
+                                      spacing={1}
+                                      alignItems={{ lg: 'center' }}
+                                      justifyContent="space-between"
+                                      sx={{ border: 1, borderColor: 'divider', borderRadius: 1.5, p: 1.25, bgcolor: 'background.paper' }}
+                                    >
+                                      <Box>
+                                        <Typography fontWeight={750}>{manga.codigo}</Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                          {manga.cantidad_confirmada_un ?? manga.cantidad_planificada_un} un
+                                          {' · '}{manga.estado}
+                                        </Typography>
+                                      </Box>
+                                      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                                        {manga.estado === 'PLANIFICADA' && can('MANGA_ETIQUETA_PRE_GENERAR') && (
+                                          <Button
+                                            size="small"
+                                            startIcon={<PrintOutlinedIcon />}
+                                            disabled={busy}
+                                            onClick={() => prelabelManga(manga)}
+                                          >
+                                            Preparar sticker
+                                          </Button>
+                                        )}
+                                        {ot.estado === 'PLANIFICADA' && manga.estado === 'PREETIQUETADA' && can('OT_INICIAR') && (
+                                          <Button size="small" variant="outlined" disabled={busy} onClick={() => startOt(ot)}>
+                                            Iniciar jornada
+                                          </Button>
+                                        )}
+                                        {readyToClose && can('ENSAMBLE_MANGA_CERRAR') && (
+                                          <Button size="small" variant="contained" disabled={busy} onClick={() => openMangaClose(manga)}>
+                                            Confirmar armado
+                                          </Button>
+                                        )}
+                                        {manga.estado === 'CERRADA_ARMADO_PENDIENTE_PESAJE' && (
+                                          <>
+                                            <Chip size="small" color="warning" label="Pendiente de pesaje" />
+                                            {can('ENSAMBLE_CORREGIR_SOLICITAR') && (
+                                              <Button
+                                                size="small"
+                                                onClick={() => {
+                                                  setCorrectionManga(manga);
+                                                  setCorrectionForm({
+                                                    cantidad_propuesta: manga.cantidad_confirmada_un,
+                                                    motivo: '',
+                                                  });
+                                                  setCorrectionOpen(true);
+                                                }}
+                                              >
+                                                Solicitar corrección
+                                              </Button>
+                                            )}
+                                          </>
+                                        )}
+                                        {manga.estado === 'PESADA' && <Chip size="small" color="success" label="Pesada" />}
+                                        {manga.cantidad_confirmada_un != null && can('GENEALOGIA_VER') && (
+                                          <Button
+                                            size="small"
+                                            startIcon={<AccountTreeOutlinedIcon />}
+                                            onClick={() => showGenealogy(manga)}
+                                          >
+                                            Genealogía
+                                          </Button>
+                                        )}
+                                      </Stack>
+                                    </Stack>
+                                  );
+                                })}
+                              </Stack>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    );
+                  })}</TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </Paper>
+
+          {ots.length > 0 && selected.estado === 'EN_EJECUCION' && (
+            <Alert severity="warning">
+              El cierre anterior de la OE está bloqueado en esta experiencia: el cierre
+              trazable debe consumir las mangas asignadas y acreditar las mangas de salida
+              en una sola operación de Armado.
+            </Alert>
+          )}
+
+          {selected.lote_salida && (
+            <Alert severity="success">
+              Lote acreditado: {selected.lote_salida.codigo} · {selected.lote_salida.cantidad_acreditada} un ·
+              calidad {selected.lote_salida.estado_calidad}
+            </Alert>
+          )}
+        </>
+      )}
+
+      <Dialog open={closeOpen} onClose={() => setCloseOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Cerrar orden de ensamble</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity="warning">
+              El cierre acredita la salida; no descuenta componentes del Kardex.
+            </Alert>
+            <TextField
+              type="number"
+              label="Unidades conformes"
+              value={closeForm.cantidad_real}
+              onChange={(event) => setCloseForm({
+                ...closeForm, cantidad_real: event.target.value,
+              })}
+            />
+            <TextField
+              type="number"
+              label="Unidades rechazadas"
+              value={closeForm.cantidad_rechazada}
+              onChange={(event) => setCloseForm({
+                ...closeForm, cantidad_rechazada: event.target.value,
+              })}
+            />
+            <TextField
+              label="Observación"
+              multiline
+              minRows={2}
+              value={closeForm.motivo}
+              onChange={(event) => setCloseForm({
+                ...closeForm, motivo: event.target.value,
+              })}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCloseOpen(false)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            onClick={() => run('cerrar', {
+              cantidad_real: Number(closeForm.cantidad_real),
+              cantidad_rechazada: Number(closeForm.cantidad_rechazada || 0),
+              motivo: closeForm.motivo || null,
+            })}
+          >
+            Confirmar cierre
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={mangaCloseOpen} onClose={() => setMangaCloseOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Confirmar manga terminada</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity="info">
+              El responsable confirma unidades, no procedencias. El sistema consume las mangas
+              recibidas en la mesa según la BOM congelada y conserva la genealogía exacta.
+            </Alert>
+            <Box>
+              <Typography fontWeight={800}>{mangaToClose?.codigo}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Plan: {mangaToClose?.cantidad_planificada_un || 0} un · después quedará pendiente de pesaje
+              </Typography>
+            </Box>
+            <TextField
+              type="number"
+              label="Unidades realmente armadas"
+              inputProps={{ min: 0.001, step: 0.001 }}
+              value={mangaCloseForm.cantidad_real}
+              onChange={(event) => setMangaCloseForm({
+                ...mangaCloseForm, cantidad_real: event.target.value,
+              })}
+              required
+            />
+            <TextField
+              label="Motivo de diferencia"
+              multiline
+              minRows={2}
+              helperText="Obligatorio solo si la cantidad real difiere del plan."
+              value={mangaCloseForm.motivo_diferencia}
+              onChange={(event) => setMangaCloseForm({
+                ...mangaCloseForm, motivo_diferencia: event.target.value,
+              })}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMangaCloseOpen(false)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            disabled={
+              busy
+              || Number(mangaCloseForm.cantidad_real) <= 0
+              || (
+                Number(mangaCloseForm.cantidad_real) !== Number(mangaToClose?.cantidad_planificada_un)
+                && !mangaCloseForm.motivo_diferencia.trim()
+              )
+            }
+            onClick={closeManga}
+          >
+            Cerrar armado
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={correctionOpen} onClose={() => setCorrectionOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Solicitar corrección de cantidad</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity="warning">
+              No se editará el cierre original. Otro actor deberá aprobar el movimiento compensatorio
+              antes de que la manga sea pesada.
+            </Alert>
+            <Typography fontWeight={800}>{correctionManga?.codigo}</Typography>
+            <TextField
+              type="number" label="Cantidad correcta" required
+              value={correctionForm.cantidad_propuesta}
+              onChange={(event) => setCorrectionForm({ ...correctionForm, cantidad_propuesta: event.target.value })}
+            />
+            <TextField
+              label="Qué ocurrió y cómo se verificó" multiline minRows={3} required
+              value={correctionForm.motivo}
+              onChange={(event) => setCorrectionForm({ ...correctionForm, motivo: event.target.value })}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCorrectionOpen(false)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            disabled={busy || !correctionForm.motivo.trim() || Number(correctionForm.cantidad_propuesta) <= 0}
+            onClick={requestCorrection}
+          >
+            Enviar a aprobación
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={genealogyOpen} onClose={() => setGenealogyOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle>Genealogía de {genealogy?.manga?.codigo || 'manga'}</DialogTitle>
+        <DialogContent>
+          {!genealogy?.confirmacion ? (
+            <Alert severity="info">La manga todavía no tiene un cierre de Armado confirmado.</Alert>
+          ) : (
+            <Stack spacing={2} sx={{ pt: 1 }}>
+              <Alert severity="success">
+                {genealogy.manga.cantidad_confirmada_un} un vigentes · cierre original {genealogy.confirmacion.cantidad_real} un
+              </Alert>
+              <Typography variant="body2" color="text.secondary">
+                BOM congelada: revisión {genealogy.confirmacion.estructura_revision_id}
+              </Typography>
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead><TableRow>
+                    <TableCell>Componente incorporado</TableCell>
+                    <TableCell>Manga de origen</TableCell>
+                    <TableCell align="right">Cantidad</TableCell>
+                  </TableRow></TableHead>
+                  <TableBody>{genealogy.confirmacion.consumos.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell>{item.articulo.codigo} · {item.articulo.nombre}</TableCell>
+                      <TableCell>
+                        {item.nivel_genealogia === 'EXACTA'
+                          ? item.manga_origen_codigo
+                          : `${item.nivel_genealogia} · ${(item.candidatos || []).map((value) => value.codigo).join(', ') || 'sin origen individual'}`}
+                      </TableCell>
+                      <TableCell align="right">{item.cantidad_incorporada} un</TableCell>
+                    </TableRow>
+                  ))}</TableBody>
+                </Table>
+              </TableContainer>
+              {genealogy.correcciones?.length > 0 && (
+                <Paper variant="outlined" sx={{ p: 2 }}>
+                  <Typography fontWeight={800} gutterBottom>Correcciones compensatorias</Typography>
+                  <Stack spacing={1.25}>
+                    {genealogy.correcciones.map((correction) => (
+                      <Box key={correction.id} sx={{ p: 1.25, bgcolor: 'grey.50', borderRadius: 1 }}>
+                        <Stack direction={{ xs: 'column', md: 'row' }} gap={1} justifyContent="space-between">
+                          <Box>
+                            <Chip size="small" label={correction.estado} color={correction.estado === 'APLICADA' ? 'success' : 'warning'} />
+                            <Typography variant="body2" sx={{ mt: 0.75 }}>
+                              {correction.cantidad_anterior} → {correction.cantidad_propuesta} un · {correction.motivo}
+                            </Typography>
+                          </Box>
+                          {correction.estado === 'PENDIENTE' && can('ENSAMBLE_CORREGIR_APROBAR') && (
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                              <TextField
+                                size="small" label="Evidencia revisada"
+                                value={approvalReason}
+                                onChange={(event) => setApprovalReason(event.target.value)}
+                              />
+                              <Button variant="contained" onClick={() => approveCorrection(correction)}>Aprobar</Button>
+                            </Stack>
+                          )}
+                        </Stack>
+                      </Box>
+                    ))}
+                  </Stack>
+                </Paper>
+              )}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions><Button onClick={() => setGenealogyOpen(false)}>Cerrar</Button></DialogActions>
+      </Dialog>
+
+      <Dialog open={otOpen} onClose={() => setOtOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Crear OT diaria de Armado</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity="info">
+              Esta cuota organiza una jornada; no duplica ni aumenta el objetivo de la OE.
+            </Alert>
+            <TextField
+              type="date"
+              label="Fecha operativa"
+              InputLabelProps={{ shrink: true }}
+              value={otForm.fecha_operativa}
+              onChange={(event) => setOtForm({
+                ...otForm,
+                fecha_operativa: event.target.value,
+                ot_fabricacion_contexto_id: '',
+              })}
+            />
+            <FormControl fullWidth>
+              <InputLabel id="assembly-execution-mode-label">Modalidad de ejecuciÃ³n</InputLabel>
+              <Select
+                labelId="assembly-execution-mode-label"
+                label="Modalidad de ejecuciÃ³n"
+                value={otForm.modo_ejecucion}
+                onChange={(event) => setOtForm({
+                  ...otForm,
+                  modo_ejecucion: event.target.value,
+                  ot_fabricacion_contexto_id: '',
+                })}
+              >
+                <MenuItem value="MESA">En mesa de armado</MenuItem>
+                {selected?.operacion?.permite_concurrente && (
+                  <MenuItem value="CONCURRENTE">Concurrente con fabricaciÃ³n</MenuItem>
+                )}
+              </Select>
+            </FormControl>
+            {otForm.modo_ejecucion === 'CONCURRENTE' && (
+              <>
+                <Alert severity="info">
+                  El prearmado se vincula a la fabricaciÃ³n para conservar su contexto,
+                  pero el peso del componente incorporado no se acredita como producciÃ³n de mÃ¡quina.
+                </Alert>
+                <FormControl fullWidth>
+                  <InputLabel id="assembly-fabrication-context-label">
+                    OT de fabricaciÃ³n de contexto
+                  </InputLabel>
+                  <Select
+                    labelId="assembly-fabrication-context-label"
+                    label="OT de fabricaciÃ³n de contexto"
+                    value={otForm.ot_fabricacion_contexto_id}
+                    onChange={(event) => setOtForm({
+                      ...otForm,
+                      ot_fabricacion_contexto_id: event.target.value,
+                    })}
+                  >
+                    {fabricationOts.filter((item) => (
+                      item.fecha_operativa === otForm.fecha_operativa
+                    )).map((item) => (
+                      <MenuItem key={item.public_id} value={item.public_id}>
+                        {item.codigo_ot} Â· {item.maquina || 'MÃ¡quina sin nombre'} Â· {item.turno}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                {!fabricationOts.some((item) => (
+                  item.fecha_operativa === otForm.fecha_operativa
+                )) && (
+                  <Alert severity="warning">
+                    No hay una OT de fabricaciÃ³n activa para esta fecha.
+                  </Alert>
+                )}
+              </>
+            )}
+            <FormControl fullWidth>
+              <InputLabel>Mesa o centro de Armado</InputLabel>
+              <Select
+                label="Mesa o centro de Armado"
+                value={otForm.centro_trabajo_id}
+                onChange={(event) => setOtForm({ ...otForm, centro_trabajo_id: event.target.value })}
+              >
+                {centers.map((center) => (
+                  <MenuItem key={center.id} value={center.id}>
+                    {center.codigo} · {center.nombre} ({center.tipo})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth>
+              <InputLabel>Responsable de Armado</InputLabel>
+              <Select
+                label="Responsable de Armado"
+                value={otForm.responsable_id}
+                onChange={(event) => setOtForm({ ...otForm, responsable_id: event.target.value })}
+              >
+                {workers.map((worker) => (
+                  <MenuItem key={worker.id} value={worker.id}>
+                    {worker.codigo} · {worker.nombre_completo}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth>
+              <InputLabel>Turno</InputLabel>
+              <Select
+                label="Turno"
+                value={otForm.turno}
+                onChange={(event) => setOtForm({ ...otForm, turno: event.target.value })}
+              >
+                <MenuItem value="DIA">Día</MenuItem>
+                <MenuItem value="NOCHE">Noche</MenuItem>
+                <MenuItem value="EXTRA">Extra</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              type="number"
+              label="Cuota objetivo (un)"
+              inputProps={{ min: 0.001, max: pendingQuota, step: 0.001 }}
+              helperText={`Saldo disponible de la OE: ${pendingQuota.toFixed(3)} un`}
+              value={otForm.cantidad_objetivo}
+              onChange={(event) => setOtForm({ ...otForm, cantidad_objetivo: event.target.value })}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOtOpen(false)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            disabled={
+              busy
+              || !otForm.fecha_operativa
+              || !otForm.centro_trabajo_id
+              || !otForm.responsable_id
+              || (otForm.modo_ejecucion === 'CONCURRENTE'
+                && !otForm.ot_fabricacion_contexto_id)
+              || Number(otForm.cantidad_objetivo) <= 0
+              || Number(otForm.cantidad_objetivo) > pendingQuota
+            }
+            onClick={createOt}
+          >
+            Crear OT y continuar
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Stack>
+  );
+}
