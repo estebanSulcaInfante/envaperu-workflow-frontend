@@ -13,13 +13,20 @@ const INITIAL_AUTH_ERROR = SCM_AUTH_MODE === 'supabase'
   ? 'La autenticación no está configurada para este entorno.'
   : '';
 
+const initialLinkType = () => {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.hash.replace(/^#/, '')).get('type') || '';
+};
+
 const AuthContext = createContext({
   authMode: SCM_AUTH_MODE,
   error: '',
   loading: SCM_AUTH_MODE === 'supabase',
+  passwordSetupRequired: false,
   session: null,
   signIn: async () => {},
   signOut: async () => {},
+  updatePassword: async () => {},
 });
 
 export function AuthProvider({ children }) {
@@ -28,6 +35,9 @@ export function AuthProvider({ children }) {
     SCM_AUTH_MODE === 'supabase' && !INITIAL_AUTH_ERROR,
   );
   const [error, setError] = useState(INITIAL_AUTH_ERROR);
+  const [passwordSetupRequired, setPasswordSetupRequired] = useState(
+    () => ['invite', 'recovery'].includes(initialLinkType()),
+  );
 
   useEffect(() => {
     if (SCM_AUTH_MODE !== 'supabase' || INITIAL_AUTH_ERROR) return undefined;
@@ -41,9 +51,10 @@ export function AuthProvider({ children }) {
       setSession(data.session || null);
       setLoading(false);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) return;
       setSession(nextSession);
+      if (event === 'PASSWORD_RECOVERY') setPasswordSetupRequired(true);
       setLoading(false);
       setError('');
     });
@@ -74,14 +85,31 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut();
   }, []);
 
+  const updatePassword = useCallback(async (password) => {
+    setError('');
+    const supabase = getSupabaseClient();
+    const { error: updateError } = await supabase.auth.updateUser({ password });
+    if (updateError) {
+      setError('No pudimos guardar la contraseña. Inténtalo nuevamente.');
+      return false;
+    }
+    setPasswordSetupRequired(false);
+    if (typeof window !== 'undefined' && window.location.hash) {
+      window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
+    }
+    return true;
+  }, []);
+
   const value = useMemo(() => ({
     authMode: SCM_AUTH_MODE,
     error,
     loading,
+    passwordSetupRequired,
     session,
     signIn,
     signOut,
-  }), [error, loading, session, signIn, signOut]);
+    updatePassword,
+  }), [error, loading, passwordSetupRequired, session, signIn, signOut, updatePassword]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

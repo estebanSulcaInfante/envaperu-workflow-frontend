@@ -1,9 +1,12 @@
 import { Box, CircularProgress } from '@mui/material';
 import { useAuth } from '../../context/AuthContext';
 import LoginPage from './LoginPage';
+import SetPasswordPage from './SetPasswordPage';
 
 export default function AuthGate({ children }) {
-  const { authMode, loading, session } = useAuth();
+  const {
+    authMode, loading, passwordSetupRequired, session,
+  } = useAuth();
 
   if (authMode !== 'supabase') return children;
   if (loading) {
@@ -14,6 +17,6 @@ export default function AuthGate({ children }) {
     );
   }
   if (!session) return <LoginPage />;
+  if (passwordSetupRequired) return <SetPasswordPage />;
   return children;
 }
-
