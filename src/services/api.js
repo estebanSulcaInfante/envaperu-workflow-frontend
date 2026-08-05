@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { getAccessToken } from '../auth/supabaseClient';
+import { SCM_AUTH_MODE } from '../config/runtime';
 
 const apiOrigin = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
 export const API_BASE_URL = apiOrigin ? `${apiOrigin}/api` : '/api';
@@ -8,6 +10,15 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+api.interceptors?.request?.use(async (requestConfig) => {
+  if (SCM_AUTH_MODE !== 'supabase') return requestConfig;
+  const token = await getAccessToken();
+  if (token) {
+    requestConfig.headers.Authorization = `Bearer ${token}`;
+  }
+  return requestConfig;
 });
 
 const withoutInternalIdentifiers = (data, identifiers) => {
@@ -698,6 +709,11 @@ export const toggleEstadoMaquina = async (id, estado) => {
 
 export const getTiposMaquina = async (params = {}) => {
   const response = await api.get('/catalogo/tipos-maquina', { params });
+  return response.data;
+};
+
+export const getCurrentActor = async () => {
+  const response = await api.get('/auth/me');
   return response.data;
 };
 

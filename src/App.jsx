@@ -42,6 +42,8 @@ import InternalSupplyScm from './components/InternalSupplyScm';
 import ErrorBoundary from './components/ErrorBoundary';
 import CapabilityRoute from './components/CapabilityRoute';
 import { ScmActorProvider } from './context/ScmActorContext';
+import { AuthProvider } from './context/AuthContext';
+import AuthGate from './components/auth/AuthGate';
 
 const permitted = (element, any) => (
   <CapabilityRoute any={any}>{element}</CapabilityRoute>
@@ -136,9 +138,11 @@ function App() {
     <ThemeProvider theme={envaTheme}>
       <CssBaseline />
       <BrowserRouter>
-        <ScmActorProvider>
-          <AppShell>
-            <ErrorBoundary>
+        <AuthProvider>
+          <AuthGate>
+            <ScmActorProvider>
+              <AppShell>
+                <ErrorBoundary>
               <Routes>
                 <Route path="/" element={<RoleHome />} />
                 <Route path="/guia/scm" element={<ScmGuide />} />
@@ -207,9 +211,11 @@ function App() {
                 <Route path="/catalogo/clasificacion" element={<Navigate to="/datos-maestros/clasificacion" replace />} />
                 <Route path="/catalogo/moldes/:codigo" element={<MoldeDetalle />} />
               </Routes>
-            </ErrorBoundary>
-          </AppShell>
-        </ScmActorProvider>
+                </ErrorBoundary>
+              </AppShell>
+            </ScmActorProvider>
+          </AuthGate>
+        </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>
   );

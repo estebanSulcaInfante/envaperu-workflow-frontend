@@ -19,8 +19,10 @@ import {
 } from '@mui/material';
 import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
 import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined';
+import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import { useScmActor } from '../../context/ScmActorContext';
-import { SCM_PROFILE_SWITCH_ENABLED } from '../../config/runtime';
+import { SCM_AUTH_MODE, SCM_PROFILE_SWITCH_ENABLED } from '../../config/runtime';
+import { useAuth } from '../../context/AuthContext';
 
 const initials = (name = '') => name
   .split(/\s+/)
@@ -31,6 +33,7 @@ const initials = (name = '') => name
   .toUpperCase();
 
 export default function ActorWorkspaceBar() {
+  const { signOut } = useAuth();
   const {
     actor, actorId, actors, applyActor, error, experience, loading, refreshActors,
   } = useScmActor();
@@ -92,6 +95,16 @@ export default function ActorWorkspaceBar() {
               }}
             >
               Cambiar perfil
+            </Button>
+          )}
+          {SCM_AUTH_MODE === 'supabase' && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<LogoutOutlinedIcon />}
+              onClick={signOut}
+            >
+              Cerrar sesión
             </Button>
           )}
         </Stack>

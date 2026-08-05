@@ -1,11 +1,12 @@
 import {
   createContext, useCallback, useContext, useEffect, useMemo, useState,
 } from 'react';
-import { getTrabajadores } from '../services/api';
+import { getCurrentActor, getTrabajadores } from '../services/api';
 import {
   guardarActorScm,
   obtenerActorScm,
 } from '../services/scmEngineeringApi';
+import { SCM_AUTH_MODE } from '../config/runtime';
 
 const STANDALONE_CONTEXT = {
   actor: null,
@@ -113,6 +114,12 @@ export function ScmActorProvider({ children }) {
     setLoading(true);
     setError('');
     try {
+      if (SCM_AUTH_MODE === 'supabase') {
+        const currentActor = await getCurrentActor();
+        setActors([currentActor]);
+        setActorId(currentActor.id);
+        return;
+      }
       const payload = await getTrabajadores({ incluir_inactivos: true });
       const activeActors = (payload || []).filter((item) => item.activo);
       setActors(activeActors);
@@ -171,6 +178,7 @@ export function ScmActorProvider({ children }) {
   );
 
   const applyActor = useCallback((nextActorId) => {
+    if (SCM_AUTH_MODE === 'supabase') return false;
     const nextActor = actors.find(
       (item) => Number(item.id) === Number(nextActorId) && item.activo,
     );
