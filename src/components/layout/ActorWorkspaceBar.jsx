@@ -69,7 +69,7 @@ export default function ActorWorkspaceBar() {
             <Box minWidth={0}>
               <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                 <Typography variant="caption" color="text.secondary">Trabajando como</Typography>
-                <Chip label="UAT local" size="small" variant="outlined" color="info" />
+                <Chip label="Operación SCM" size="small" variant="outlined" color="info" />
               </Stack>
               <Typography variant="subtitle2" fontWeight={800} noWrap>
                 {actor?.nombre_completo || `Actor #${actorId}`}
@@ -138,4 +138,3 @@ export default function ActorWorkspaceBar() {
     </>
   );
 }
-

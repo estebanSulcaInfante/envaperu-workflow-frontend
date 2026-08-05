@@ -143,7 +143,7 @@ function Sidebar() {
         <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.82)', display: 'block', fontWeight: 700 }}>
           {experience.label}
         </Typography>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.54)' }}>Piloto SCM · UAT local</Typography>
+        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.54)' }}>Piloto SCM</Typography>
       </Box>
     </Box>
   );
