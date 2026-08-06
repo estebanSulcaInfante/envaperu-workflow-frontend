@@ -1688,7 +1688,10 @@ function ScmEngineeringAdmin() {
                     next[index] = { ...line, merma_tecnica_pct: event.target.value };
                     setBomForm({ ...bomForm, componentes: next });
                   }}
-                  sx={{ width: { md: 130 } }}
+                  sx={{
+                    width: { xs: '100%', md: 270 },
+                    flexShrink: 0,
+                  }}
                     />
                     <IconButton
                   aria-label={`Quitar componente ${index + 1}`}
