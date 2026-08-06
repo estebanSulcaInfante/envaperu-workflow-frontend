@@ -1676,7 +1676,10 @@ function ScmEngineeringAdmin() {
                     next[index] = { ...line, cantidad: event.target.value };
                     setBomForm({ ...bomForm, componentes: next });
                   }}
-                  sx={{ width: { md: 150 } }}
+                  sx={{
+                    width: { xs: '100%', md: 150 },
+                    flexShrink: 0,
+                  }}
                     />
                     <TextField
                   label="Pérdida esperada del componente (%)"
