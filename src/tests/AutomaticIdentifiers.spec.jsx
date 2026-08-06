@@ -93,6 +93,8 @@ describe('identificadores internos automáticos', () => {
     const identifier = screen.getByLabelText(/sku automático/i);
     expect(identifier).toHaveValue('PT-###### · se asignará al guardar');
     expect(identifier).toHaveAttribute('readonly');
+    expect(screen.queryByLabelText(/unidades por paquete/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/unidades por bulto/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole('combobox', { name: 'Línea' }));
     await user.click(await screen.findByRole('option', { name: 'HOGAR' }));
     await waitFor(() => expect(obtenerFamilias).toHaveBeenCalledWith({ linea_id: 1 }));
@@ -169,6 +171,8 @@ describe('identificadores internos automáticos', () => {
 
     await waitFor(() => expect(crearProducto).toHaveBeenCalledTimes(1));
     expect(crearProducto.mock.calls[0][0]).not.toHaveProperty('cod_sku_pt');
+    expect(crearProducto.mock.calls[0][0]).not.toHaveProperty('doc_x_paq');
+    expect(crearProducto.mock.calls[0][0]).not.toHaveProperty('doc_x_bulto');
     expect(crearProducto.mock.calls[0][0]).toHaveProperty('codigo_barra', '7751234567890');
   });
 

@@ -49,6 +49,8 @@ describe('Guía operativa SCM', () => {
     expect(screen.getByRole('heading', { name: 'Tolerancia de tara' })).toBeInTheDocument();
     expect(screen.getByText(/tara real distinta requiere autorización y motivo/i)).toBeInTheDocument();
     expect(screen.getByText(/peso controla tolerancias, pero nunca determina/i)).toBeInTheDocument();
+    expect(screen.getByText(/cantidad por empaque no se registra en el producto terminado/i)).toBeInTheDocument();
+    expect(screen.getByText(/unidades por paquete y por bulto no forman parte/i)).toBeInTheDocument();
   });
 
   it('ofrece búsqueda y referencia oficial para Artículos SCM y BOM multinivel', async () => {

@@ -20,8 +20,6 @@ const emptyProduct = {
   familia_id: '',
   linea_id: '',
   peso_g: '',
-  doc_x_paq: '',
-  doc_x_bulto: '',
   codigo_barra: '',
   marca: '',
   um: 'Unidad',
@@ -66,8 +64,6 @@ export default function ProductoDialog({
       familia_id: producto.familia_id || '',
       linea_id: producto.linea_id || '',
       peso_g: producto.peso_g ?? '',
-      doc_x_paq: producto.doc_x_paq ?? '',
-      doc_x_bulto: producto.doc_x_bulto ?? '',
       codigo_barra: producto.codigo_barra || '',
       marca: producto.marca || '',
       um: producto.um || 'Unidad',
@@ -110,8 +106,6 @@ export default function ProductoDialog({
       linea_id: formData.linea_id ? '' : 'Selecciona una línea.',
       familia_id: formData.familia_id ? '' : 'Selecciona una familia.',
       peso_g: validateNumber(formData.peso_g),
-      doc_x_paq: validateNumber(formData.doc_x_paq, { integer: true, min: 1 }),
-      doc_x_bulto: validateNumber(formData.doc_x_bulto, { integer: true, min: 1 }),
     };
   }, [formData]);
   const complete = useMemo(
@@ -159,8 +153,6 @@ export default function ProductoDialog({
         linea_id: Number(formData.linea_id),
         familia_id: Number(formData.familia_id),
         peso_g: optionalNumber(formData.peso_g),
-        doc_x_paq: optionalNumber(formData.doc_x_paq),
-        doc_x_bulto: optionalNumber(formData.doc_x_bulto),
         codigo_barra: formData.codigo_barra.trim() || null,
         marca: formData.marca.trim() || null,
         um: formData.um.trim() || 'Unidad',
@@ -327,30 +319,6 @@ export default function ProductoDialog({
               slotProps={{ htmlInput: { min: 0, step: 0.001 } }}
               error={attempted && Boolean(validation.peso_g)}
               helperText={attempted ? validation.peso_g : ''}
-              fullWidth
-            />
-            <TextField
-              label="Unidades por paquete"
-              type="number"
-              value={formData.doc_x_paq}
-              onChange={(event) => setFormData({
-                ...formData, doc_x_paq: event.target.value,
-              })}
-              slotProps={{ htmlInput: { min: 1, step: 1 } }}
-              error={attempted && Boolean(validation.doc_x_paq)}
-              helperText={attempted ? validation.doc_x_paq : ''}
-              fullWidth
-            />
-            <TextField
-              label="Unidades por bulto"
-              type="number"
-              value={formData.doc_x_bulto}
-              onChange={(event) => setFormData({
-                ...formData, doc_x_bulto: event.target.value,
-              })}
-              slotProps={{ htmlInput: { min: 1, step: 1 } }}
-              error={attempted && Boolean(validation.doc_x_bulto)}
-              helperText={attempted ? validation.doc_x_bulto : ''}
               fullWidth
             />
           </Stack>
