@@ -1679,7 +1679,7 @@ function ScmEngineeringAdmin() {
                   sx={{ width: { md: 150 } }}
                     />
                     <TextField
-                  label="Merma %"
+                  label="Pérdida esperada del componente (%)"
                   type="number"
                   size="small"
                   value={line.merma_tecnica_pct}
