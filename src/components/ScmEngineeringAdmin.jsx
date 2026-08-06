@@ -1008,7 +1008,7 @@ function ScmEngineeringAdmin() {
           {tab === 2 && (
             <Stack spacing={2}>
               <Paper variant="outlined" sx={{ p: 2 }}>
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
+                <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5}>
                   <ScmArticleAutocomplete
                     label="Producto terminado"
                     articles={productArticles}
@@ -1016,27 +1016,35 @@ function ScmEngineeringAdmin() {
                     getOptionValue={(article) => article.subtipo?.producto_terminado_id}
                     onChange={setSelectedProductId}
                   />
-                  {canAdminRoutes && <Button
-                    variant="outlined"
-                    startIcon={<AddIcon />}
-                    onClick={() => {
-                      setEditingCenter(null);
-                      setCenterForm(emptyCenter);
-                      setDialog('center');
-                    }}
-                    sx={{ whiteSpace: 'nowrap' }}
-                  >
-                    Centro de trabajo
-                  </Button>}
-                  {canAdminRoutes && <Button
-                    variant="contained"
-                    startIcon={<AddIcon />}
-                    disabled={!selectedProductId || centers.length === 0}
-                    onClick={openRoute}
-                    sx={{ whiteSpace: 'nowrap' }}
-                  >
-                    Nueva ruta
-                  </Button>}
+                  {canAdminRoutes && (
+                    <Stack
+                      direction={{ xs: 'column', sm: 'row' }}
+                      spacing={1.5}
+                      sx={{ flexShrink: 0 }}
+                    >
+                      <Button
+                        variant="outlined"
+                        startIcon={<AddIcon />}
+                        onClick={() => {
+                          setEditingCenter(null);
+                          setCenterForm(emptyCenter);
+                          setDialog('center');
+                        }}
+                        sx={{ whiteSpace: 'nowrap', flex: { sm: 1, lg: 'initial' } }}
+                      >
+                        Centro de trabajo
+                      </Button>
+                      <Button
+                        variant="contained"
+                        startIcon={<AddIcon />}
+                        disabled={!selectedProductId || centers.length === 0}
+                        onClick={openRoute}
+                        sx={{ whiteSpace: 'nowrap', flex: { sm: 1, lg: 'initial' } }}
+                      >
+                        Nueva ruta
+                      </Button>
+                    </Stack>
+                  )}
                 </Stack>
               </Paper>
               <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
