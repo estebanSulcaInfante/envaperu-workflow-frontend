@@ -17,6 +17,7 @@ import {
 import PageHeader from './ui/PageHeader';
 import ProcessJourney from './ui/ProcessJourney';
 import { buscarProductos } from '../services/api';
+import { listarPresentacionesComercialesScm } from '../services/scmCatalogApi';
 import { useScmActor } from '../context/ScmActorContext';
 
 const stateColor = {
@@ -42,6 +43,7 @@ export default function ProductionPlanningScm() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [products, setProducts] = useState([]);
+  const [presentations, setPresentations] = useState([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [targetDraft, setTargetDraft] = useState({});
   const [targetReason, setTargetReason] = useState('');
@@ -50,7 +52,8 @@ export default function ProductionPlanningScm() {
     fecha_necesidad: new Date().toISOString().slice(0, 10),
     prioridad: 'NORMAL',
     producto_terminado_id: '',
-    cantidad_solicitada: '',
+    presentacion_comercial_id: '',
+    cantidad_presentaciones: '',
   });
 
   const selected = useMemo(
@@ -71,11 +74,13 @@ export default function ProductionPlanningScm() {
     setBusy(true);
     setError('');
     try {
-      const [payload, productItems] = await Promise.all([
+      const [payload, productItems, presentationItems] = await Promise.all([
         listarOpDemandaScm(),
         buscarProductos(),
+        listarPresentacionesComercialesScm({ activo: true }),
       ]);
       setProducts(productItems || []);
+      setPresentations(presentationItems || []);
       const items = payload.items || [];
       const nextId = items.some((item) => item.id === preferredId)
         ? preferredId : items[0]?.id || '';
@@ -120,9 +125,10 @@ export default function ProductionPlanningScm() {
   const createOrder = async () => {
     if (
       !createForm.producto_terminado_id
-      || Number(createForm.cantidad_solicitada) <= 0
+      || !createForm.presentacion_comercial_id
+      || Number(createForm.cantidad_presentaciones) <= 0
     ) {
-      setError('Selecciona un ProductoTerminado y una cantidad positiva.');
+      setError('Selecciona producto, presentación y una cantidad positiva.');
       return;
     }
     setBusy(true);
@@ -135,7 +141,8 @@ export default function ProductionPlanningScm() {
         prioridad: createForm.prioridad,
         lineas: [{
           producto_terminado_id: createForm.producto_terminado_id,
-          cantidad_solicitada: Number(createForm.cantidad_solicitada),
+          presentacion_comercial_id: Number(createForm.presentacion_comercial_id),
+          cantidad_presentaciones: Number(createForm.cantidad_presentaciones),
         }],
       });
       setCreateOpen(false);
@@ -149,6 +156,12 @@ export default function ProductionPlanningScm() {
   };
 
   const documents = plan?.propuesta?.documentos || [];
+  const selectedPresentations = presentations.filter(
+    (item) => item.producto_terminado_id === createForm.producto_terminado_id,
+  );
+  const selectedPresentation = selectedPresentations.find(
+    (item) => item.id === Number(createForm.presentacion_comercial_id),
+  );
   const blockers = plan?.propuesta?.bloqueos || [];
   const stockReservations = plan?.propuesta?.reservas_stock || [];
   const targetDirty = documents.some(
@@ -307,7 +320,11 @@ export default function ProductionPlanningScm() {
               <TableBody>{selected.lineas.map((line) => (
                 <TableRow key={line.id}>
                   <TableCell>{line.producto}<br /><Typography variant="caption">{line.producto_terminado_id}</Typography></TableCell>
-                  <TableCell align="right">{line.cantidad_solicitada}</TableCell>
+                  <TableCell align="right">
+                    {line.presentacion_comercial
+                      ? `${line.presentacion_comercial.cantidad} ${line.presentacion_comercial.nombre} = ${line.cantidad_solicitada} UN`
+                      : `${line.cantidad_solicitada} UN`}
+                  </TableCell>
                   <TableCell align="right">{line.cobertura.planificada}</TableCell>
                   <TableCell align="right">{line.cobertura.comprometida}</TableCell>
                   <TableCell align="right">{line.cobertura.satisfecha}</TableCell>
@@ -427,14 +444,26 @@ export default function ProductionPlanningScm() {
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <FormControl fullWidth>
-              <InputLabel>Producto terminado</InputLabel>
+              <InputLabel id="op-product-label">Producto terminado</InputLabel>
               <Select
+                labelId="op-product-label"
+                id="op-product"
                 label="Producto terminado"
                 value={createForm.producto_terminado_id}
-                onChange={(event) => setCreateForm({
-                  ...createForm,
-                  producto_terminado_id: event.target.value,
-                })}
+                onChange={(event) => {
+                  const productId = event.target.value;
+                  const options = presentations.filter(
+                    (item) => item.producto_terminado_id === productId,
+                  );
+                  const defaultPresentation = options.find((item) => item.predeterminada)
+                    || options[0];
+                  setCreateForm({
+                    ...createForm,
+                    producto_terminado_id: productId,
+                    presentacion_comercial_id: defaultPresentation?.id || '',
+                    cantidad_presentaciones: '',
+                  });
+                }}
               >
                 {products.map((product) => (
                   <MenuItem key={product.cod_sku_pt} value={product.cod_sku_pt}>
@@ -443,15 +472,38 @@ export default function ProductionPlanningScm() {
                 ))}
               </Select>
             </FormControl>
+            <FormControl fullWidth disabled={!createForm.producto_terminado_id}>
+              <InputLabel id="op-presentation-label">Presentación comercial</InputLabel>
+              <Select
+                labelId="op-presentation-label"
+                id="op-presentation"
+                label="Presentación comercial"
+                value={createForm.presentacion_comercial_id}
+                onChange={(event) => setCreateForm({
+                  ...createForm,
+                  presentacion_comercial_id: event.target.value,
+                })}
+              >
+                {selectedPresentations.map((item) => (
+                  <MenuItem key={item.id} value={item.id}>
+                    {item.nombre} · {item.unidades_base} UN
+                    {item.predeterminada ? ' · Predeterminada' : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <TextField
-              label="Cantidad solicitada"
+              label="Cantidad de presentaciones"
               type="number"
-              value={createForm.cantidad_solicitada}
+              value={createForm.cantidad_presentaciones}
               inputProps={{ min: 1, step: 1 }}
               onChange={(event) => setCreateForm({
                 ...createForm,
-                cantidad_solicitada: event.target.value,
+                cantidad_presentaciones: event.target.value,
               })}
+              helperText={selectedPresentation && Number(createForm.cantidad_presentaciones) > 0
+                ? `${createForm.cantidad_presentaciones} ${selectedPresentation.nombre} = ${Number(createForm.cantidad_presentaciones) * selectedPresentation.unidades_base} UN`
+                : 'La planificación convierte este valor a unidades del PT.'}
             />
             <TextField
               label="Fecha de necesidad"

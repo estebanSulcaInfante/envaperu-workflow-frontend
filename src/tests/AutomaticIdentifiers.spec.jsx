@@ -151,7 +151,7 @@ describe('identificadores internos automáticos', () => {
     expect(crearPiezaColor.mock.calls[0][0]).not.toHaveProperty('sku');
   });
 
-  it('conserva el código de barras externo al crear un producto sin SKU manual', async () => {
+  it('crea el producto sin referencias comerciales legacy', async () => {
     const user = userEvent.setup();
     obtenerLineas.mockResolvedValue([{ id: 1, codigo: 10, nombre: 'HOGAR' }]);
     obtenerFamilias.mockResolvedValue([{ id: 7, codigo: 14, nombre: 'ENVASES' }]);
@@ -160,20 +160,22 @@ describe('identificadores internos automáticos', () => {
     const identifier = screen.getByLabelText(/sku automático/i);
     expect(identifier).toHaveValue('PT-###### · se asignará al guardar');
     expect(identifier).toHaveAttribute('readonly');
+    expect(screen.queryByLabelText(/unidad comercial/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/código de barras/i)).not.toBeInTheDocument();
     await user.type(screen.getByLabelText(/nombre del producto/i), 'Producto con barras');
     await user.click(screen.getByRole('combobox', { name: 'Línea' }));
     await user.click(await screen.findByRole('option', { name: 'HOGAR' }));
     await waitFor(() => expect(obtenerFamilias).toHaveBeenCalledWith({ linea_id: 1 }));
     await user.click(screen.getByRole('combobox', { name: 'Familia' }));
     await user.click(await screen.findByRole('option', { name: 'ENVASES' }));
-    await user.type(screen.getByLabelText(/barras/i), '7751234567890');
     await user.click(screen.getByRole('button', { name: /crear producto/i }));
 
     await waitFor(() => expect(crearProducto).toHaveBeenCalledTimes(1));
     expect(crearProducto.mock.calls[0][0]).not.toHaveProperty('cod_sku_pt');
     expect(crearProducto.mock.calls[0][0]).not.toHaveProperty('doc_x_paq');
     expect(crearProducto.mock.calls[0][0]).not.toHaveProperty('doc_x_bulto');
-    expect(crearProducto.mock.calls[0][0]).toHaveProperty('codigo_barra', '7751234567890');
+    expect(crearProducto.mock.calls[0][0]).not.toHaveProperty('codigo_barra');
+    expect(crearProducto.mock.calls[0][0]).not.toHaveProperty('um');
   });
 
   it('el asistente de configuración muestra los correlativos como informativos', async () => {

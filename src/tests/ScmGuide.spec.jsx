@@ -51,6 +51,8 @@ describe('Guía operativa SCM', () => {
     expect(screen.getByText(/peso controla tolerancias, pero nunca determina/i)).toBeInTheDocument();
     expect(screen.getByText(/cantidad por empaque no se registra en el producto terminado/i)).toBeInTheDocument();
     expect(screen.getByText(/unidades por paquete y por bulto no forman parte/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Presentación comercial' })).toBeInTheDocument();
+    expect(screen.getByText(/10 Pack x6 se planifican como 60 UN/i)).toBeInTheDocument();
   });
 
   it('ofrece búsqueda y referencia oficial para Artículos SCM y BOM multinivel', async () => {

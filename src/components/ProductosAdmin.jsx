@@ -8,12 +8,14 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
 import RestoreIcon from '@mui/icons-material/Restore';
+import SellIcon from '@mui/icons-material/Sell';
 import {
   actualizarProducto, buscarProductos, obtenerProducto,
 } from '../services/api';
 import DataTableToolbar from './ui/DataTableToolbar';
 import PageHeader from './ui/PageHeader';
 import ProductoDialog from './ProductoDialog';
+import CommercialPresentationsDialog from './CommercialPresentationsDialog';
 import { matchesOmniSearch, uniqueOptions } from '../utils/tableSearch';
 import { useScmActor } from '../context/ScmActorContext';
 
@@ -26,6 +28,7 @@ export default function ProductosAdmin() {
   const [notice, setNotice] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProducto, setEditingProducto] = useState(null);
+  const [presentationProduct, setPresentationProduct] = useState(null);
   const [search, setSearch] = useState('');
   const [familyFilter, setFamilyFilter] = useState('TODAS');
   const [statusFilter, setStatusFilter] = useState('TODOS');
@@ -184,6 +187,15 @@ export default function ProductosAdmin() {
                   />
                 </TableCell>
                 {canAdmin && <TableCell align="center">
+                  <Tooltip title="Presentaciones comerciales">
+                    <IconButton
+                      size="small"
+                      aria-label={`Presentaciones comerciales ${product.cod_sku_pt}`}
+                      onClick={() => setPresentationProduct(product)}
+                    >
+                      <SellIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
                   <Tooltip title="Editar identidad y referencias">
                     <IconButton size="small" onClick={() => openDialog(product)}>
                       <EditIcon fontSize="small" />
@@ -224,6 +236,11 @@ export default function ProductosAdmin() {
           await fetchProductos();
           setNotice(`${saved.cod_sku_pt} guardado correctamente.`);
         }}
+      />}
+      {canAdmin && <CommercialPresentationsDialog
+        open={Boolean(presentationProduct)}
+        product={presentationProduct}
+        onClose={() => setPresentationProduct(null)}
       />}
     </Box>
   );

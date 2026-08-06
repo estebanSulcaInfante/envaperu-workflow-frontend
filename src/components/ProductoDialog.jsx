@@ -20,9 +20,7 @@ const emptyProduct = {
   familia_id: '',
   linea_id: '',
   peso_g: '',
-  codigo_barra: '',
   marca: '',
-  um: 'Unidad',
 };
 
 const optionalNumber = (value) => (
@@ -64,9 +62,7 @@ export default function ProductoDialog({
       familia_id: producto.familia_id || '',
       linea_id: producto.linea_id || '',
       peso_g: producto.peso_g ?? '',
-      codigo_barra: producto.codigo_barra || '',
       marca: producto.marca || '',
-      um: producto.um || 'Unidad',
     } : emptyProduct);
   }, [producto, open]);
 
@@ -153,9 +149,7 @@ export default function ProductoDialog({
         linea_id: Number(formData.linea_id),
         familia_id: Number(formData.familia_id),
         peso_g: optionalNumber(formData.peso_g),
-        codigo_barra: formData.codigo_barra.trim() || null,
         marca: formData.marca.trim() || null,
-        um: formData.um.trim() || 'Unidad',
       };
       const saved = producto
         ? await actualizarProducto(formData.cod_sku_pt, payload)
@@ -324,27 +318,10 @@ export default function ProductoDialog({
           </Stack>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField
-              label="Unidad comercial"
-              value={formData.um}
-              onChange={(event) => setFormData({
-                ...formData, um: event.target.value,
-              })}
-              helperText="La unidad base SCM permanece en UN."
-              fullWidth
-            />
-            <TextField
               label="Marca"
               value={formData.marca}
               onChange={(event) => setFormData({
                 ...formData, marca: event.target.value,
-              })}
-              fullWidth
-            />
-            <TextField
-              label="Código de barras"
-              value={formData.codigo_barra}
-              onChange={(event) => setFormData({
-                ...formData, codigo_barra: event.target.value,
               })}
               fullWidth
             />

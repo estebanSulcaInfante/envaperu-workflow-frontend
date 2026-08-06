@@ -32,6 +32,23 @@ export const listarProveedoresScm = () => list('/scm/v1/proveedores');
 export const crearProveedorScm = (data) => create('/scm/v1/proveedores', data);
 export const actualizarProveedorScm = (id, data) => update('/scm/v1/proveedores', id, data);
 
+export const listarPresentacionesComercialesScm = async ({
+  productoId,
+  activo,
+} = {}) => {
+  const params = new URLSearchParams();
+  if (productoId) params.set('producto_terminado_id', productoId);
+  if (activo !== undefined) params.set('activo', String(activo));
+  const suffix = params.size ? `?${params.toString()}` : '';
+  return list(`/scm/v1/presentaciones-comerciales${suffix}`);
+};
+export const crearPresentacionComercialScm = (data) => (
+  create('/scm/v1/presentaciones-comerciales', data)
+);
+export const actualizarPresentacionComercialScm = (id, data) => (
+  update('/scm/v1/presentaciones-comerciales', id, data)
+);
+
 export const listarCategoriasRecepcionScm = () => list('/scm/v1/config/categorias-recepcion');
 export const crearCategoriaRecepcionScm = (data) => create('/scm/v1/config/categorias-recepcion', data);
 export const actualizarCategoriaRecepcionScm = (id, data) => update('/scm/v1/config/categorias-recepcion', id, data);
