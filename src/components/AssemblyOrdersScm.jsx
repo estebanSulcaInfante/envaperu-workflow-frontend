@@ -44,7 +44,7 @@ import ProcessJourney from './ui/ProcessJourney';
 import { useScmActor } from '../context/ScmActorContext';
 
 const actions = {
-  BORRADOR: { action: 'liberar', label: 'Liberar OE', color: 'success' },
+  BORRADOR: { action: 'liberar', label: 'Liberar OA', color: 'success' },
   LIBERADA: { action: 'iniciar', label: 'Iniciar armado', color: 'primary' },
   EN_EJECUCION: { action: 'cerrar', label: 'Cerrar armado', color: 'success' },
 };
@@ -54,8 +54,8 @@ const OPERATION_TYPE_LABEL = {
 
 export default function AssemblyOrdersScm() {
   const { can, experience } = useScmActor();
-  const canRelease = can('OE_LIBERAR');
-  const canExecute = can('OE_EJECUTAR');
+  const canRelease = can('OA_LIBERAR');
+  const canExecute = can('OA_EJECUTAR');
   const [orders, setOrders] = useState([]);
   const [orderId, setOrderId] = useState('');
   const [busy, setBusy] = useState(true);
@@ -109,7 +109,7 @@ export default function AssemblyOrdersScm() {
       setOrders(items);
       setOrderId(nextId);
     } catch (requestError) {
-      setError(mensajeErrorScm(requestError, 'No se pudieron cargar las OE.'));
+      setError(mensajeErrorScm(requestError, 'No se pudieron cargar las OA.'));
     } finally {
       setBusy(false);
     }
@@ -359,7 +359,7 @@ export default function AssemblyOrdersScm() {
       setCloseOpen(false);
       await load(selected.id);
     } catch (requestError) {
-      setError(mensajeErrorScm(requestError, 'No se pudo actualizar la OE.'));
+      setError(mensajeErrorScm(requestError, 'No se pudo actualizar la OA.'));
     } finally {
       setBusy(false);
     }
@@ -410,7 +410,7 @@ export default function AssemblyOrdersScm() {
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       <Alert severity="info">
-        La OE define el total. Las OT reparten ese total por fecha, mesa, turno y responsable;
+        La OA define el total. Las OT reparten ese total por fecha, mesa, turno y responsable;
         cada OT genera su propia solicitud de componentes desde la BOM congelada.
       </Alert>
 
@@ -458,7 +458,7 @@ export default function AssemblyOrdersScm() {
       </Paper>
 
       {busy && <Box sx={{ display: 'grid', placeItems: 'center', py: 4 }}><CircularProgress /></Box>}
-      {!busy && !selected && <Alert severity="info">Todavía no existen OE.</Alert>}
+      {!busy && !selected && <Alert severity="info">Todavía no existen OA.</Alert>}
 
       {!busy && selected && (
         <>
@@ -525,7 +525,7 @@ export default function AssemblyOrdersScm() {
                   </Typography>
                 ) : (
                   <Typography variant="body2" color="text.secondary">
-                    Calcula cuántas bolsas PT necesita la OE antes de repartirlas entre las jornadas.
+                    Calcula cuántas bolsas PT necesita la OA antes de repartirlas entre las jornadas.
                   </Typography>
                 )}
               </Box>
@@ -588,7 +588,7 @@ export default function AssemblyOrdersScm() {
             </Stack>
             {!ots.length ? (
               <Alert severity="info" sx={{ m: 2, mt: 0 }}>
-                Aún no se distribuyó el trabajo de esta OE. Crea la primera OT diaria para
+                Aún no se distribuyó el trabajo de esta OA. Crea la primera OT diaria para
                 solicitar las mangas que llegarán a la mesa.
               </Alert>
             ) : (
@@ -760,7 +760,7 @@ export default function AssemblyOrdersScm() {
 
           {ots.length > 0 && selected.estado === 'EN_EJECUCION' && (
             <Alert severity="warning">
-              El cierre anterior de la OE está bloqueado en esta experiencia: el cierre
+              El cierre anterior de la OA está bloqueado en esta experiencia: el cierre
               trazable debe consumir las mangas asignadas y acreditar las mangas de salida
               en una sola operación de Armado.
             </Alert>
@@ -985,7 +985,7 @@ export default function AssemblyOrdersScm() {
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Alert severity="info">
-              Esta cuota organiza una jornada; no duplica ni aumenta el objetivo de la OE.
+              Esta cuota organiza una jornada; no duplica ni aumenta el objetivo de la OA.
             </Alert>
             <TextField
               type="date"
@@ -1097,7 +1097,7 @@ export default function AssemblyOrdersScm() {
               type="number"
               label="Cuota objetivo (un)"
               inputProps={{ min: 0.001, max: pendingQuota, step: 0.001 }}
-              helperText={`Saldo disponible de la OE: ${pendingQuota.toFixed(3)} un`}
+              helperText={`Saldo disponible de la OA: ${pendingQuota.toFixed(3)} un`}
               value={otForm.cantidad_objetivo}
               onChange={(event) => setOtForm({ ...otForm, cantidad_objetivo: event.target.value })}
             />

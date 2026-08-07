@@ -211,7 +211,7 @@ export default function InternalSupplyScm() {
       {busy && <Box sx={{ display: 'grid', placeItems: 'center', py: 5 }}><CircularProgress /></Box>}
       {!busy && !selected && (
         <Alert severity="info">
-          No hay solicitudes. El Responsable de Armado debe crear primero una OT diaria desde la OE y solicitar sus componentes.
+          No hay solicitudes. El Responsable de Armado debe crear primero una OT diaria desde la OA y solicitar sus componentes.
         </Alert>
       )}
 

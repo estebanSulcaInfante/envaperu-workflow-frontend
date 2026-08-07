@@ -112,7 +112,7 @@ const OPERATION_TYPE_LABEL = {
 const CONTAINER_CLASSES = ['MANGA', 'BOLSA', 'JABA', 'CAJA', 'OTRO'];
 const EXECUTOR_LABEL = {
   OP_OT: 'Fabricación mediante OP / OT',
-  ORDEN_OPERACION: 'Prearmado o armado mediante OE / OT de Armado',
+  ORDEN_OPERACION: 'Prearmado o armado mediante OA / OT de Armado',
 };
 const emptyWip = { nombre: '', descripcion: '', requiere_calidad: false };
 const emptyCenter = { nombre: '', tipo: 'PREARMADO' };
@@ -1893,7 +1893,7 @@ function ScmEngineeringAdmin() {
             <Alert severity="info">
               La BOM define qué consume cada salida; la ruta define el orden, centro y
               forma de ejecución. Fabricación mediante OP/OT se usa para trabajo de
-              máquina. Prearmado o armado mediante OE / OT de Armado exige la
+              máquina. Prearmado o armado mediante OA / OT de Armado exige la
               estructura aprobada de su salida.
             </Alert>
             <TextField

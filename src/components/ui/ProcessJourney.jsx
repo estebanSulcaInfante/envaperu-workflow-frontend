@@ -16,9 +16,9 @@ const steps = [
   {
     id: 'trabajo',
     label: '2. Trabajo',
-    detail: 'OF u OE liberada',
+    detail: 'OF u OA liberada',
     path: '/produccion/ordenes-fabricacion',
-    requiredAny: ['OF_VER', 'OE_VER'],
+    requiredAny: ['OF_VER', 'OA_VER'],
   },
   {
     id: 'jornada',
@@ -61,7 +61,7 @@ export default function ProcessJourney({ current, branch = 'fabricacion' }) {
             ? (branch === 'armado' ? '2. Armado' : '2. Fabricación')
             : step.label;
           const detail = step.id === 'trabajo'
-            ? (branch === 'armado' ? 'OE liberada' : 'OF liberada')
+            ? (branch === 'armado' ? 'OA liberada' : 'OF liberada')
             : step.detail;
           const path = step.id === 'trabajo' && branch === 'armado'
             ? '/produccion/ordenes-armado'

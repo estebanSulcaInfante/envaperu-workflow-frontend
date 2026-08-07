@@ -18,7 +18,7 @@ const TASKS = [
   {
     capability: 'PLANIFICACION_CALCULAR',
     title: 'Planificar producción',
-    description: 'Convertir demanda aprobada en propuestas OF y OE.',
+    description: 'Convertir demanda aprobada en propuestas OF y OA.',
     path: '/planificacion',
   },
   {
@@ -28,7 +28,7 @@ const TASKS = [
     path: '/produccion/ordenes-fabricacion',
   },
   {
-    capability: 'OE_LIBERAR',
+    capability: 'OA_LIBERAR',
     title: 'Preparar armado',
     description: 'Liberar y ejecutar prearmado, armado o terminación.',
     path: '/produccion/ordenes-armado',

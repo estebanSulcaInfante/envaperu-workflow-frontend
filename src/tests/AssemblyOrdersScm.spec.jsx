@@ -66,8 +66,8 @@ import {
 import { listarOtScm } from '../services/scmOtApi';
 
 const order = {
-  id: 'oe-1',
-  codigo: 'OE-000001',
+  id: 'oa-1',
+  codigo: 'OA-000001',
   estado: 'LIBERADA',
   version: 1,
   operacion: {
@@ -113,11 +113,11 @@ const renderView = () => render(
   </MemoryRouter>,
 );
 
-describe('OE y OT diaria de Armado', () => {
+describe('OA y OT diaria de Armado', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     actorState.capabilities = new Set([
-      'OE_VER', 'OE_EJECUTAR', 'OT_CREAR', 'ABASTECIMIENTO_VER',
+      'OA_VER', 'OA_EJECUTAR', 'OT_CREAR', 'ABASTECIMIENTO_VER',
       'ABASTECIMIENTO_SOLICITAR',
     ]);
     listarOrdenesArmadoScm.mockResolvedValue({ items: [order] });
@@ -135,7 +135,7 @@ describe('OE y OT diaria de Armado', () => {
       solicitud: { codigo: 'SA-000001' },
     });
     asignarMangasSalidaArmadoScm.mockResolvedValue({
-      mangas: [{ public_id: 'manga-1', codigo: 'OE000001-OT001-M001' }],
+      mangas: [{ public_id: 'manga-1', codigo: 'OA000001-OT001-M001' }],
     });
   });
 
@@ -176,7 +176,7 @@ describe('OE y OT diaria de Armado', () => {
     await user.click(screen.getByRole('button', { name: 'Crear OT y continuar' }));
 
     await waitFor(() => expect(crearOtArmadoScm).toHaveBeenCalledWith(
-      'oe-1',
+      'oa-1',
       expect.objectContaining({
         modo_ejecucion: 'CONCURRENTE',
         ot_fabricacion_contexto_id: 'fab-ot-1',
@@ -186,7 +186,7 @@ describe('OE y OT diaria de Armado', () => {
 
   it('calcula el plan y asigna las mangas PT a la jornada', async () => {
     actorState.capabilities = new Set([
-      'OE_VER', 'PLAN_MANGA_VER', 'ENSAMBLE_PLANIFICAR', 'ABASTECIMIENTO_VER',
+      'OA_VER', 'PLAN_MANGA_VER', 'ENSAMBLE_PLANIFICAR', 'ABASTECIMIENTO_VER',
     ]);
     recalcularPlanMangasArmadoScm.mockResolvedValue({
       plan: {
@@ -212,12 +212,12 @@ describe('OE y OT diaria de Armado', () => {
 
   it('permite al responsable cerrar una manga abastecida y la deja pendiente de pesaje', async () => {
     actorState.capabilities = new Set([
-      'OE_VER', 'PLAN_MANGA_VER', 'ABASTECIMIENTO_VER', 'ENSAMBLE_MANGA_CERRAR',
+      'OA_VER', 'PLAN_MANGA_VER', 'ABASTECIMIENTO_VER', 'ENSAMBLE_MANGA_CERRAR',
       'GENEALOGIA_VER',
     ]);
     const manga = {
       public_id: 'manga-1',
-      codigo: 'OE000001-OT001-M001',
+      codigo: 'OA000001-OT001-M001',
       estado: 'PREETIQUETADA',
       cantidad_planificada_un: '10',
       cantidad_confirmada_un: null,

@@ -112,7 +112,7 @@ export default function ProductionPlanningScm() {
           ? `${nextOrder.codigo} aprobada.`
           : action === 'calculate'
             ? `Plan revisión ${result.plan.revision} calculado sin crear documentos.`
-            : `${result.documentos.length} OF/OE creadas en borrador.`,
+            : `${result.documentos.length} OF/OA creadas en borrador.`,
       );
       await load(selected.id);
     } catch (requestError) {
@@ -214,7 +214,7 @@ export default function ProductionPlanningScm() {
       <PageHeader
         eyebrow="Planificación / Demanda"
         title="Planificación de OP"
-        description="Calcula cobertura documental y confirma propuestas OF/OE sin consumir inventario ni liberar producción."
+        description="Calcula cobertura documental y confirma propuestas OF/OA sin consumir inventario ni liberar producción."
         actions={(
           <Stack direction="row" spacing={1}>
             <Button startIcon={<RefreshIcon />} variant="outlined" onClick={() => load(selected?.id)}>
@@ -377,7 +377,7 @@ export default function ProductionPlanningScm() {
               </TableRow></TableHead>
               <TableBody>{documents.map((item) => (
                 <TableRow key={item.clave}>
-                  <TableCell><Chip size="small" label={item.tipo === 'FABRICACION' ? 'OF' : 'OE'} /></TableCell>
+                  <TableCell><Chip size="small" label={item.tipo === 'FABRICACION' ? 'OF' : 'OA'} /></TableCell>
                   <TableCell>{item.operacion}</TableCell>
                   <TableCell>{item.articulo.nombre}<br /><Typography variant="caption">{item.articulo.codigo}</Typography></TableCell>
                   <TableCell align="right">

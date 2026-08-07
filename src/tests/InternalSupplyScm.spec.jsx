@@ -45,7 +45,7 @@ const request = {
   codigo: 'SA-000001',
   estado: 'SOLICITADA',
   version: 1,
-  orden_armado: { id: 'oe-1', codigo: 'OE-000001' },
+  orden_armado: { id: 'oa-1', codigo: 'OA-000001' },
   orden_trabajo: {
     public_id: 'ot-1',
     codigo_ot: 'OT-000002',
@@ -91,7 +91,7 @@ describe('Abastecimiento interno por QR', () => {
     const user = userEvent.setup();
     renderView();
 
-    expect(await screen.findByText(/SA-000001 · OE-000001/)).toBeInTheDocument();
+    expect(await screen.findByText(/SA-000001 · OA-000001/)).toBeInTheDocument();
     const scanner = screen.getByRole('textbox', {
       name: 'Escanea QR o escribe el código de manga',
     });

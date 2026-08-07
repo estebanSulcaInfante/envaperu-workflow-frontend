@@ -2,7 +2,7 @@ export const primaryNavigation = [
   { id: 'inicio', label: 'Inicio', path: '/', icon: 'dashboard', exact: true },
   { id: 'planificacion', label: 'Planificación', path: '/planificacion', icon: 'planning', requiredAny: ['OP_VER', 'OP_CREAR', 'OP_APROBAR', 'PLANIFICACION_CALCULAR'] },
   { id: 'materiales', label: 'Materias primas', path: '/materiales/recepciones', icon: 'materials', requiredAny: ['OC_CREAR', 'OC_APROBAR', 'RECEPCION_CONFIRMAR', 'CALIDAD_RESOLVER', 'PROVEEDOR_ADMINISTRAR', 'DOCUMENTO_PROVEEDOR_REGISTRAR'] },
-  { id: 'produccion', label: 'Producción', path: '/produccion/kardex', icon: 'production', requiredAny: ['OP_VER', 'OF_VER', 'OE_VER', 'OT_VER', 'WIP_VER', 'INVENTARIO_VER', 'ABASTECIMIENTO_VER', 'RECEPCION_MANGA_VER', 'CALIDAD_MANGA_VER', 'MOLIENDA_VER', 'ALERTA_VER'] },
+  { id: 'produccion', label: 'Producción', path: '/produccion/kardex', icon: 'production', requiredAny: ['OP_VER', 'OF_VER', 'OA_VER', 'OT_VER', 'WIP_VER', 'INVENTARIO_VER', 'ABASTECIMIENTO_VER', 'RECEPCION_MANGA_VER', 'CALIDAD_MANGA_VER', 'MOLIENDA_VER', 'ALERTA_VER'] },
 ];
 
 export const supportNavigation = [
@@ -33,7 +33,7 @@ export const workspaceNavigation = [
     tabs: [
       { label: 'Órdenes de producción', path: '/produccion/ordenes', icon: 'orders', requiredAny: ['OP_VER'] },
       { label: 'Órdenes de fabricación', path: '/produccion/ordenes-fabricacion', icon: 'production', requiredAny: ['OF_VER'] },
-      { label: 'Órdenes de armado', path: '/produccion/ordenes-armado', icon: 'records', requiredAny: ['OE_VER'] },
+      { label: 'Órdenes de armado', path: '/produccion/ordenes-armado', icon: 'records', requiredAny: ['OA_VER'] },
       { label: 'Abastecimiento a Armado', path: '/produccion/abastecimiento', icon: 'reservations', requiredAny: ['ABASTECIMIENTO_VER'] },
       { label: 'OT y mangas', path: '/produccion/ots-mangas', icon: 'records', requiredAny: ['OT_VER', 'PLAN_MANGA_VER'] },
       { label: 'Registro diario', path: '/produccion/registros', icon: 'records', requiredAny: ['OT_VER'] },
