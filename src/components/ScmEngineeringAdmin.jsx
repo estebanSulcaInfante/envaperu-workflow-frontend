@@ -90,7 +90,7 @@ import { matchesOmniSearch } from '../utils/tableSearch';
 
 const ARTICLE_CLASS = {
   PIEZA_COLOR: 'Pieza-color',
-  SUBENSAMBLE_WIP: 'Subensamble WIP',
+  SUBENSAMBLE_WIP: 'WIP',
   PRODUCTO_TERMINADO: 'Producto terminado',
 };
 const STATUS_COLOR = {
@@ -102,10 +102,17 @@ const STATUS_COLOR = {
   DESCARTADA: 'default',
 };
 const OPERATION_TYPES = ['INYECCION', 'PREARMADO', 'ENSAMBLE', 'ACABADO', 'EMPAQUE'];
+const OPERATION_TYPE_LABEL = {
+  INYECCION: 'INYECCIÓN',
+  PREARMADO: 'PREARMADO',
+  ENSAMBLE: 'ARMADO',
+  ACABADO: 'ACABADO',
+  EMPAQUE: 'EMPAQUE',
+};
 const CONTAINER_CLASSES = ['MANGA', 'BOLSA', 'JABA', 'CAJA', 'OTRO'];
 const EXECUTOR_LABEL = {
   OP_OT: 'Fabricación mediante OP / OT',
-  ORDEN_OPERACION: 'Prearmado o ensamble mediante orden de operación',
+  ORDEN_OPERACION: 'Prearmado o armado mediante OE / OT de Armado',
 };
 const emptyWip = { nombre: '', descripcion: '', requiere_calidad: false };
 const emptyCenter = { nombre: '', tipo: 'PREARMADO' };
@@ -753,7 +760,7 @@ function ScmEngineeringAdmin() {
                     setDialog('wip');
                   }}
                 >
-                  Nuevo subensamble WIP
+                  Nuevo WIP
                 </Button>}
               </Stack>
               <Divider />
@@ -1051,7 +1058,7 @@ function ScmEngineeringAdmin() {
                 {centers.map((center) => (
                   <Chip
                     key={center.id}
-                    label={`${center.codigo} · ${center.nombre} (${center.tipo})`}
+                    label={`${center.codigo} · ${center.nombre} (${OPERATION_TYPE_LABEL[center.tipo] || center.tipo})`}
                     variant="outlined"
                     color={center.activo ? 'default' : 'warning'}
                     onClick={canAdminRoutes ? () => {
@@ -1580,7 +1587,7 @@ function ScmEngineeringAdmin() {
       )}
 
       <Dialog open={dialog === 'wip'} onClose={() => setDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>{editingWip ? 'Editar subensamble WIP' : 'Nuevo subensamble WIP'}</DialogTitle>
+        <DialogTitle>{editingWip ? 'Editar WIP' : 'Nuevo WIP'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <TextField
@@ -1849,7 +1856,9 @@ function ScmEngineeringAdmin() {
                 value={centerForm.tipo}
                 onChange={(event) => setCenterForm({ ...centerForm, tipo: event.target.value })}
               >
-                {OPERATION_TYPES.map((type) => <MenuItem key={type} value={type}>{type}</MenuItem>)}
+                {OPERATION_TYPES.map((type) => (
+                  <MenuItem key={type} value={type}>{OPERATION_TYPE_LABEL[type]}</MenuItem>
+                ))}
               </Select>
             </FormControl>
           </Stack>
@@ -1884,7 +1893,7 @@ function ScmEngineeringAdmin() {
             <Alert severity="info">
               La BOM define qué consume cada salida; la ruta define el orden, centro y
               forma de ejecución. Fabricación mediante OP/OT se usa para trabajo de
-              máquina. Prearmado o ensamble mediante orden de operación exige la
+              máquina. Prearmado o armado mediante OE / OT de Armado exige la
               estructura aprobada de su salida.
             </Alert>
             <TextField
@@ -1977,7 +1986,9 @@ function ScmEngineeringAdmin() {
                         setRouteForm({ ...routeForm, operaciones: next });
                       }}
                     >
-                      {OPERATION_TYPES.map((type) => <MenuItem key={type} value={type}>{type}</MenuItem>)}
+                      {OPERATION_TYPES.map((type) => (
+                        <MenuItem key={type} value={type}>{OPERATION_TYPE_LABEL[type]}</MenuItem>
+                      ))}
                     </Select>
                   </FormControl>
                   <FormControl size="small" sx={{ minWidth: 190, mt: { lg: 0 } }}>

@@ -45,7 +45,7 @@ const request = {
   codigo: 'SA-000001',
   estado: 'SOLICITADA',
   version: 1,
-  orden_ensamble: { id: 'oe-1', codigo: 'OE-000001' },
+  orden_armado: { id: 'oe-1', codigo: 'OE-000001' },
   orden_trabajo: {
     public_id: 'ot-1',
     codigo_ot: 'OT-000002',

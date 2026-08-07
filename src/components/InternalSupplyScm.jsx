@@ -176,7 +176,7 @@ export default function InternalSupplyScm() {
         description="Reserva por QR, entrega con doble confirmación y retorno del remanente sin perder la identidad de la manga."
         actions={<Button startIcon={<RefreshIcon />} variant="outlined" onClick={() => load(selected?.id)}>Actualizar</Button>}
       />
-      <ProcessJourney current="ensamble" branch="ensamble" />
+      <ProcessJourney current="armado" branch="armado" />
       <Alert severity="info">
         Perfil actual: <strong>{experience.label}</strong>. Reservar no descuenta stock;
         el Kardex cambia cuando se confirma el despacho y la recepción física.
@@ -221,7 +221,7 @@ export default function InternalSupplyScm() {
             <Stack spacing={1.25}>
               <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" gap={1}>
                 <Box>
-                  <Typography variant="h6">{selected.codigo} · {selected.orden_ensamble.codigo}</Typography>
+                  <Typography variant="h6">{selected.codigo} · {selected.orden_armado.codigo}</Typography>
                   <Typography color="text.secondary">
                     {selected.orden_trabajo.codigo_ot} · {selected.orden_trabajo.fecha_operativa} · {selected.orden_trabajo.turno}
                     {' · '}{selected.orden_trabajo.centro_trabajo?.nombre}

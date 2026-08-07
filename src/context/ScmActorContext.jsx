@@ -42,7 +42,7 @@ const ROLE_EXPERIENCE = {
     focus: 'Liberar trabajo, resolver excepciones y mantener el flujo de planta.',
   },
   JEFE_ENSAMBLE: {
-    label: 'Jefe de Ensamble',
+    label: 'Jefe de Armado',
     focus: 'Distribuir el armado diario, recibir componentes y cerrar resultados trazables.',
   },
   SUPERVISOR: {

@@ -13,8 +13,8 @@ import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 import { Link as RouterLink } from 'react-router-dom';
 import {
-  listarOrdenesEnsambleScm,
-  transicionarOrdenEnsambleScm,
+  listarOrdenesArmadoScm,
+  transicionarOrdenArmadoScm,
 } from '../services/scmAssemblyApi';
 import {
   mensajeErrorScm,
@@ -22,16 +22,16 @@ import {
 } from '../services/scmEngineeringApi';
 import { getTrabajadores } from '../services/api';
 import {
-  crearOtEnsambleScm,
+  crearOtArmadoScm,
   crearSolicitudAbastecimientoScm,
-  asignarMangasSalidaEnsambleScm,
+  asignarMangasSalidaArmadoScm,
   aprobarCorreccionMangaArmadoScm,
   cerrarMangaArmadoScm,
-  listarOtEnsambleScm,
+  listarOtArmadoScm,
   listarSolicitudesAbastecimientoScm,
   obtenerGenealogiaMangaScm,
-  obtenerPlanMangasEnsambleScm,
-  recalcularPlanMangasEnsambleScm,
+  obtenerPlanMangasArmadoScm,
+  recalcularPlanMangasArmadoScm,
   solicitarCorreccionMangaArmadoScm,
 } from '../services/scmInternalSupplyApi';
 import {
@@ -45,8 +45,11 @@ import { useScmActor } from '../context/ScmActorContext';
 
 const actions = {
   BORRADOR: { action: 'liberar', label: 'Liberar OE', color: 'success' },
-  LIBERADA: { action: 'iniciar', label: 'Iniciar ensamble', color: 'primary' },
-  EN_EJECUCION: { action: 'cerrar', label: 'Cerrar ensamble', color: 'success' },
+  LIBERADA: { action: 'iniciar', label: 'Iniciar armado', color: 'primary' },
+  EN_EJECUCION: { action: 'cerrar', label: 'Cerrar armado', color: 'success' },
+};
+const OPERATION_TYPE_LABEL = {
+  ENSAMBLE: 'ARMADO',
 };
 
 export default function AssemblyOrdersScm() {
@@ -99,7 +102,7 @@ export default function AssemblyOrdersScm() {
     setBusy(true);
     setError('');
     try {
-      const payload = await listarOrdenesEnsambleScm();
+      const payload = await listarOrdenesArmadoScm();
       const items = payload.items || [];
       const nextId = items.some((item) => item.id === preferredId)
         ? preferredId : items[0]?.id || '';
@@ -117,12 +120,12 @@ export default function AssemblyOrdersScm() {
   const refreshOts = useCallback(async (order = selected) => {
     if (!order) return;
     const [otPayload, requestPayload, planPayload] = await Promise.all([
-      listarOtEnsambleScm(order.id),
+      listarOtArmadoScm(order.id),
       can('ABASTECIMIENTO_VER')
         ? listarSolicitudesAbastecimientoScm()
         : Promise.resolve({ items: [] }),
       can('PLAN_MANGA_VER')
-        ? obtenerPlanMangasEnsambleScm(order.id)
+        ? obtenerPlanMangasArmadoScm(order.id)
         : Promise.resolve({ plan: null }),
     ]);
     setOts(otPayload.items || []);
@@ -138,7 +141,7 @@ export default function AssemblyOrdersScm() {
     }
     let active = true;
     Promise.all([
-      listarOtEnsambleScm(selected.id),
+      listarOtArmadoScm(selected.id),
       listarCentrosTrabajoScm(),
       listarOtScm(undefined, 'FABRICACION'),
       getTrabajadores({ incluir_inactivos: false }),
@@ -146,7 +149,7 @@ export default function AssemblyOrdersScm() {
         ? listarSolicitudesAbastecimientoScm()
         : Promise.resolve({ items: [] }),
       can('PLAN_MANGA_VER')
-        ? obtenerPlanMangasEnsambleScm(selected.id)
+        ? obtenerPlanMangasArmadoScm(selected.id)
         : Promise.resolve({ plan: null }),
     ]).then(([
       otPayload, centerItems, fabricationPayload, workerItems, requestPayload, planPayload,
@@ -171,7 +174,7 @@ export default function AssemblyOrdersScm() {
         cantidad_objetivo: current.cantidad_objetivo || selected.salida.cantidad_objetivo,
       }));
     }).catch((requestError) => {
-      if (active) setError(mensajeErrorScm(requestError, 'No se pudieron cargar las OT de Ensamble.'));
+      if (active) setError(mensajeErrorScm(requestError, 'No se pudieron cargar las OT de Armado.'));
     });
     return () => { active = false; };
   }, [can, selected]);
@@ -180,7 +183,7 @@ export default function AssemblyOrdersScm() {
     setBusy(true);
     setError('');
     try {
-      const result = await crearOtEnsambleScm(selected.id, {
+      const result = await crearOtArmadoScm(selected.id, {
         ...otForm,
         ot_fabricacion_contexto_id: otForm.modo_ejecucion === 'CONCURRENTE'
           ? otForm.ot_fabricacion_contexto_id : null,
@@ -192,7 +195,7 @@ export default function AssemblyOrdersScm() {
       setOtOpen(false);
       await refreshOts();
     } catch (requestError) {
-      setError(mensajeErrorScm(requestError, 'No se pudo crear la OT de Ensamble.'));
+      setError(mensajeErrorScm(requestError, 'No se pudo crear la OT de Armado.'));
     } finally {
       setBusy(false);
     }
@@ -216,7 +219,7 @@ export default function AssemblyOrdersScm() {
     setBusy(true);
     setError('');
     try {
-      const result = await recalcularPlanMangasEnsambleScm(selected.id);
+      const result = await recalcularPlanMangasArmadoScm(selected.id);
       setOutputPlan(result.plan);
       setNotice(`Plan de mangas de salida revisión ${result.plan.revision} calculado.`);
     } catch (requestError) {
@@ -230,7 +233,7 @@ export default function AssemblyOrdersScm() {
     setBusy(true);
     setError('');
     try {
-      const result = await asignarMangasSalidaEnsambleScm(ot);
+      const result = await asignarMangasSalidaArmadoScm(ot);
       setNotice(`${result.mangas.length} manga(s) de producto terminado asignada(s) a ${ot.codigo_ot}.`);
       await refreshOts();
     } catch (requestError) {
@@ -351,7 +354,7 @@ export default function AssemblyOrdersScm() {
     setBusy(true);
     setError('');
     try {
-      const result = await transicionarOrdenEnsambleScm(selected, action, extra);
+      const result = await transicionarOrdenArmadoScm(selected, action, extra);
       setNotice(`${result.codigo}: ${result.estado}.`);
       setCloseOpen(false);
       await load(selected.id);
@@ -386,9 +389,9 @@ export default function AssemblyOrdersScm() {
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        eyebrow="Producción / Ensamble"
-        title="Órdenes de ensamble"
-        description="Libera y ejecuta operaciones de prearmado, ensamble, acabado o empaque contra la BOM congelada por planificación."
+        eyebrow="Producción / Armado"
+        title="Órdenes de armado"
+        description="Libera y ejecuta operaciones de prearmado, armado, acabado o empaque contra la BOM congelada por planificación."
         actions={(
           <Stack direction="row" spacing={1}>
             <Button startIcon={<RefreshIcon />} variant="outlined" onClick={() => load(selected?.id)}>
@@ -397,7 +400,7 @@ export default function AssemblyOrdersScm() {
           </Stack>
         )}
       />
-      <ProcessJourney current="ensamble" branch="ensamble" />
+      <ProcessJourney current="armado" branch="armado" />
       {!canRelease && !canExecute && (
         <Alert severity="info">
           Vista de consulta para {experience.label}. La liberación y el registro de ejecución
@@ -414,9 +417,9 @@ export default function AssemblyOrdersScm() {
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
           <FormControl sx={{ minWidth: 360 }}>
-            <InputLabel>Orden de ensamble</InputLabel>
+            <InputLabel>Orden de armado</InputLabel>
             <Select
-              label="Orden de ensamble"
+              label="Orden de armado"
               value={selected?.id || ''}
               onChange={(event) => setOrderId(event.target.value)}
             >
@@ -431,7 +434,9 @@ export default function AssemblyOrdersScm() {
             <>
               <Chip label={selected.estado} />
               <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
-                {selected.operacion.tipo} · {selected.operacion.centro_trabajo}
+                {OPERATION_TYPE_LABEL[selected.operacion.tipo] || selected.operacion.tipo}
+                {' · '}
+                {selected.operacion.centro_trabajo}
               </Typography>
               {currentAction && canRunCurrentAction && (
                 <Button
@@ -771,7 +776,7 @@ export default function AssemblyOrdersScm() {
       )}
 
       <Dialog open={closeOpen} onClose={() => setCloseOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Cerrar orden de ensamble</DialogTitle>
+        <DialogTitle>Cerrar orden de armado</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Alert severity="warning">

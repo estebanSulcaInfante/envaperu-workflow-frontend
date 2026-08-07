@@ -157,7 +157,8 @@ function App() {
                 <Route path="/produccion/pesajes" element={permitted(<LegacyProductionOrders />, ['MANGA_PESAJE_VER'])} />
                 <Route path="/produccion/ots-mangas" element={permitted(<OtMangasScm />, ['OT_VER', 'PLAN_MANGA_VER'])} />
                 <Route path="/produccion/ordenes-fabricacion" element={permitted(<FabricationOrdersScm />, ['OF_VER'])} />
-                <Route path="/produccion/ordenes-ensamble" element={permitted(<AssemblyOrdersScm />, ['OE_VER'])} />
+                <Route path="/produccion/ordenes-armado" element={permitted(<AssemblyOrdersScm />, ['OE_VER'])} />
+                <Route path="/produccion/ordenes-ensamble" element={<Navigate to="/produccion/ordenes-armado" replace />} />
                 <Route path="/produccion/abastecimiento" element={permitted(<InternalSupplyScm />, ['ABASTECIMIENTO_VER'])} />
                 <Route path="/produccion/kardex" element={permitted(<InventoryScm />, ['INVENTARIO_VER'])} />
                 <Route path="/produccion/recepcion-mangas" element={permitted(<WarehouseReceivingScm />, ['RECEPCION_MANGA_VER', 'CALIDAD_MANGA_VER'])} />

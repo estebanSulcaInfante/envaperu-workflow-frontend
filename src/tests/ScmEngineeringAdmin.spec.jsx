@@ -175,12 +175,12 @@ describe('Ingeniería SCM R-core', () => {
     expect(listarRutasScm).not.toHaveBeenCalledWith('');
   });
 
-  it('crea un subensamble WIP sin exponer clasificación KIT', async () => {
+  it('crea un WIP sin exponer clasificación KIT', async () => {
     const user = userEvent.setup();
     renderPage();
 
-    await user.click(await screen.findByRole('button', { name: /Nuevo subensamble WIP/i }));
-    const dialog = screen.getByRole('dialog', { name: /Nuevo subensamble WIP/i });
+    await user.click(await screen.findByRole('button', { name: /Nuevo WIP/i }));
+    const dialog = screen.getByRole('dialog', { name: /Nuevo WIP/i });
     expect(dialog).toBeVisible();
     expect(screen.queryByText(/^KIT$/)).not.toBeInTheDocument();
 
@@ -213,7 +213,7 @@ describe('Ingeniería SCM R-core', () => {
       requiere_calidad: false,
     }));
     await waitForElementToBeRemoved(
-      () => screen.queryByRole('dialog', { name: 'Editar subensamble WIP' }),
+      () => screen.queryByRole('dialog', { name: 'Editar WIP' }),
     );
 
     await user.click(screen.getByRole('button', { name: 'Inactivar WIP Balde prearmado' }));

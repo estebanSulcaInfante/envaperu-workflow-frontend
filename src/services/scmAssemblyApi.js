@@ -8,15 +8,15 @@ const headers = (idempotent = false) => ({
 
 const body = async (request) => (await request()).data;
 
-export const listarOrdenesEnsambleScm = () => body(() => api.get(
-  '/scm/v1/ordenes-ensamble',
+export const listarOrdenesArmadoScm = () => body(() => api.get(
+  '/scm/v1/ordenes-armado',
   { headers: headers() },
 ));
 
-export const transicionarOrdenEnsambleScm = (
+export const transicionarOrdenArmadoScm = (
   order, action, extra = {},
 ) => body(() => api.post(
-  `/scm/v1/ordenes-ensamble/${encodeURIComponent(order.id)}/${action}`,
+  `/scm/v1/ordenes-armado/${encodeURIComponent(order.id)}/${action}`,
   { version: order.version, ...extra },
   { headers: headers(true) },
 ));

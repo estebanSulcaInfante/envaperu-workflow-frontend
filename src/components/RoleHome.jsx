@@ -12,7 +12,7 @@ const TASKS = [
   {
     capability: 'OP_APROBAR',
     title: 'Revisar demanda',
-    description: 'Aprobar OP antes de comprometer fabricación o ensamble.',
+    description: 'Aprobar OP antes de comprometer fabricación o armado.',
     path: '/planificacion',
   },
   {
@@ -29,9 +29,9 @@ const TASKS = [
   },
   {
     capability: 'OE_LIBERAR',
-    title: 'Preparar ensamble',
-    description: 'Liberar y ejecutar prearmado, ensamble o terminación.',
-    path: '/produccion/ordenes-ensamble',
+    title: 'Preparar armado',
+    description: 'Liberar y ejecutar prearmado, armado o terminación.',
+    path: '/produccion/ordenes-armado',
   },
   {
     capability: 'MANGA_PLANIFICAR',

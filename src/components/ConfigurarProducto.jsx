@@ -870,7 +870,7 @@ function ConfigurarProducto() {
           <StepContent>
             <Alert severity="info" sx={{ mb: 2 }}>
               Este asistente configura el molde y sus piezas físicas. Si el resultado
-              se prearma o ensambla, crea después un <strong>Artículo WIP</strong> y
+              se prearma o arma, crea después un <strong>Artículo WIP</strong> y
               define sus componentes en <strong>Estructuras y rutas SCM</strong>.
               Ser componente es una relación de BOM, no un tipo de PiezaColor.
             </Alert>

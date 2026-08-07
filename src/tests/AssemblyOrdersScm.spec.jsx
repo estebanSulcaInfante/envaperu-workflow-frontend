@@ -16,13 +16,13 @@ vi.mock('../context/ScmActorContext', () => ({
   useScmActor: () => ({
     can: actorState.can,
     canAny: actorState.canAny,
-    experience: { label: 'Jefe de Ensamble' },
+    experience: { label: 'Jefe de Armado' },
   }),
 }));
 
 vi.mock('../services/scmAssemblyApi', () => ({
-  listarOrdenesEnsambleScm: vi.fn(),
-  transicionarOrdenEnsambleScm: vi.fn(),
+  listarOrdenesArmadoScm: vi.fn(),
+  transicionarOrdenArmadoScm: vi.fn(),
 }));
 
 vi.mock('../services/scmEngineeringApi', () => ({
@@ -33,15 +33,15 @@ vi.mock('../services/scmEngineeringApi', () => ({
 vi.mock('../services/api', () => ({ getTrabajadores: vi.fn() }));
 
 vi.mock('../services/scmInternalSupplyApi', () => ({
-  asignarMangasSalidaEnsambleScm: vi.fn(),
+  asignarMangasSalidaArmadoScm: vi.fn(),
   cerrarMangaArmadoScm: vi.fn(),
-  crearOtEnsambleScm: vi.fn(),
+  crearOtArmadoScm: vi.fn(),
   crearSolicitudAbastecimientoScm: vi.fn(),
-  listarOtEnsambleScm: vi.fn(),
+  listarOtArmadoScm: vi.fn(),
   listarSolicitudesAbastecimientoScm: vi.fn(),
   obtenerGenealogiaMangaScm: vi.fn(),
-  obtenerPlanMangasEnsambleScm: vi.fn(),
-  recalcularPlanMangasEnsambleScm: vi.fn(),
+  obtenerPlanMangasArmadoScm: vi.fn(),
+  recalcularPlanMangasArmadoScm: vi.fn(),
 }));
 
 vi.mock('../services/scmOtApi', () => ({
@@ -50,18 +50,18 @@ vi.mock('../services/scmOtApi', () => ({
   listarOtScm: vi.fn(),
 }));
 
-import { listarOrdenesEnsambleScm } from '../services/scmAssemblyApi';
+import { listarOrdenesArmadoScm } from '../services/scmAssemblyApi';
 import { listarCentrosTrabajoScm } from '../services/scmEngineeringApi';
 import { getTrabajadores } from '../services/api';
 import {
-  asignarMangasSalidaEnsambleScm,
+  asignarMangasSalidaArmadoScm,
   cerrarMangaArmadoScm,
-  crearOtEnsambleScm,
+  crearOtArmadoScm,
   crearSolicitudAbastecimientoScm,
-  listarOtEnsambleScm,
+  listarOtArmadoScm,
   listarSolicitudesAbastecimientoScm,
-  obtenerPlanMangasEnsambleScm,
-  recalcularPlanMangasEnsambleScm,
+  obtenerPlanMangasArmadoScm,
+  recalcularPlanMangasArmadoScm,
 } from '../services/scmInternalSupplyApi';
 import { listarOtScm } from '../services/scmOtApi';
 
@@ -120,11 +120,11 @@ describe('OE y OT diaria de Armado', () => {
       'OE_VER', 'OE_EJECUTAR', 'OT_CREAR', 'ABASTECIMIENTO_VER',
       'ABASTECIMIENTO_SOLICITAR',
     ]);
-    listarOrdenesEnsambleScm.mockResolvedValue({ items: [order] });
-    listarOtEnsambleScm.mockResolvedValue({ items: [ot] });
+    listarOrdenesArmadoScm.mockResolvedValue({ items: [order] });
+    listarOtArmadoScm.mockResolvedValue({ items: [ot] });
     listarOtScm.mockResolvedValue({ items: [] });
     listarSolicitudesAbastecimientoScm.mockResolvedValue({ items: [] });
-    obtenerPlanMangasEnsambleScm.mockResolvedValue({ plan: null });
+    obtenerPlanMangasArmadoScm.mockResolvedValue({ plan: null });
     listarCentrosTrabajoScm.mockResolvedValue([{
       id: 7, codigo: 'MESA-01', nombre: 'Mesa de Armado 1', tipo: 'ENSAMBLE', activo: true,
     }]);
@@ -134,7 +134,7 @@ describe('OE y OT diaria de Armado', () => {
     crearSolicitudAbastecimientoScm.mockResolvedValue({
       solicitud: { codigo: 'SA-000001' },
     });
-    asignarMangasSalidaEnsambleScm.mockResolvedValue({
+    asignarMangasSalidaArmadoScm.mockResolvedValue({
       mangas: [{ public_id: 'manga-1', codigo: 'OE000001-OT001-M001' }],
     });
   });
@@ -144,6 +144,8 @@ describe('OE y OT diaria de Armado', () => {
     renderView();
 
     expect(await screen.findByText('OT-000002')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Órdenes de armado' })).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/ensambl/i);
     expect(screen.getAllByText('10.000 un').length).toBeGreaterThan(0);
     await user.click(screen.getByRole('button', { name: 'Solicitar componentes' }));
 
@@ -152,7 +154,7 @@ describe('OE y OT diaria de Armado', () => {
   });
 
   it('vincula el prearmado concurrente con una OT de fabricacion del mismo dia', async () => {
-    listarOtEnsambleScm.mockResolvedValue({ items: [] });
+    listarOtArmadoScm.mockResolvedValue({ items: [] });
     listarOtScm.mockResolvedValue({
       items: [{
         public_id: 'fab-ot-1', codigo_ot: 'OT-000010', tipo_ot: 'FABRICACION',
@@ -160,7 +162,7 @@ describe('OE y OT diaria de Armado', () => {
         maquina: 'Haitian 3000',
       }],
     });
-    crearOtEnsambleScm.mockResolvedValue({
+    crearOtArmadoScm.mockResolvedValue({
       ot: { codigo_ot: 'OT-000011', fecha_operativa: '2026-08-04' },
     });
     const user = userEvent.setup();
@@ -173,7 +175,7 @@ describe('OE y OT diaria de Armado', () => {
     await user.click(screen.getByRole('option', { name: /OT-000010/ }));
     await user.click(screen.getByRole('button', { name: 'Crear OT y continuar' }));
 
-    await waitFor(() => expect(crearOtEnsambleScm).toHaveBeenCalledWith(
+    await waitFor(() => expect(crearOtArmadoScm).toHaveBeenCalledWith(
       'oe-1',
       expect.objectContaining({
         modo_ejecucion: 'CONCURRENTE',
@@ -186,7 +188,7 @@ describe('OE y OT diaria de Armado', () => {
     actorState.capabilities = new Set([
       'OE_VER', 'PLAN_MANGA_VER', 'ENSAMBLE_PLANIFICAR', 'ABASTECIMIENTO_VER',
     ]);
-    recalcularPlanMangasEnsambleScm.mockResolvedValue({
+    recalcularPlanMangasArmadoScm.mockResolvedValue({
       plan: {
         revision: 1,
         lineas: [{
@@ -204,7 +206,7 @@ describe('OE y OT diaria de Armado', () => {
     expect(await screen.findByText(/Plan de mangas de salida revisión 1 calculado/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Asignar mangas PT' }));
 
-    await waitFor(() => expect(asignarMangasSalidaEnsambleScm).toHaveBeenCalledWith(ot));
+    await waitFor(() => expect(asignarMangasSalidaArmadoScm).toHaveBeenCalledWith(ot));
     expect(await screen.findByText(/1 manga\(s\) de producto terminado asignada\(s\)/)).toBeInTheDocument();
   });
 
@@ -221,7 +223,7 @@ describe('OE y OT diaria de Armado', () => {
       cantidad_confirmada_un: null,
       version: 2,
     };
-    listarOtEnsambleScm.mockResolvedValue({
+    listarOtArmadoScm.mockResolvedValue({
       items: [{ ...ot, estado: 'EN_EJECUCION', mangas: [manga] }],
     });
     listarSolicitudesAbastecimientoScm.mockResolvedValue({
@@ -232,7 +234,7 @@ describe('OE y OT diaria de Armado', () => {
         orden_trabajo: { public_id: 'ot-1' },
       }],
     });
-    obtenerPlanMangasEnsambleScm.mockResolvedValue({
+    obtenerPlanMangasArmadoScm.mockResolvedValue({
       plan: {
         revision: 1,
         lineas: [{

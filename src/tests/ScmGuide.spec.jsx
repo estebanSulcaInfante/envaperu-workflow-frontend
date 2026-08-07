@@ -26,6 +26,7 @@ describe('Guía operativa SCM', () => {
     expect(screen.getByRole('heading', { name: 'Conceptos y elementos' })).toBeInTheDocument();
     expect(screen.getByText('Procedimiento recomendado')).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/mock|demostración|modo reunión/i);
+    expect(container.textContent).not.toMatch(/ensambl/i);
   });
 
   it('documenta la planificación y enlaza la pantalla operativa', async () => {

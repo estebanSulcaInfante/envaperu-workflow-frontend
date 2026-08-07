@@ -10,28 +10,28 @@ const config = (idempotent = false) => ({
 
 const body = async (request) => (await request()).data;
 
-export const listarOtEnsambleScm = (orderId) => body(() => api.get(
-  `/scm/v1/ordenes-ensamble/${encodeURIComponent(orderId)}/ots`, config(),
+export const listarOtArmadoScm = (orderId) => body(() => api.get(
+  `/scm/v1/ordenes-armado/${encodeURIComponent(orderId)}/ots`, config(),
 ));
 
-export const crearOtEnsambleScm = (orderId, payload) => body(() => api.post(
-  `/scm/v1/ordenes-ensamble/${encodeURIComponent(orderId)}/ots`,
+export const crearOtArmadoScm = (orderId, payload) => body(() => api.post(
+  `/scm/v1/ordenes-armado/${encodeURIComponent(orderId)}/ots`,
   payload,
   config(true),
 ));
 
-export const obtenerPlanMangasEnsambleScm = (orderId) => body(() => api.get(
-  `/scm/v1/ordenes-ensamble/${encodeURIComponent(orderId)}/plan-mangas`,
+export const obtenerPlanMangasArmadoScm = (orderId) => body(() => api.get(
+  `/scm/v1/ordenes-armado/${encodeURIComponent(orderId)}/plan-mangas`,
   config(),
 ));
 
-export const recalcularPlanMangasEnsambleScm = (orderId) => body(() => api.post(
-  `/scm/v1/ordenes-ensamble/${encodeURIComponent(orderId)}/plan-mangas/recalcular`,
+export const recalcularPlanMangasArmadoScm = (orderId) => body(() => api.post(
+  `/scm/v1/ordenes-armado/${encodeURIComponent(orderId)}/plan-mangas/recalcular`,
   {},
   config(true),
 ));
 
-export const asignarMangasSalidaEnsambleScm = (ot) => body(() => api.post(
+export const asignarMangasSalidaArmadoScm = (ot) => body(() => api.post(
   `/scm/v1/ots/${encodeURIComponent(ot.public_id)}/mangas-salida`,
   { version: ot.version },
   config(true),
@@ -73,7 +73,7 @@ export const solicitarCorreccionMangaArmadoScm = (mangaId, payload) => body(() =
 ));
 
 export const aprobarCorreccionMangaArmadoScm = (correctionId, payload) => body(() => api.post(
-  `/scm/v1/correcciones-ensamble/${encodeURIComponent(correctionId)}/aprobar`, payload, config(true),
+  `/scm/v1/correcciones-armado/${encodeURIComponent(correctionId)}/aprobar`, payload, config(true),
 ));
 
 export const marcarSolicitudListaScm = (request) => body(() => api.post(

@@ -239,7 +239,7 @@ export default function ProductionPlanningScm() {
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       <Alert severity="info">
         El cálculo propone metas según la demanda y el Kardex. Antes de confirmar puedes
-        ajustar fabricación o ensamble; el sistema conservará el valor sugerido, el motivo
+        ajustar fabricación o armado; el sistema conservará el valor sugerido, el motivo
         y una nueva revisión auditable.
       </Alert>
 

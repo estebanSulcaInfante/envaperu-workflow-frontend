@@ -33,7 +33,7 @@ export const workspaceNavigation = [
     tabs: [
       { label: 'Órdenes de producción', path: '/produccion/ordenes', icon: 'orders', requiredAny: ['OP_VER'] },
       { label: 'Órdenes de fabricación', path: '/produccion/ordenes-fabricacion', icon: 'production', requiredAny: ['OF_VER'] },
-      { label: 'Órdenes de ensamble', path: '/produccion/ordenes-ensamble', icon: 'records', requiredAny: ['OE_VER'] },
+      { label: 'Órdenes de armado', path: '/produccion/ordenes-armado', icon: 'records', requiredAny: ['OE_VER'] },
       { label: 'Abastecimiento a Armado', path: '/produccion/abastecimiento', icon: 'reservations', requiredAny: ['ABASTECIMIENTO_VER'] },
       { label: 'OT y mangas', path: '/produccion/ots-mangas', icon: 'records', requiredAny: ['OT_VER', 'PLAN_MANGA_VER'] },
       { label: 'Registro diario', path: '/produccion/registros', icon: 'records', requiredAny: ['OT_VER'] },

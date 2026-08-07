@@ -44,7 +44,7 @@ const steps = [
 
 export default function ProcessJourney({ current, branch = 'fabricacion' }) {
   const { canAny } = useScmActor();
-  const normalizedCurrent = current === 'ensamble' || current === 'fabricacion'
+  const normalizedCurrent = current === 'armado' || current === 'fabricacion'
     ? 'trabajo' : current;
 
   return (
@@ -58,13 +58,13 @@ export default function ProcessJourney({ current, branch = 'fabricacion' }) {
           const active = step.id === normalizedCurrent;
           const accessible = !step.future && canAny(step.requiredAny);
           const label = step.id === 'trabajo'
-            ? (branch === 'ensamble' ? '2. Ensamble' : '2. Fabricación')
+            ? (branch === 'armado' ? '2. Armado' : '2. Fabricación')
             : step.label;
           const detail = step.id === 'trabajo'
-            ? (branch === 'ensamble' ? 'OE liberada' : 'OF liberada')
+            ? (branch === 'armado' ? 'OE liberada' : 'OF liberada')
             : step.detail;
-          const path = step.id === 'trabajo' && branch === 'ensamble'
-            ? '/produccion/ordenes-ensamble'
+          const path = step.id === 'trabajo' && branch === 'armado'
+            ? '/produccion/ordenes-armado'
             : step.path;
           return (
             <Stack key={step.id} direction="row" alignItems="center" spacing={1} flex={1}>
