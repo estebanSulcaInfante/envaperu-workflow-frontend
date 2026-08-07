@@ -308,6 +308,27 @@ describe('Ingeniería SCM R-core', () => {
     }));
   });
 
+  it('permite crear un centro de trabajo de soplado', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('tab', { name: 'Rutas' }));
+    await user.click(screen.getByRole('button', { name: 'Centro de trabajo' }));
+    const dialog = screen.getByRole('dialog', { name: 'Nuevo centro de trabajo' });
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Nombre' }),
+      'Sopladora principal',
+    );
+    await user.click(within(dialog).getByRole('combobox', { name: 'Tipo de operación' }));
+    await user.click(screen.getByRole('option', { name: 'SOPLADO' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Crear' }));
+
+    await waitFor(() => expect(crearCentroTrabajoScm).toHaveBeenCalledWith({
+      nombre: 'Sopladora principal',
+      tipo: 'SOPLADO',
+    }));
+  });
+
   it('permite marcar una operación de prearmado como concurrente', async () => {
     listarCentrosTrabajoScm.mockResolvedValue([{
       id: 1,

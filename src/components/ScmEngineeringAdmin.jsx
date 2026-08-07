@@ -101,9 +101,10 @@ const STATUS_COLOR = {
   RECHAZADA: 'error',
   DESCARTADA: 'default',
 };
-const OPERATION_TYPES = ['INYECCION', 'PREARMADO', 'ENSAMBLE', 'ACABADO', 'EMPAQUE'];
+const OPERATION_TYPES = ['INYECCION', 'SOPLADO', 'PREARMADO', 'ENSAMBLE', 'ACABADO', 'EMPAQUE'];
 const OPERATION_TYPE_LABEL = {
   INYECCION: 'INYECCIÓN',
+  SOPLADO: 'SOPLADO',
   PREARMADO: 'PREARMADO',
   ENSAMBLE: 'ARMADO',
   ACABADO: 'ACABADO',
@@ -1850,8 +1851,10 @@ function ScmEngineeringAdmin() {
               onChange={(event) => setCenterForm({ ...centerForm, nombre: event.target.value })}
             />
             <FormControl>
-              <InputLabel>Tipo de operación</InputLabel>
+              <InputLabel id="work-center-operation-type-label">Tipo de operación</InputLabel>
               <Select
+                id="work-center-operation-type"
+                labelId="work-center-operation-type-label"
                 label="Tipo de operación"
                 value={centerForm.tipo}
                 onChange={(event) => setCenterForm({ ...centerForm, tipo: event.target.value })}

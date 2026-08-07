@@ -240,7 +240,7 @@ export const scmGuideStages = [
       'En Productos, abra Presentaciones comerciales y registre packs o juegos con su conversión y código de barras.',
       'Apruebe primero las BOM de cada salida intermedia y del producto terminado.',
       'En Rutas, seleccione el PT y cree una sola ruta con sus operaciones en orden.',
-      'Para una operación de máquina elija Fabricación mediante OP / OT. Para WIP o PT elija Orden de operación y su estructura aprobada.',
+      'Para una operación de máquina —Inyección o Soplado— elija Fabricación mediante OP / OT. Para WIP o PT elija Orden de operación y su estructura aprobada.',
       'Seleccione centro y artículo de salida. Active Permite ejecución concurrente solo en el prearmado que pueda realizarse junto a Fabricación.',
       'En el ejemplo de la regadera: PREARMAR_CUERPO_ASA produce WIP-000001 y luego ARMAR_REGADERA produce PT-000001.',
       'Revise el orden visible; el sistema crea las precedencias de arriba hacia abajo.',
