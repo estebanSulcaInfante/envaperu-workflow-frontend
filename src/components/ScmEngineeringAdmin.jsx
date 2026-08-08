@@ -2,7 +2,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import {
@@ -112,7 +111,7 @@ const OPERATION_TYPE_LABEL = {
 };
 const CONTAINER_CLASSES = ['MANGA', 'BOLSA', 'JABA', 'CAJA', 'OTRO'];
 const EXECUTOR_LABEL = {
-  OP_OT: 'Fabricación mediante OP / OT',
+  OP_OT: 'Fabricación mediante OF y Trabajo de color',
   ORDEN_OPERACION: 'Prearmado o armado mediante OA / OT de Armado',
 };
 const emptyWip = { nombre: '', descripcion: '', requiere_calidad: false };
@@ -162,6 +161,27 @@ const nextOperationKey = (operations) => {
   }, 0);
   return `OP${last + 1}`;
 };
+
+const normalizeRouteOutputs = (operations, targetArticleId, articlesById) => (
+  operations.map((operation, index) => {
+    const isTerminal = index === operations.length - 1;
+    if (isTerminal) {
+      return { ...operation, articulo_salida_id: String(targetArticleId || '') };
+    }
+    const currentOutput = articlesById.get(Number(operation.articulo_salida_id));
+    return currentOutput?.clase === 'PRODUCTO_TERMINADO'
+      ? { ...operation, articulo_salida_id: '' }
+      : operation;
+  })
+);
+
+const hasMeaningfulRouteStepData = (operation) => Boolean(
+  operation.nombre?.trim()
+  || operation.centro_trabajo_id
+  || operation.articulo_salida_id
+  || operation.estructura_revision_id
+  || operation.permite_concurrente
+);
 
 const isRoutableProduct = (item) => (
   item.clase === 'PRODUCTO_TERMINADO'
@@ -247,11 +267,26 @@ function ScmEngineeringAdmin() {
   const [showStructureHistory, setShowStructureHistory] = useState(false);
   const [packagingArticleId, setPackagingArticleId] = useState('');
   const [packagingProfileId, setPackagingProfileId] = useState('');
-  const [draggedOperationIndex, setDraggedOperationIndex] = useState(null);
-  const draggedOperationIndexRef = useRef(null);
+  const [routeStepToDelete, setRouteStepToDelete] = useState(null);
 
   const productArticles = useMemo(
     () => articles.filter(isRoutableProduct),
+    [articles],
+  );
+  const articlesById = useMemo(
+    () => new Map(articles.map((item) => [Number(item.id), item])),
+    [articles],
+  );
+  const routeTargetArticle = useMemo(
+    () => productArticles.find(
+      (item) => item.subtipo?.producto_terminado_id === selectedProductId,
+    ),
+    [productArticles, selectedProductId],
+  );
+  const routeIntermediateArticles = useMemo(
+    () => articles.filter((item) => (
+      item.clase === 'PIEZA_COLOR' || item.clase === 'SUBENSAMBLE_WIP'
+    )),
     [articles],
   );
   const structureResultArticles = useMemo(
@@ -430,9 +465,6 @@ function ScmEngineeringAdmin() {
     setDialog('bom');
   };
   const openRoute = () => {
-    const target = productArticles.find(
-      (item) => item.subtipo?.producto_terminado_id === selectedProductId,
-    );
     setEditingRoute(null);
     setRouteForm({
       notas: '',
@@ -440,7 +472,7 @@ function ScmEngineeringAdmin() {
         ...newOperation(),
         nombre: 'Producción',
         centro_trabajo_id: String(centers[0]?.id || ''),
-        articulo_salida_id: String(target?.id || ''),
+        articulo_salida_id: String(routeTargetArticle?.id || ''),
       }],
     });
     setDialog('route');
@@ -452,7 +484,7 @@ function ScmEngineeringAdmin() {
     setEditingRoute(revision);
     setRouteForm({
       notas: revision.notas || '',
-      operaciones: revision.operaciones.map((operation) => ({
+      operaciones: normalizeRouteOutputs(revision.operaciones.map((operation) => ({
         clave: operation.clave,
         secuencia_visible: String(operation.secuencia_visible),
         nombre: operation.nombre,
@@ -464,10 +496,10 @@ function ScmEngineeringAdmin() {
           ? String(operation.estructura_revision_id)
           : '',
         permite_concurrente: operation.permite_concurrente,
-      })),
+      })), routeTargetArticle?.id, articlesById),
       precedencias: revision.precedencias.map((edge) => ({
-        anterior_clave: keysById.get(edge.operacion_anterior_id),
-        siguiente_clave: keysById.get(edge.operacion_siguiente_id),
+        anterior_clave: keysById.get(edge.anterior_id ?? edge.operacion_anterior_id),
+        siguiente_clave: keysById.get(edge.siguiente_id ?? edge.operacion_siguiente_id),
       })),
     });
     setDialog('route');
@@ -586,7 +618,27 @@ function ScmEngineeringAdmin() {
     const operations = [...routeForm.operaciones];
     const [moved] = operations.splice(fromIndex, 1);
     operations.splice(toIndex, 0, moved);
-    setRouteForm({ ...routeForm, operaciones: operations });
+    setRouteForm({
+      ...routeForm,
+      operaciones: normalizeRouteOutputs(
+        operations,
+        routeTargetArticle?.id,
+        articlesById,
+      ),
+    });
+  };
+
+  const removeRouteOperation = (index) => {
+    const operations = routeForm.operaciones.filter((_, row) => row !== index);
+    setRouteForm({
+      ...routeForm,
+      operaciones: normalizeRouteOutputs(
+        operations,
+        routeTargetArticle?.id,
+        articlesById,
+      ),
+    });
+    setRouteStepToDelete(null);
   };
 
   const approvalButton = (revision, approve, successMessage, allowed) => {
@@ -1114,38 +1166,77 @@ function ScmEngineeringAdmin() {
                       )}
                     </Stack>
                   </Stack>
-                  <Table size="small" sx={{ mt: 1.5 }}>
+                  <Table size="small" sx={{ mt: 1.5 }} aria-label={`Pasos de ruta revisión ${revision.numero_revision}`}>
                     <TableHead>
                       <TableRow>
-                        <TableCell>Sec.</TableCell>
-                        <TableCell>Operación</TableCell>
+                        <TableCell>Paso</TableCell>
+                        <TableCell>Transformación</TableCell>
                         <TableCell>Centro</TableCell>
+                        <TableCell>Forma de ejecución</TableCell>
                         <TableCell>Salida</TableCell>
-                        <TableCell>Autoridad</TableCell>
+                        <TableCell>Precedencia</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {revision.operaciones.map((operation) => (
-                        <TableRow key={operation.id}>
-                          <TableCell>{operation.secuencia_visible}</TableCell>
-                          <TableCell>
-                            {operation.nombre}
-                            {operation.permite_concurrente && (
-                              <Chip
-                                size="small"
-                                color="info"
-                                label="Concurrente"
-                                sx={{ ml: 1 }}
-                              />
-                            )}
-                          </TableCell>
-                          <TableCell>{operation.centro_trabajo?.nombre}</TableCell>
-                          <TableCell>{operation.articulo_salida?.nombre}</TableCell>
-                          <TableCell>
-                            {EXECUTOR_LABEL[operation.executor_kind] || operation.executor_kind}
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {revision.operaciones.map((operation, operationIndex) => {
+                        const incoming = revision.precedencias.find(
+                          (edge) => Number(edge.siguiente_id ?? edge.operacion_siguiente_id)
+                            === Number(operation.id),
+                        );
+                        const previousIndex = incoming
+                          ? revision.operaciones.findIndex(
+                            (candidate) => Number(candidate.id)
+                              === Number(incoming.anterior_id ?? incoming.operacion_anterior_id),
+                          )
+                          : -1;
+                        const isTerminal = !revision.precedencias.some(
+                          (edge) => Number(edge.anterior_id ?? edge.operacion_anterior_id)
+                            === Number(operation.id),
+                        );
+                        return (
+                          <TableRow key={operation.id}>
+                            <TableCell>
+                              <Stack direction="row" spacing={0.75} alignItems="center">
+                                <strong>Paso {operationIndex + 1}</strong>
+                                {isTerminal && <Chip size="small" color="primary" label="Terminal" />}
+                              </Stack>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight={600}>
+                                {OPERATION_TYPE_LABEL[operation.tipo] || operation.tipo}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {operation.nombre}
+                              </Typography>
+                              {operation.permite_concurrente && (
+                                <Chip size="small" color="info" label="Concurrente" sx={{ ml: 1 }} />
+                              )}
+                            </TableCell>
+                            <TableCell>{operation.centro_trabajo?.nombre || 'Sin centro'}</TableCell>
+                            <TableCell>{EXECUTOR_LABEL[operation.executor_kind] || operation.executor_kind}</TableCell>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight={isTerminal ? 600 : 400}>
+                                {operation.articulo_salida?.codigo || operation.articulo_salida?.nombre}
+                              </Typography>
+                              {operation.articulo_salida?.codigo && operation.articulo_salida?.nombre && (
+                                <Typography variant="caption" color="text.secondary">
+                                  {operation.articulo_salida.nombre}
+                                </Typography>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {previousIndex >= 0
+                                ? `Después del Paso ${previousIndex + 1}`
+                                : 'Inicio de ruta'}
+                              {!isTerminal && (
+                                <Typography variant="caption" display="block" color="text.secondary">
+                                  Continúa al Paso {operationIndex + 2}
+                                </Typography>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </Paper>
@@ -1895,8 +1986,8 @@ function ScmEngineeringAdmin() {
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Alert severity="info">
               La BOM define qué consume cada salida; la ruta define el orden, centro y
-              forma de ejecución. Fabricación mediante OP/OT se usa para trabajo de
-              máquina. Prearmado o armado mediante OA / OT de Armado exige la
+              forma de ejecución. Fabricación mediante OF y Trabajo de color se usa para
+              trabajo de máquina. Prearmado o armado mediante OA / OT de Armado exige la
               estructura aprobada de su salida.
             </Alert>
             <TextField
@@ -1904,221 +1995,243 @@ function ScmEngineeringAdmin() {
               value={routeForm.notas}
               onChange={(event) => setRouteForm({ ...routeForm, notas: event.target.value })}
             />
-            {routeForm.operaciones.map((operation, index) => (
-              <Paper
-                key={index}
-                variant="outlined"
-                data-route-operation-index={index}
-                sx={{
-                  p: 1.5,
-                  borderColor: draggedOperationIndex === index ? 'primary.main' : undefined,
-                }}
-              >
-                <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1} alignItems={{ lg: 'flex-start' }}>
-                  <Stack
-                    direction="row"
-                    alignItems="center"
-                    sx={{ minWidth: 105, pt: { lg: 0.5 } }}
-                  >
-                    <Tooltip title="Arrastrar para cambiar el orden">
-                      <IconButton
-                        aria-label={`Mover operación ${index + 1}`}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.currentTarget.setPointerCapture(event.pointerId);
-                          draggedOperationIndexRef.current = index;
-                          setDraggedOperationIndex(index);
-                        }}
-                        onPointerMove={(event) => {
-                          const fromIndex = draggedOperationIndexRef.current;
-                          if (event.buttons !== 1 || fromIndex === null) return;
-                          const target = document
-                            .elementFromPoint(event.clientX, event.clientY)
-                            ?.closest('[data-route-operation-index]');
-                          const toIndex = Number(target?.dataset.routeOperationIndex);
-                          if (Number.isInteger(toIndex) && toIndex !== fromIndex) {
-                            moveRouteOperation(fromIndex, toIndex);
-                            draggedOperationIndexRef.current = toIndex;
-                            setDraggedOperationIndex(toIndex);
-                          }
-                        }}
-                        onPointerUp={(event) => {
-                          event.currentTarget.releasePointerCapture(event.pointerId);
-                          draggedOperationIndexRef.current = null;
-                          setDraggedOperationIndex(null);
-                        }}
-                        onPointerCancel={() => {
-                          draggedOperationIndexRef.current = null;
-                          setDraggedOperationIndex(null);
-                        }}
-                        sx={{
-                          cursor: draggedOperationIndex === index ? 'grabbing' : 'grab',
-                          touchAction: 'none',
-                          userSelect: 'none',
-                        }}
-                      >
-                        <DragIndicatorIcon />
-                      </IconButton>
-                    </Tooltip>
-                    <Chip size="small" label={`Paso ${index + 1}`} />
-                  </Stack>
-                  <TextField
-                    label="Nombre"
-                    size="small"
-                    value={operation.nombre}
-                    onChange={(event) => {
-                      const next = [...routeForm.operaciones];
-                      next[index] = { ...operation, nombre: event.target.value };
-                      setRouteForm({ ...routeForm, operaciones: next });
-                    }}
-                    sx={{ flex: 1 }}
-                  />
-                  <FormControl size="small" sx={{ minWidth: 145, mt: { lg: 0 } }}>
-                    <InputLabel>Tipo</InputLabel>
-                    <Select
-                      label="Tipo"
-                      value={operation.tipo}
-                      onChange={(event) => {
-                        const next = [...routeForm.operaciones];
-                        next[index] = {
-                          ...operation,
-                          tipo: event.target.value,
-                          permite_concurrente: event.target.value === 'PREARMADO'
-                            ? operation.permite_concurrente : false,
-                        };
-                        setRouteForm({ ...routeForm, operaciones: next });
-                      }}
-                    >
-                      {OPERATION_TYPES.map((type) => (
-                        <MenuItem key={type} value={type}>{OPERATION_TYPE_LABEL[type]}</MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <FormControl size="small" sx={{ minWidth: 190, mt: { lg: 0 } }}>
-                    <InputLabel>Forma de ejecución</InputLabel>
-                    <Select
-                      label="Forma de ejecución"
-                      value={operation.executor_kind}
-                      onChange={(event) => {
-                        const next = [...routeForm.operaciones];
-                        next[index] = { ...operation, executor_kind: event.target.value };
-                        setRouteForm({ ...routeForm, operaciones: next });
-                      }}
-                    >
-                      <MenuItem value="OP_OT">{EXECUTOR_LABEL.OP_OT}</MenuItem>
-                      <MenuItem value="ORDEN_OPERACION">
-                        {EXECUTOR_LABEL.ORDEN_OPERACION}
-                      </MenuItem>
-                    </Select>
-                  </FormControl>
-                  <IconButton
-                    aria-label={`Subir operación ${index + 1}`}
-                    disabled={index === 0}
-                    onClick={() => moveRouteOperation(index, index - 1)}
-                  >
-                    <ArrowUpwardIcon />
-                  </IconButton>
-                  <IconButton
-                    aria-label={`Bajar operación ${index + 1}`}
-                    disabled={index === routeForm.operaciones.length - 1}
-                    onClick={() => moveRouteOperation(index, index + 1)}
-                  >
-                    <ArrowDownwardIcon />
-                  </IconButton>
-                  <IconButton
-                    aria-label={`Quitar operación ${index + 1}`}
-                    disabled={routeForm.operaciones.length === 1}
-                    onClick={() => setRouteForm({
-                      ...routeForm,
-                      operaciones: routeForm.operaciones.filter((_, row) => row !== index),
-                    })}
-                  >
-                    <DeleteOutlineIcon />
-                  </IconButton>
-                </Stack>
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 1 }}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel>Centro de trabajo</InputLabel>
-                    <Select
-                      label="Centro de trabajo"
-                      value={operation.centro_trabajo_id}
-                      onChange={(event) => {
-                        const next = [...routeForm.operaciones];
-                        next[index] = { ...operation, centro_trabajo_id: event.target.value };
-                        setRouteForm({ ...routeForm, operaciones: next });
-                      }}
-                    >
-                      {centers.map((center) => (
-                        <MenuItem key={center.id} value={String(center.id)}>
-                          {center.codigo} · {center.nombre}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <ScmArticleAutocomplete
-                    label="Artículo de salida"
-                    articles={articles}
-                    value={operation.articulo_salida_id}
-                    onChange={(articleId) => {
-                        const next = [...routeForm.operaciones];
-                        next[index] = { ...operation, articulo_salida_id: articleId };
-                        setRouteForm({ ...routeForm, operaciones: next });
-                      }}
-                  />
-                  {operation.executor_kind === 'ORDEN_OPERACION' && (
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Estructura aprobada</InputLabel>
-                      <Select
-                        label="Estructura aprobada"
-                        value={operation.estructura_revision_id}
+            {routeForm.operaciones.map((operation, index) => {
+              const isTerminal = index === routeForm.operaciones.length - 1;
+              const previousOutput = index > 0
+                ? articlesById.get(Number(routeForm.operaciones[index - 1].articulo_salida_id))
+                : null;
+              const outputArticle = isTerminal
+                ? routeTargetArticle
+                : articlesById.get(Number(operation.articulo_salida_id));
+              const inputLabel = index === 0
+                ? 'Entradas definidas por la BOM'
+                : previousOutput
+                  ? `${previousOutput.codigo} · ${previousOutput.nombre}`
+                  : `Salida pendiente del Paso ${index}`;
+              const outputLabel = outputArticle
+                ? `${outputArticle.codigo} · ${outputArticle.nombre}`
+                : 'Salida pendiente';
+              return (
+                <Paper
+                  key={operation.clave}
+                  variant="outlined"
+                  data-route-operation-index={index}
+                  sx={{
+                    p: 2,
+                    borderWidth: isTerminal ? 2 : 1,
+                    borderColor: isTerminal ? 'primary.main' : 'divider',
+                    bgcolor: isTerminal ? 'action.hover' : 'background.paper',
+                  }}
+                >
+                  <Stack spacing={1.5}>
+                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} justifyContent="space-between">
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <DragIndicatorIcon color="action" />
+                        <Typography variant="h6">Paso {index + 1}</Typography>
+                        {isTerminal && <Chip size="small" color="primary" label="Paso terminal" />}
+                      </Stack>
+                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                        <Typography variant="caption" color="text.secondary">Mover paso:</Typography>
+                        <Button
+                          size="small"
+                          startIcon={<ArrowUpwardIcon />}
+                          aria-label={`Mover paso ${index + 1} antes`}
+                          disabled={index === 0}
+                          onClick={() => moveRouteOperation(index, index - 1)}
+                        >
+                          Antes
+                        </Button>
+                        <Button
+                          size="small"
+                          startIcon={<ArrowDownwardIcon />}
+                          aria-label={`Mover paso ${index + 1} después`}
+                          disabled={isTerminal}
+                          onClick={() => moveRouteOperation(index, index + 1)}
+                        >
+                          Después
+                        </Button>
+                        <Button
+                          size="small"
+                          color="error"
+                          startIcon={<DeleteOutlineIcon />}
+                          aria-label={`Eliminar paso ${index + 1}`}
+                          disabled={routeForm.operaciones.length === 1}
+                          onClick={() => hasMeaningfulRouteStepData(operation)
+                            ? setRouteStepToDelete(index)
+                            : removeRouteOperation(index)}
+                        >
+                          Eliminar paso
+                        </Button>
+                      </Stack>
+                    </Stack>
+
+                    <Box sx={{ px: 1.5, py: 1, borderRadius: 1, bgcolor: 'background.default' }}>
+                      <Typography variant="body2">
+                        <strong>Entrada:</strong> {inputLabel}
+                        {' → '}<strong>Transformación:</strong> {OPERATION_TYPE_LABEL[operation.tipo] || operation.tipo}
+                        {' → '}<strong>Salida:</strong> {outputLabel}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {isTerminal ? 'Fin de ruta' : `Continúa en el Paso ${index + 2}`}
+                      </Typography>
+                    </Box>
+
+                    {!isTerminal && !operation.articulo_salida_id && (
+                      <Alert severity="warning">
+                        El Paso {index + 1} ahora es intermedio. Selecciona una salida Pieza-color o WIP.
+                      </Alert>
+                    )}
+
+                    <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1}>
+                      <TextField
+                        label="Nombre de la operación"
+                        size="small"
+                        value={operation.nombre}
                         onChange={(event) => {
                           const next = [...routeForm.operaciones];
-                          next[index] = { ...operation, estructura_revision_id: event.target.value };
+                          next[index] = { ...operation, nombre: event.target.value };
                           setRouteForm({ ...routeForm, operaciones: next });
                         }}
-                      >
-                        {structures.filter((item) => item.estado === 'APROBADA').map((item) => (
-                          <MenuItem key={item.id} value={String(item.id)}>
-                            {item.articulo_resultado?.codigo} · rev. {item.numero_revision}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  )}
-                  {operation.tipo === 'PREARMADO' && (
-                    <FormControlLabel
-                      sx={{ minWidth: 230, m: 0 }}
-                      control={(
-                        <Checkbox
-                          checked={operation.permite_concurrente}
+                        sx={{ flex: 1 }}
+                      />
+                      <FormControl size="small" sx={{ minWidth: 160 }}>
+                        <InputLabel>Tipo de operación</InputLabel>
+                        <Select
+                          label="Tipo de operación"
+                          value={operation.tipo}
                           onChange={(event) => {
                             const next = [...routeForm.operaciones];
                             next[index] = {
                               ...operation,
-                              permite_concurrente: event.target.checked,
+                              tipo: event.target.value,
+                              permite_concurrente: event.target.value === 'PREARMADO'
+                                ? operation.permite_concurrente : false,
                             };
+                            setRouteForm({ ...routeForm, operaciones: next });
+                          }}
+                        >
+                          {OPERATION_TYPES.map((type) => (
+                            <MenuItem key={type} value={type}>{OPERATION_TYPE_LABEL[type]}</MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      <FormControl size="small" sx={{ minWidth: 260 }}>
+                        <InputLabel>Forma de ejecución</InputLabel>
+                        <Select
+                          label="Forma de ejecución"
+                          value={operation.executor_kind}
+                          onChange={(event) => {
+                            const next = [...routeForm.operaciones];
+                            next[index] = { ...operation, executor_kind: event.target.value };
+                            setRouteForm({ ...routeForm, operaciones: next });
+                          }}
+                        >
+                          <MenuItem value="OP_OT">{EXECUTOR_LABEL.OP_OT}</MenuItem>
+                          <MenuItem value="ORDEN_OPERACION">{EXECUTOR_LABEL.ORDEN_OPERACION}</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Stack>
+
+                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
+                      <FormControl fullWidth size="small">
+                        <InputLabel>Centro de trabajo</InputLabel>
+                        <Select
+                          label="Centro de trabajo"
+                          value={operation.centro_trabajo_id}
+                          onChange={(event) => {
+                            const next = [...routeForm.operaciones];
+                            next[index] = { ...operation, centro_trabajo_id: event.target.value };
+                            setRouteForm({ ...routeForm, operaciones: next });
+                          }}
+                        >
+                          {centers.map((center) => (
+                            <MenuItem key={center.id} value={String(center.id)}>
+                              {center.codigo} · {center.nombre}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      {isTerminal ? (
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Salida terminal (bloqueada)"
+                          value={outputLabel}
+                          slotProps={{ input: { readOnly: true } }}
+                          helperText={`Esta operación termina la ruta y produce ${routeTargetArticle?.codigo || 'el PT seleccionado'}.`}
+                        />
+                      ) : (
+                        <ScmArticleAutocomplete
+                          label="Salida intermedia (Pieza-color o WIP)"
+                          articles={routeIntermediateArticles}
+                          value={operation.articulo_salida_id}
+                          onChange={(articleId) => {
+                            const next = [...routeForm.operaciones];
+                            next[index] = { ...operation, articulo_salida_id: articleId };
                             setRouteForm({ ...routeForm, operaciones: next });
                           }}
                         />
                       )}
-                      label="Permite ejecución concurrente"
-                    />
-                  )}
-                </Stack>
-              </Paper>
-            ))}
+                      {operation.executor_kind === 'ORDEN_OPERACION' && (
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Estructura aprobada</InputLabel>
+                          <Select
+                            label="Estructura aprobada"
+                            value={operation.estructura_revision_id}
+                            onChange={(event) => {
+                              const next = [...routeForm.operaciones];
+                              next[index] = { ...operation, estructura_revision_id: event.target.value };
+                              setRouteForm({ ...routeForm, operaciones: next });
+                            }}
+                          >
+                            {structures.filter((item) => item.estado === 'APROBADA').map((item) => (
+                              <MenuItem key={item.id} value={String(item.id)}>
+                                {item.articulo_resultado?.codigo} · rev. {item.numero_revision}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      )}
+                      {operation.tipo === 'PREARMADO' && (
+                        <FormControlLabel
+                          sx={{ minWidth: 230, m: 0 }}
+                          control={(
+                            <Checkbox
+                              checked={operation.permite_concurrente}
+                              onChange={(event) => {
+                                const next = [...routeForm.operaciones];
+                                next[index] = { ...operation, permite_concurrente: event.target.checked };
+                                setRouteForm({ ...routeForm, operaciones: next });
+                              }}
+                            />
+                          )}
+                          label="Permite ejecución concurrente"
+                        />
+                      )}
+                    </Stack>
+                  </Stack>
+                </Paper>
+              );
+            })}
             <Button
               startIcon={<AddIcon />}
-              onClick={() => setRouteForm({
-                ...routeForm,
-                operaciones: [
+              onClick={() => {
+                const operations = [
                   ...routeForm.operaciones,
                   {
                     ...newOperation(routeForm.operaciones.length + 1),
                     clave: nextOperationKey(routeForm.operaciones),
                   },
-                ],
-              })}
+                ];
+                setRouteForm({
+                  ...routeForm,
+                  operaciones: normalizeRouteOutputs(
+                    operations,
+                    routeTargetArticle?.id,
+                    articlesById,
+                  ),
+                });
+              }}
               sx={{ alignSelf: 'flex-start' }}
             >
               Agregar operación
@@ -2142,6 +2255,31 @@ function ScmEngineeringAdmin() {
             onClick={saveRoute}
           >
             {editingRoute ? 'Guardar borrador' : 'Crear borrador'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={routeStepToDelete !== null}
+        onClose={() => setRouteStepToDelete(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Eliminar paso de la ruta</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mt: 1 }}>
+            El Paso {routeStepToDelete === null ? '' : routeStepToDelete + 1} contiene datos.
+            Al eliminarlo, el sistema recalculará la secuencia y la salida terminal.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRouteStepToDelete(null)}>Conservar paso</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => removeRouteOperation(routeStepToDelete)}
+          >
+            Confirmar eliminación
           </Button>
         </DialogActions>
       </Dialog>

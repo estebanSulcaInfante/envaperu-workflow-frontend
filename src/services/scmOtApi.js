@@ -34,15 +34,55 @@ export const recalcularPlanMangas = (ofId) => body(() => api.post(
   {},
   { headers: headers(true) },
 ));
-export const listarOtScm = (ofId, tipoOt) => body(() => api.get('/scm/v1/ots', {
+export const listarOtScm = (ofId, tipoOt, filters = {}) => body(() => api.get('/scm/v1/ots', {
   params: {
     ...(ofId ? { orden_operacion_id: ofId } : {}),
     ...(tipoOt ? { tipo_ot: tipoOt } : {}),
+    ...(filters.fecha_operativa ? { fecha_operativa: filters.fecha_operativa } : {}),
+    ...(filters.turno ? { turno: filters.turno } : {}),
+    ...(filters.maquina_id ? { maquina_id: filters.maquina_id } : {}),
   },
   headers: headers(),
 }));
 export const crearOtScm = (ofId, payload) => body(() => api.post(
   `/scm/v1/ordenes-fabricacion/${encodeURIComponent(ofId)}/ots`,
+  payload,
+  { headers: headers(true) },
+));
+export const crearOtFabricacionScm = (payload) => body(() => api.post(
+  '/scm/v1/ots/fabricacion',
+  payload,
+  { headers: headers(true) },
+));
+export const crearTrabajoColorScm = (otId, payload) => body(() => api.post(
+  `/scm/v1/ots/${encodeURIComponent(otId)}/trabajos-color`,
+  payload,
+  { headers: headers(true) },
+));
+export const cambiarEstadoTrabajoColorScm = (
+  workId, action, version, motivo = null,
+) => body(() => api.post(
+  `/scm/v1/trabajos-color/${encodeURIComponent(workId)}/${encodeURIComponent(action)}`,
+  {
+    version,
+    ...(motivo?.trim() ? { motivo: motivo.trim() } : {}),
+  },
+  { headers: headers(true) },
+));
+export const asignarTrabajadorTrabajoColorScm = (
+  workId, payload,
+) => body(() => api.post(
+  `/scm/v1/trabajos-color/${encodeURIComponent(workId)}/asignaciones`,
+  payload,
+  { headers: headers(true) },
+));
+// La reasignación masiva usa el mismo contrato y queda aislada para poder
+// cambiar de endpoint sin alterar la pantalla cuando el backend lo especialice.
+export const reasignarMangasTrabajoColorScm = (
+  workId, payload,
+) => asignarTrabajadorTrabajoColorScm(workId, payload);
+export const agregarMangasTrabajoColorScm = (workId, payload) => body(() => api.post(
+  `/scm/v1/trabajos-color/${encodeURIComponent(workId)}/mangas`,
   payload,
   { headers: headers(true) },
 ));

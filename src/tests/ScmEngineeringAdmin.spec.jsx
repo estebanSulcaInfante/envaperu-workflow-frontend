@@ -355,6 +355,130 @@ describe('Ingeniería SCM R-core', () => {
     expect(concurrent).toBeChecked();
   });
 
+  it('guía la salida terminal y restringe los pasos intermedios a Pieza-color o WIP', async () => {
+    listarCentrosTrabajoScm.mockResolvedValue([{
+      id: 1,
+      codigo: 'CT-000001',
+      nombre: 'Sopladora principal',
+      tipo: 'SOPLADO',
+      activo: true,
+    }]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('tab', { name: 'Rutas' }));
+    await user.click(screen.getByRole('button', { name: 'Nueva ruta' }));
+    const dialog = screen.getByRole('dialog', { name: /Nueva ruta/ });
+
+    expect(within(dialog).getByLabelText('Salida terminal (bloqueada)')).toHaveValue(
+      'PT-000001 · Balde terminado',
+    );
+    expect(within(dialog).getByText(
+      'Esta operación termina la ruta y produce PT-000001.',
+    )).toBeVisible();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Agregar operación' }));
+    expect(within(dialog).getByText(
+      'El Paso 1 ahora es intermedio. Selecciona una salida Pieza-color o WIP.',
+    )).toBeVisible();
+
+    const intermediateOutput = within(dialog).getByRole('combobox', {
+      name: 'Salida intermedia (Pieza-color o WIP)',
+    });
+    await user.click(intermediateOutput);
+    expect(screen.getByRole('option', { name: /PC-000001/ })).toBeVisible();
+    expect(screen.getByRole('option', { name: /WIP-000001/ })).toBeVisible();
+    expect(screen.queryByRole('option', { name: /PT-000001/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('option', { name: /PC-000001/ }));
+
+    await user.click(within(dialog).getByRole('button', { name: 'Mover paso 2 antes' }));
+    expect(within(dialog).getByText(
+      'El Paso 1 ahora es intermedio. Selecciona una salida Pieza-color o WIP.',
+    )).toBeVisible();
+    expect(within(dialog).getAllByText('Paso terminal')).toHaveLength(1);
+    expect(within(dialog).getByLabelText('Salida terminal (bloqueada)')).toHaveValue(
+      'PT-000001 · Balde terminado',
+    );
+  });
+
+  it('confirma la eliminación de un paso con datos y recalcula la terminal', async () => {
+    listarCentrosTrabajoScm.mockResolvedValue([{
+      id: 1,
+      codigo: 'CT-000001',
+      nombre: 'Sopladora principal',
+      tipo: 'SOPLADO',
+      activo: true,
+    }]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('tab', { name: 'Rutas' }));
+    await user.click(screen.getByRole('button', { name: 'Nueva ruta' }));
+    const routeDialog = screen.getByRole('dialog', { name: /Nueva ruta/ });
+    await user.click(within(routeDialog).getByRole('button', { name: 'Agregar operación' }));
+    await user.click(within(routeDialog).getByRole('button', { name: 'Eliminar paso 2' }));
+
+    const confirmation = screen.getByRole('dialog', { name: 'Eliminar paso de la ruta' });
+    expect(within(confirmation).getByText(/Paso 2 contiene datos/)).toBeVisible();
+    await user.click(within(confirmation).getByRole('button', { name: 'Confirmar eliminación' }));
+
+    await waitForElementToBeRemoved(() => (
+      screen.queryByRole('dialog', { name: 'Eliminar paso de la ruta' })
+    ));
+    expect(within(routeDialog).getByText('Paso 1')).toBeVisible();
+    expect(within(routeDialog).queryByText('Paso 2')).not.toBeInTheDocument();
+    expect(within(routeDialog).getByText('Paso terminal')).toBeVisible();
+    expect(within(routeDialog).getByLabelText('Salida terminal (bloqueada)')).toHaveValue(
+      'PT-000001 · Balde terminado',
+    );
+  });
+
+  it('explica tipo, autoridad, salida y precedencia en la tabla publicada', async () => {
+    const route = {
+      id: 31,
+      producto_id: 'PT-000001',
+      numero_revision: 2,
+      estado: 'APROBADA',
+      creada_por_id: 2,
+      version: 1,
+      articulo_objetivo: articles[2],
+      operaciones: [
+        {
+          id: 101,
+          secuencia_visible: 1,
+          nombre: 'Soplado de cuerpo',
+          tipo: 'SOPLADO',
+          executor_kind: 'OP_OT',
+          permite_concurrente: false,
+          centro_trabajo: { nombre: 'Sopladora principal' },
+          articulo_salida: articles[0],
+        },
+        {
+          id: 102,
+          secuencia_visible: 2,
+          nombre: 'Armado final',
+          tipo: 'ENSAMBLE',
+          executor_kind: 'ORDEN_OPERACION',
+          permite_concurrente: false,
+          centro_trabajo: { nombre: 'Mesa de armado' },
+          articulo_salida: articles[2],
+        },
+      ],
+      precedencias: [{ anterior_id: 101, siguiente_id: 102 }],
+    };
+    listarRutasScm.mockResolvedValue([route]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('tab', { name: 'Rutas' }));
+    const table = await screen.findByRole('table', { name: 'Pasos de ruta revisión 2' });
+    expect(within(table).getByText('SOPLADO')).toBeVisible();
+    expect(within(table).getByText('ARMADO')).toBeVisible();
+    expect(within(table).getByText('Inicio de ruta')).toBeVisible();
+    expect(within(table).getByText('Después del Paso 1')).toBeVisible();
+    expect(within(table).getByText('Terminal')).toBeVisible();
+    expect(within(table).getByText('Fabricación mediante OF y Trabajo de color')).toBeVisible();
+  });
   it('permite publicar una ruta desde su propia tarjeta', async () => {
     const draft = {
       id: 30,

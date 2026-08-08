@@ -96,6 +96,24 @@ describe('Guía operativa SCM', () => {
     expect(screen.getByRole('heading', { name: 'Reserva, emisión y premezcla' })).toBeInTheDocument();
   });
 
+  it('explica OT de máquina, Trabajos de color, relevos y frontera del piloto', () => {
+    const { container } = renderGuide('/guia/scm?etapa=produccion');
+
+    expect(screen.getByRole('heading', {
+      name: 'OF/OA, OT de máquina, Trabajos de color y mangas',
+    })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Tres niveles de la ejecución' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Cambio y retorno de color: A → B → A' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Asignación de mangas y relevo supervisado' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Frontera del piloto' })).toBeInTheDocument();
+    expect(screen.getByText(/no digita OF, color, cantidad, fecha ni su nombre/i)).toBeInTheDocument();
+    expect(screen.getByText(/manga abierta o incompleta se transfiere individualmente/i)).toBeInTheDocument();
+    expect(screen.getByText(/conteo de frontera documenta el traspaso físico: no es un pesaje intermedio/i)).toBeInTheDocument();
+    expect(screen.getByText(/manga ya cerrada del Trabajo A puede pesarse mientras A está pausado/i)).toBeInTheDocument();
+    expect(screen.getByText(/No se transfiere una manga de una OT diaria/i)).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/Fabricación mediante OP\s*\/\s*OT/i);
+  });
+
   it('distingue pesaje, armado, corrección y merma', async () => {
     const user = userEvent.setup();
     renderGuide('/guia/scm?etapa=pesaje');
