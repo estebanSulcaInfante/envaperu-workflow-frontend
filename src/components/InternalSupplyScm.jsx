@@ -176,7 +176,7 @@ export default function InternalSupplyScm() {
         description="Reserva por QR, entrega con doble confirmación y retorno del remanente sin perder la identidad de la manga."
         actions={<Button startIcon={<RefreshIcon />} variant="outlined" onClick={() => load(selected?.id)}>Actualizar</Button>}
       />
-      <ProcessJourney current="armado" branch="armado" />
+      <ProcessJourney current="armado" />
       <Alert severity="info">
         Perfil actual: <strong>{experience.label}</strong>. Reservar no descuenta stock;
         el Kardex cambia cuando se confirma el despacho y la recepción física.

@@ -15,9 +15,8 @@ const steps = [
   },
   {
     id: 'trabajo',
-    label: '2. Trabajo',
-    detail: 'Configurar OF u OA',
-    path: '/produccion/ordenes-fabricacion',
+    label: '2. Órdenes técnicas',
+    detail: 'OF y OA',
     requiredAny: ['OF_VER', 'OA_VER'],
   },
   {
@@ -42,7 +41,7 @@ const steps = [
   },
 ];
 
-export default function ProcessJourney({ current, branch = 'fabricacion' }) {
+export default function ProcessJourney({ current }) {
   const { canAny } = useScmActor();
   const normalizedCurrent = current === 'armado' || current === 'fabricacion'
     ? 'trabajo' : current;
@@ -62,15 +61,9 @@ export default function ProcessJourney({ current, branch = 'fabricacion' }) {
         {steps.map((step, index) => {
           const active = step.id === normalizedCurrent;
           const accessible = !step.future && canAny(step.requiredAny);
-          const label = step.id === 'trabajo'
-            ? (branch === 'armado' ? '2. Armado' : '2. Fabricación')
-            : step.label;
-          const detail = step.id === 'trabajo'
-            ? (branch === 'armado' ? 'Configurar OA' : 'Configurar OF')
-            : step.detail;
-          const path = step.id === 'trabajo' && branch === 'armado'
-            ? '/produccion/ordenes-armado'
-            : step.path;
+          const label = step.label;
+          const detail = step.detail;
+          const path = step.path;
           return (
             <Stack key={step.id} direction="row" alignItems="center" spacing={1} flex={1}>
               <Chip

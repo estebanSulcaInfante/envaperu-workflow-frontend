@@ -400,7 +400,7 @@ export default function AssemblyOrdersScm() {
           </Stack>
         )}
       />
-      <ProcessJourney current="armado" branch="armado" />
+      <ProcessJourney current="armado" />
       {!canRelease && !canExecute && (
         <Alert severity="info">
           Vista de consulta para {experience.label}. La liberación y el registro de ejecución
