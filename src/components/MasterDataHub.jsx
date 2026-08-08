@@ -28,23 +28,23 @@ import { matchesOmniSearch } from '../utils/tableSearch';
 import { useScmActor } from '../context/ScmActorContext';
 
 const catalogEntries = [
-  { id: 'productos', area: 'PRODUCTO', name: 'Productos terminados', object: 'ProductoTerminado y BOM', path: '/datos-maestros/productos', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_VER'] },
-  { id: 'piezas', area: 'PRODUCTO', name: 'Piezas y SKU', object: 'Pieza, PiezaColor y SKU de pieza', path: '/datos-maestros/piezas', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_VER'] },
-  { id: 'moldes', area: 'PRODUCTO', name: 'Moldes', object: 'Molde, cavidades y salidas por ciclo', path: '/datos-maestros/moldes', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_VER', 'RUTA_VER'] },
-  { id: 'configurar', area: 'PRODUCTO', name: 'Configuración guiada de producto', object: 'Asistente Molde ↔ Pieza y generación de PiezaColor', path: '/datos-maestros/configuracion-guiada', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR'] },
-  { id: 'ingenieria-scm', area: 'PRODUCTO', name: 'Ingeniería SCM', object: 'Artículos WIP, BOM multinivel, rutas, perfiles y reglas de empaque', path: '/datos-maestros/ingenieria-scm', maturity: 'DISPONIBLE', requiredAny: ['ESTRUCTURA_VER', 'RUTA_VER', 'EMPAQUE_VER'] },
-  { id: 'clasificacion', area: 'PRODUCTO', name: 'Líneas y familias', object: 'Clasificadores de producto y combinaciones N:M habilitadas', path: '/datos-maestros/clasificacion', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR'] },
-  { id: 'colores', area: 'PRODUCTO', name: 'Colores y recetas', object: 'FamiliaColor, ColorProducción, HEX visual y receta versionada', path: '/datos-maestros/colores', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR', 'EMPAQUE_ADMINISTRAR'] },
-  { id: 'materiales', area: 'ABASTECIMIENTO', name: 'Materias primas', object: 'Resinas, colorantes, aditivos y recuperado', path: '/datos-maestros/materiales?catalogo=materials', maturity: 'DISPONIBLE', requiredAny: ['CATALOGO_MATERIAL_ADMINISTRAR', 'CONFIG_RECEPCION_ADMINISTRAR', 'PROVEEDOR_ADMINISTRAR'] },
-  { id: 'proveedores', area: 'ABASTECIMIENTO', name: 'Proveedores', object: 'Identidad y reglas de abastecimiento', path: '/datos-maestros/materiales?catalogo=providers', maturity: 'DISPONIBLE', requiredAny: ['CATALOGO_PROVEEDOR_ADMINISTRAR', 'PROVEEDOR_ADMINISTRAR'] },
-  { id: 'categorias', area: 'ABASTECIMIENTO', name: 'Categorías de recepción', object: 'Modalidad, unidad y requisitos por material', path: '/datos-maestros/materiales?catalogo=categoryRules', maturity: 'DISPONIBLE', requiredAny: ['CONFIG_RECEPCION_ADMINISTRAR'] },
-  { id: 'maquinas', area: 'PLANTA', name: 'Máquinas', object: 'Recursos de producción y compatibilidad', path: '/datos-maestros/maquinas', maturity: 'DISPONIBLE', requiredAny: ['CATALOGO_PLANTA_ADMINISTRAR', 'OF_EDITAR_BORRADOR', 'CONFIG_RECEPCION_ADMINISTRAR'] },
-  { id: 'trabajadores', area: 'PLANTA', name: 'Trabajadores', object: 'Personal, funciones y estado operativo', path: '/datos-maestros/trabajadores', maturity: 'DISPONIBLE', requiredAny: ['AUTORIZACION_SCM_ADMINISTRAR'] },
-  { id: 'ubicaciones', area: 'CONTROL', name: 'Ubicaciones', object: 'Ámbitos de materia prima, WIP, piezas y PT', path: '/datos-maestros/materiales?catalogo=locations', maturity: 'PROTOTIPO', requiredAny: ['CONFIG_RECEPCION_ADMINISTRAR'] },
-  { id: 'motivos', area: 'CONTROL', name: 'Motivos', object: 'Calidad, corrección, devolución y excepción', path: '/datos-maestros/materiales?catalogo=motives', maturity: 'PROTOTIPO', requiredAny: ['CONFIG_RECEPCION_ADMINISTRAR'] },
-  { id: 'politicas', area: 'CONTROL', name: 'Políticas y tolerancias', object: 'Versiones aprobadas para decisiones operativas', path: '/datos-maestros/materiales?catalogo=policies', maturity: 'PROTOTIPO', requiredAny: ['CONFIG_RECEPCION_ADMINISTRAR'] },
-  { id: 'importar', area: 'MANTENIMIENTO', name: 'Importar datos', object: 'Carga controlada desde archivos de catálogo', path: '/catalogo/importar', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR'] },
-  { id: 'revision', area: 'MANTENIMIENTO', name: 'Revisión de datos', object: 'Pendientes y calidad del catálogo', path: '/catalogo/revision', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR'] },
+  { id: 'productos', area: 'PRODUCT_ENGINEERING', name: 'Productos terminados', object: 'ProductoTerminado y BOM', path: '/datos-maestros/productos', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_VER'] },
+  { id: 'piezas', area: 'PRODUCT_ENGINEERING', name: 'Piezas y SKU', object: 'Pieza, PiezaColor y SKU de pieza', path: '/datos-maestros/piezas', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_VER'] },
+  { id: 'moldes', area: 'PRODUCT_ENGINEERING', name: 'Moldes', object: 'Molde, cavidades y salidas por ciclo', path: '/datos-maestros/moldes', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_VER', 'RUTA_VER'] },
+  { id: 'configurar', area: 'PRODUCT_ENGINEERING', name: 'Configuración guiada de producto', object: 'Asistente Molde ↔ Pieza y generación de PiezaColor', path: '/datos-maestros/configuracion-guiada', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR'] },
+  { id: 'ingenieria-scm', area: 'PRODUCT_ENGINEERING', name: 'Ingeniería SCM', object: 'Artículos WIP, BOM multinivel, rutas, perfiles y reglas de empaque', path: '/datos-maestros/ingenieria-scm', maturity: 'DISPONIBLE', requiredAny: ['ESTRUCTURA_VER', 'RUTA_VER', 'EMPAQUE_VER'] },
+  { id: 'clasificacion', area: 'PRODUCT_ENGINEERING', name: 'Líneas y familias', object: 'Clasificadores de producto y combinaciones N:M habilitadas', path: '/datos-maestros/clasificacion', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR'] },
+  { id: 'colores', area: 'PRODUCT_ENGINEERING', name: 'Colores y recetas', object: 'FamiliaColor, ColorProducción, HEX visual y receta versionada', path: '/datos-maestros/colores', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR', 'EMPAQUE_ADMINISTRAR'] },
+  { id: 'materiales', area: 'MATERIALS_SUPPLIERS', name: 'Materias primas', object: 'Resinas, colorantes, aditivos y recuperado', path: '/datos-maestros/materiales?catalogo=materials', maturity: 'DISPONIBLE', requiredAny: ['CATALOGO_MATERIAL_ADMINISTRAR', 'CONFIG_RECEPCION_ADMINISTRAR', 'PROVEEDOR_ADMINISTRAR'] },
+  { id: 'proveedores', area: 'MATERIALS_SUPPLIERS', name: 'Proveedores', object: 'Identidad y reglas de abastecimiento', path: '/datos-maestros/materiales?catalogo=providers', maturity: 'DISPONIBLE', requiredAny: ['CATALOGO_PROVEEDOR_ADMINISTRAR', 'PROVEEDOR_ADMINISTRAR'] },
+  { id: 'categorias', area: 'MATERIALS_SUPPLIERS', name: 'Categorías de recepción', object: 'Modalidad, unidad y requisitos por material', path: '/datos-maestros/materiales?catalogo=categoryRules', maturity: 'DISPONIBLE', requiredAny: ['CONFIG_RECEPCION_ADMINISTRAR'] },
+  { id: 'maquinas', area: 'PLANT_LOGISTICS', name: 'Máquinas', object: 'Recursos de producción y compatibilidad', path: '/datos-maestros/maquinas', maturity: 'DISPONIBLE', requiredAny: ['CATALOGO_PLANTA_ADMINISTRAR', 'OF_EDITAR_BORRADOR', 'CONFIG_RECEPCION_ADMINISTRAR'] },
+  { id: 'trabajadores', area: 'ORGANIZATION', name: 'Trabajadores', object: 'Personal, funciones y estado operativo', path: '/datos-maestros/trabajadores', maturity: 'DISPONIBLE', requiredAny: ['AUTORIZACION_SCM_ADMINISTRAR'] },
+  { id: 'ubicaciones', area: 'PLANT_LOGISTICS', name: 'Ubicaciones', object: 'Ámbitos de materia prima, WIP, piezas y PT', path: '/datos-maestros/materiales?catalogo=locations', maturity: 'PROTOTIPO', requiredAny: ['CONFIG_RECEPCION_ADMINISTRAR'] },
+  { id: 'motivos', area: 'DATA_GOVERNANCE', name: 'Motivos', object: 'Calidad, corrección, devolución y excepción', path: '/datos-maestros/materiales?catalogo=motives', maturity: 'PROTOTIPO', requiredAny: ['CONFIG_RECEPCION_ADMINISTRAR'] },
+  { id: 'politicas', area: 'DATA_GOVERNANCE', name: 'Políticas y tolerancias', object: 'Versiones aprobadas para decisiones operativas', path: '/datos-maestros/materiales?catalogo=policies', maturity: 'PROTOTIPO', requiredAny: ['CONFIG_RECEPCION_ADMINISTRAR'] },
+  { id: 'importar', area: 'DATA_GOVERNANCE', name: 'Importar datos', object: 'Carga controlada desde archivos de catálogo', path: '/catalogo/importar', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR'] },
+  { id: 'revision', area: 'DATA_GOVERNANCE', name: 'Revisión de datos', object: 'Pendientes y calidad del catálogo', path: '/catalogo/revision', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR'] },
 ];
 
 const maturityConfig = {
@@ -104,7 +104,10 @@ function MasterDataHub() {
   const [search, setSearch] = useState('');
   const [area, setArea] = useState('TODAS');
   const availableEntries = useMemo(
-    () => catalogEntries.filter((entry) => canAny(entry.requiredAny || [])),
+    () => catalogEntries.filter((entry) => (
+      canAny(entry.requiredAny || [])
+      && (entry.maturity !== 'PROTOTIPO' || import.meta.env.DEV)
+    )),
     [canAny],
   );
   const availableStages = useMemo(
@@ -236,11 +239,11 @@ function MasterDataHub() {
           onChange: setArea,
           options: [
             { value: 'TODAS', label: 'Todas las áreas' },
-            { value: 'PRODUCTO', label: 'Producto' },
-            { value: 'ABASTECIMIENTO', label: 'Abastecimiento' },
-            { value: 'PLANTA', label: 'Planta' },
-            { value: 'CONTROL', label: 'Control' },
-            { value: 'MANTENIMIENTO', label: 'Mantenimiento' },
+            { value: 'PRODUCT_ENGINEERING', label: 'Producto e ingeniería' },
+            { value: 'MATERIALS_SUPPLIERS', label: 'Materiales y proveedores' },
+            { value: 'PLANT_LOGISTICS', label: 'Planta y logística' },
+            { value: 'ORGANIZATION', label: 'Organización' },
+            { value: 'DATA_GOVERNANCE', label: 'Gobierno de datos' },
           ],
         }]}
         resultCount={visibleEntries.length}

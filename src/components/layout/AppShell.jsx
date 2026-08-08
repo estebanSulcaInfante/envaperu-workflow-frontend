@@ -1,18 +1,13 @@
 import { Box } from '@mui/material';
 import { useLocation } from 'react-router-dom';
 import Sidebar from '../Sidebar';
-import ModuleTabs from '../ui/ModuleTabs';
 import ActorWorkspaceBar from './ActorWorkspaceBar';
+import WorkspaceBreadcrumbs from './WorkspaceBreadcrumbs';
 import { useScmActor } from '../../context/ScmActorContext';
-import {
-  getWorkspaceNavigation,
-  workspaceTabIsActive,
-} from '../../config/navigation';
 
 function AppShell({ children }) {
   const location = useLocation();
   const { actorId } = useScmActor();
-  const workspace = getWorkspaceNavigation(location.pathname);
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
@@ -31,13 +26,7 @@ function AppShell({ children }) {
       >
         <ActorWorkspaceBar />
         <Box key={actorId}>
-          {workspace && (
-            <ModuleTabs
-              workspace={workspace}
-              pathname={location.pathname}
-              isActive={workspaceTabIsActive}
-            />
-          )}
+          <WorkspaceBreadcrumbs location={location} />
           {children}
         </Box>
       </Box>

@@ -8,65 +8,63 @@ import {
   workspaceTabIsActive,
 } from '../config/navigation';
 
-describe('navegación SCM por procesos', () => {
-  it('mantiene una navegación principal breve y orientada al flujo', () => {
+describe('US-010N1: navegación SCM por áreas', () => {
+  it('expone las seis áreas de trabajo aprobadas', () => {
     expect(primaryNavigation.map((item) => item.id)).toEqual([
-      'inicio',
-      'planificacion',
-      'materiales',
-      'produccion',
+      'home',
+      'planning',
+      'production',
+      'materials',
+      'warehouse',
+      'control',
     ]);
   });
 
-  it('asigna el enlace legacy de preparación al módulo de materias primas', () => {
-    expect(getWorkspaceNavigation('/ordenes/OP-0041/materiales')?.id).toBe('materiales');
+  it('asigna el enlace legacy de preparación a Materiales', () => {
+    expect(getWorkspaceNavigation('/ordenes/OP-0041/materiales')?.id).toBe('materials');
   });
 
-  it('activa rutas canónicas sin marcar prefijos parecidos', () => {
-    const production = primaryNavigation.find((item) => item.id === 'produccion');
-    const masterWorkspace = workspaceNavigation.find((item) => item.id === 'maestros');
-    const overview = masterWorkspace.tabs[0];
+  it('clasifica rutas por función sin depender del prefijo', () => {
+    const control = primaryNavigation.find((item) => item.id === 'control');
+    const warehouse = primaryNavigation.find((item) => item.id === 'warehouse');
+    const masters = workspaceNavigation.find((item) => item.id === 'masters');
+    const overview = masters.tabs.find((item) => item.key === 'masters.hub');
 
-    expect(getWorkspaceNavigation('/produccion/avance')?.id).toBe(production.id);
-    expect(navigationItemIsActive('/planificacion', production)).toBe(false);
+    expect(getWorkspaceNavigation('/produccion/avance')?.id).toBe(control.id);
+    expect(getWorkspaceNavigation('/produccion/kardex')?.id).toBe(warehouse.id);
+    expect(navigationItemIsActive('/planificacion', control)).toBe(false);
     expect(workspaceTabIsActive('/datos-maestros', overview)).toBe(true);
     expect(workspaceTabIsActive('/datos-maestros/productos', overview)).toBe(false);
   });
 
-  it('expone el catálogo de líneas y familias dentro de datos maestros', () => {
-    const masterWorkspace = workspaceNavigation.find((item) => item.id === 'maestros');
-    const classification = masterWorkspace.tabs.find((tab) => tab.path === '/datos-maestros/clasificacion');
+  it('mantiene líneas/familias y configuración guiada en el hub canónico', () => {
+    const masters = workspaceNavigation.find((item) => item.id === 'masters');
+    const classification = masters.tabs.find(
+      (tab) => tab.path === '/datos-maestros/clasificacion',
+    );
+    const wizard = masters.tabs.find(
+      (tab) => tab.path === '/datos-maestros/configuracion-guiada',
+    );
 
     expect(classification?.label).toBe('Líneas y familias');
-    expect(workspaceTabIsActive('/datos-maestros/clasificacion', classification)).toBe(true);
-  });
-
-  it('ubica la configuración guiada junto a moldes y piezas', () => {
-    const masterWorkspace = workspaceNavigation.find((item) => item.id === 'maestros');
-    const wizard = masterWorkspace.tabs.find((tab) => tab.path === '/datos-maestros/configuracion-guiada');
-
     expect(wizard?.label).toBe('Configuración guiada');
-    expect(workspaceTabIsActive('/datos-maestros/configuracion-guiada', wizard)).toBe(true);
-    expect(getWorkspaceNavigation('/catalogo/configurar')?.id).toBe('maestros');
+    expect(workspaceTabIsActive('/datos-maestros/clasificacion', classification)).toBe(true);
+    expect(getWorkspaceNavigation('/catalogo/configurar')?.id).toBe('masters');
   });
 
-  it('presenta solamente los espacios que corresponden a las capacidades del actor', () => {
+  it('no convierte OP de consulta en acceso a Producción', () => {
     const capabilities = new Set(['OP_VER', 'OP_APROBAR']);
-    const visible = visibleByCapabilities(
-      primaryNavigation,
-      (required) => !required.length || required.some((item) => capabilities.has(item)),
-    );
-    const production = workspaceNavigation.find((item) => item.id === 'produccion');
-    const visibleProductionTabs = visibleByCapabilities(
-      production.tabs,
-      (required) => !required.length || required.some((item) => capabilities.has(item)),
-    );
+    const canAny = (required) => !required.length
+      || required.some((item) => capabilities.has(item));
+    const visible = visibleByCapabilities(primaryNavigation, canAny);
+    const production = workspaceNavigation.find((item) => item.id === 'production');
+    const visibleProduction = visibleByCapabilities(production.tabs, canAny);
 
-    expect(visible.map((item) => item.id)).toEqual(['inicio', 'planificacion', 'produccion']);
-    expect(visibleProductionTabs.map((item) => item.label)).toEqual(['Órdenes de producción']);
+    expect(visible.map((item) => item.id)).toEqual(['home', 'planning']);
+    expect(visibleProduction).toEqual([]);
   });
 
-  it('limita al gestor de maestros a catálogos y oculta participantes y producción', () => {
+  it('limita al gestor de maestros a catálogos compatibles', () => {
     const capabilities = new Set([
       'ARTICULO_VER',
       'ARTICULO_ADMINISTRAR',
@@ -80,12 +78,12 @@ describe('navegación SCM por procesos', () => {
     const canAny = (required) => !required.length
       || required.some((item) => capabilities.has(item));
     const visiblePrimary = visibleByCapabilities(primaryNavigation, canAny);
-    const masters = workspaceNavigation.find((item) => item.id === 'maestros');
+    const masters = workspaceNavigation.find((item) => item.id === 'masters');
     const visibleMasterTabs = visibleByCapabilities(masters.tabs, canAny);
 
-    expect(visiblePrimary.map((item) => item.id)).toEqual(['inicio']);
-    expect(visibleMasterTabs.map((item) => item.label)).toEqual([
-      'Resumen',
+    expect(visiblePrimary.map((item) => item.id)).toEqual(['home']);
+    expect(visibleMasterTabs.map((item) => item.label)).toEqual(expect.arrayContaining([
+      'Resumen de maestros',
       'Productos',
       'Piezas y SKU',
       'Moldes',
@@ -93,9 +91,9 @@ describe('navegación SCM por procesos', () => {
       'Ingeniería SCM',
       'Líneas y familias',
       'Colores y recetas',
-      'Materias primas',
+      'Materiales y proveedores',
       'Máquinas',
-    ]);
+    ]));
     expect(visibleMasterTabs.map((item) => item.label)).not.toContain('Trabajadores');
   });
 });

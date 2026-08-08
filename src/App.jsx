@@ -41,12 +41,17 @@ import WarehouseReceivingScm from './components/WarehouseReceivingScm';
 import InternalSupplyScm from './components/InternalSupplyScm';
 import ErrorBoundary from './components/ErrorBoundary';
 import CapabilityRoute from './components/CapabilityRoute';
+import FeatureAvailabilityRoute from './components/FeatureAvailabilityRoute';
 import { ScmActorProvider } from './context/ScmActorContext';
 import { AuthProvider } from './context/AuthContext';
 import AuthGate from './components/auth/AuthGate';
 
 const permitted = (element, any) => (
   <CapabilityRoute any={any}>{element}</CapabilityRoute>
+);
+
+const available = (featureKey, element) => (
+  <FeatureAvailabilityRoute featureKey={featureKey}>{element}</FeatureAvailabilityRoute>
 );
 
 // Tema claro corporativo ENVAPERU
@@ -164,15 +169,15 @@ function App() {
                 <Route path="/produccion/recepcion-mangas" element={permitted(<WarehouseReceivingScm />, ['RECEPCION_MANGA_VER', 'CALIDAD_MANGA_VER'])} />
                 <Route path="/produccion/reproceso" element={permitted(<ReprocessingScm />, ['MOLIENDA_VER'])} />
                 <Route path="/produccion/alertas" element={permitted(<OperationalAlertsScm />, ['ALERTA_VER'])} />
-                <Route path="/materiales/recepciones" element={<RecepcionMateriales />} />
-                <Route path="/materiales/recepciones/nueva" element={<RecepcionMateriales />} />
-                <Route path="/materiales/recepciones/:recepcionId" element={<RecepcionMateriales />} />
-                <Route path="/materiales/recepciones/:recepcionId/editar" element={<RecepcionMateriales />} />
-                <Route path="/materiales/compras" element={<RecepcionMateriales />} />
-                <Route path="/materiales/calidad" element={<RecepcionMateriales />} />
-                <Route path="/materiales/inventario" element={<RecepcionMateriales />} />
-                <Route path="/materiales/documentos" element={<RecepcionMateriales />} />
-                <Route path="/materiales/cobertura" element={<RecepcionMateriales />} />
+                <Route path="/materiales/recepciones" element={available('external.receiving', <RecepcionMateriales />)} />
+                <Route path="/materiales/recepciones/nueva" element={available('external.receiving', <RecepcionMateriales />)} />
+                <Route path="/materiales/recepciones/:recepcionId" element={available('external.receiving', <RecepcionMateriales />)} />
+                <Route path="/materiales/recepciones/:recepcionId/editar" element={available('external.receiving', <RecepcionMateriales />)} />
+                <Route path="/materiales/compras" element={available('external.purchases', <RecepcionMateriales />)} />
+                <Route path="/materiales/calidad" element={available('external.quality', <RecepcionMateriales />)} />
+                <Route path="/materiales/inventario" element={available('external.inventory', <RecepcionMateriales />)} />
+                <Route path="/materiales/documentos" element={available('external.documents', <RecepcionMateriales />)} />
+                <Route path="/materiales/cobertura" element={available('external.coverage', <RecepcionMateriales />)} />
                 <Route path="/materiales/preparaciones" element={<PreparacionMateriales />} />
                 <Route path="/materiales/preparaciones/:numeroOp" element={<PreparacionMateriales />} />
                 <Route path="/ordenes/:numeroOp/materiales" element={<PreparacionMateriales />} />
@@ -193,7 +198,7 @@ function App() {
                 <Route path="/catalogo/configurar" element={<Navigate to="/datos-maestros/configuracion-guiada" replace />} />
                 <Route path="/datos-maestros/configurar" element={<Navigate to="/datos-maestros/configuracion-guiada" replace />} />
                 <Route path="/catalogo/revision" element={permitted(<RevisionProductos />, ['ARTICULO_ADMINISTRAR'])} />
-                <Route path="/configuracion" element={<RecepcionMateriales forcedSection="configuracion" />} />
+                <Route path="/configuracion" element={available('admin.settings', <RecepcionMateriales forcedSection="configuracion" />)} />
 
                 <Route path="/ordenes" element={<Navigate to="/produccion/ordenes" replace />} />
                 <Route path="/ordenes/nueva" element={<Navigate to="/produccion/ordenes/nueva-excepcional" replace />} />

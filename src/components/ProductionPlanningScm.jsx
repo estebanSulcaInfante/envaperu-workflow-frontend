@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, FormControl, InputLabel, MenuItem, Paper,
@@ -374,6 +375,7 @@ export default function ProductionPlanningScm() {
                 <TableCell align="right">Sugerido</TableCell>
                 <TableCell align="right">Meta confirmable</TableCell>
                 <TableCell>Configuración</TableCell>
+                <TableCell>Continuar en</TableCell>
               </TableRow></TableHead>
               <TableBody>{documents.map((item) => (
                 <TableRow key={item.clave}>
@@ -408,6 +410,19 @@ export default function ProductionPlanningScm() {
                     ) : `${item.cantidad_objetivo} un`}
                   </TableCell>
                   <TableCell>{item.requiere_configuracion_tecnica ? 'Pendiente técnica' : 'Lista para revisión'}</TableCell>
+                  <TableCell>
+                    {plan.estado === 'CONFIRMADO' ? (
+                      <Button
+                        component={RouterLink}
+                        size="small"
+                        to={item.tipo === 'FABRICACION'
+                          ? '/produccion/ordenes-fabricacion'
+                          : '/produccion/ordenes-armado'}
+                      >
+                        Abrir {item.tipo === 'FABRICACION' ? 'OF' : 'OA'}
+                      </Button>
+                    ) : 'Al confirmar'}
+                  </TableCell>
                 </TableRow>
               ))}</TableBody>
             </Table>
