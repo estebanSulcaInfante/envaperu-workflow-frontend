@@ -1,19 +1,14 @@
 import { Breadcrumbs, Link, Typography } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import {
-  buildAreaNavigation,
-  getWorkspaceArea,
-  getWorkspaceFeature,
-} from '../../config/workspaceRegistry';
-import { useScmActor } from '../../context/ScmActorContext';
+import { getWorkspaceFeature } from '../../config/workspaceRegistry';
+import { useActorWorkspace } from '../../context/ScmActorContext';
 
 function WorkspaceBreadcrumbs({ location }) {
-  const { canAny } = useScmActor();
+  const workspace = useActorWorkspace();
   const value = `${location.pathname}${location.search || ''}`;
-  const registeredArea = getWorkspaceArea(value);
-  const feature = getWorkspaceFeature(value);
-  const area = buildAreaNavigation({ canAny })
-    .find((item) => item.key === registeredArea?.key) || registeredArea;
+  const registeredFeature = getWorkspaceFeature(value);
+  const feature = workspace.features.find((item) => item.key === registeredFeature?.key) || null;
+  const area = workspace.areas.find((item) => item.key === feature?.areaKey) || null;
 
   if (!area || area.key === 'home') return null;
 

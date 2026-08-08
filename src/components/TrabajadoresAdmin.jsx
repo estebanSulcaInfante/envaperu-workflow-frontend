@@ -31,7 +31,13 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
-import { getTrabajadores, createTrabajador, updateTrabajador, getRolesOperativos, toggleEstadoTrabajador } from '../services/api';
+import {
+  actualizarTrabajadorWorkspace,
+  cambiarEstadoTrabajadorWorkspace,
+  crearTrabajadorWorkspace,
+  listarRolesWorkspace,
+  listarTrabajadoresWorkspace,
+} from '../services/workspaceAdminApi';
 import DataTableToolbar from './ui/DataTableToolbar';
 import PageHeader from './ui/PageHeader';
 import { matchesOmniSearch } from '../utils/tableSearch';
@@ -64,8 +70,8 @@ function TrabajadoresAdmin() {
     try {
       setLoading(true);
       const [trabRes, rolesRes] = await Promise.all([
-        getTrabajadores(),
-        getRolesOperativos()
+        listarTrabajadoresWorkspace(),
+        listarRolesWorkspace()
       ]);
       setTrabajadores(trabRes);
       setRoles(rolesRes);
@@ -117,11 +123,11 @@ function TrabajadoresAdmin() {
   const handleSave = async () => {
     try {
       if (editingId) {
-        await updateTrabajador(editingId, formData);
+        await actualizarTrabajadorWorkspace(editingId, formData);
       } else {
         const payload = { ...formData };
         delete payload.codigo;
-        await createTrabajador(payload);
+        await crearTrabajadorWorkspace(payload);
       }
       handleClose();
       await Promise.all([fetchData(), refreshActors()]);
@@ -132,7 +138,7 @@ function TrabajadoresAdmin() {
 
   const handleToggleEstado = async (id, currentEstado) => {
     try {
-      await toggleEstadoTrabajador(id, !currentEstado);
+      await cambiarEstadoTrabajadorWorkspace(id, !currentEstado);
       await Promise.all([fetchData(), refreshActors()]);
     } catch {
       alert('Error cambiando estado');

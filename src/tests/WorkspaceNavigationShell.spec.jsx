@@ -5,11 +5,16 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import Sidebar from '../components/Sidebar';
 import FeatureAvailabilityRoute from '../components/FeatureAvailabilityRoute';
+import { buildAreaNavigation, workspaceFeatures } from '../config/workspaceRegistry';
 
 vi.mock('../context/ScmActorContext', () => ({
   useScmActor: () => ({
     canAny: () => true,
     experience: { label: 'Gerente General' },
+  }),
+  useActorWorkspace: () => ({
+    features: workspaceFeatures,
+    areas: buildAreaNavigation({ canAny: () => true }),
   }),
 }));
 

@@ -32,11 +32,10 @@ import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import WarehouseOutlinedIcon from '@mui/icons-material/WarehouseOutlined';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import {
-  buildAreaNavigation,
   getWorkspaceFeature,
   featureMatches,
 } from '../config/workspaceRegistry';
-import { useScmActor } from '../context/ScmActorContext';
+import { useActorWorkspace } from '../context/ScmActorContext';
 
 const expandedWidth = 248;
 const collapsedWidth = 76;
@@ -189,9 +188,10 @@ function Sidebar() {
   const isIntermediate = useMediaQuery(theme.breakpoints.between('md', 'lg'));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(isIntermediate);
-  const { canAny } = useScmActor();
+  const workspace = useActorWorkspace();
   const value = `${location.pathname}${location.search}`;
-  const activeFeature = getWorkspaceFeature(value);
+  const registeredFeature = getWorkspaceFeature(value);
+  const activeFeature = workspace.features.find((item) => item.key === registeredFeature?.key) || null;
   const [expandedAreas, setExpandedAreas] = useState(
     () => new Set(activeFeature?.areaKey ? [activeFeature.areaKey] : []),
   );
@@ -202,7 +202,7 @@ function Sidebar() {
     if (!activeFeature?.areaKey) return;
     setExpandedAreas((current) => new Set([...current, activeFeature.areaKey]));
   }, [activeFeature?.areaKey]);
-  const areas = buildAreaNavigation({ canAny });
+  const areas = workspace.areas;
   const primaryAreas = areas.filter((area) => !area.support);
   const supportAreas = areas.filter((area) => area.support);
   const compact = !isMobile && collapsed;

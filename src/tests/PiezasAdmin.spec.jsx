@@ -18,6 +18,14 @@ vi.mock('../services/api', () => ({
   obtenerLineas: vi.fn(),
 }));
 
+vi.mock('../context/ScmActorContext', () => ({
+  useScmActor: () => ({
+    can: () => true,
+    canAny: () => true,
+    experience: { label: 'Administrador de prueba', focus: 'Administración de prueba.' },
+  }),
+}));
+
 import {
   actualizarPiezaGlobal,
   buscarPiezasGlobales,

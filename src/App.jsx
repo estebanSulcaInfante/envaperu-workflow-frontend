@@ -45,6 +45,7 @@ import WorkspaceAreaRedirect from './components/WorkspaceAreaRedirect';
 import { ScmActorProvider } from './context/ScmActorContext';
 import { AuthProvider } from './context/AuthContext';
 import AuthGate from './components/auth/AuthGate';
+import RolesCapabilitiesAdmin from './components/RolesCapabilitiesAdmin';
 
 const workspace = (featureKey, element) => (
   <WorkspaceFeatureRoute featureKey={featureKey}>{element}</WorkspaceFeatureRoute>
@@ -195,6 +196,7 @@ function App() {
                 <Route path="/datos-maestros/configurar" element={<Navigate to="/datos-maestros/configuracion-guiada" replace />} />
                 <Route path="/catalogo/revision" element={workspace('masters.review', <RevisionProductos />)} />
                 <Route path="/configuracion" element={workspace('admin.settings', <RecepcionMateriales forcedSection="configuracion" />)} />
+                <Route path="/administracion/roles-capacidades" element={workspace('admin.roles', <RolesCapabilitiesAdmin />)} />
 
                 <Route path="/ordenes" element={<Navigate to="/produccion/ordenes" replace />} />
                 <Route path="/ordenes/nueva" element={<Navigate to="/produccion/ordenes/nueva-excepcional" replace />} />
