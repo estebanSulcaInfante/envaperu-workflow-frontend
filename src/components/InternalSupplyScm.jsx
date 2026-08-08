@@ -171,7 +171,6 @@ export default function InternalSupplyScm() {
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        eyebrow="Almacén / abastecimiento interno"
         title="Picking de mangas para Armado"
         description="Reserva por QR, entrega con doble confirmación y retorno del remanente sin perder la identidad de la manga."
         actions={<Button startIcon={<RefreshIcon />} variant="outlined" onClick={() => load(selected?.id)}>Actualizar</Button>}

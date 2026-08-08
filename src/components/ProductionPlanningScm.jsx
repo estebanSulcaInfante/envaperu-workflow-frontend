@@ -213,7 +213,6 @@ export default function ProductionPlanningScm() {
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        eyebrow="Planificación / Demanda"
         title="Planificación de OP"
         description="Calcula cobertura documental y confirma propuestas OF/OA sin consumir inventario ni liberar producción."
         actions={(

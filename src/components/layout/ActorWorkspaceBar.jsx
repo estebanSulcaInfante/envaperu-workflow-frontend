@@ -45,40 +45,46 @@ export default function ActorWorkspaceBar() {
   );
 
   if (loading && !actor) {
-    return <Skeleton variant="rounded" height={72} sx={{ mb: 2 }} />;
+    return <Skeleton variant="rounded" height={52} sx={{ mb: 1.25 }} />;
   }
 
   return (
     <>
       <Paper
+        component="section"
+        aria-label="Sesión de trabajo"
         variant="outlined"
         sx={{
-          mb: 2,
-          px: { xs: 1.5, sm: 2 },
-          py: 1.25,
+          mb: 1.25,
+          px: 1.5,
+          py: 0.75,
           borderColor: 'primary.100',
           bgcolor: '#F7FAFD',
         }}
       >
         <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          alignItems={{ sm: 'center' }}
+          direction="row"
+          alignItems="center"
           justifyContent="space-between"
-          spacing={1.25}
+          spacing={1}
+          flexWrap="wrap"
         >
-          <Stack direction="row" spacing={1.25} alignItems="center" minWidth={0}>
-            <Avatar sx={{ width: 38, height: 38, bgcolor: 'primary.main', fontSize: 14 }}>
+          <Stack direction="row" spacing={1} alignItems="center" minWidth={0}>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: 12 }}>
               {initials(actor?.nombre_corto || actor?.nombre_completo) || <BadgeOutlinedIcon />}
             </Avatar>
             <Box minWidth={0}>
-              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                <Typography variant="caption" color="text.secondary">Trabajando como</Typography>
+              <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
+                <Typography variant="body2" fontWeight={800} noWrap>
+                  {actor?.nombre_completo || `Actor #${actorId}`}
+                </Typography>
                 <Chip label="Operación SCM" size="small" variant="outlined" color="info" />
               </Stack>
-              <Typography variant="subtitle2" fontWeight={800} noWrap>
-                {actor?.nombre_completo || `Actor #${actorId}`}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: { xs: 'none', md: 'block' } }}
+              >
                 {experience.label} · {experience.focus}
               </Typography>
             </Box>
@@ -108,7 +114,7 @@ export default function ActorWorkspaceBar() {
             </Button>
           )}
         </Stack>
-        {error && <Alert severity="warning" sx={{ mt: 1 }}>{error}</Alert>}
+        {error && <Alert severity="warning" sx={{ mt: 0.75 }}>{error}</Alert>}
       </Paper>
 
       <Dialog

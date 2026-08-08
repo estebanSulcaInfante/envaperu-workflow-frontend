@@ -299,7 +299,6 @@ export default function WarehouseReceivingScm() {
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        eyebrow="Almacén / Custodia por QR"
         title="Recepción de mangas"
         description="Acepta bolsas pesadas, conserva su identidad y separa existencia física de stock liberado."
         actions={<Button startIcon={<RefreshIcon />} variant="outlined" onClick={load}>Actualizar</Button>}

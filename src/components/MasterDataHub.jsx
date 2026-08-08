@@ -4,6 +4,7 @@ import {
   Box,
   Button,
   Chip,
+  Collapse,
   Divider,
   Paper,
   Stack,
@@ -14,6 +15,8 @@ import {
   TableHead,
   TableRow,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import ArrowForwardOutlinedIcon from '@mui/icons-material/ArrowForwardOutlined';
 import CheckCircleOutlineOutlinedIcon from '@mui/icons-material/CheckCircleOutlineOutlined';
@@ -21,6 +24,7 @@ import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import PaletteOutlinedIcon from '@mui/icons-material/PaletteOutlined';
 import PrecisionManufacturingOutlinedIcon from '@mui/icons-material/PrecisionManufacturingOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import { Link as RouterLink } from 'react-router-dom';
 import DataTableToolbar from './ui/DataTableToolbar';
 import PageHeader from './ui/PageHeader';
@@ -51,6 +55,14 @@ const maturityConfig = {
   DISPONIBLE: { label: 'Disponible', color: 'success' },
   PROTOTIPO: { label: 'Prototipo local', color: 'info' },
   PENDIENTE: { label: 'Vista pendiente', color: 'default' },
+};
+
+const areaLabels = {
+  PRODUCT_ENGINEERING: 'Producto e ingeniería',
+  MATERIALS_SUPPLIERS: 'Materiales y proveedores',
+  PLANT_LOGISTICS: 'Planta y logística',
+  ORGANIZATION: 'Organización',
+  DATA_GOVERNANCE: 'Gobierno de datos',
 };
 
 const loadingStages = [
@@ -101,8 +113,11 @@ const loadingStages = [
 
 function MasterDataHub() {
   const { canAny, experience } = useScmActor();
+  const theme = useTheme();
+  const compactViewport = useMediaQuery(theme.breakpoints.down('md'));
   const [search, setSearch] = useState('');
   const [area, setArea] = useState('TODAS');
+  const [guideOpen, setGuideOpen] = useState(!compactViewport);
   const availableEntries = useMemo(
     () => catalogEntries.filter((entry) => (
       canAny(entry.requiredAny || [])
@@ -129,85 +144,107 @@ function MasterDataHub() {
   return (
     <Stack spacing={2.25} sx={{ maxWidth: 1440, mx: 'auto' }}>
       <PageHeader
-        eyebrow="Gobierno de datos"
         title="Datos maestros"
         description={`Catálogos disponibles para ${experience.label}. Aquí se definen las identidades que utilizará la operación.`}
       />
 
       {canMaintainCatalogs ? (
         <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
-          <Box sx={{ p: { xs: 2, md: 2.5 }, bgcolor: 'primary.50' }}>
-            <Typography variant="overline" color="primary.main" sx={{ fontWeight: 850 }}>
-              Carga inicial asistida
-            </Typography>
-            <Typography variant="h5" sx={{ fontWeight: 850 }}>
-              Empieza por la base y evita registros huérfanos
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, maxWidth: 900 }}>
-              Esta secuencia permite que cada selector ya tenga la información necesaria cuando
-              llegue el momento de crear piezas, productos, recetas y órdenes.
-            </Typography>
-          </Box>
-          <Divider />
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
-              gap: 0,
-            }}
-          >
-            {availableStages.map((stage, index) => (
-              <Box
-                key={stage.id}
-                sx={{
-                  p: 2.25,
-                  borderBottom: '1px solid',
-                  borderRight: { md: index % 2 === 0 ? '1px solid' : 0 },
-                  borderColor: 'divider',
-                }}
-              >
-                <Stack direction="row" spacing={1.25} alignItems="flex-start">
-                  <Box
-                    sx={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: '50%',
-                      bgcolor: 'primary.main',
-                      color: 'primary.contrastText',
-                      display: 'grid',
-                      placeItems: 'center',
-                      flex: '0 0 auto',
-                      '& svg': { fontSize: 19 },
-                    }}
-                  >
-                    {stage.icon}
-                  </Box>
-                  <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                      {index + 1}. {stage.title}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {stage.description}
-                    </Typography>
-                    <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mt: 1.25 }}>
-                      {stage.items.map((item) => (
-                        <Chip
-                          key={item.path}
-                          component={RouterLink}
-                          to={item.path}
-                          clickable
-                          size="small"
-                          label={item.label}
-                          color="primary"
-                          variant="outlined"
-                        />
-                      ))}
-                    </Stack>
-                  </Box>
-                </Stack>
+          <Box sx={{ p: { xs: 1.5, md: 2 }, bgcolor: 'primary.50' }}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="overline" color="primary.main" sx={{ fontWeight: 850 }}>
+                  Carga inicial asistida
+                </Typography>
+                <Typography variant="h6" component="h2" sx={{ fontWeight: 850 }}>
+                  Empieza por la base y evita registros huérfanos
+                </Typography>
               </Box>
-            ))}
+              <Button
+                size="small"
+                aria-expanded={guideOpen}
+                aria-controls="master-data-loading-guide"
+                endIcon={(
+                  <ExpandMoreRoundedIcon
+                    sx={{ transform: guideOpen ? 'rotate(180deg)' : 'none', transition: 'transform 160ms' }}
+                  />
+                )}
+                onClick={() => setGuideOpen((value) => !value)}
+                sx={{ flexShrink: 0 }}
+              >
+                {guideOpen ? 'Ocultar guía' : 'Ver guía'}
+              </Button>
+            </Stack>
+            {guideOpen && (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, maxWidth: 900 }}>
+                Esta secuencia permite que cada selector ya tenga la información necesaria cuando
+                llegue el momento de crear piezas, productos, recetas y órdenes.
+              </Typography>
+            )}
           </Box>
+          <Collapse in={guideOpen} unmountOnExit>
+            <Divider />
+            <Box
+              id="master-data-loading-guide"
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                gap: 0,
+              }}
+            >
+              {availableStages.map((stage, index) => (
+                <Box
+                  key={stage.id}
+                  sx={{
+                    p: 2.25,
+                    borderBottom: '1px solid',
+                    borderRight: { md: index % 2 === 0 ? '1px solid' : 0 },
+                    borderColor: 'divider',
+                  }}
+                >
+                  <Stack direction="row" spacing={1.25} alignItems="flex-start">
+                    <Box
+                      sx={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: '50%',
+                        bgcolor: 'primary.main',
+                        color: 'primary.contrastText',
+                        display: 'grid',
+                        placeItems: 'center',
+                        flex: '0 0 auto',
+                        '& svg': { fontSize: 19 },
+                      }}
+                    >
+                      {stage.icon}
+                    </Box>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Typography variant="subtitle1" component="h3" sx={{ fontWeight: 800 }}>
+                        {index + 1}. {stage.title}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {stage.description}
+                      </Typography>
+                      <Stack direction="row" flexWrap="wrap" gap={0.75} sx={{ mt: 1.25 }}>
+                        {stage.items.map((item) => (
+                          <Chip
+                            key={item.path}
+                            component={RouterLink}
+                            to={item.path}
+                            clickable
+                            size="small"
+                            label={item.label}
+                            color="primary"
+                            variant="outlined"
+                          />
+                        ))}
+                      </Stack>
+                    </Box>
+                  </Stack>
+                </Box>
+              ))}
+            </Box>
+          </Collapse>
         </Paper>
       ) : (
         <Alert severity="info">
@@ -251,7 +288,52 @@ function MasterDataHub() {
         onClear={() => { setSearch(''); setArea('TODAS'); }}
       />
 
-      <TableContainer component={Paper} variant="outlined">
+      <Stack spacing={1} sx={{ display: { xs: 'flex', md: 'none' } }}>
+        {visibleEntries.map((entry) => {
+          const maturity = maturityConfig[entry.maturity];
+          return (
+            <Paper key={entry.id} variant="outlined" sx={{ p: 1.5 }}>
+              <Stack spacing={1}>
+                <Box>
+                  <Typography fontWeight={800}>{entry.name}</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                    {entry.object}
+                  </Typography>
+                </Box>
+                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                  <Chip size="small" label={areaLabels[entry.area] || entry.area} variant="outlined" />
+                  <Chip size="small" label={maturity.label} color={maturity.color} variant="outlined" />
+                </Stack>
+                <Button
+                  component={RouterLink}
+                  to={entry.path}
+                  variant="outlined"
+                  size="small"
+                  endIcon={<ArrowForwardOutlinedIcon />}
+                  sx={{ alignSelf: 'stretch' }}
+                >
+                  Abrir catálogo
+                </Button>
+              </Stack>
+            </Paper>
+          );
+        })}
+        {visibleEntries.length === 0 && (
+          <Paper variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
+            <Typography color="text.secondary">
+              No hay catálogos para los filtros seleccionados.
+            </Typography>
+          </Paper>
+        )}
+      </Stack>
+
+      <TableContainer
+        component={Paper}
+        variant="outlined"
+        aria-label="Tabla de catálogos maestros"
+        tabIndex={0}
+        sx={{ display: { xs: 'none', md: 'block' } }}
+      >
         <Table size="small" aria-label="Catalogos maestros">
           <TableHead>
             <TableRow>
@@ -268,7 +350,7 @@ function MasterDataHub() {
               return (
                 <TableRow key={entry.id} hover>
                   <TableCell sx={{ fontWeight: 750 }}>{entry.name}</TableCell>
-                  <TableCell>{entry.area}</TableCell>
+                  <TableCell>{areaLabels[entry.area] || entry.area}</TableCell>
                   <TableCell>{entry.object}</TableCell>
                   <TableCell><Chip size="small" label={maturity.label} color={maturity.color} variant="outlined" /></TableCell>
                   <TableCell align="right">

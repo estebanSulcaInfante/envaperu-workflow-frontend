@@ -738,7 +738,6 @@ function ScmEngineeringAdmin() {
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        eyebrow="Datos maestros / Producción"
         title="Ingeniería SCM"
         description="Artículos, estructuras multinivel, rutas y reglas físicas de empaque conectadas a la API R-core."
         actions={(

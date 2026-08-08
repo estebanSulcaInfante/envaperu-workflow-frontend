@@ -155,7 +155,6 @@ function TalonariosAdmin() {
     <Box>
       <Box sx={{ mb: 2 }}>
         <PageHeader
-          eyebrow="Producción"
           title="Talonarios de Orden de Trabajo"
           description="Correlativos físicos utilizados por el registro diario de producción."
         />

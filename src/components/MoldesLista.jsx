@@ -123,7 +123,6 @@ function MoldesLista() {
     <Box>
       <Box sx={{ mb: 2 }}>
         <PageHeader
-          eyebrow="Datos maestros"
           title="Moldes"
           description="Configuración física, cavidades y formas producidas por cada molde."
         />

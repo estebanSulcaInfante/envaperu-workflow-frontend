@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAreaNavigation,
   featureIsAvailable,
+  getFeatureByKey,
   getWorkspaceFeature,
+  visibleWorkspaceFeatures,
   workspaceFeatures,
 } from '../config/workspaceRegistry';
 
@@ -20,6 +22,20 @@ describe('US-010N1: registro único del workspace', () => {
     expect(new Set(workspaceFeatures.map((item) => item.path)).size).toBe(workspaceFeatures.length);
   });
 
+  it('separa el catálogo de moldes de su detalle editable', () => {
+    expect(getWorkspaceFeature('/datos-maestros/moldes')?.key).toBe('masters.molds');
+    expect(getWorkspaceFeature('/datos-maestros/moldes/ML-000001')?.key)
+      .toBe('masters.moldDetail');
+    expect(getFeatureByKey('masters.moldDetail')?.requiredAny)
+      .toEqual(['ARTICULO_ADMINISTRAR', 'RUTA_ADMINISTRAR']);
+
+    const visible = visibleWorkspaceFeatures({
+      canAny: () => true,
+      areaKey: 'masters',
+    });
+    expect(visible.map((item) => item.key)).not.toContain('masters.moldDetail');
+  });
+
   it('construye las áreas de trabajo aprobadas', () => {
     const capabilities = new Set([
       'OP_VER', 'OF_VER', 'OA_VER', 'OT_VER', 'OPERACION_PLANIFICAR',
@@ -34,6 +50,22 @@ describe('US-010N1: registro único del workspace', () => {
       'home', 'planning', 'production', 'materials', 'warehouse', 'control',
     ]);
   });
+
+  it.each([
+    ['OA_VER', 'production', '/produccion/ordenes-armado'],
+    ['CALIDAD_MANGA_VER', 'warehouse', '/produccion/recepcion-mangas'],
+    ['MOLIENDA_VER', 'materials', '/produccion/reproceso'],
+  ])(
+    'dirige %s a la primera función accesible de %s',
+    (capability, areaKey, expectedPath) => {
+      const areas = buildAreaNavigation({
+        canAny: (required) => !required.length || required.includes(capability),
+        runtimeFlags: { showLegacy: false, allowPrototype: false, allowOutOfPilot: false },
+      });
+
+      expect(areas.find((item) => item.key === areaKey)?.path).toBe(expectedPath);
+    },
+  );
 
   it('gobierna legacy, prototipo y fuera del piloto por madurez', () => {
     expect(featureIsAvailable(

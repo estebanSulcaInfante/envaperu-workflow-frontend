@@ -165,7 +165,6 @@ function TrabajadoresAdmin() {
     <Box>
       <Box sx={{ mb: 2 }}>
         <PageHeader
-          eyebrow="Datos maestros"
           title="Trabajadores"
           description="Personas habilitadas y sus roles operativos de planta."
         />

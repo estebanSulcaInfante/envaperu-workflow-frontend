@@ -240,7 +240,6 @@ function MaquinasAdmin() {
     <Box>
       <Box sx={{ mb: 2 }}>
         <PageHeader
-          eyebrow="Datos maestros"
           title="Máquinas"
           description="Equipos de planta, tipo de proceso, estado físico y disponibilidad en formularios."
         />

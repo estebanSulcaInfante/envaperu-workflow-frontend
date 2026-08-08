@@ -6,6 +6,9 @@ import {
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
+import ArrowForwardOutlinedIcon from '@mui/icons-material/ArrowForwardOutlined';
+import FactoryOutlinedIcon from '@mui/icons-material/FactoryOutlined';
+import { Link as RouterLink } from 'react-router-dom';
 import { obtenerColores, obtenerMaquinas, obtenerMoldes } from '../services/api';
 import {
   configurarOrdenFabricacionScm,
@@ -17,6 +20,7 @@ import {
 } from '../services/scmEngineeringApi';
 import PageHeader from './ui/PageHeader';
 import ProcessJourney from './ui/ProcessJourney';
+import EmptyState from './ui/EmptyState';
 import { useScmActor } from '../context/ScmActorContext';
 
 const statusColor = {
@@ -192,7 +196,6 @@ export default function FabricationOrdersScm() {
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        eyebrow="Producción / Configuración técnica"
         title="Órdenes de fabricación"
         description="Completa molde, máquina y parámetros físicos de las OF planificadas antes de liberarlas hacia OT y mangas."
         actions={(
@@ -217,23 +220,23 @@ export default function FabricationOrdersScm() {
         se derivan de MoldePieza; el sistema calcula los ciclos mínimos y el excedente técnico.
       </Alert>
 
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
-          <FormControl sx={{ minWidth: 340 }}>
-            <InputLabel>Orden de fabricación</InputLabel>
-            <Select
-              label="Orden de fabricación"
-              value={selected?.id || ''}
-              onChange={(event) => chooseOrder(event.target.value)}
-            >
-              {orders.map((order) => (
-                <MenuItem key={order.id} value={order.id}>
-                  {order.codigo} · {order.estado} · {order.corridas?.[0]?.salidas?.[0]?.articulo?.nombre}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          {selected && (
+      {selected && (
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
+            <FormControl sx={{ width: { xs: '100%', md: 340 }, minWidth: 0 }}>
+              <InputLabel>Orden de fabricación</InputLabel>
+              <Select
+                label="Orden de fabricación"
+                value={selected.id}
+                onChange={(event) => chooseOrder(event.target.value)}
+              >
+                {orders.map((order) => (
+                  <MenuItem key={order.id} value={order.id}>
+                    {order.codigo} · {order.estado} · {order.corridas?.[0]?.salidas?.[0]?.articulo?.nombre}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <>
               <Chip label={selected.estado} color={statusColor[selected.estado] || 'default'} />
               <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
@@ -253,12 +256,28 @@ export default function FabricationOrdersScm() {
                 </Button>
               )}
             </>
-          )}
-        </Stack>
-      </Paper>
+          </Stack>
+        </Paper>
+      )}
 
       {busy && <Box sx={{ display: 'grid', placeItems: 'center', py: 4 }}><CircularProgress /></Box>}
-      {!busy && !selected && <Alert severity="info">Todavía no existen OF.</Alert>}
+      {!busy && !error && !selected && (
+        <EmptyState
+          icon={<FactoryOutlinedIcon />}
+          title="Aún no hay órdenes de fabricación"
+          description="Las OF aparecen aquí cuando una OP aprobada confirma su plan y requiere fabricación. Empieza revisando la demanda y la cobertura."
+          action={(can('OP_VER') || can('PLANIFICACION_CALCULAR')) ? (
+            <Button
+              component={RouterLink}
+              to="/planificacion"
+              variant="contained"
+              endIcon={<ArrowForwardOutlinedIcon />}
+            >
+              Ir a Planificación
+            </Button>
+          ) : null}
+        />
+      )}
 
       {!busy && selected && (
         <>

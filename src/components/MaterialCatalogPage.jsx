@@ -257,7 +257,7 @@ function MaterialCatalogPage() {
 
   return (
     <Stack spacing={2.25} sx={{ maxWidth: 1440, mx: 'auto' }}>
-      <PageHeader eyebrow="Datos maestros" title="Materiales y abastecimiento" description="Catálogos persistentes utilizados por compras, recepción, recetas y producción." />
+      <PageHeader title="Materiales y abastecimiento" description="Catálogos persistentes utilizados por compras, recepción, recetas y producción." />
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       <Paper variant="outlined" sx={{ overflow: 'hidden' }}>

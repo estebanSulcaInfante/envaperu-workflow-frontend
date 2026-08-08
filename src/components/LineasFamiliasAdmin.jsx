@@ -392,7 +392,6 @@ function LineasFamiliasAdmin() {
   return (
     <Stack spacing={2.25} sx={{ maxWidth: 1440, mx: 'auto' }}>
       <PageHeader
-        eyebrow="Datos maestros"
         title="Líneas y familias"
         description="Catálogos de clasificación y combinaciones válidas para productos y piezas."
       />

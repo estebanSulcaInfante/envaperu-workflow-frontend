@@ -65,4 +65,14 @@ describe('selector de perfiles SCM', () => {
     expect(within(dialog).getAllByText('Gerente General')).toHaveLength(2);
     await waitFor(() => expect(guardarActorScm).toHaveBeenCalledWith(1));
   });
+
+  it('presenta la identidad como barra utilitaria compacta', async () => {
+    getTrabajadores.mockResolvedValue([manager]);
+
+    renderBar();
+
+    expect(await screen.findByRole('region', { name: 'Sesión de trabajo' })).toBeVisible();
+    expect(screen.getAllByText('Gerente General').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Trabajando como')).not.toBeInTheDocument();
+  });
 });

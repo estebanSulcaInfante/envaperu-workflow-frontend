@@ -40,18 +40,14 @@ import OperationalAlertsScm from './components/OperationalAlertsScm';
 import WarehouseReceivingScm from './components/WarehouseReceivingScm';
 import InternalSupplyScm from './components/InternalSupplyScm';
 import ErrorBoundary from './components/ErrorBoundary';
-import CapabilityRoute from './components/CapabilityRoute';
-import FeatureAvailabilityRoute from './components/FeatureAvailabilityRoute';
+import WorkspaceFeatureRoute from './components/WorkspaceFeatureRoute';
+import WorkspaceAreaRedirect from './components/WorkspaceAreaRedirect';
 import { ScmActorProvider } from './context/ScmActorContext';
 import { AuthProvider } from './context/AuthContext';
 import AuthGate from './components/auth/AuthGate';
 
-const permitted = (element, any) => (
-  <CapabilityRoute any={any}>{element}</CapabilityRoute>
-);
-
-const available = (featureKey, element) => (
-  <FeatureAvailabilityRoute featureKey={featureKey}>{element}</FeatureAvailabilityRoute>
+const workspace = (featureKey, element) => (
+  <WorkspaceFeatureRoute featureKey={featureKey}>{element}</WorkspaceFeatureRoute>
 );
 
 // Tema claro corporativo ENVAPERU
@@ -149,56 +145,56 @@ function App() {
               <AppShell>
                 <ErrorBoundary>
               <Routes>
-                <Route path="/" element={<RoleHome />} />
+                <Route path="/" element={workspace('home.workspace', <RoleHome />)} />
                 <Route path="/guia/scm" element={<ScmGuide />} />
-                <Route path="/planificacion" element={permitted(<ProductionPlanningScm />, ['OP_VER', 'OP_CREAR', 'OP_APROBAR', 'PLANIFICACION_CALCULAR'])} />
-                <Route path="/planificacion/:solicitudId" element={<PlanificacionProduccion />} />
-                <Route path="/produccion/ordenes" element={<OrdenesLista />} />
-                <Route path="/produccion" element={<Navigate to="/produccion/ordenes" replace />} />
-                <Route path="/produccion/ordenes/nueva-excepcional" element={<OrdenForm />} />
-                <Route path="/produccion/registros" element={<RegistrosLista />} />
-                <Route path="/produccion/talonarios" element={<TalonariosAdmin />} />
-                <Route path="/produccion/avance" element={permitted(<ProductionProgressDashboard />, ['WIP_VER'])} />
-                <Route path="/produccion/pesajes" element={permitted(<LegacyProductionOrders />, ['MANGA_PESAJE_VER'])} />
-                <Route path="/produccion/ots-mangas" element={permitted(<OtMangasScm />, ['OT_VER', 'PLAN_MANGA_VER'])} />
-                <Route path="/produccion/ordenes-fabricacion" element={permitted(<FabricationOrdersScm />, ['OF_VER'])} />
-                <Route path="/produccion/ordenes-armado" element={permitted(<AssemblyOrdersScm />, ['OA_VER'])} />
+                <Route path="/planificacion" element={workspace('planning.demand', <ProductionPlanningScm />)} />
+                <Route path="/planificacion/:solicitudId" element={workspace('planning.demand', <PlanificacionProduccion />)} />
+                <Route path="/produccion/ordenes" element={workspace('control.legacyOrders', <OrdenesLista />)} />
+                <Route path="/produccion" element={<WorkspaceAreaRedirect areaKey="production" />} />
+                <Route path="/produccion/ordenes/nueva-excepcional" element={workspace('planning.exceptionalOp', <OrdenForm />)} />
+                <Route path="/produccion/registros" element={workspace('control.dailyRecords', <RegistrosLista />)} />
+                <Route path="/produccion/talonarios" element={workspace('control.talonarios', <TalonariosAdmin />)} />
+                <Route path="/produccion/avance" element={workspace('control.progress', <ProductionProgressDashboard />)} />
+                <Route path="/produccion/pesajes" element={workspace('control.weighings', <LegacyProductionOrders />)} />
+                <Route path="/produccion/ots-mangas" element={workspace('production.machineWork', <OtMangasScm />)} />
+                <Route path="/produccion/ordenes-fabricacion" element={workspace('production.fabrication', <FabricationOrdersScm />)} />
+                <Route path="/produccion/ordenes-armado" element={workspace('production.assembly', <AssemblyOrdersScm />)} />
                 <Route path="/produccion/ordenes-ensamble" element={<Navigate to="/produccion/ordenes-armado" replace />} />
-                <Route path="/produccion/abastecimiento" element={permitted(<InternalSupplyScm />, ['ABASTECIMIENTO_VER'])} />
-                <Route path="/produccion/kardex" element={permitted(<InventoryScm />, ['INVENTARIO_VER'])} />
-                <Route path="/produccion/recepcion-mangas" element={permitted(<WarehouseReceivingScm />, ['RECEPCION_MANGA_VER', 'CALIDAD_MANGA_VER'])} />
-                <Route path="/produccion/reproceso" element={permitted(<ReprocessingScm />, ['MOLIENDA_VER'])} />
-                <Route path="/produccion/alertas" element={permitted(<OperationalAlertsScm />, ['ALERTA_VER'])} />
-                <Route path="/materiales/recepciones" element={available('external.receiving', <RecepcionMateriales />)} />
-                <Route path="/materiales/recepciones/nueva" element={available('external.receiving', <RecepcionMateriales />)} />
-                <Route path="/materiales/recepciones/:recepcionId" element={available('external.receiving', <RecepcionMateriales />)} />
-                <Route path="/materiales/recepciones/:recepcionId/editar" element={available('external.receiving', <RecepcionMateriales />)} />
-                <Route path="/materiales/compras" element={available('external.purchases', <RecepcionMateriales />)} />
-                <Route path="/materiales/calidad" element={available('external.quality', <RecepcionMateriales />)} />
-                <Route path="/materiales/inventario" element={available('external.inventory', <RecepcionMateriales />)} />
-                <Route path="/materiales/documentos" element={available('external.documents', <RecepcionMateriales />)} />
-                <Route path="/materiales/cobertura" element={available('external.coverage', <RecepcionMateriales />)} />
-                <Route path="/materiales/preparaciones" element={<PreparacionMateriales />} />
-                <Route path="/materiales/preparaciones/:numeroOp" element={<PreparacionMateriales />} />
-                <Route path="/ordenes/:numeroOp/materiales" element={<PreparacionMateriales />} />
-                <Route path="/datos-maestros" element={permitted(<MasterDataHub />, ['ARTICULO_VER', 'EMPAQUE_VER', 'CONFIG_RECEPCION_ADMINISTRAR'])} />
-                <Route path="/datos-maestros/productos" element={permitted(<ProductosAdmin />, ['ARTICULO_VER'])} />
-                <Route path="/datos-maestros/piezas" element={permitted(<PiezasAdmin />, ['ARTICULO_VER'])} />
-                <Route path="/datos-maestros/trabajadores" element={permitted(<TrabajadoresAdmin />, ['AUTORIZACION_SCM_ADMINISTRAR'])} />
-                <Route path="/datos-maestros/maquinas" element={permitted(<MaquinasAdmin />, ['CATALOGO_PLANTA_ADMINISTRAR', 'OF_EDITAR_BORRADOR', 'CONFIG_RECEPCION_ADMINISTRAR'])} />
-                <Route path="/datos-maestros/moldes" element={permitted(<MoldesLista />, ['ARTICULO_VER', 'RUTA_VER'])} />
-                <Route path="/datos-maestros/moldes/:codigo" element={permitted(<MoldeDetalle />, ['ARTICULO_ADMINISTRAR', 'RUTA_ADMINISTRAR'])} />
-                <Route path="/datos-maestros/configuracion-guiada" element={permitted(<ConfigurarProducto />, ['ARTICULO_ADMINISTRAR'])} />
-                <Route path="/datos-maestros/materiales" element={permitted(<MaterialCatalogPage />, ['CATALOGO_MATERIAL_ADMINISTRAR', 'CONFIG_RECEPCION_ADMINISTRAR', 'PROVEEDOR_ADMINISTRAR'])} />
-                <Route path="/datos-maestros/clasificacion" element={permitted(<LineasFamiliasAdmin />, ['ARTICULO_ADMINISTRAR'])} />
-                <Route path="/datos-maestros/colores" element={permitted(<ColoresRecetasAdmin />, ['ARTICULO_ADMINISTRAR', 'EMPAQUE_ADMINISTRAR'])} />
-                <Route path="/datos-maestros/ingenieria-scm" element={permitted(<ScmEngineeringAdmin />, ['ESTRUCTURA_VER', 'RUTA_VER', 'EMPAQUE_VER'])} />
-                <Route path="/datos-maestros/reproceso" element={permitted(<ReprocessingScm initialTab={4} />, ['MOLIENDA_VER', 'MOLIENDA_REGLA_ADMINISTRAR'])} />
-                <Route path="/catalogo/importar" element={permitted(<ImportarCatalogo />, ['ARTICULO_ADMINISTRAR', 'CATALOGO_MATERIAL_ADMINISTRAR'])} />
+                <Route path="/produccion/abastecimiento" element={workspace('materials.internalSupply', <InternalSupplyScm />)} />
+                <Route path="/produccion/kardex" element={workspace('warehouse.kardex', <InventoryScm />)} />
+                <Route path="/produccion/recepcion-mangas" element={workspace('warehouse.receiving', <WarehouseReceivingScm />)} />
+                <Route path="/produccion/reproceso" element={workspace('materials.reprocessing', <ReprocessingScm />)} />
+                <Route path="/produccion/alertas" element={workspace('control.alerts', <OperationalAlertsScm />)} />
+                <Route path="/materiales/recepciones" element={workspace('external.receiving', <RecepcionMateriales />)} />
+                <Route path="/materiales/recepciones/nueva" element={workspace('external.receiving', <RecepcionMateriales />)} />
+                <Route path="/materiales/recepciones/:recepcionId" element={workspace('external.receiving', <RecepcionMateriales />)} />
+                <Route path="/materiales/recepciones/:recepcionId/editar" element={workspace('external.receiving', <RecepcionMateriales />)} />
+                <Route path="/materiales/compras" element={workspace('external.purchases', <RecepcionMateriales />)} />
+                <Route path="/materiales/calidad" element={workspace('external.quality', <RecepcionMateriales />)} />
+                <Route path="/materiales/inventario" element={workspace('external.inventory', <RecepcionMateriales />)} />
+                <Route path="/materiales/documentos" element={workspace('external.documents', <RecepcionMateriales />)} />
+                <Route path="/materiales/cobertura" element={workspace('external.coverage', <RecepcionMateriales />)} />
+                <Route path="/materiales/preparaciones" element={workspace('materials.preparation', <PreparacionMateriales />)} />
+                <Route path="/materiales/preparaciones/:numeroOp" element={workspace('materials.preparation', <PreparacionMateriales />)} />
+                <Route path="/ordenes/:numeroOp/materiales" element={workspace('materials.preparation', <PreparacionMateriales />)} />
+                <Route path="/datos-maestros" element={workspace('masters.hub', <MasterDataHub />)} />
+                <Route path="/datos-maestros/productos" element={workspace('masters.products', <ProductosAdmin />)} />
+                <Route path="/datos-maestros/piezas" element={workspace('masters.pieces', <PiezasAdmin />)} />
+                <Route path="/datos-maestros/trabajadores" element={workspace('masters.workers', <TrabajadoresAdmin />)} />
+                <Route path="/datos-maestros/maquinas" element={workspace('masters.machines', <MaquinasAdmin />)} />
+                <Route path="/datos-maestros/moldes" element={workspace('masters.molds', <MoldesLista />)} />
+                <Route path="/datos-maestros/moldes/:codigo" element={workspace('masters.moldDetail', <MoldeDetalle />)} />
+                <Route path="/datos-maestros/configuracion-guiada" element={workspace('masters.wizard', <ConfigurarProducto />)} />
+                <Route path="/datos-maestros/materiales" element={workspace('masters.materials', <MaterialCatalogPage />)} />
+                <Route path="/datos-maestros/clasificacion" element={workspace('masters.classification', <LineasFamiliasAdmin />)} />
+                <Route path="/datos-maestros/colores" element={workspace('masters.colors', <ColoresRecetasAdmin />)} />
+                <Route path="/datos-maestros/ingenieria-scm" element={workspace('masters.engineering', <ScmEngineeringAdmin />)} />
+                <Route path="/datos-maestros/reproceso" element={workspace('masters.reprocessingRules', <ReprocessingScm initialTab={4} />)} />
+                <Route path="/catalogo/importar" element={workspace('masters.import', <ImportarCatalogo />)} />
                 <Route path="/catalogo/configurar" element={<Navigate to="/datos-maestros/configuracion-guiada" replace />} />
                 <Route path="/datos-maestros/configurar" element={<Navigate to="/datos-maestros/configuracion-guiada" replace />} />
-                <Route path="/catalogo/revision" element={permitted(<RevisionProductos />, ['ARTICULO_ADMINISTRAR'])} />
-                <Route path="/configuracion" element={available('admin.settings', <RecepcionMateriales forcedSection="configuracion" />)} />
+                <Route path="/catalogo/revision" element={workspace('masters.review', <RevisionProductos />)} />
+                <Route path="/configuracion" element={workspace('admin.settings', <RecepcionMateriales forcedSection="configuracion" />)} />
 
                 <Route path="/ordenes" element={<Navigate to="/produccion/ordenes" replace />} />
                 <Route path="/ordenes/nueva" element={<Navigate to="/produccion/ordenes/nueva-excepcional" replace />} />
@@ -206,7 +202,7 @@ function App() {
                 <Route path="/registros/talonarios" element={<Navigate to="/produccion/talonarios" replace />} />
                 <Route path="/pesaje/avance" element={<Navigate to="/produccion/avance" replace />} />
                 <Route path="/pesaje/ordenes" element={<Navigate to="/produccion/pesajes" replace />} />
-                <Route path="/materiales" element={<Navigate to="/materiales/preparaciones" replace />} />
+                <Route path="/materiales" element={<WorkspaceAreaRedirect areaKey="materials" />} />
                 <Route path="/materiales/catalogos" element={<Navigate to="/datos-maestros/materiales" replace />} />
                 <Route path="/materiales/configuracion" element={<Navigate to="/configuracion" replace />} />
                 <Route path="/catalogo/productos" element={<Navigate to="/datos-maestros/productos" replace />} />
@@ -215,7 +211,7 @@ function App() {
                 <Route path="/catalogo/maquinas" element={<Navigate to="/datos-maestros/maquinas" replace />} />
                 <Route path="/catalogo/moldes" element={<Navigate to="/datos-maestros/moldes" replace />} />
                 <Route path="/catalogo/clasificacion" element={<Navigate to="/datos-maestros/clasificacion" replace />} />
-                <Route path="/catalogo/moldes/:codigo" element={<MoldeDetalle />} />
+                <Route path="/catalogo/moldes/:codigo" element={workspace('masters.moldDetail', <MoldeDetalle />)} />
               </Routes>
                 </ErrorBoundary>
               </AppShell>

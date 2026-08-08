@@ -459,7 +459,6 @@ function ColoresRecetasAdmin() {
   return (
     <Stack spacing={2.25} sx={{ maxWidth: 1500, mx: 'auto' }}>
       <PageHeader
-        eyebrow="Datos maestros / Producción"
         title="Colores y recetas"
         description="Administra colores visuales y fórmulas manuales versionadas. Las OP conservan su propia copia histórica."
       />

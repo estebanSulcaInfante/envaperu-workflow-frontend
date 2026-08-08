@@ -123,7 +123,6 @@ export default function InventoryScm() {
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        eyebrow="Inventario / Kardex SCM"
         title="Existencias para planificación"
         description="Consulta existencia física, reservas de planes confirmados y saldo realmente disponible."
         actions={(

@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import {
-  Box, Chip, Paper, Stack, Typography,
+  Box, Button, Chip, Collapse, Divider, Paper, Stack, Typography,
 } from '@mui/material';
-import ArrowForwardIosRoundedIcon from '@mui/icons-material/ArrowForwardIosRounded';
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import { Link as RouterLink } from 'react-router-dom';
 import { useScmActor } from '../../context/ScmActorContext';
 
@@ -45,28 +46,57 @@ export default function ProcessJourney({ current }) {
   const { canAny } = useScmActor();
   const normalizedCurrent = current === 'armado' || current === 'fabricacion'
     ? 'trabajo' : current;
+  const [expanded, setExpanded] = useState(normalizedCurrent === 'demanda');
+  const activeStep = steps.find((step) => step.id === normalizedCurrent) || steps[0];
 
   return (
     <Paper
-      component="nav"
+      component="section"
       aria-label="Recorrido operativo"
       variant="outlined"
-      sx={{ px: 1.5, py: 1.25, overflowX: 'auto' }}
+      sx={{ px: 1.5, py: 1 }}
     >
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 760 }}>
-        <Box sx={{ minWidth: 112 }}>
-          <Typography variant="caption" color="text.secondary">Navegación entre etapas</Typography>
-          <Typography variant="subtitle2" fontWeight={850}>Recorrido operativo</Typography>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" color="text.secondary">Recorrido operativo</Typography>
+          <Typography variant="body2" fontWeight={800} noWrap>
+            Etapa actual: {activeStep.label} · {activeStep.detail}
+          </Typography>
         </Box>
-        {steps.map((step, index) => {
-          const active = step.id === normalizedCurrent;
-          const accessible = !step.future && canAny(step.requiredAny);
-          const label = step.label;
-          const detail = step.detail;
-          const path = step.path;
-          return (
-            <Stack key={step.id} direction="row" alignItems="center" spacing={1} flex={1}>
+        <Button
+          size="small"
+          variant="text"
+          aria-expanded={expanded}
+          aria-controls="process-journey-steps"
+          endIcon={(
+            <ExpandMoreRoundedIcon
+              sx={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 160ms' }}
+            />
+          )}
+          onClick={() => setExpanded((value) => !value)}
+          sx={{ flexShrink: 0 }}
+        >
+          {expanded ? 'Ocultar etapas' : 'Ver etapas'}
+        </Button>
+      </Stack>
+      <Collapse in={expanded} unmountOnExit>
+        <Divider sx={{ my: 1 }} />
+        <Box
+          id="process-journey-steps"
+          data-testid="process-journey-steps"
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(5, minmax(0, 1fr))' },
+            gap: 1,
+          }}
+        >
+          {steps.map((step) => {
+            const active = step.id === normalizedCurrent;
+            const accessible = canAny(step.requiredAny);
+            const path = step.path;
+            return (
               <Chip
+                key={step.id}
                 component={accessible && path ? RouterLink : 'div'}
                 to={accessible && path ? path : undefined}
                 clickable={Boolean(accessible && path)}
@@ -74,20 +104,19 @@ export default function ProcessJourney({ current }) {
                 color={active ? 'primary' : 'default'}
                 variant={active ? 'filled' : 'outlined'}
                 label={(
-                  <Box sx={{ textAlign: 'left', lineHeight: 1.15 }}>
-                    <Typography component="span" variant="caption" fontWeight={800}>{label}</Typography>
+                  <Box sx={{ textAlign: 'left', lineHeight: 1.15, py: 0.25 }}>
+                    <Typography component="span" variant="caption" fontWeight={800}>{step.label}</Typography>
                     <Typography component="span" variant="caption" display="block" color={active ? 'inherit' : 'text.secondary'}>
-                      {detail}
+                      {step.detail}
                     </Typography>
                   </Box>
                 )}
-                sx={{ height: 42, flex: 1, justifyContent: 'flex-start', opacity: step.future ? 0.55 : 1 }}
+                sx={{ height: 'auto', minHeight: 44, width: '100%', justifyContent: 'flex-start' }}
               />
-              {index < steps.length - 1 && <ArrowForwardIosRoundedIcon sx={{ fontSize: 14, color: 'text.disabled' }} />}
-            </Stack>
-          );
-        })}
-      </Stack>
+            );
+          })}
+        </Box>
+      </Collapse>
     </Paper>
   );
 }

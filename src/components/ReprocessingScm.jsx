@@ -269,7 +269,6 @@ export default function ReprocessingScm({ initialTab = 0 }) {
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        eyebrow="Producción / Reproceso trazable"
         title="Merma, molienda y material recuperado"
         description={`${experience.label}: ${experience.focus}`}
         actions={<Button startIcon={<RefreshIcon />} variant="outlined" onClick={load}>Actualizar</Button>}

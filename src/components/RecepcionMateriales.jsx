@@ -883,11 +883,10 @@ function RecepcionMateriales({ forcedSection }) {
     configuracion: ['Soporte', 'Configuración operativa', 'Participantes, evidencias y modalidades aplicables al flujo de materias primas.'],
     cobertura: ['Materias primas', 'Cobertura funcional US-010A', 'Escenarios, reglas y capacidades representadas por el prototipo.'],
   };
-  const [headerEyebrow, headerTitle, headerDescription] = headerBySection[section] || headerBySection.recepciones;
+  const [, headerTitle, headerDescription] = headerBySection[section] || headerBySection.recepciones;
   return (
     <Stack spacing={2.25} sx={{ maxWidth: 1540, mx: 'auto' }}>
       <PageHeader
-        eyebrow={headerEyebrow}
         title={headerTitle}
         description={headerDescription}
         actions={<Chip icon={<Inventory2OutlinedIcon />} label={RECEPCION_MATERIALES_SOURCE} variant="outlined" />}

@@ -953,7 +953,6 @@ export default function OtMangasScm() {
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        eyebrow="Fabricación / Ejecución SCM"
         title="OT de máquina y trabajos de color"
         description="La OT organiza la jornada de una máquina. Cada color conserva su OF, corrida, responsable, cupo y mangas."
         actions={(

@@ -91,7 +91,6 @@ export default function RoleHome() {
   return (
     <Stack spacing={3}>
       <PageHeader
-        eyebrow="Inicio / Espacio de trabajo"
         title={`Hola, ${actor?.nombre_corto || actor?.nombres || 'equipo'}`}
         description={experience.focus}
       />

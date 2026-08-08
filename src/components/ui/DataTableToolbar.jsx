@@ -49,9 +49,11 @@ function DataTableToolbar({
           value={searchValue}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder={searchPlaceholder}
-          aria-label="Omnibúsqueda"
           sx={{ minWidth: { lg: 300 }, flex: { lg: '1 1 360px' } }}
           slotProps={{
+            htmlInput: {
+              'aria-label': 'Omnibúsqueda',
+            },
             input: {
               startAdornment: (
                 <InputAdornment position="start">
@@ -99,7 +101,13 @@ function DataTableToolbar({
             sx={{ ml: { lg: 'auto' }, width: { xs: '100%', lg: 'auto' } }}
           >
             {Number.isFinite(resultCount) && (
-              <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+              <Typography
+                role="status"
+                aria-live="polite"
+                variant="caption"
+                color="text.secondary"
+                sx={{ whiteSpace: 'nowrap' }}
+              >
                 {resultCount}{Number.isFinite(totalCount) ? ` de ${totalCount}` : ''} resultados
               </Typography>
             )}

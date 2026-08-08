@@ -159,7 +159,6 @@ function PreparationQueue({ workspace, onOpen }) {
   return (
     <Stack spacing={2.25} sx={{ maxWidth: 1480, mx: 'auto' }}>
       <PageHeader
-        eyebrow="Materias primas"
         title="Reservas y entregas a producción"
         description="Órdenes liberadas con requerimientos de material pendientes de reservar, emitir o preparar."
         actions={<Chip data-testid="data-source" icon={<CheckCircleOutlineIcon />} label="API SCM" color="success" variant="outlined" />}

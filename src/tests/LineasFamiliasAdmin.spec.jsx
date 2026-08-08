@@ -71,7 +71,7 @@ describe('LineasFamiliasAdmin', () => {
 
     expect(await screen.findByRole('heading', { name: 'Líneas y familias' })).toBeInTheDocument();
     expect(screen.getByText('Industrial')).toBeInTheDocument();
-    expect(screen.getAllByText('Baldes')).toHaveLength(2);
+    await waitFor(() => expect(screen.getAllByText('Baldes')).toHaveLength(2));
     await waitFor(() => expect(obtenerLineas).toHaveBeenCalledWith({ include_inactive: true }));
     expect(obtenerFamilias).toHaveBeenCalledWith({ include_inactive: true });
     expect(obtenerFamiliasDeLinea).toHaveBeenCalledWith(1);

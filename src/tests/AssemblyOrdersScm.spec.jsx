@@ -153,6 +153,15 @@ describe('OA y OT diaria de Armado', () => {
     expect(await screen.findByText('SA-000001 creada desde la BOM y la cuota diaria.')).toBeInTheDocument();
   });
 
+  it('no presenta un vacío operativo cuando falló la consulta de OA', async () => {
+    listarOrdenesArmadoScm.mockRejectedValueOnce(new Error('Servicio OA no disponible'));
+
+    renderView();
+
+    expect(await screen.findByText('Servicio OA no disponible')).toBeVisible();
+    expect(screen.queryByText('Aún no hay órdenes de armado')).not.toBeInTheDocument();
+  });
+
   it('vincula el prearmado concurrente con una OT de fabricacion del mismo dia', async () => {
     listarOtArmadoScm.mockResolvedValue({ items: [] });
     listarOtScm.mockResolvedValue({

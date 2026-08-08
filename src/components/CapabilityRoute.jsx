@@ -1,13 +1,49 @@
-import { Alert, Box, Button, Paper, Stack, Typography } from '@mui/material';
+import {
+  Alert, Box, Button, Paper, Skeleton, Stack, Typography,
+} from '@mui/material';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import ArrowBackOutlinedIcon from '@mui/icons-material/ArrowBackOutlined';
 import { Link as RouterLink } from 'react-router-dom';
 import { useScmActor } from '../context/ScmActorContext';
 
 export default function CapabilityRoute({ any = [], children }) {
-  const { actor, canAny, loading } = useScmActor();
+  const {
+    actor, canAny, error, loading, refreshActors,
+  } = useScmActor();
 
-  if (loading || canAny(any)) return children;
+  if (loading) {
+    return (
+      <Stack
+        role="status"
+        aria-label="Cargando permisos"
+        spacing={1.25}
+        sx={{ maxWidth: 960, py: 2 }}
+      >
+        <Skeleton variant="rounded" height={44} width="55%" />
+        <Skeleton variant="rounded" height={120} />
+      </Stack>
+    );
+  }
+
+  if (error || !actor) {
+    return (
+      <Box sx={{ maxWidth: 760, mx: 'auto', py: 6 }}>
+        <Paper variant="outlined" sx={{ p: { xs: 2.5, md: 4 } }}>
+          <Typography variant="h5" fontWeight={850}>
+            No pudimos verificar tu acceso
+          </Typography>
+          <Alert severity="error" sx={{ my: 2 }}>
+            {error || 'La sesión no devolvió una identidad operativa válida.'}
+          </Alert>
+          <Button variant="contained" onClick={refreshActors}>
+            Reintentar
+          </Button>
+        </Paper>
+      </Box>
+    );
+  }
+
+  if (canAny(any)) return children;
 
   return (
     <Box sx={{ maxWidth: 760, mx: 'auto', py: 6 }}>
@@ -36,4 +72,3 @@ export default function CapabilityRoute({ any = [], children }) {
     </Box>
   );
 }
-

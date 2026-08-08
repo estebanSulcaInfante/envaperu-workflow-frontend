@@ -1,4 +1,4 @@
-import { render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThemeProvider, createTheme } from '@mui/material';
@@ -214,7 +214,8 @@ describe('PiezasAdmin: maestro global Pieza', () => {
     await user.click(screen.getByRole('button', { name: /Crear y seleccionar/i }));
 
     await waitFor(() => expect(crearLinea).toHaveBeenCalledWith({ nombre: 'SOPLADO' }));
-    await waitForElementToBeRemoved(() => screen.queryByRole('dialog', { name: /Nueva Línea/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /Nueva Línea/i }))
+      .not.toBeInTheDocument());
     expect(screen.getByRole('combobox', { name: 'Línea' })).toHaveValue('SOPLADO');
 
     const familyInput = screen.getByRole('combobox', { name: 'Familia' });
@@ -226,7 +227,8 @@ describe('PiezasAdmin: maestro global Pieza', () => {
     await waitFor(() => expect(crearFamiliaEnLinea).toHaveBeenCalledWith(3, {
       nombre: 'BOTELLAS',
     }));
-    await waitForElementToBeRemoved(() => screen.queryByRole('dialog', { name: /Nueva Familia/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /Nueva Familia/i }))
+      .not.toBeInTheDocument());
     expect(screen.getByRole('combobox', { name: 'Familia' })).toHaveValue('BOTELLAS');
   });
 });

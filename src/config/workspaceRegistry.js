@@ -33,6 +33,7 @@ const feature = ({
   requiredAny = [],
   maturity = 'PILOTO',
   task = true,
+  navigation = true,
   defaultPriority = 100,
   icon = 'catalog',
   keywords = [],
@@ -49,6 +50,7 @@ const feature = ({
   requiredAny,
   maturity,
   task,
+  navigation,
   defaultPriority,
   icon,
   keywords,
@@ -94,7 +96,8 @@ export const workspaceFeatures = [
   feature({ key: 'masters.hub', areaKey: 'masters', sectionKey: 'overview', label: 'Resumen de maestros', description: 'Hub canónico de catálogos.', path: '/datos-maestros', requiredAny: ['ARTICULO_VER', 'EMPAQUE_VER', 'CONFIG_RECEPCION_ADMINISTRAR'], icon: 'overview', defaultPriority: 10, exact: true }),
   feature({ key: 'masters.products', areaKey: 'masters', sectionKey: 'product-engineering', label: 'Productos', description: 'Productos terminados y presentaciones.', path: '/datos-maestros/productos', requiredAny: ['ARTICULO_VER'], icon: 'products' }),
   feature({ key: 'masters.pieces', areaKey: 'masters', sectionKey: 'product-engineering', label: 'Piezas y SKU', description: 'Pieza, PiezaColor, imágenes y SKU.', path: '/datos-maestros/piezas', requiredAny: ['ARTICULO_VER'], icon: 'pieces' }),
-  feature({ key: 'masters.molds', areaKey: 'masters', sectionKey: 'product-engineering', label: 'Moldes', description: 'Moldes, cavidades y salidas.', path: '/datos-maestros/moldes', matches: ['/datos-maestros/moldes/:codigo'], aliases: ['/catalogo/moldes', '/catalogo/moldes/:codigo'], requiredAny: ['ARTICULO_VER', 'RUTA_VER'], icon: 'molds' }),
+  feature({ key: 'masters.molds', areaKey: 'masters', sectionKey: 'product-engineering', label: 'Moldes', description: 'Moldes, cavidades y salidas.', path: '/datos-maestros/moldes', aliases: ['/catalogo/moldes'], requiredAny: ['ARTICULO_VER', 'RUTA_VER'], icon: 'molds' }),
+  feature({ key: 'masters.moldDetail', areaKey: 'masters', sectionKey: 'product-engineering', label: 'Detalle de molde', description: 'Configuración editable del molde.', path: '/datos-maestros/moldes/:codigo', aliases: ['/catalogo/moldes/:codigo'], requiredAny: ['ARTICULO_ADMINISTRAR', 'RUTA_ADMINISTRAR'], icon: 'molds', navigation: false, task: false }),
   feature({ key: 'masters.wizard', areaKey: 'masters', sectionKey: 'product-engineering', label: 'Configuración guiada', description: 'Asistente Molde, Pieza y PiezaColor.', path: '/datos-maestros/configuracion-guiada', aliases: ['/catalogo/configurar', '/datos-maestros/configurar'], requiredAny: ['ARTICULO_ADMINISTRAR'], icon: 'wizard' }),
   feature({ key: 'masters.engineering', areaKey: 'masters', sectionKey: 'product-engineering', label: 'Ingeniería SCM', description: 'WIP, BOM, rutas y empaque.', path: '/datos-maestros/ingenieria-scm', requiredAny: ['ESTRUCTURA_VER', 'RUTA_VER', 'EMPAQUE_VER'], icon: 'production' }),
   feature({ key: 'masters.classification', areaKey: 'masters', sectionKey: 'product-engineering', label: 'Líneas y familias', description: 'Clasificación N:M de producto.', path: '/datos-maestros/clasificacion', aliases: ['/catalogo/clasificacion'], requiredAny: ['ARTICULO_ADMINISTRAR'], icon: 'catalog' }),
@@ -102,7 +105,7 @@ export const workspaceFeatures = [
   feature({ key: 'masters.materials', areaKey: 'masters', sectionKey: 'materials-suppliers', label: 'Materiales y proveedores', description: 'Materias primas, proveedores y reglas.', path: '/datos-maestros/materiales', aliases: ['/materiales/catalogos'], requiredAny: ['CATALOGO_MATERIAL_ADMINISTRAR', 'CONFIG_RECEPCION_ADMINISTRAR', 'PROVEEDOR_ADMINISTRAR'], icon: 'materials' }),
   feature({ key: 'masters.machines', areaKey: 'masters', sectionKey: 'plant-logistics', label: 'Máquinas', description: 'Recursos de planta.', path: '/datos-maestros/maquinas', aliases: ['/catalogo/maquinas'], requiredAny: ['CATALOGO_PLANTA_ADMINISTRAR', 'OF_EDITAR_BORRADOR', 'CONFIG_RECEPCION_ADMINISTRAR'], icon: 'machines' }),
   feature({ key: 'masters.workers', areaKey: 'masters', sectionKey: 'organization', label: 'Trabajadores', description: 'Personas y asignaciones operativas.', path: '/datos-maestros/trabajadores', aliases: ['/catalogo/trabajadores'], requiredAny: ['AUTORIZACION_SCM_ADMINISTRAR'], icon: 'workers' }),
-  feature({ key: 'masters.reprocessingRules', areaKey: 'masters', sectionKey: 'governance', label: 'Reglas de reproceso', description: 'Compatibilidades y reglas maestras.', path: '/datos-maestros/reproceso', requiredAny: ['MOLIENDA_REGLA_ADMINISTRAR'], icon: 'recycling' }),
+  feature({ key: 'masters.reprocessingRules', areaKey: 'masters', sectionKey: 'governance', label: 'Reglas de reproceso', description: 'Compatibilidades y reglas maestras.', path: '/datos-maestros/reproceso', requiredAny: ['MOLIENDA_VER', 'MOLIENDA_REGLA_ADMINISTRAR'], icon: 'recycling' }),
   feature({ key: 'masters.import', areaKey: 'masters', sectionKey: 'governance', label: 'Importar datos', description: 'Carga controlada de catálogo.', path: '/catalogo/importar', requiredAny: ['ARTICULO_ADMINISTRAR', 'CATALOGO_MATERIAL_ADMINISTRAR'], icon: 'documents' }),
   feature({ key: 'masters.review', areaKey: 'masters', sectionKey: 'governance', label: 'Revisión de datos', description: 'Calidad y pendientes del catálogo.', path: '/catalogo/revision', requiredAny: ['ARTICULO_ADMINISTRAR'], icon: 'quality' }),
 
@@ -159,6 +162,7 @@ export const visibleWorkspaceFeatures = ({
   areaKey,
 } = {}) => workspaceFeatures.filter((item) => (
   (!areaKey || item.areaKey === areaKey)
+  && item.navigation !== false
   && featureIsAvailable(item, runtimeFlags)
   && (!canAny || canAny(item.requiredAny || []))
 ));
@@ -169,9 +173,17 @@ export const buildAreaNavigation = ({
 } = {}) => workspaceAreas
   .filter((area) => visibleWorkspaceFeatures({ canAny, runtimeFlags, areaKey: area.key }).length > 0)
   .sort((left, right) => left.order - right.order)
-  .map((area) => ({
-    ...area,
-    features: visibleWorkspaceFeatures({ canAny, runtimeFlags, areaKey: area.key }),
-  }));
+  .map((area) => {
+    const features = visibleWorkspaceFeatures({ canAny, runtimeFlags, areaKey: area.key })
+      .sort((left, right) => (
+        left.defaultPriority - right.defaultPriority
+        || left.label.localeCompare(right.label, 'es')
+      ));
+    return {
+      ...area,
+      path: features[0]?.path || area.path,
+      features,
+    };
+  });
 
 export const getFeatureByKey = (key) => workspaceFeatures.find((item) => item.key === key) || null;

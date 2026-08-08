@@ -105,7 +105,6 @@ export default function ProductosAdmin() {
   return (
     <Box sx={{ mt: 2 }}>
       <PageHeader
-        eyebrow="Datos maestros"
         title="Productos terminados"
         description="Identidades comerciales estables. La composición productiva se gobierna mediante BOM revisionadas en Ingeniería SCM."
       />

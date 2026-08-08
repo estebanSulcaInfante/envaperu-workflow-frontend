@@ -41,6 +41,7 @@ import {
 } from '../services/scmOtApi';
 import PageHeader from './ui/PageHeader';
 import ProcessJourney from './ui/ProcessJourney';
+import EmptyState from './ui/EmptyState';
 import { useScmActor } from '../context/ScmActorContext';
 
 const actions = {
@@ -389,7 +390,6 @@ export default function AssemblyOrdersScm() {
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        eyebrow="Producción / Armado"
         title="Órdenes de armado"
         description="Libera y ejecuta operaciones de prearmado, armado, acabado o empaque contra la BOM congelada por planificación."
         actions={(
@@ -414,23 +414,23 @@ export default function AssemblyOrdersScm() {
         cada OT genera su propia solicitud de componentes desde la BOM congelada.
       </Alert>
 
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
-          <FormControl sx={{ minWidth: 360 }}>
-            <InputLabel>Orden de armado</InputLabel>
-            <Select
-              label="Orden de armado"
-              value={selected?.id || ''}
-              onChange={(event) => setOrderId(event.target.value)}
-            >
-              {orders.map((order) => (
-                <MenuItem key={order.id} value={order.id}>
-                  {order.codigo} · {order.estado} · {order.salida.nombre}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          {selected && (
+      {selected && (
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
+            <FormControl sx={{ width: { xs: '100%', md: 360 }, minWidth: 0 }}>
+              <InputLabel>Orden de armado</InputLabel>
+              <Select
+                label="Orden de armado"
+                value={selected.id}
+                onChange={(event) => setOrderId(event.target.value)}
+              >
+                {orders.map((order) => (
+                  <MenuItem key={order.id} value={order.id}>
+                    {order.codigo} · {order.estado} · {order.salida.nombre}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <>
               <Chip label={selected.estado} />
               <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
@@ -453,12 +453,23 @@ export default function AssemblyOrdersScm() {
                 </Button>
               )}
             </>
-          )}
-        </Stack>
-      </Paper>
+          </Stack>
+        </Paper>
+      )}
 
       {busy && <Box sx={{ display: 'grid', placeItems: 'center', py: 4 }}><CircularProgress /></Box>}
-      {!busy && !selected && <Alert severity="info">Todavía no existen OA.</Alert>}
+      {!busy && !error && !selected && (
+        <EmptyState
+          icon={<AccountTreeOutlinedIcon />}
+          title="Aún no hay órdenes de armado"
+          description="Las OA aparecen cuando la planificación confirma una necesidad de prearmado, armado, acabado o empaque."
+          action={can('OP_VER') ? (
+            <Button component={RouterLink} to="/planificacion" variant="contained">
+              Ir a Planificación
+            </Button>
+          ) : null}
+        />
+      )}
 
       {!busy && selected && (
         <>

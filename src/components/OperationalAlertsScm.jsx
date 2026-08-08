@@ -105,7 +105,6 @@ export default function OperationalAlertsScm() {
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        eyebrow="Control operativo / Excepciones"
         title="Alertas e inconsistencias"
         description={`${experience.label}: atiende desvíos sin alterar pesajes, bolsas ni movimientos originales.`}
         actions={<Button startIcon={<RefreshIcon />} variant="outlined" onClick={load}>Actualizar</Button>}

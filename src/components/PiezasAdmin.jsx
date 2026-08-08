@@ -320,7 +320,6 @@ function PiezasAdmin() {
     <Box sx={{ mt: 2 }}>
       <Box sx={{ mb: 2 }}>
         <PageHeader
-          eyebrow="Datos maestros"
           title="Piezas"
           description="Maestro global de formas, independiente de moldes y colores. Las cavidades y el peso operativo se configuran dentro de cada molde."
         />

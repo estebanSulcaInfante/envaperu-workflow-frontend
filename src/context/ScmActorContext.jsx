@@ -168,13 +168,16 @@ export function ScmActorProvider({ children }) {
   );
 
   const can = useCallback(
-    (capability) => loading || capabilities.has(capability),
-    [capabilities, loading],
+    (capability) => !loading && !error && capabilities.has(capability),
+    [capabilities, error, loading],
   );
   const canAny = useCallback(
-    (required = []) => !required.length || loading
-      || required.some((capability) => capabilities.has(capability)),
-    [capabilities, loading],
+    (required = []) => !required.length || (
+      !loading
+      && !error
+      && required.some((capability) => capabilities.has(capability))
+    ),
+    [capabilities, error, loading],
   );
 
   const applyActor = useCallback((nextActorId) => {
