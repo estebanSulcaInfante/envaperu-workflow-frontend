@@ -9,34 +9,34 @@ const steps = [
   {
     id: 'demanda',
     label: '1. Demanda',
-    detail: 'OP aprobada',
+    detail: 'Definir OP y cobertura',
     path: '/planificacion',
     requiredAny: ['OP_VER', 'OP_APROBAR'],
   },
   {
     id: 'trabajo',
     label: '2. Trabajo',
-    detail: 'OF u OA liberada',
+    detail: 'Configurar OF u OA',
     path: '/produccion/ordenes-fabricacion',
     requiredAny: ['OF_VER', 'OA_VER'],
   },
   {
     id: 'jornada',
     label: '3. Jornada',
-    detail: 'OT y mangas',
+    detail: 'Programar OT y mangas',
     path: '/produccion/ots-mangas',
     requiredAny: ['OT_VER'],
   },
   {
     id: 'pesaje',
     label: '4. Pesaje',
-    detail: 'Estación local',
+    detail: 'Registrar en balanza',
     requiredAny: ['MANGA_PESAR', 'MANGA_PESAJE_VER'],
   },
   {
     id: 'almacen',
     label: '5. Almacén',
-    detail: 'Recepción y Calidad',
+    detail: 'Recibir y controlar',
     path: '/produccion/recepcion-mangas',
     requiredAny: ['RECEPCION_MANGA_VER', 'CALIDAD_MANGA_VER'],
   },
@@ -48,11 +48,16 @@ export default function ProcessJourney({ current, branch = 'fabricacion' }) {
     ? 'trabajo' : current;
 
   return (
-    <Paper variant="outlined" sx={{ px: 1.5, py: 1.25, overflowX: 'auto' }}>
+    <Paper
+      component="nav"
+      aria-label="Recorrido operativo"
+      variant="outlined"
+      sx={{ px: 1.5, py: 1.25, overflowX: 'auto' }}
+    >
       <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 760 }}>
         <Box sx={{ minWidth: 112 }}>
-          <Typography variant="caption" color="text.secondary">Estás en</Typography>
-          <Typography variant="subtitle2" fontWeight={850}>Flujo del piloto</Typography>
+          <Typography variant="caption" color="text.secondary">Navegación entre etapas</Typography>
+          <Typography variant="subtitle2" fontWeight={850}>Recorrido operativo</Typography>
         </Box>
         {steps.map((step, index) => {
           const active = step.id === normalizedCurrent;
@@ -61,7 +66,7 @@ export default function ProcessJourney({ current, branch = 'fabricacion' }) {
             ? (branch === 'armado' ? '2. Armado' : '2. Fabricación')
             : step.label;
           const detail = step.id === 'trabajo'
-            ? (branch === 'armado' ? 'OA liberada' : 'OF liberada')
+            ? (branch === 'armado' ? 'Configurar OA' : 'Configurar OF')
             : step.detail;
           const path = step.id === 'trabajo' && branch === 'armado'
             ? '/produccion/ordenes-armado'
@@ -72,6 +77,7 @@ export default function ProcessJourney({ current, branch = 'fabricacion' }) {
                 component={accessible && path ? RouterLink : 'div'}
                 to={accessible && path ? path : undefined}
                 clickable={Boolean(accessible && path)}
+                aria-current={active ? 'step' : undefined}
                 color={active ? 'primary' : 'default'}
                 variant={active ? 'filled' : 'outlined'}
                 label={(
