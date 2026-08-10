@@ -24,7 +24,7 @@ const steps = [
     id: 'jornada',
     label: '3. Jornada',
     detail: 'Programar OT y mangas',
-    path: '/produccion/ots-mangas',
+    path: '/produccion/ots-planta',
     requiredAny: ['OT_VER'],
   },
   {

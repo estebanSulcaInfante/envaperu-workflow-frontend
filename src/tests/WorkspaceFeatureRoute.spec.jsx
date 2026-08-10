@@ -52,6 +52,22 @@ describe('guarda unificada por función del workspace', () => {
     expect(canAny).toHaveBeenCalledWith(['OF_VER']);
   });
 
+  it('protege Supervisión de producción con OT_VER', () => {
+    const canAny = vi.fn((required) => required.includes('OT_VER'));
+    actorState = {
+      actor: { nombre_corto: 'Supervisor' },
+      canAny,
+      error: '',
+      loading: false,
+      refreshActors: vi.fn(),
+    };
+
+    renderRoute('control.productionSupervision');
+
+    expect(screen.getByText('Vista operativa montada')).toBeVisible();
+    expect(canAny).toHaveBeenCalledWith(['OT_VER']);
+  });
+
   it('falla cerrado y permite reintentar cuando no puede verificar identidad', () => {
     const refreshActors = vi.fn();
     actorState = {

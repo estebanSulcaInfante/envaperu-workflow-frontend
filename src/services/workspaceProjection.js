@@ -114,7 +114,10 @@ export function buildActorWorkspace({
       if (!areaFeatures.length) return null;
       return {
         ...area,
-        path: areaFeatures[0].path,
+        // Un area con hub conserva su portada organizadora. Las preferencias
+        // ordenan sus funciones, pero no deben convertir el acceso general en
+        // un enlace directo a un catalogo arbitrario.
+        path: area.childMode === 'hub' ? area.path : areaFeatures[0].path,
         features: areaFeatures,
       };
     })

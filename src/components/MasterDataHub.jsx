@@ -32,7 +32,7 @@ import { matchesOmniSearch } from '../utils/tableSearch';
 import { useScmActor } from '../context/ScmActorContext';
 
 const catalogEntries = [
-  { id: 'productos', area: 'PRODUCT_ENGINEERING', name: 'Productos terminados', object: 'ProductoTerminado y BOM', path: '/datos-maestros/productos', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_VER'] },
+  { id: 'productos', area: 'PRODUCT_ENGINEERING', name: 'Productos terminados', object: 'Producto terminado y BOM', path: '/datos-maestros/productos', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_VER'] },
   { id: 'piezas', area: 'PRODUCT_ENGINEERING', name: 'Piezas y SKU', object: 'Pieza, PiezaColor y SKU de pieza', path: '/datos-maestros/piezas', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_VER'] },
   { id: 'moldes', area: 'PRODUCT_ENGINEERING', name: 'Moldes', object: 'Molde, cavidades y salidas por ciclo', path: '/datos-maestros/moldes', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_VER', 'RUTA_VER'] },
   { id: 'configurar', area: 'PRODUCT_ENGINEERING', name: 'Configuración guiada de producto', object: 'Asistente Molde ↔ Pieza y generación de PiezaColor', path: '/datos-maestros/configuracion-guiada', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR'] },

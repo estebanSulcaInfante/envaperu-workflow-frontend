@@ -37,6 +37,18 @@ describe('Guía operativa SCM', () => {
 
     expect(screen.getByRole('heading', { name: 'OP, cobertura y planificación' })).toBeInTheDocument();
     expect(screen.getByText(/Calcular no reserva ni consume inventario/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', {
+      name: 'Antes de crear una OP: fuente, datos y derivados',
+    })).toBeInTheDocument();
+    expect(screen.getByText(/no se crea una OP sin cantidad autorizada/i)).toBeInTheDocument();
+    expect(screen.getByText(/la fecha de necesidad no es una fecha de inicio prometida/i))
+      .toBeInTheDocument();
+    expect(screen.getByText(/El sistema deriva las unidades equivalentes/i)).toBeInTheDocument();
+    expect(screen.getByText(/Responsable cuando falta un dato/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/corregir maestro → actualizar ingeniería de la OP → recalcular/i))
+      .not.toHaveLength(0);
+    expect(screen.getAllByText(/Recalcular por sí solo nunca adopta revisiones nuevas/i))
+      .not.toHaveLength(0);
     expect(screen.getByRole('link', { name: 'Abrir planificación' })).toHaveAttribute('href', '/planificacion');
   });
 
@@ -51,9 +63,43 @@ describe('Guía operativa SCM', () => {
     expect(screen.getByText(/tara real distinta requiere autorización y motivo/i)).toBeInTheDocument();
     expect(screen.getByText(/peso controla tolerancias, pero nunca determina/i)).toBeInTheDocument();
     expect(screen.getByText(/cantidad por empaque no se registra en el producto terminado/i)).toBeInTheDocument();
+    expect(screen.getByText(/Pieza-color y un producto terminado.*misma estructura física.*compartir el perfil/i))
+      .toBeInTheDocument();
+    expect(screen.getByText(/supervisor debe validar físicamente.*antes de publicar/i))
+      .toBeInTheDocument();
+    expect(screen.getByText(/Jornadas informa que falta el perfil.*código exacto del artículo/i))
+      .toBeInTheDocument();
     expect(screen.getByText(/unidades por paquete y por bulto no forman parte/i)).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Presentación comercial' })).toBeInTheDocument();
     expect(screen.getByText(/10 Pack x6 se planifican como 60 UN/i)).toBeInTheDocument();
+  });
+
+  it('ofrece accesos directos para completar el recorrido de alta hasta mangas', () => {
+    renderGuide('/guia/scm?etapa=catalogos');
+
+    expect(screen.getByRole('heading', {
+      name: 'Recorrido completo: del producto terminado a las mangas',
+    })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Crear producto terminado' })).toHaveAttribute(
+      'href',
+      '/datos-maestros/productos',
+    );
+    expect(screen.getByRole('link', { name: 'Definir y publicar BOM' })).toHaveAttribute(
+      'href',
+      '/datos-maestros/ingenieria-scm?tab=estructuras',
+    );
+    expect(screen.getByRole('link', { name: 'Crear centro y ruta' })).toHaveAttribute(
+      'href',
+      '/datos-maestros/ingenieria-scm?tab=rutas',
+    );
+    expect(screen.getByRole('link', { name: 'Planificar OP' })).toHaveAttribute(
+      'href',
+      '/planificacion',
+    );
+    expect(screen.getByRole('link', { name: 'Crear OT y mangas' })).toHaveAttribute(
+      'href',
+      '/produccion/ots-planta',
+    );
   });
 
   it('ofrece búsqueda y referencia oficial para Artículos SCM y BOM multinivel', async () => {
@@ -100,7 +146,7 @@ describe('Guía operativa SCM', () => {
     const { container } = renderGuide('/guia/scm?etapa=produccion');
 
     expect(screen.getByRole('heading', {
-      name: 'OF/OA, OT de máquina, Trabajos de color y mangas',
+      name: 'OTs de planta: Fabricación y Armado',
     })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Tres niveles de la ejecución' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Cambio y retorno de color: A → B → A' })).toBeInTheDocument();

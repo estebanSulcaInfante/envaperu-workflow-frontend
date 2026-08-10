@@ -70,10 +70,14 @@ describe('Demanda por presentación comercial', () => {
     await user.click(await screen.findByRole('button', { name: 'Nueva OP' }));
     await user.click(screen.getByRole('combobox', { name: 'Producto terminado' }));
     await user.click(await screen.findByRole('option', { name: /PT-000001.*Alcancia/i }));
-    await user.type(screen.getByLabelText('Cantidad de presentaciones'), '10');
+    expect(screen.getByRole('combobox', { name: 'Presentación comercial' })).toHaveTextContent(
+      /Pack x6.*Predeterminada/i,
+    );
+    await user.type(screen.getByLabelText(/Cantidad de presentaciones/), '10');
+    await user.type(screen.getByLabelText(/Fecha de necesidad/), '2026-08-20');
 
     expect(screen.getByText('10 Pack x6 = 60 UN')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Crear borrador' }));
+    await user.click(screen.getByRole('button', { name: 'Crear OP en borrador' }));
 
     await waitFor(() => expect(crearOpDemandaScm).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -82,7 +86,63 @@ describe('Demanda por presentación comercial', () => {
           presentacion_comercial_id: 2,
           cantidad_presentaciones: 10,
         }],
+        fecha_necesidad: '2026-08-20',
       }),
     ));
+  });
+
+  it('separa datos autorizados de cálculos y no supone cantidad ni fecha', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Nueva OP' }));
+
+    expect(screen.getByRole('heading', { name: 'Datos que debe proporcionar la solicitud' }))
+      .toBeInTheDocument();
+    expect(screen.getByText(/No crees la OP sin una cantidad autorizada/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Lo que deriva el sistema' }))
+      .toBeInTheDocument();
+    expect(screen.getByText(/cobertura y la propuesta OF\/OA se calculan después/i))
+      .toBeInTheDocument();
+
+    expect(screen.getByLabelText(/Cantidad de presentaciones/)).toHaveValue(null);
+    expect(screen.getByLabelText(/Fecha de necesidad/)).toHaveValue('');
+    expect(screen.getByText(/no es la fecha de inicio de producción ni una promesa de entrega/i))
+      .toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Crear OP en borrador' })).toBeDisabled();
+
+    await user.click(screen.getByRole('combobox', { name: 'Producto terminado' }));
+    await user.click(await screen.findByRole('option', { name: /PT-000001.*Alcancia/i }));
+    expect(screen.getByText(/Se propone la presentación predeterminada del maestro/i))
+      .toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Crear OP en borrador' })).toBeDisabled();
+
+    await user.type(screen.getByLabelText(/Cantidad de presentaciones/), '10');
+    expect(screen.getByRole('button', { name: 'Crear OP en borrador' })).toBeDisabled();
+
+    await user.type(screen.getByLabelText(/Fecha de necesidad/), '2026-08-20');
+    expect(screen.getByRole('button', { name: 'Crear OP en borrador' })).toBeEnabled();
+  });
+
+  it('no reutiliza silenciosamente los datos de una solicitud anterior', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Nueva OP' }));
+    await user.click(screen.getByRole('combobox', { name: 'Producto terminado' }));
+    await user.click(await screen.findByRole('option', { name: /PT-000001.*Alcancia/i }));
+    await user.type(screen.getByLabelText(/Cantidad de presentaciones/), '10');
+    await user.type(screen.getByLabelText(/Fecha de necesidad/), '2026-08-20');
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Nueva OP de demanda' }))
+      .not.toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Nueva OP' }));
+
+    expect(screen.getByRole('combobox', { name: 'Producto terminado' }))
+      .not.toHaveTextContent('PT-000001');
+    expect(screen.getByLabelText(/Cantidad de presentaciones/)).toHaveValue(null);
+    expect(screen.getByLabelText(/Fecha de necesidad/)).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Crear OP en borrador' })).toBeDisabled();
   });
 });

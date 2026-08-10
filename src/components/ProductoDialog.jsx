@@ -173,7 +173,7 @@ export default function ProductoDialog({
 
   return (
     <Dialog open={open} onClose={saving ? undefined : onClose} maxWidth="md" fullWidth>
-      <DialogTitle>{producto ? 'Editar ProductoTerminado' : 'Nuevo ProductoTerminado'}</DialogTitle>
+      <DialogTitle>{producto ? 'Editar producto terminado' : 'Nuevo producto terminado'}</DialogTitle>
       <DialogContent>
         <Stack spacing={2.5} sx={{ pt: 1 }}>
           {saveError && <Alert severity="error">{saveError}</Alert>}

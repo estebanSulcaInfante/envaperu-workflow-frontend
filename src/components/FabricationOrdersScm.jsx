@@ -21,6 +21,7 @@ import {
 import PageHeader from './ui/PageHeader';
 import ProcessJourney from './ui/ProcessJourney';
 import EmptyState from './ui/EmptyState';
+import OrderScheduleStrip from './ui/OrderScheduleStrip';
 import { useScmActor } from '../context/ScmActorContext';
 
 const statusColor = {
@@ -30,6 +31,41 @@ const statusColor = {
   EN_EJECUCION: 'primary',
   COMPLETADA: 'success',
   CANCELADA: 'error',
+};
+
+const normalizeProcess = (value) => String(value || '').trim().toUpperCase();
+
+const requiredPieceIds = (order) => new Set(
+  (order?.corridas || []).flatMap((run) => (
+    (run.salidas || [])
+      .map((output) => output.articulo?.pieza_id)
+      .filter((value) => value != null)
+  )),
+);
+
+const compatibleMoldsForOrder = (order, molds) => {
+  const pieceIds = requiredPieceIds(order);
+  if (!pieceIds.size) return molds;
+  return molds.filter((mold) => {
+    const moldPieceIds = new Set(
+      (mold.formas || [])
+        .filter((shape) => shape.activo !== false)
+        .map((shape) => shape.pieza_id),
+    );
+    return [...pieceIds].every((pieceId) => moldPieceIds.has(pieceId));
+  });
+};
+
+const compatibleMachinesForOrder = (order, machines) => {
+  const requiredProcess = normalizeProcess(order?.proceso_requerido);
+  return machines.filter((machine) => {
+    if (machine.estado !== 'OPERATIVA') return false;
+    if (!requiredProcess) return true;
+    const type = machine.tipo_maquina || {};
+    const supported = [type.proceso, type.codigo, type.nombre, machine.tipo_legacy]
+      .map(normalizeProcess);
+    return supported.includes(requiredProcess);
+  });
 };
 
 const formFromOrder = (order) => ({
@@ -51,6 +87,23 @@ const formFromOrder = (order) => ({
   })),
 });
 
+const suggestedForm = (order, molds, machines) => {
+  const next = formFromOrder(order);
+  if (!order || order.estado !== 'BORRADOR') return next;
+  const compatibleMolds = compatibleMoldsForOrder(order, molds);
+  const compatibleMachines = compatibleMachinesForOrder(order, machines);
+  if (!next.molde_id && compatibleMolds.length === 1) {
+    const mold = compatibleMolds[0];
+    next.molde_id = mold.codigo;
+    next.snapshot_tiempo_ciclo_seg = mold.tiempo_ciclo_std ?? '';
+    next.snapshot_peso_colada_gr = Math.max(Number(mold.peso_colada_gr || 0), 0);
+  }
+  if (!next.maquina_prevista_id && compatibleMachines.length === 1) {
+    next.maquina_prevista_id = compatibleMachines[0].id;
+  }
+  return next;
+};
+
 export default function FabricationOrdersScm() {
   const { can, experience } = useScmActor();
   const canEdit = can('OF_EDITAR_BORRADOR');
@@ -69,6 +122,14 @@ export default function FabricationOrdersScm() {
     () => orders.find((item) => item.id === orderId) || orders[0] || null,
     [orderId, orders],
   );
+  const compatibleMolds = useMemo(
+    () => compatibleMoldsForOrder(selected, molds),
+    [selected, molds],
+  );
+  const compatibleMachines = useMemo(
+    () => compatibleMachinesForOrder(selected, machines),
+    [selected, machines],
+  );
 
   const load = useCallback(async (preferredId = '') => {
     setBusy(true);
@@ -81,12 +142,14 @@ export default function FabricationOrdersScm() {
       const nextId = nextOrders.some((item) => item.id === preferredId)
         ? preferredId : nextOrders[0]?.id || '';
       const nextOrder = nextOrders.find((item) => item.id === nextId) || null;
+      const nextMolds = (moldPayload || []).filter((item) => item.activo);
+      const nextMachines = (machinePayload || []).filter((item) => item.activo);
       setOrders(nextOrders);
-      setMolds((moldPayload || []).filter((item) => item.activo));
-      setMachines((machinePayload || []).filter((item) => item.activo));
+      setMolds(nextMolds);
+      setMachines(nextMachines);
       setColors((colorPayload || []).filter((item) => item.activo !== false));
       setOrderId(nextId);
-      setForm(formFromOrder(nextOrder));
+      setForm(suggestedForm(nextOrder, nextMolds, nextMachines));
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudieron cargar las OF.'));
     } finally {
@@ -97,8 +160,9 @@ export default function FabricationOrdersScm() {
   useEffect(() => { load(); }, [load]);
 
   const chooseOrder = (nextId) => {
+    const nextOrder = orders.find((item) => item.id === nextId);
     setOrderId(nextId);
-    setForm(formFromOrder(orders.find((item) => item.id === nextId)));
+    setForm(suggestedForm(nextOrder, molds, machines));
     setError('');
     setNotice('');
   };
@@ -221,6 +285,7 @@ export default function FabricationOrdersScm() {
       </Alert>
 
       {selected && (
+        <Stack spacing={1.25}>
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
             <FormControl sx={{ width: { xs: '100%', md: 340 }, minWidth: 0 }}>
@@ -258,6 +323,8 @@ export default function FabricationOrdersScm() {
             </>
           </Stack>
         </Paper>
+        <OrderScheduleStrip order={selected} />
+        </Stack>
       )}
 
       {busy && <Box sx={{ display: 'grid', placeItems: 'center', py: 4 }}><CircularProgress /></Box>}
@@ -283,6 +350,16 @@ export default function FabricationOrdersScm() {
         <>
           <Paper variant="outlined" sx={{ p: 2 }}>
             <Typography fontWeight={800} sx={{ mb: 2 }}>Configuración del recurso</Typography>
+            {selected.estado === 'BORRADOR' && (
+              <Alert
+                severity={compatibleMolds.length && compatibleMachines.length ? 'info' : 'error'}
+                sx={{ mb: 2 }}
+              >
+                {compatibleMolds.length && compatibleMachines.length
+                  ? `Solo se muestran recursos operativos compatibles con ${selected.proceso_requerido || 'la operación'}. Cuando existe una sola alternativa, se propone sin guardar ni liberar automáticamente la OF.`
+                  : 'No existe un molde y una máquina operativa compatibles. Corrige los maestros antes de configurar la OF.'}
+              </Alert>
+            )}
             <Box sx={{
               display: 'grid',
               gridTemplateColumns: { xs: '1fr', md: 'repeat(5, minmax(0, 1fr))' },
@@ -296,7 +373,7 @@ export default function FabricationOrdersScm() {
                   disabled={!canEdit || selected.estado !== 'BORRADOR'}
                   onChange={(event) => chooseMold(event.target.value)}
                 >
-                  {molds.map((mold) => (
+                  {compatibleMolds.map((mold) => (
                     <MenuItem key={mold.codigo} value={mold.codigo}>
                       {mold.codigo} · {mold.nombre}
                     </MenuItem>
@@ -313,7 +390,7 @@ export default function FabricationOrdersScm() {
                     ...form, maquina_prevista_id: event.target.value,
                   })}
                 >
-                  {machines.map((machine) => (
+                  {compatibleMachines.map((machine) => (
                     <MenuItem key={machine.id} value={machine.id}>
                       {machine.codigo} · {machine.nombre}
                     </MenuItem>

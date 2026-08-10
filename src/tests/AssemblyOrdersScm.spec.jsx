@@ -1,4 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent, render, screen, waitFor, within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThemeProvider, createTheme } from '@mui/material';
@@ -64,6 +66,7 @@ import {
   recalcularPlanMangasArmadoScm,
 } from '../services/scmInternalSupplyApi';
 import { listarOtScm } from '../services/scmOtApi';
+import { todayInLima } from '../utils/limaDate';
 
 const order = {
   id: 'oa-1',
@@ -105,8 +108,8 @@ const ot = {
   mangas: [],
 };
 
-const renderView = () => render(
-  <MemoryRouter>
+const renderView = (initialEntry = '/') => render(
+  <MemoryRouter initialEntries={[initialEntry]}>
     <ThemeProvider theme={createTheme()}>
       <AssemblyOrdersScm />
     </ThemeProvider>
@@ -117,7 +120,7 @@ describe('OA y OT diaria de Armado', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     actorState.capabilities = new Set([
-      'OA_VER', 'OA_EJECUTAR', 'OT_CREAR', 'ABASTECIMIENTO_VER',
+      'OA_VER', 'OA_EJECUTAR', 'OT_VER', 'OT_CREAR', 'ABASTECIMIENTO_VER',
       'ABASTECIMIENTO_SOLICITAR',
     ]);
     listarOrdenesArmadoScm.mockResolvedValue({ items: [order] });
@@ -162,6 +165,18 @@ describe('OA y OT diaria de Armado', () => {
     expect(screen.queryByText('Aún no hay órdenes de armado')).not.toBeInTheDocument();
   });
 
+  it('degrada la consulta OA sin pedir OT ni catálogos cuando falta OT_VER', async () => {
+    actorState.capabilities = new Set(['OA_VER']);
+    renderView();
+
+    expect(await screen.findByText(/las jornadas requieren el permiso de consulta de OT/i))
+      .toBeVisible();
+    expect(listarOtArmadoScm).not.toHaveBeenCalled();
+    expect(listarCentrosTrabajoScm).not.toHaveBeenCalled();
+    expect(getTrabajadores).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Crear OT diaria' })).not.toBeInTheDocument();
+  });
+
   it('vincula el prearmado concurrente con una OT de fabricacion del mismo dia', async () => {
     listarOtArmadoScm.mockResolvedValue({ items: [] });
     listarOtScm.mockResolvedValue({
@@ -169,6 +184,14 @@ describe('OA y OT diaria de Armado', () => {
         public_id: 'fab-ot-1', codigo_ot: 'OT-000010', tipo_ot: 'FABRICACION',
         estado: 'EN_EJECUCION', fecha_operativa: new Date().toISOString().slice(0, 10), turno: 'DIA',
         maquina: 'Haitian 3000',
+        trabajos_color: [{
+          id: 'work-green', color: 'VERDE SÓLIDO', estado: 'EN_EJECUCION',
+          orden_fabricacion_codigo: 'OF-001',
+          articulos_salida: [{
+            id: 21, codigo: 'PC-000021', nombre: 'Alcancía verde',
+            clase: 'PIEZA_COLOR', unidad: 'UN',
+          }],
+        }],
       }],
     });
     crearOtArmadoScm.mockResolvedValue({
@@ -177,10 +200,16 @@ describe('OA y OT diaria de Armado', () => {
     const user = userEvent.setup();
     renderView();
 
+    expect(listarOtScm).not.toHaveBeenCalled();
     await user.click(await screen.findByRole('button', { name: 'Crear OT diaria' }));
-    await user.click(screen.getByRole('combobox', { name: 'Modalidad de ejecuciÃ³n' }));
-    await user.click(screen.getByRole('option', { name: 'Concurrente con fabricaciÃ³n' }));
-    await user.click(screen.getByRole('combobox', { name: 'OT de fabricaciÃ³n de contexto' }));
+    await waitFor(() => expect(listarOtScm).toHaveBeenCalledWith(
+      undefined,
+      'FABRICACION',
+      { fecha_operativa: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) },
+    ));
+    await user.click(screen.getByRole('combobox', { name: 'Modalidad de ejecución' }));
+    await user.click(screen.getByRole('option', { name: 'Concurrente con fabricación' }));
+    await user.click(screen.getByRole('combobox', { name: 'OT de fabricación de contexto' }));
     await user.click(screen.getByRole('option', { name: /OT-000010/ }));
     await user.click(screen.getByRole('button', { name: 'Crear OT y continuar' }));
 
@@ -189,13 +218,218 @@ describe('OA y OT diaria de Armado', () => {
       expect.objectContaining({
         modo_ejecucion: 'CONCURRENTE',
         ot_fabricacion_contexto_id: 'fab-ot-1',
+        trabajo_color_contexto_id: 'work-green',
       }),
     ));
   });
 
+  it('bloquea el Armado concurrente si la OT no tiene Trabajo de color activo', async () => {
+    listarOtArmadoScm.mockResolvedValue({ items: [] });
+    listarOtScm.mockResolvedValue({
+      items: [{
+        public_id: 'fab-ot-empty', codigo_ot: 'OT-000030', tipo_ot: 'FABRICACION',
+        estado: 'EN_EJECUCION', fecha_operativa: new Date().toISOString().slice(0, 10),
+        turno: 'DIA', maquina: 'Haitian 3000', trabajos_color: [],
+      }],
+    });
+    const user = userEvent.setup();
+    renderView();
+
+    await user.click(await screen.findByRole('button', { name: 'Crear OT diaria' }));
+    await user.click(screen.getByRole('combobox', { name: 'Modalidad de ejecución' }));
+    await user.click(screen.getByRole('option', { name: 'Concurrente con fabricación' }));
+    await user.click(screen.getByRole('combobox', { name: 'OT de fabricación de contexto' }));
+    await user.click(screen.getByRole('option', { name: /OT-000030/ }));
+
+    expect(screen.getByText(/no tiene un Trabajo de color activo/i)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Crear OT y continuar' })).toBeDisabled();
+  });
+
+  it('recarga solo las OT de Fabricación de la fecha elegida en el formulario', async () => {
+    listarOtArmadoScm.mockResolvedValue({ items: [] });
+    listarOtScm.mockResolvedValue({ items: [] });
+    const user = userEvent.setup();
+    renderView();
+
+    await user.click(await screen.findByRole('button', { name: 'Crear OT diaria' }));
+    fireEvent.change(screen.getByLabelText('Fecha operativa'), {
+      target: { value: '2026-08-12' },
+    });
+
+    await waitFor(() => expect(listarOtScm).toHaveBeenCalledWith(
+      undefined,
+      'FABRICACION',
+      { fecha_operativa: '2026-08-12' },
+    ));
+  });
+
+  it('exige el Trabajo de color concreto cuando la OT concurrente es multicolor', async () => {
+    listarOtArmadoScm.mockResolvedValue({ items: [] });
+    listarOtScm.mockResolvedValue({
+      items: [{
+        public_id: 'fab-ot-multi', codigo_ot: 'OT-000020', tipo_ot: 'FABRICACION',
+        estado: 'EN_EJECUCION', fecha_operativa: new Date().toISOString().slice(0, 10),
+        turno: 'DIA', maquina: 'Haitian 3000',
+        trabajos_color: [
+          { id: 'work-green', color: 'VERDE SÓLIDO', estado: 'EN_EJECUCION', orden_fabricacion_codigo: 'OF-001' },
+          {
+            id: 'work-blue', color: 'AZUL', estado: 'PLANIFICADO',
+            orden_fabricacion_codigo: 'OF-002',
+            articulos_salida: [{
+              id: 22, codigo: 'PC-000022', nombre: 'Alcancía azul',
+              clase: 'PIEZA_COLOR', unidad: 'UN',
+            }],
+          },
+        ],
+      }],
+    });
+    crearOtArmadoScm.mockResolvedValue({
+      ot: { codigo_ot: 'OT-000021', fecha_operativa: '2026-08-04' },
+    });
+    const user = userEvent.setup();
+    renderView();
+
+    await user.click(await screen.findByRole('button', { name: 'Crear OT diaria' }));
+    await user.click(screen.getByRole('combobox', { name: 'Modalidad de ejecución' }));
+    await user.click(screen.getByRole('option', { name: 'Concurrente con fabricación' }));
+    await user.click(screen.getByRole('combobox', { name: 'OT de fabricación de contexto' }));
+    await user.click(screen.getByRole('option', { name: /OT-000020/ }));
+    expect(screen.getByRole('button', { name: 'Crear OT y continuar' })).toBeDisabled();
+
+    await user.click(screen.getByRole('combobox', { name: 'Trabajo de color concurrente' }));
+    await user.click(screen.getByRole('option', {
+      name: /AZUL.*OF-002.*PC-000022.*Alcancía azul/i,
+    }));
+    await user.click(screen.getByRole('button', { name: 'Crear OT y continuar' }));
+
+    await waitFor(() => expect(crearOtArmadoScm).toHaveBeenCalledWith(
+      'oa-1',
+      expect.objectContaining({
+        modo_ejecucion: 'CONCURRENTE',
+        ot_fabricacion_contexto_id: 'fab-ot-multi',
+        trabajo_color_contexto_id: 'work-blue',
+      }),
+    ));
+  });
+
+  it('muestra modalidad y contexto después de crear la OT de Armado', async () => {
+    listarOtArmadoScm.mockResolvedValue({ items: [{
+      ...ot,
+      modo_ejecucion_armado: 'CONCURRENTE',
+      ot_fabricacion_contexto: {
+        public_id: 'fab-ot-1', codigo_ot: 'OT-000010', maquina: 'Haitian 3000',
+      },
+      trabajo_color_contexto_id: 'work-green',
+    }] });
+    renderView();
+
+    expect(await screen.findByText('Concurrente con fabricación')).toBeVisible();
+    expect(screen.getByText(/OT-000010.*Haitian 3000/)).toBeVisible();
+  });
+
+  it('abre desde el tablero la OA y la jornada indicadas por el enlace profundo', async () => {
+    const requestedOrder = {
+      ...order,
+      id: 'oa-2',
+      codigo: 'OA-000002',
+      salida: { ...order.salida, nombre: 'Balde azul' },
+    };
+    const requestedOt = {
+      ...ot,
+      public_id: 'ot-2',
+      codigo_ot: 'OT-000022',
+      cantidad_objetivo: '5.000',
+    };
+    listarOrdenesArmadoScm.mockResolvedValue({ items: [order, requestedOrder] });
+    listarOtArmadoScm.mockImplementation((orderId) => Promise.resolve({
+      items: orderId === 'oa-2' ? [requestedOt] : [ot],
+    }));
+
+    renderView(
+      '/produccion/ordenes-armado?oa=oa-2&ot=ot-2&fecha=2026-08-10&turno=NOCHE&modo=armado',
+    );
+
+    await waitFor(() => expect(listarOtArmadoScm).toHaveBeenCalledWith('oa-2'));
+    expect(await screen.findByText('Balde azul')).toBeVisible();
+    expect(screen.getByTestId('assembly-ot-ot-2')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('link', { name: 'Volver a Jornadas' })).toHaveAttribute(
+      'href',
+      '/produccion/ots-planta?fecha=2026-08-10&turno=NOCHE&modo=armado&ot=ot-2',
+    );
+    const createButton = screen.getByRole('button', { name: 'Crear OT diaria' });
+    await waitFor(() => expect(createButton).toBeEnabled());
+    await userEvent.setup().click(createButton);
+    expect(screen.getByLabelText('Fecha operativa')).toHaveValue('2026-08-10');
+    expect(screen.getByRole('combobox', { name: 'Turno' })).toHaveTextContent('Noche');
+  });
+
+  it('limpia modalidad y contextos al cambiar de OA', async () => {
+    const nextOrder = {
+      ...order,
+      id: 'oa-2',
+      codigo: 'OA-000002',
+      salida: { ...order.salida, nombre: 'Balde azul' },
+    };
+    listarOrdenesArmadoScm.mockResolvedValue({ items: [order, nextOrder] });
+    listarOtArmadoScm.mockResolvedValue({ items: [] });
+    listarOtScm.mockResolvedValue({ items: [{
+      public_id: 'fab-ot-1', codigo_ot: 'OT-000010', tipo_ot: 'FABRICACION',
+      estado: 'EN_EJECUCION', fecha_operativa: todayInLima(), turno: 'DIA',
+      maquina: 'Haitian 3000',
+      trabajos_color: [{
+        id: 'work-green', color: 'VERDE', estado: 'EN_EJECUCION',
+        orden_fabricacion_codigo: 'OF-001',
+      }],
+    }] });
+    const user = userEvent.setup();
+    renderView();
+
+    const initialCreateButton = await screen.findByRole('button', { name: 'Crear OT diaria' });
+    await waitFor(() => expect(initialCreateButton).toBeEnabled());
+    await user.click(initialCreateButton);
+    await user.click(screen.getByRole('combobox', { name: 'Modalidad de ejecución' }));
+    await user.click(screen.getByRole('option', { name: 'Concurrente con fabricación' }));
+    await user.click(screen.getByRole('combobox', { name: 'OT de fabricación de contexto' }));
+    await user.click(screen.getByRole('option', { name: /OT-000010/ }));
+    expect(screen.getByText('Trabajo de color concurrente')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Crear OT diaria de Armado' }))
+        .not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('combobox', { name: 'Orden de armado' }));
+    await user.click(screen.getByRole('option', { name: /OA-000002/ }));
+    await user.click(await screen.findByRole('button', { name: 'Crear OT diaria' }));
+
+    expect(screen.getByRole('combobox', { name: 'Modalidad de ejecución' }))
+      .toHaveTextContent('En mesa de armado');
+    expect(screen.queryByRole('combobox', { name: 'OT de fabricación de contexto' }))
+      .not.toBeInTheDocument();
+  });
+
+  it('presenta la necesidad y el rango OT como información no editable', async () => {
+    listarOrdenesArmadoScm.mockResolvedValue({ items: [{
+      ...order,
+      fecha_necesidad: '2026-08-15',
+      fecha_necesidad_fuente: { tipo: 'OP', id: 'op-1', codigo: 'OP-000001' },
+      rango_fechas_ot: { desde: '2026-08-10', hasta: '2026-08-12', cantidad: 3 },
+      programacion_estado: 'PROGRAMADA',
+    }] });
+    renderView();
+
+    const strip = await screen.findByTestId('order-schedule-strip');
+    expect(strip).toHaveTextContent(/Necesidad.*15\/08\/2026/);
+    expect(within(strip).getByText(/OP-000001/)).toBeVisible();
+    expect(strip).toHaveTextContent(/10\/08\/2026.*12\/08\/2026/);
+    expect(within(strip).getByText('3 OT')).toBeVisible();
+    expect(within(strip).queryByRole('textbox')).not.toBeInTheDocument();
+  });
+
   it('calcula el plan y asigna las mangas PT a la jornada', async () => {
     actorState.capabilities = new Set([
-      'OA_VER', 'PLAN_MANGA_VER', 'ENSAMBLE_PLANIFICAR', 'ABASTECIMIENTO_VER',
+      'OA_VER', 'OT_VER', 'PLAN_MANGA_VER', 'ENSAMBLE_PLANIFICAR',
+      'ABASTECIMIENTO_VER',
     ]);
     recalcularPlanMangasArmadoScm.mockResolvedValue({
       plan: {
@@ -221,8 +455,8 @@ describe('OA y OT diaria de Armado', () => {
 
   it('permite al responsable cerrar una manga abastecida y la deja pendiente de pesaje', async () => {
     actorState.capabilities = new Set([
-      'OA_VER', 'PLAN_MANGA_VER', 'ABASTECIMIENTO_VER', 'ENSAMBLE_MANGA_CERRAR',
-      'GENEALOGIA_VER',
+      'OA_VER', 'OT_VER', 'PLAN_MANGA_VER', 'ABASTECIMIENTO_VER',
+      'ENSAMBLE_MANGA_CERRAR', 'GENEALOGIA_VER',
     ]);
     const manga = {
       public_id: 'manga-1',

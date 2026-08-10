@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { ThemeProvider, createTheme } from '@mui/material';
@@ -127,8 +127,13 @@ const renderPage = () => render(
 
 describe('US-011A: Dashboard gerencial temporal por pesajes', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     getProductionProgress.mockReset();
     getProductionProgress.mockResolvedValue(response);
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
   });
 
   it('separa las OP, declara la fuente legacy y no inventa una meta', async () => {
@@ -217,5 +222,39 @@ describe('US-011A: Dashboard gerencial temporal por pesajes', () => {
     await user.click(screen.getByRole('button', { name: 'Reintentar' }));
 
     expect(await screen.findByTestId('progress-total-weight')).toHaveTextContent('100.150 kg');
+  });
+
+  it('consulta el mes cada cinco minutos y no cada treinta segundos', async () => {
+    vi.useFakeTimers();
+    renderPage();
+    await act(async () => Promise.resolve());
+    expect(getProductionProgress).toHaveBeenCalledTimes(1);
+
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(getProductionProgress).toHaveBeenCalledTimes(1);
+
+    await act(async () => vi.advanceTimersByTimeAsync(270_000));
+    expect(getProductionProgress).toHaveBeenCalledTimes(2);
+  });
+
+  it('pausa la consulta cuando la pestaña está oculta y refresca al regresar', async () => {
+    vi.useFakeTimers();
+    renderPage();
+    await act(async () => Promise.resolve());
+    expect(getProductionProgress).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(300_000));
+    expect(getProductionProgress).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(getProductionProgress).toHaveBeenCalledTimes(2);
   });
 });

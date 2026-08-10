@@ -180,6 +180,8 @@ describe('TS-010N2: proyección única del workspace', () => {
     );
     expect(workspace.homeFeatures.map((item) => item.key)).not.toContain('masters.hub');
     expect(workspace.startFeature.key).toBe('masters.products');
+    expect(workspace.areas.find((area) => area.key === 'masters')?.path)
+      .toBe('/datos-maestros');
   });
 
   it('ordena fijadas, prioridad del rol, prioridad predeterminada y título', () => {

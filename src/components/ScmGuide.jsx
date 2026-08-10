@@ -328,6 +328,39 @@ function BulletSection({ title, items, icon, background }) {
   );
 }
 
+function JourneyLinks({ title, links }) {
+  if (!links?.length) return null;
+  return (
+    <Box sx={{ mb: 2.5 }}>
+      <Typography component="h3" variant="h6" sx={{ fontSize: 18, fontWeight: 800, mb: 1.25 }}>
+        {title}
+      </Typography>
+      <Grid container spacing={1.25}>
+        {links.map((link, index) => (
+          <Grid key={link.route} size={{ xs: 12, sm: 6, lg: 4 }}>
+            <Paper variant="outlined" sx={{ p: 1.5, height: '100%' }}>
+              <Typography variant="overline" color="text.secondary">
+                Paso {index + 1}
+              </Typography>
+              <Button
+                component={RouterLink}
+                to={link.route}
+                endIcon={<ArrowForwardOutlinedIcon />}
+                sx={{ display: 'flex', width: 'fit-content', px: 0, textAlign: 'left' }}
+              >
+                {link.label}
+              </Button>
+              <Typography variant="body2" color="text.secondary">
+                {link.description}
+              </Typography>
+            </Paper>
+          </Grid>
+        ))}
+      </Grid>
+    </Box>
+  );
+}
+
 function StageDetail({ stage, index, onPrevious, onNext }) {
   const previousStage = scmGuideStages[index - 1];
   const nextStage = scmGuideStages[index + 1];
@@ -376,6 +409,8 @@ function StageDetail({ stage, index, onPrevious, onNext }) {
 
       <Box sx={{ px: { xs: 1.75, md: 2.5 }, py: 2.5 }}>
         {stage.id === 'inicio' && <FlowMap />}
+
+        <JourneyLinks title={stage.journeyTitle} links={stage.journeyLinks} />
 
         <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 800, mb: 0.5 }}>Conceptos y elementos</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>

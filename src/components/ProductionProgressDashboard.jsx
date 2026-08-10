@@ -465,7 +465,10 @@ export default function ProductionProgressDashboard({ initialDate, initialPeriod
 
   useEffect(() => {
     const controller = new AbortController();
+    let requestInFlight = false;
     const load = async () => {
+      if (requestInFlight || document.visibilityState === 'hidden') return;
+      requestInFlight = true;
       setLoading(true);
       setError(null);
       try {
@@ -495,15 +498,21 @@ export default function ProductionProgressDashboard({ initialDate, initialPeriod
           setError('No se pudo consultar el avance de producción. La operación de la balanza no se ve afectada.');
         }
       } finally {
+        requestInFlight = false;
         if (!controller.signal.aborted) setLoading(false);
       }
     };
 
     load();
-    const interval = window.setInterval(load, 30000);
+    const interval = window.setInterval(load, period === 'month' ? 300000 : 30000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       controller.abort();
       window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [period, month, date, op, machine, shift, refreshKey]);
 

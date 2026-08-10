@@ -1,4 +1,6 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import {
+  fireEvent, render, screen, waitFor, within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -8,6 +10,7 @@ import OtMangasScm from '../components/OtMangasScm';
 const scmMocks = vi.hoisted(() => ({
   listarOrdenesFabricacionScm: vi.fn(),
   obtenerPlanMangas: vi.fn(),
+  recalcularPlanMangas: vi.fn(),
   listarOtScm: vi.fn(),
   crearOtFabricacionScm: vi.fn(),
   crearTrabajoColorScm: vi.fn(),
@@ -64,7 +67,7 @@ vi.mock('../services/scmOtApi', () => ({
   listarOrdenesFabricacionScm: scmMocks.listarOrdenesFabricacionScm,
   obtenerPesajeMangaScm: scmMocks.obtenerPesajeMangaScm,
   obtenerPlanMangas: scmMocks.obtenerPlanMangas,
-  recalcularPlanMangas: vi.fn(),
+  recalcularPlanMangas: scmMocks.recalcularPlanMangas,
   reasignarMangasTrabajoColorScm: scmMocks.reasignarMangasTrabajoColorScm,
   reemplazarEtiquetaScm: vi.fn(),
   solicitarCorreccionPesajeScm: vi.fn(),
@@ -72,6 +75,7 @@ vi.mock('../services/scmOtApi', () => ({
 }));
 
 vi.mock('../services/scmEngineeringApi', () => ({
+  listarCentrosTrabajoScm: vi.fn().mockResolvedValue([]),
   mensajeErrorScm: (_error, fallback) => fallback,
 }));
 
@@ -201,6 +205,7 @@ const weighingDetail = {
 describe('OT de máquina, Trabajos de color y mangas', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     scmMocks.listarOrdenesFabricacionScm.mockResolvedValue({
       items: [{
         id: 'of-1',
@@ -210,6 +215,8 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
         corridas: [{
           id: 'run-1',
           codigo: 'COR-1',
+          color: 'VERDE SÓLIDO',
+          color_nombre: 'VERDE SÓLIDO',
           estado: 'LIBERADA',
           ciclos_objetivo: 100,
         }],
@@ -273,7 +280,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     </MemoryRouter>,
   );
 
-  it('consulta OT con filtros independientes de fecha, turno y máquina', async () => {
+  it('consulta el tablero por fecha y turno sin ocultar máquinas', async () => {
     const user = userEvent.setup();
     renderSubject();
 
@@ -283,20 +290,26 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       {
         fecha_operativa: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
         turno: 'DIA',
-        maquina_id: 4,
       },
     ));
 
-    const dateFilter = screen.getByLabelText('Fecha a consultar');
+    const dateFilter = screen.getByLabelText('Fecha de jornada');
     await user.clear(dateFilter);
     await user.type(dateFilter, '2026-08-11');
-    await user.click(screen.getByRole('button', { name: 'Buscar OT' }));
+    await user.click(screen.getByRole('button', { name: 'Actualizar jornadas' }));
 
-    await waitFor(() => expect(scmMocks.listarOtScm).toHaveBeenLastCalledWith(
-      undefined,
-      'FABRICACION',
-      { fecha_operativa: '2026-08-11', turno: 'DIA', maquina_id: 4 },
-    ));
+    await waitFor(() => {
+      expect(scmMocks.listarOtScm).toHaveBeenCalledWith(
+        undefined,
+        'FABRICACION',
+        { fecha_operativa: '2026-08-11', turno: 'DIA' },
+      );
+      expect(scmMocks.listarOtScm).toHaveBeenCalledWith(
+        undefined,
+        'ENSAMBLE',
+        { fecha_operativa: '2026-08-11', turno: 'DIA' },
+      );
+    });
   });
 
   it('explica el estado vacío cuando los filtros no encuentran jornadas', async () => {
@@ -304,7 +317,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     renderSubject();
 
     expect(await screen.findByText(
-      /No hay OT para la fecha, turno y máquina seleccionados/i,
+      /No hay OT para la fecha y turno seleccionados/i,
     )).toBeVisible();
     expect(screen.queryByLabelText('OT de máquina')).not.toBeInTheDocument();
   });
@@ -357,6 +370,61 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
         asignaciones: [{ plan_linea_id: 11, cantidad_un: 100 }],
       },
     ));
+  });
+
+  it('explica el maestro de empaque faltante y enlaza el artículo exacto', async () => {
+    const user = userEvent.setup();
+    scmMocks.recalcularPlanMangas.mockRejectedValueOnce({
+      response: {
+        data: {
+          error: {
+            code: 'PACKAGING_RULE_MISSING',
+            message: 'PC-DEMO-AP-CARNE requiere un perfil de empaque.',
+            details: {
+              articulo: {
+                id: 1,
+                codigo: 'PC-DEMO-AP-CARNE',
+                nombre: 'Alcancía Pablo Grande CARNE SÓLIDO',
+                clase: 'PIEZA_COLOR',
+              },
+              perfiles: {
+                asignados: 0,
+                activos: 0,
+                predeterminados_activos: 0,
+              },
+              reglas: {
+                manga_aprobadas_para_perfiles_activos: 0,
+                manga_aprobadas_para_predeterminado: 0,
+              },
+              accion: {
+                etiqueta: 'Revisar empaque de PC-DEMO-AP-CARNE',
+                ruta: '/datos-maestros/ingenieria-scm?tab=empaque&articulo=1',
+                requiere_validacion_fisica: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    renderSubject();
+
+    await user.click(await screen.findByRole('button', {
+      name: 'Recalcular plan de la OF',
+    }));
+
+    expect(await screen.findByRole('heading', {
+      name: /Falta validar el empaque de PC-DEMO-AP-CARNE/i,
+    })).toBeVisible();
+    expect(screen.getByText(/0 perfiles asignados.*0 activos.*0 predeterminados/i))
+      .toBeVisible();
+    expect(screen.getByText(/0 reglas MANGA aprobadas/i)).toBeVisible();
+    expect(screen.getByText(/supervisor.*validar físicamente/i)).toBeVisible();
+    expect(screen.getByRole('link', {
+      name: 'Revisar empaque de PC-DEMO-AP-CARNE',
+    })).toHaveAttribute(
+      'href',
+      '/datos-maestros/ingenieria-scm?tab=empaque&articulo=1',
+    );
   });
 
   it('solicita, lista y aprueba manga EXTRA sin mezclar Trabajos de color', async () => {
@@ -583,6 +651,38 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     ).toHaveBeenCalledWith(['manga-blue-1']));
   });
 
+  it('conserva el trabajo generado y ofrece copiarlo o abrir su vista previa local', async () => {
+    const user = userEvent.setup();
+    const clipboardWrite = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: clipboardWrite },
+    });
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null);
+    const firstRender = renderSubject();
+
+    await user.click(await screen.findByRole('checkbox', {
+      name: 'Seleccionar manga MNG-VERDE-001',
+    }));
+    await user.click(screen.getByRole('button', { name: 'Generar 1 preetiqueta' }));
+
+    expect((await screen.findAllByText(/generada y pendiente de impresión/i)).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: 'Copiar ID del trabajo' }));
+    expect(clipboardWrite).toHaveBeenCalledWith('print-1');
+
+    await user.click(screen.getByRole('button', { name: 'Abrir vista previa en estación' }));
+    expect(openSpy).toHaveBeenCalledWith(
+      'http://127.0.0.1:5050/?tab=scm-prelabels&job=print-1',
+      '_blank',
+      'noopener,noreferrer',
+    );
+
+    firstRender.unmount();
+    renderSubject();
+    expect((await screen.findAllByText(/generada y pendiente de impresión/i)).length).toBeGreaterThan(0);
+    expect(screen.getByText('print-1')).toBeVisible();
+  });
+
   it('conserva la anulación controlada desde una manga del trabajo', async () => {
     const user = userEvent.setup();
     renderSubject();
@@ -595,11 +695,12 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     });
     expect(annulButton).toBeDisabled();
 
-    await user.type(
-      screen.getByLabelText('Motivo de anulación'),
-      'Manga descartada por identificación incorrecta',
-    );
-    await user.type(screen.getByLabelText('Evidencia opcional'), 'INC-2026-08-10');
+    fireEvent.change(screen.getByLabelText('Motivo de anulación'), {
+      target: { value: 'Manga descartada por identificación incorrecta' },
+    });
+    fireEvent.change(screen.getByLabelText('Evidencia opcional'), {
+      target: { value: 'INC-2026-08-10' },
+    });
     await user.click(annulButton);
 
     await waitFor(() => expect(scmMocks.anularPesajeScm).toHaveBeenCalledWith(

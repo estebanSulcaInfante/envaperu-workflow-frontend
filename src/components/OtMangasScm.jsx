@@ -2,13 +2,16 @@ import {
   useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
 import {
-  Alert, Box, Button, Card, CardActionArea, Checkbox, Chip, CircularProgress,
+  Alert, AlertTitle, Box, Button, Card, CardActionArea, Checkbox, Chip, CircularProgress,
   Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl,
   FormControlLabel, InputLabel, MenuItem, Paper, Select, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography,
 } from '@mui/material';
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
 import { getTrabajadores, obtenerMaquinas } from '../services/api';
 import {
   agregarMangasTrabajoColorScm,
@@ -31,17 +34,482 @@ import {
   solicitarMangaExtraScm,
   solicitarCorreccionPesajeScm,
 } from '../services/scmOtApi';
-import { mensajeErrorScm } from '../services/scmEngineeringApi';
+import {
+  listarCentrosTrabajoScm,
+  mensajeErrorScm,
+} from '../services/scmEngineeringApi';
 import PageHeader from './ui/PageHeader';
 import ProcessJourney from './ui/ProcessJourney';
+import PlantJourneysOverview from './PlantJourneysOverview';
 import { useScmActor } from '../context/ScmActorContext';
+import { todayInLima } from '../utils/limaDate';
+import {
+  buildScmPrelabelPreviewUrl,
+  loadLastPendingPrintJob,
+  storeLastPendingPrintJob,
+} from '../utils/scmPrintPreview';
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = todayInLima;
+const journeyContextFromSearch = (searchParams) => {
+  const requestedDate = searchParams.get('fecha') || '';
+  const requestedShift = String(searchParams.get('turno') || '').toUpperCase();
+  const requestedMode = String(searchParams.get('modo') || '').toLowerCase();
+  return {
+    fecha_operativa: /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : today(),
+    turno: ['DIA', 'NOCHE', 'EXTRA'].includes(requestedShift) ? requestedShift : 'DIA',
+    perspective: requestedMode === 'armado' ? 'ENSAMBLE' : 'FABRICACION',
+    ot: searchParams.get('ot') || '',
+  };
+};
 const stateLabel = (value) => String(value || '').replaceAll('_', ' ');
 const compactQuantity = (value) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? new Intl.NumberFormat('es-PE').format(parsed) : '0';
 };
+
+const PRODUCTION_CLOSED_MANGA_STATES = new Set([
+  'PESADA', 'ETIQUETADA_FINAL', 'PENDIENTE_RECEPCION_ALMACEN', 'RECIBIDA',
+]);
+const PRODUCTION_OPEN_MANGA_STATES = new Set([
+  'ABIERTA', 'INCOMPLETA', 'PESAJE_PARCIAL',
+]);
+const PRELABELED_MANGA_STATES = new Set(['PREETIQUETADA']);
+const PRINTED_LABEL_STATES = new Set(['IMPRESA']);
+const GENERATED_LABEL_STATES = new Set(['GENERADA', 'PENDIENTE_IMPRESION']);
+const DISCARDED_MANGA_STATES = new Set(['ANULADA', 'BORRADA']);
+const UNKNOWN_PRODUCTION_COLOR = 'Color no informado en la OF';
+
+const packagingBlockerFromError = (requestError) => {
+  const apiError = requestError?.response?.data?.error;
+  const details = apiError?.details;
+  if (apiError?.code !== 'PACKAGING_RULE_MISSING' || !details?.articulo?.codigo) {
+    return null;
+  }
+  return {
+    article: details.articulo,
+    profiles: details.perfiles || {},
+    rules: details.reglas || {},
+    action: details.accion || {},
+  };
+};
+
+function PackagingConfigurationBlocker({ blocker, onClose }) {
+  const assignedProfiles = Number(blocker.profiles.asignados || 0);
+  const activeProfiles = Number(blocker.profiles.activos || 0);
+  const defaultProfiles = Number(blocker.profiles.predeterminados_activos || 0);
+  const approvedRules = Number(
+    blocker.rules.manga_aprobadas_para_perfiles_activos || 0,
+  );
+  const articleCode = blocker.article.codigo;
+  const actionPath = blocker.action.ruta
+    || `/datos-maestros/ingenieria-scm?tab=empaque&articulo=${blocker.article.id}`;
+  const actionLabel = blocker.action.etiqueta || `Revisar empaque de ${articleCode}`;
+  return (
+    <Alert severity="warning" onClose={onClose}>
+      <AlertTitle component="h2">
+        Falta validar el empaque de {articleCode}
+      </AlertTitle>
+      <Typography variant="body2">
+        {blocker.article.nombre} · {assignedProfiles} perfiles asignados ·{' '}
+        {activeProfiles} activos · {defaultProfiles} predeterminados.
+      </Typography>
+      <Typography variant="body2" sx={{ mt: 0.5 }}>
+        {approvedRules} reglas MANGA aprobadas para sus perfiles activos.
+      </Typography>
+      <Typography variant="body2" sx={{ mt: 1 }}>
+        El perfil describe la geometría, no la identidad comercial: puede compartirse con un
+        producto terminado si ambos conservan la misma estructura física. Antes de asociarlo,
+        un supervisor debe validar físicamente el acomodo, la cantidad máxima, la tara y los
+        límites de peso; no copies una asociación solo por similitud del nombre.
+      </Typography>
+      <Button
+        component={RouterLink}
+        to={actionPath}
+        size="small"
+        variant="outlined"
+        sx={{ mt: 1.25 }}
+      >
+        {actionLabel}
+      </Button>
+    </Alert>
+  );
+}
+
+const productionColorName = (run, planLines = []) => {
+  if (!run) return 'Color pendiente de configurar';
+  const directColor = typeof run.color === 'string' ? run.color : run.color?.nombre;
+  const matchingLine = planLines.find(
+    (line) => String(line.corrida_fabricacion_id) === String(run.id),
+  );
+  return run.color_nombre
+    || run.color_identidad?.nombre
+    || directColor
+    || run.pieza_color?.color_nombre
+    || run.pieza_color?.color?.nombre
+    || matchingLine?.color_nombre
+    || matchingLine?.color?.nombre
+    || matchingLine?.articulo?.color_nombre
+    || UNKNOWN_PRODUCTION_COLOR;
+};
+
+const productionRunArticleNames = (run, planLines = []) => {
+  const outputNames = (run?.salidas || [])
+    .map((output) => output.articulo_nombre || output.articulo?.nombre)
+    .filter(Boolean);
+  const planNames = planLines
+    .filter((line) => String(line.corrida_fabricacion_id) === String(run?.id))
+    .map((line) => line.articulo_nombre || line.articulo?.nombre)
+    .filter(Boolean);
+  return [...new Set([...outputNames, ...planNames])];
+};
+
+const productionRunOptionLabel = (run, order, planLines, index) => {
+  const articleNames = productionRunArticleNames(run, planLines);
+  return [
+    productionColorName(run, planLines),
+    articleNames.join(', ') || 'Artículo no informado en la OF',
+    order?.codigo || 'OF',
+    `secuencia ${run.secuencia || index + 1}`,
+  ].join(' · ');
+};
+
+const currentWorkerName = (work, ot, workers) => {
+  const activeAssignment = work?.asignacion_activa
+    || work?.asignacion_vigente
+    || [...(work?.asignaciones_personal || [])].reverse().find(
+      (item) => ['ACTIVA', 'PREVISTA'].includes(item.estado),
+    );
+  if (activeAssignment?.trabajador) return activeAssignment.trabajador;
+  if (activeAssignment?.trabajador_nombre) return activeAssignment.trabajador_nombre;
+  const plannedWorker = ot?.maquinista_predeterminado ?? ot?.maquinista_previsto;
+  if (plannedWorker?.nombre_completo) {
+    return plannedWorker.nombre_completo;
+  }
+  if (typeof plannedWorker === 'string') {
+    return plannedWorker;
+  }
+  const plannedWorkerId = ot?.maquinista_predeterminado_id ?? ot?.maquinista_previsto_id;
+  const defaultWorker = workers.find(
+    (item) => String(item.id) === String(plannedWorkerId),
+  );
+  return defaultWorker?.nombre_completo || 'Responsable por asignar';
+};
+
+const machineIdFromOt = (ot) => ot?.maquina_id ?? ot?.maquina?.id;
+const isOperationalMachine = (machine) => machine?.activo !== false
+  && !['INACTIVA', 'FUERA_SERVICIO', 'BAJA'].includes(
+    String(machine?.estado || '').toUpperCase(),
+  );
+
+const machineBoardModel = (machine, allOts, workers, orders, selectedOtId) => {
+  const machineOts = allOts
+    .filter((ot) => String(machineIdFromOt(ot)) === String(machine.id))
+    .sort((left, right) => {
+      const priority = { EN_EJECUCION: 0, PLANIFICADA: 1, PAUSADA: 2, CERRADA: 3 };
+      return (priority[left.estado] ?? 9) - (priority[right.estado] ?? 9);
+    });
+  const machineRunning = machineOts.some(
+    (item) => (item.trabajos_color || []).some(
+      (work) => work.estado === 'EN_EJECUCION',
+    ),
+  );
+  const ot = machineOts.find((item) => item.public_id === selectedOtId)
+    || machineOts[0]
+    || null;
+  const works = ot?.trabajos_color || [];
+  const activeWork = works.find((work) => work.estado === 'EN_EJECUCION')
+    || works.find((work) => work.estado === 'PAUSADO')
+    || works.find((work) => work.estado === 'PLANIFICADO')
+    || [...works]
+      .sort((left, right) => Number(right.secuencia || 0) - Number(left.secuencia || 0))
+      .find((work) => work.estado !== 'ANULADO')
+    || null;
+  const nextWork = works
+    .filter((work) => work.id !== activeWork?.id)
+    .filter((work) => ['PLANIFICADO', 'PAUSADO'].includes(work.estado))
+    .sort((left, right) => Number(left.secuencia || 0) - Number(right.secuencia || 0))[0]
+    || null;
+  const mangas = activeWork ? (activeWork.mangas || []) : (ot?.mangas || []);
+  const mangaCounts = mangas.reduce((counts, manga) => {
+    if (DISCARDED_MANGA_STATES.has(manga.estado)) return counts;
+    if (PRODUCTION_CLOSED_MANGA_STATES.has(manga.estado)) counts.closed += 1;
+    else if (PRODUCTION_OPEN_MANGA_STATES.has(manga.estado)) counts.open += 1;
+    else if (PRELABELED_MANGA_STATES.has(manga.estado)) {
+      const labelState = String(manga.etiqueta_vigente?.estado || '').toUpperCase();
+      if (PRINTED_LABEL_STATES.has(labelState)) counts.labelsPrinted += 1;
+      else if (GENERATED_LABEL_STATES.has(labelState)) counts.labelsGenerated += 1;
+      else counts.prelabeledUnknown += 1;
+    }
+    else counts.pending += 1;
+    return counts;
+  }, {
+    closed: 0,
+    open: 0,
+    labelsGenerated: 0,
+    labelsPrinted: 0,
+    prelabeledUnknown: 0,
+    pending: 0,
+  });
+  const order = orders.find(
+    (item) => String(item.id) === String(activeWork?.orden_fabricacion_id),
+  );
+  const run = order?.corridas?.find(
+    (item) => String(item.id) === String(activeWork?.corrida_fabricacion_id),
+  );
+  const orderOutputNames = (run?.salidas || [])
+    .map((output) => output.articulo_nombre || output.articulo?.nombre)
+    .filter(Boolean);
+  const workOutputNames = (activeWork?.articulos_salida || [])
+    .map((article) => [article.codigo, article.nombre].filter(Boolean).join(' · '))
+    .filter(Boolean);
+  const articleName = workOutputNames.join(', ')
+    || activeWork?.articulo_nombre
+    || activeWork?.mangas?.[0]?.articulo_nombre
+    || activeWork?.salidas?.[0]?.articulo_nombre
+    || activeWork?.salidas?.[0]?.articulo?.nombre
+    || orderOutputNames.join(', ')
+    || 'Artículo no informado';
+
+  return {
+    machine,
+    ot,
+    activeWork,
+    nextWork,
+    articleName,
+    workerName: currentWorkerName(activeWork, ot, workers),
+    mangaCounts,
+    concurrentOtCount: machineOts.length,
+    otIds: machineOts.map((item) => item.public_id),
+    machineRunning,
+  };
+};
+
+function DailyMachineBoard({
+  machines, ots, workers, orders, selectedOtId, canCreateOt, onOpen,
+}) {
+  const cards = machines.map(
+    (machine) => machineBoardModel(machine, ots, workers, orders, selectedOtId),
+  );
+  const machinesWithOt = cards.filter((card) => card.ot).length;
+  const machinesRunning = cards.filter(
+    (card) => card.machineRunning,
+  ).length;
+  return (
+    <Stack spacing={1.5}>
+      <Stack
+        data-testid="plant-day-summary"
+        role="status"
+        aria-live="polite"
+        aria-label="Resumen de planta para el turno"
+        direction="row"
+        spacing={0.75}
+        useFlexGap
+        flexWrap="wrap"
+      >
+        <Chip color="primary" variant="outlined" label={`Máquinas ${cards.length}`} />
+        <Chip variant="outlined" label={`Con OT ${machinesWithOt}`} />
+        <Chip
+          color={machinesRunning ? 'success' : 'default'}
+          variant="outlined"
+          label={`En ejecución ${machinesRunning}`}
+        />
+        <Chip
+          color={cards.length - machinesWithOt ? 'warning' : 'default'}
+          variant="outlined"
+          label={`Sin OT ${cards.length - machinesWithOt}`}
+        />
+      </Stack>
+      <Box
+        data-testid="daily-machine-board"
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 285px), 1fr))',
+          gap: 1.5,
+        }}
+      >
+      {cards.map((card) => {
+        const selected = card.otIds.includes(selectedOtId);
+        const running = card.activeWork?.estado === 'EN_EJECUCION';
+        const actionable = Boolean(card.ot || canCreateOt);
+        const CardSurface = actionable ? CardActionArea : Box;
+        const operationalState = !card.ot
+          ? { label: 'Sin OT', color: 'default' }
+          : (running
+            ? { label: 'Produciendo', color: 'success' }
+            : (card.activeWork?.estado === 'PAUSADO'
+              ? { label: 'Pausada', color: 'warning' }
+              : (card.activeWork?.estado === 'PLANIFICADO'
+                ? { label: 'Lista', color: 'info' }
+                : { label: 'Sin trabajo activo', color: 'default' })));
+        return (
+          <Card
+            key={card.machine.id}
+            data-testid="machine-day-card"
+            variant="outlined"
+            sx={{
+              minHeight: 250,
+              borderColor: selected ? 'primary.main' : (running ? 'success.main' : 'divider'),
+              borderWidth: selected ? 2 : 1,
+              bgcolor: card.machine.boardUnavailable
+                ? 'rgba(237, 108, 2, 0.06)'
+                : (card.ot ? 'background.paper' : 'grey.50'),
+            }}
+          >
+            <CardSurface
+              role={actionable ? undefined : 'group'}
+              aria-label={card.ot
+                ? `Abrir jornada de ${card.machine.codigo}: ver detalle y gestionar`
+                : `${card.machine.codigo} sin OT`}
+              aria-current={selected ? 'true' : undefined}
+              onClick={actionable ? () => onOpen(card) : undefined}
+              sx={{ p: 2, height: '100%', alignItems: 'stretch' }}
+            >
+              <Stack spacing={1.25} sx={{ height: '100%' }}>
+                <Stack direction="row" justifyContent="space-between" spacing={1}>
+                  <Box>
+                    <Typography component="h3" variant="h6" fontWeight={900}>
+                      {card.machine.codigo}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {card.machine.nombre}
+                    </Typography>
+                  </Box>
+                  <Chip
+                    size="small"
+                    color={operationalState.color}
+                    label={operationalState.label}
+                  />
+                </Stack>
+
+                {card.machine.boardUnavailable && (
+                  <Alert severity="warning" icon={false} sx={{ py: 0.25 }}>
+                    Máquina inactiva o no disponible
+                  </Alert>
+                )}
+
+                {!card.ot ? (
+                  <Box sx={{ flex: 1, display: 'grid', alignContent: 'center' }}>
+                    <Typography fontWeight={800}>Sin jornada para este turno</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {canCreateOt
+                        ? 'Selecciona la tarjeta para preparar una OT en esta máquina.'
+                        : 'No hay jornada registrada para este turno.'}
+                    </Typography>
+                    {canCreateOt ? (
+                      <Typography color="primary.main" fontWeight={900} sx={{ mt: 1 }}>
+                        Preparar OT →
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                        Sin acciones disponibles para tu perfil.
+                      </Typography>
+                    )}
+                  </Box>
+                ) : (
+                  <>
+                    <Box>
+                      <Typography fontWeight={900}>{card.ot.codigo_ot}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Maquinista: {card.workerName}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Estado OT: {stateLabel(card.ot.estado)}
+                      </Typography>
+                    </Box>
+                    {card.activeWork ? (
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          {running
+                            ? 'Trabajo activo'
+                            : (card.activeWork.estado === 'PAUSADO'
+                              ? 'Trabajo pausado'
+                              : (card.activeWork.estado === 'PLANIFICADO'
+                                ? 'Próximo trabajo'
+                                : 'Último trabajo'))}
+                        </Typography>
+                        <Typography fontWeight={900}>{card.activeWork.color || 'Color por confirmar'}</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {card.articleName} · {card.activeWork.orden_fabricacion_codigo || 'OF por confirmar'}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Alert severity="warning" icon={false} sx={{ py: 0.5 }}>
+                        OT sin trabajo de color
+                      </Alert>
+                    )}
+                    <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+                      <Chip size="small" label={`Cerradas ${card.mangaCounts.closed}`} />
+                      {card.mangaCounts.open > 0 && (
+                        <Chip
+                          size="small"
+                          color="warning"
+                          label={`Abiertas ${card.mangaCounts.open}`}
+                        />
+                      )}
+                      {card.mangaCounts.labelsGenerated > 0 && (
+                        <Chip
+                          size="small"
+                          color="info"
+                          label={`Etiqueta generada ${card.mangaCounts.labelsGenerated}`}
+                        />
+                      )}
+                      {card.mangaCounts.labelsPrinted > 0 && (
+                        <Chip
+                          size="small"
+                          color="success"
+                          label={`Etiqueta impresa ${card.mangaCounts.labelsPrinted}`}
+                        />
+                      )}
+                      {card.mangaCounts.prelabeledUnknown > 0 && (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={`Preetiqueta sin estado ${card.mangaCounts.prelabeledUnknown}`}
+                        />
+                      )}
+                      <Chip size="small" label={`Pendientes ${card.mangaCounts.pending}`} />
+                    </Stack>
+                    {card.nextWork && (
+                      <Typography variant="caption" color="text.secondary">
+                        Siguiente: {card.nextWork.color || 'Color por confirmar'} · {card.nextWork.orden_fabricacion_codigo || 'OF por confirmar'}
+                      </Typography>
+                    )}
+                    {card.concurrentOtCount > 1 && (
+                      <Typography variant="caption" color="warning.main">
+                        Atención: {card.concurrentOtCount} OT coinciden en esta máquina.
+                      </Typography>
+                    )}
+                    <Box
+                      sx={{
+                        mt: 'auto',
+                        pt: 1.25,
+                        borderTop: 1,
+                        borderColor: 'divider',
+                      }}
+                    >
+                      <Stack direction="row" alignItems="center" justifyContent="space-between">
+                        <Typography variant="body2" color="text.secondary">
+                          Trabajos, mangas y responsables
+                        </Typography>
+                        <Stack direction="row" alignItems="center" spacing={0.5}>
+                          <Typography color="primary.main" fontWeight={900}>
+                            Ver detalle y gestionar
+                          </Typography>
+                          <ArrowForwardIcon color="primary" fontSize="small" />
+                        </Stack>
+                      </Stack>
+                    </Box>
+                  </>
+                )}
+              </Stack>
+            </CardSurface>
+          </Card>
+        );
+      })}
+      </Box>
+    </Stack>
+  );
+}
 
 const legacyWork = (ot) => ({
   id: `legacy-${ot.public_id}`,
@@ -52,7 +520,7 @@ const legacyWork = (ot) => ({
   orden_fabricacion_id: ot.orden_operacion_id,
   orden_fabricacion_codigo: ot.orden_fabricacion?.codigo || 'OF legacy',
   corrida_fabricacion_id: ot.corrida_fabricacion_id,
-  corrida_codigo: 'Corrida legacy',
+  corrida_codigo: null,
   color: ot.mangas?.[0]?.color || 'Contexto anterior',
   cantidad_objetivo_un: ot.mangas?.reduce(
     (total, item) => total + Number(item.cantidad_asignada_un || 0), 0,
@@ -111,7 +579,7 @@ function ColorWorkQueue({ works, selectedWorkId, onSelect }) {
                 <Box sx={{ flex: 1 }}>
                   <Typography fontWeight={850}>{work.color || 'Sin color informado'}</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {work.orden_fabricacion_codigo || 'Sin OF'} · {work.corrida_codigo || 'Sin corrida'}
+                    {work.orden_fabricacion_codigo || 'Sin OF'}
                   </Typography>
                 </Box>
                 <Box sx={{ textAlign: { sm: 'right' } }}>
@@ -252,9 +720,19 @@ function MangaTable({
   );
 }
 
-export default function OtMangasScm() {
+export default function OtMangasScm({ view = 'all' }) {
+  const navigate = useNavigate();
+  const isLanding = view === 'landing';
+  const isDetail = view === 'detail';
   const { can, canAny, experience } = useScmActor();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialJourneyContextRef = useRef(null);
+  if (initialJourneyContextRef.current === null) {
+    initialJourneyContextRef.current = journeyContextFromSearch(searchParams);
+  }
+  const initialJourneyContext = initialJourneyContextRef.current;
   const canManagePlan = can('PLAN_MANGA_ADMINISTRAR');
+  const canViewFabricationOrders = can('OF_VER');
   const canCreateOt = can('OT_CREAR');
   const canStartWork = can('OT_INICIAR');
   const canCloseWork = can('OT_CERRAR');
@@ -276,16 +754,35 @@ export default function OtMangasScm() {
     'PESAJE_CORRECCION_APROBAR', 'ANULAR_PESAJE',
   ]);
 
-  const [catalogs, setCatalogs] = useState({ orders: [], machines: [], workers: [] });
+  const [catalogs, setCatalogs] = useState({
+    orders: [], machines: [], allMachines: [], workers: [],
+  });
   const [ots, setOts] = useState([]);
-  const [selectedOtId, setSelectedOtId] = useState('');
+  const [assemblyOts, setAssemblyOts] = useState([]);
+  const [assemblyCenters, setAssemblyCenters] = useState([]);
+  const [centerCatalogWarning, setCenterCatalogWarning] = useState('');
+  const [journeyWarnings, setJourneyWarnings] = useState({
+    FABRICACION: '', ENSAMBLE: '',
+  });
+  const [perspective, setPerspective] = useState(initialJourneyContext.perspective);
+  const [selectedOtId, setSelectedOtId] = useState(
+    initialJourneyContext.perspective === 'FABRICACION' ? initialJourneyContext.ot : '',
+  );
+  const [assemblyContextOtId, setAssemblyContextOtId] = useState(
+    initialJourneyContext.perspective === 'ENSAMBLE' ? initialJourneyContext.ot : '',
+  );
   const [selectedWorkId, setSelectedWorkId] = useState('');
   const selectedWorkIdRef = useRef('');
+  const creationRef = useRef(null);
+  const detailRef = useRef(null);
   const [listFilters, setListFilters] = useState({
-    fecha_operativa: today(), turno: 'DIA', maquina_id: '',
+    fecha_operativa: initialJourneyContext.fecha_operativa,
+    turno: initialJourneyContext.turno,
+    maquina_id: '',
   });
   const [headerForm, setHeaderForm] = useState({
-    fecha_operativa: today(), maquina_id: '', turno: 'DIA',
+    fecha_operativa: initialJourneyContext.fecha_operativa,
+    maquina_id: '', turno: initialJourneyContext.turno,
     maquinista_predeterminado_id: '',
   });
   const [workForm, setWorkForm] = useState({
@@ -305,8 +802,9 @@ export default function OtMangasScm() {
   const [busy, setBusy] = useState(true);
   const [planBusy, setPlanBusy] = useState(false);
   const [error, setError] = useState('');
+  const [packagingBlocker, setPackagingBlocker] = useState(null);
   const [notice, setNotice] = useState('');
-  const [printJob, setPrintJob] = useState(null);
+  const [printJob, setPrintJob] = useState(loadLastPendingPrintJob);
   const [replacementPrintJobs, setReplacementPrintJobs] = useState([]);
   const [mangaActionDialog, setMangaActionDialog] = useState(null);
   const [mangaActionReason, setMangaActionReason] = useState('');
@@ -320,8 +818,15 @@ export default function OtMangasScm() {
   const [annulmentForm, setAnnulmentForm] = useState({ motivo: '', evidencia: '' });
 
   const selectedOt = useMemo(
-    () => ots.find((item) => item.public_id === selectedOtId) || null,
-    [ots, selectedOtId],
+    () => {
+      const item = ots.find((candidate) => candidate.public_id === selectedOtId) || null;
+      if (item && listFilters.maquina_id
+        && String(machineIdFromOt(item)) !== String(listFilters.maquina_id)) {
+        return null;
+      }
+      return item;
+    },
+    [listFilters.maquina_id, ots, selectedOtId],
   );
   const works = useMemo(() => selectedOt?.trabajos_color || [], [selectedOt]);
   const selectedWork = useMemo(
@@ -332,10 +837,70 @@ export default function OtMangasScm() {
     () => catalogs.orders.find((item) => item.id === workForm.orderId) || null,
     [catalogs.orders, workForm.orderId],
   );
+  const eligibleOrders = useMemo(
+    () => catalogs.orders.filter(
+      (item) => ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION'].includes(item.estado),
+    ),
+    [catalogs.orders],
+  );
+  const boardMachines = useMemo(() => {
+    const resources = new Map(
+      catalogs.machines.map((machine) => [String(machine.id), machine]),
+    );
+    ots.forEach((ot) => {
+      const machineId = machineIdFromOt(ot);
+      if (machineId == null || resources.has(String(machineId))) return;
+      const knownMachine = catalogs.allMachines.find(
+        (machine) => String(machine.id) === String(machineId),
+      );
+      resources.set(String(machineId), {
+        ...(knownMachine || {}),
+        id: knownMachine?.id ?? machineId,
+        codigo: knownMachine?.codigo || ot.maquina_codigo || `Máquina ${machineId}`,
+        nombre: knownMachine?.nombre || ot.maquina_nombre || ot.maquina || 'Recurso no disponible',
+        boardUnavailable: true,
+      });
+    });
+    return [...resources.values()];
+  }, [catalogs.allMachines, catalogs.machines, ots]);
   const selectedRun = useMemo(
     () => selectedOrder?.corridas?.find((item) => item.id === workForm.runId) || null,
     [selectedOrder, workForm.runId],
   );
+  const selectedRunHasColor = selectedRun
+    && productionColorName(selectedRun, draftPlan?.lineas) !== UNKNOWN_PRODUCTION_COLOR;
+  const availableRuns = useMemo(
+    () => (selectedOrder?.corridas || []).filter(
+      (item) => ['LIBERADA', 'EN_EJECUCION'].includes(item.estado),
+    ),
+    [selectedOrder],
+  );
+  const filteredOts = useMemo(
+    () => (listFilters.maquina_id
+      ? ots.filter(
+        (item) => String(machineIdFromOt(item)) === String(listFilters.maquina_id),
+      )
+      : ots),
+    [listFilters.maquina_id, ots],
+  );
+  const selectedFilteredOtId = filteredOts.some(
+    (item) => item.public_id === selectedOtId,
+  ) ? selectedOtId : '';
+  const assemblyCenterCount = useMemo(() => {
+    const keys = new Set(assemblyCenters.map((center) => String(
+      center.id || center.codigo || center.nombre || 'sin-centro',
+    )));
+    assemblyOts.forEach((item) => keys.add(String(
+      item.centro_trabajo?.id
+      || item.centro_trabajo?.codigo
+      || item.centro_trabajo?.nombre
+      || 'sin-centro',
+    )));
+    return keys.size;
+  }, [assemblyCenters, assemblyOts]);
+  const runningJourneyCount = [...ots, ...assemblyOts].filter(
+    (item) => item.estado === 'EN_EJECUCION',
+  ).length;
   const draftRunLines = useMemo(
     () => (draftPlan?.lineas || []).filter(
       (line) => line.corrida_fabricacion_id === workForm.runId,
@@ -390,31 +955,78 @@ export default function OtMangasScm() {
   const loadOts = useCallback(async (
     preferredOtId, preferredWorkId, filters = listFilters,
   ) => {
-    const payload = await listarOtScm(undefined, 'FABRICACION', filters);
-    applyOtPayload(payload.items || [], preferredOtId, preferredWorkId);
+    const query = {
+      fecha_operativa: filters.fecha_operativa,
+      turno: filters.turno,
+    };
+    const [fabricationResult, assemblyResult] = await Promise.allSettled([
+      listarOtScm(undefined, 'FABRICACION', query),
+      listarOtScm(undefined, 'ENSAMBLE', query),
+    ]);
+    if (fabricationResult.status === 'fulfilled') {
+      applyOtPayload(fabricationResult.value.items || [], preferredOtId, preferredWorkId);
+    }
+    if (assemblyResult.status === 'fulfilled') {
+      setAssemblyOts(assemblyResult.value.items || []);
+    }
+    setJourneyWarnings({
+      FABRICACION: fabricationResult.status === 'rejected'
+        ? 'No se pudieron actualizar las jornadas de Fabricación. Se conserva la última información visible.'
+        : '',
+      ENSAMBLE: assemblyResult.status === 'rejected'
+        ? 'No se pudieron actualizar las jornadas de Armado. Se conserva la última información visible.'
+        : '',
+    });
   }, [applyOtPayload, listFilters]);
 
   useEffect(() => {
     setBusy(true);
+    const centersRequest = listarCentrosTrabajoScm()
+      .then((centers) => {
+        setCenterCatalogWarning('');
+        return centers;
+      })
+      .catch(() => {
+        setCenterCatalogWarning(
+          'No se pudo consultar el catálogo de centros. Las jornadas existentes siguen visibles.',
+        );
+        return [];
+      });
     Promise.all([
-      listarOrdenesFabricacionScm(), obtenerMaquinas(), getTrabajadores(),
+      canViewFabricationOrders
+        ? listarOrdenesFabricacionScm()
+        : Promise.resolve({ items: [] }),
+      obtenerMaquinas(),
+      getTrabajadores(),
+      centersRequest,
     ])
-      .then(async ([orderPayload, machines, workers]) => {
-        const orders = (orderPayload.items || []).filter(
+      .then(async ([orderPayload, machines, workers, centers]) => {
+        const orders = orderPayload.items || [];
+        const selectableOrders = orders.filter(
           (item) => ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION'].includes(item.estado),
         );
+        const operationalMachines = (machines || []).filter(isOperationalMachine);
         const activeWorkers = (workers || []).filter(
           (item) => item.activo
             && item.roles?.some((role) => role.codigo === 'MAQUINISTA'),
         );
-        setCatalogs({ orders, machines: machines || [], workers: activeWorkers });
-        const firstOrder = orders[0];
+        setCatalogs({
+          orders,
+          machines: operationalMachines,
+          allMachines: machines || [],
+          workers: activeWorkers,
+        });
+        setAssemblyCenters((centers || []).filter((center) => (
+          center.activo !== false
+          && ['PREARMADO', 'ENSAMBLE', 'ACABADO', 'EMPAQUE'].includes(center.tipo)
+        )));
+        const firstOrder = selectableOrders[0];
         const firstRun = firstOrder?.corridas?.find(
           (item) => ['LIBERADA', 'EN_EJECUCION'].includes(item.estado),
         );
         setHeaderForm((current) => ({
           ...current,
-          maquina_id: current.maquina_id || machines?.[0]?.id || '',
+          maquina_id: current.maquina_id || operationalMachines[0]?.id || '',
           maquinista_predeterminado_id:
             current.maquinista_predeterminado_id || activeWorkers[0]?.id || '',
         }));
@@ -428,29 +1040,81 @@ export default function OtMangasScm() {
           ...current, workerId: current.workerId || activeWorkers[0]?.id || '',
         }));
         const initialFilters = {
-          fecha_operativa: today(),
-          turno: 'DIA',
-          maquina_id: machines?.[0]?.id || '',
+          fecha_operativa: initialJourneyContext.fecha_operativa,
+          turno: initialJourneyContext.turno,
+          maquina_id: '',
         };
         setListFilters(initialFilters);
-        const otPayload = initialFilters.maquina_id
-          ? await listarOtScm(undefined, 'FABRICACION', initialFilters)
-          : { items: [] };
-        applyOtPayload(otPayload.items || []);
+        const query = {
+          fecha_operativa: initialFilters.fecha_operativa,
+          turno: initialFilters.turno,
+        };
+        const [fabricationResult, assemblyResult] = await Promise.allSettled([
+          listarOtScm(undefined, 'FABRICACION', query),
+          listarOtScm(undefined, 'ENSAMBLE', query),
+        ]);
+        if (fabricationResult.status === 'fulfilled') {
+          applyOtPayload(
+            fabricationResult.value.items || [],
+            initialJourneyContext.perspective === 'FABRICACION'
+              ? initialJourneyContext.ot : undefined,
+          );
+        }
+        if (assemblyResult.status === 'fulfilled') {
+          setAssemblyOts(assemblyResult.value.items || []);
+        }
+        setJourneyWarnings({
+          FABRICACION: fabricationResult.status === 'rejected'
+            ? 'No se pudieron cargar las jornadas de Fabricación.' : '',
+          ENSAMBLE: assemblyResult.status === 'rejected'
+            ? 'No se pudieron cargar las jornadas de Armado.' : '',
+        });
       })
       .catch((requestError) => setError(
         mensajeErrorScm(requestError, 'No se pudieron cargar OT, OF y recursos.'),
       ))
       .finally(() => setBusy(false));
-  }, [applyOtPayload]);
+  }, [applyOtPayload, canViewFabricationOrders, initialJourneyContext]);
 
   useEffect(() => {
     selectedWorkIdRef.current = selectedWorkId;
     setSelectedLabels([]);
     setSelectedRelief([]);
-    setPrintJob(null);
     setReplacementPrintJobs([]);
   }, [selectedWorkId]);
+
+  useEffect(() => {
+    storeLastPendingPrintJob(printJob);
+  }, [printJob]);
+
+  useEffect(() => {
+    const contextualOt = perspective === 'ENSAMBLE'
+      ? assemblyContextOtId
+      : selectedOtId;
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set('fecha', listFilters.fecha_operativa);
+      next.set('turno', listFilters.turno);
+      next.set('modo', perspective === 'ENSAMBLE' ? 'armado' : 'fabricacion');
+      if (contextualOt) next.set('ot', contextualOt);
+      else next.delete('ot');
+      return next.toString() === current.toString() ? current : next;
+    }, { replace: true });
+  }, [
+    assemblyContextOtId,
+    listFilters.fecha_operativa,
+    listFilters.turno,
+    perspective,
+    selectedOtId,
+    setSearchParams,
+  ]);
+
+  useEffect(() => {
+    if (!listFilters.maquina_id || selectedFilteredOtId) return;
+    const nextOt = filteredOts[0] || null;
+    setSelectedOtId(nextOt?.public_id || '');
+    setSelectedWorkId(nextOt?.trabajos_color?.[0]?.id || '');
+  }, [filteredOts, listFilters.maquina_id, selectedFilteredOtId]);
 
   useEffect(() => {
     if (!workForm.orderId) {
@@ -530,8 +1194,8 @@ export default function OtMangasScm() {
 
   const applyListFilters = async (event) => {
     event?.preventDefault();
-    if (!listFilters.fecha_operativa || !listFilters.turno || !listFilters.maquina_id) {
-      setError('Selecciona fecha, turno y máquina para buscar OT.');
+    if (!listFilters.fecha_operativa || !listFilters.turno) {
+      setError('Selecciona fecha y turno para actualizar el tablero.');
       return;
     }
     setBusy(true);
@@ -543,6 +1207,11 @@ export default function OtMangasScm() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const changeJourneyPerspective = (nextPerspective) => {
+    setPerspective(nextPerspective);
+    if (nextPerspective === 'ENSAMBLE') setAssemblyContextOtId('');
   };
 
   const createHeader = async () => {
@@ -566,7 +1235,7 @@ export default function OtMangasScm() {
       const creationFilters = {
         fecha_operativa: headerForm.fecha_operativa,
         turno: headerForm.turno,
-        maquina_id: headerForm.maquina_id,
+        maquina_id: '',
       };
       setListFilters(creationFilters);
       await loadOts(result.ot.public_id, undefined, creationFilters);
@@ -584,8 +1253,9 @@ export default function OtMangasScm() {
         plan_linea_id: Number(line.id),
         cantidad_un: Number(workForm.quantities[line.id]),
       }));
-    if (!selectedOt || !selectedRun || !workForm.workerId || !assignments.length) {
-      setError('Selecciona OT, corrida, maquinista y una cantidad positiva.');
+    if (!selectedOt || !selectedRun || !selectedRunHasColor
+      || !workForm.workerId || !assignments.length) {
+      setError('Selecciona OT, color a fabricar, maquinista y una cantidad positiva.');
       return;
     }
     setBusy(true);
@@ -611,6 +1281,7 @@ export default function OtMangasScm() {
     if (!workForm.orderId) return;
     setPlanBusy(true);
     setError('');
+    setPackagingBlocker(null);
     try {
       const result = await recalcularPlanMangas(workForm.orderId);
       setDraftPlan(result.plan);
@@ -622,7 +1293,12 @@ export default function OtMangasScm() {
       }));
       setNotice(`Plan de ${selectedOrder?.codigo} recalculado. No se creó ninguna manga.`);
     } catch (requestError) {
-      setError(mensajeErrorScm(requestError, 'No se pudo recalcular el plan de la OF.'));
+      const blocker = packagingBlockerFromError(requestError);
+      if (blocker) {
+        setPackagingBlocker(blocker);
+      } else {
+        setError(mensajeErrorScm(requestError, 'No se pudo recalcular el plan de la OF.'));
+      }
     } finally {
       setPlanBusy(false);
     }
@@ -788,6 +1464,34 @@ export default function OtMangasScm() {
     }
   };
 
+  const copyPrintJobId = async (printJobId) => {
+    const value = String(printJobId || '').trim();
+    if (!value) return;
+    try {
+      if (globalThis.navigator?.clipboard?.writeText) {
+        await globalThis.navigator.clipboard.writeText(value);
+      } else {
+        const input = document.createElement('textarea');
+        input.value = value;
+        input.setAttribute('readonly', '');
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        input.remove();
+      }
+      setNotice(`ID ${value} copiado.`);
+    } catch {
+      setError('No se pudo copiar el ID. Selecciónalo manualmente.');
+    }
+  };
+
+  const openPrintJobPreview = (printJobId) => {
+    const previewUrl = buildScmPrelabelPreviewUrl(printJobId);
+    globalThis.open(previewUrl, '_blank', 'noopener,noreferrer');
+  };
+
   const generateLabels = async () => {
     if (selectedLabels.length < 1 || selectedLabels.length > 2) {
       setError('Selecciona una o dos mangas del mismo Trabajo de color.');
@@ -798,7 +1502,9 @@ export default function OtMangasScm() {
     try {
       const result = await generarEtiquetasPrepesaje(selectedLabels);
       setPrintJob(result);
-      setNotice(`Trabajo de impresión ${result.print_job_id} listo para la balanza.`);
+      setNotice(
+        `Trabajo ${result.print_job_id}: preetiqueta generada y pendiente de impresión.`,
+      );
       setSelectedLabels([]);
       await loadOts(selectedOt.public_id, selectedWork.id);
     } catch (requestError) {
@@ -825,7 +1531,9 @@ export default function OtMangasScm() {
           mangaActionReason.trim(),
         );
         setPrintJob({ ...result, labels: [result.label] });
-        setNotice(`Nueva etiqueta generada en el trabajo ${result.print_job_id}.`);
+        setNotice(
+          `Trabajo ${result.print_job_id}: etiqueta generada y pendiente de impresión.`,
+        );
       }
       setMangaActionDialog(null);
       setMangaActionReason('');
@@ -946,19 +1654,73 @@ export default function OtMangasScm() {
     }));
   };
 
+  const openMachineCard = (card) => {
+    if (!card.ot) {
+      setHeaderForm((current) => ({
+        ...current,
+        fecha_operativa: listFilters.fecha_operativa,
+        turno: listFilters.turno,
+        maquina_id: card.machine.id,
+      }));
+      setListFilters((current) => ({ ...current, maquina_id: card.machine.id }));
+      setSelectedOtId('');
+      setSelectedWorkId('');
+      setNotice(`${card.machine.codigo} quedó seleccionada para crear su jornada.`);
+      globalThis.requestAnimationFrame?.(() => {
+        creationRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+        creationRef.current?.focus?.({ preventScroll: true });
+      });
+      return;
+    }
+    setSelectedOtId(card.ot.public_id);
+    if (isLanding) {
+      const params = new URLSearchParams({
+        fecha: listFilters.fecha_operativa,
+        turno: listFilters.turno,
+        modo: 'fabricacion',
+        ot: card.ot.public_id,
+      });
+      navigate('/produccion/ots-planta/trabajo?' + params.toString());
+      return;
+    }
+    setSelectedWorkId(card.activeWork?.id || card.ot.trabajos_color?.[0]?.id || '');
+    setListFilters((current) => ({ ...current, maquina_id: card.machine.id }));
+    globalThis.requestAnimationFrame?.(() => {
+      detailRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
   const prelabelButtonText = selectedLabels.length
     ? `Generar ${selectedLabels.length} preetiqueta${selectedLabels.length > 1 ? 's' : ''}`
     : 'Selecciona hasta 2 mangas';
+  const overviewParams = new URLSearchParams({
+    fecha: listFilters.fecha_operativa,
+    turno: listFilters.turno,
+    modo: perspective === 'ENSAMBLE' ? 'armado' : 'fabricacion',
+  });
+  const overviewUrl = `/produccion/ots-planta?${overviewParams.toString()}`;
 
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        title="OT de máquina y trabajos de color"
-        description="La OT organiza la jornada de una máquina. Cada color conserva su OF, corrida, responsable, cupo y mangas."
+        title={isDetail ? (selectedOt?.codigo_ot || 'Detalle de OT') : 'OTs de planta'}
+        description="Consulta el turno completo y continúa el trabajo desde Máquinas o Centros de Armado sin mezclar sus responsabilidades."
         actions={(
-          <Button startIcon={<RefreshIcon />} variant="outlined" onClick={refresh}>
-            Actualizar
-          </Button>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            {isDetail && (
+              <Button
+                component={RouterLink}
+                to={overviewUrl}
+                startIcon={<ArrowBackIcon />}
+                variant="outlined"
+              >
+                Volver a OTs de planta
+              </Button>
+            )}
+            <Button startIcon={<RefreshIcon />} variant="outlined" onClick={refresh}>
+              Actualizar
+            </Button>
+          </Stack>
         )}
       />
       <ProcessJourney current="jornada" />
@@ -967,12 +1729,56 @@ export default function OtMangasScm() {
           Vista de consulta para {experience.label}. Las acciones se muestran a los responsables de la jornada.
         </Alert>
       )}
+      {packagingBlocker && (
+        <PackagingConfigurationBlocker
+          blocker={packagingBlocker}
+          onClose={() => setPackagingBlocker(null)}
+        />
+      )}
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
 
-      <Paper variant="outlined" sx={{ p: 2 }}>
+      {!isDetail && (
+      <PlantJourneysOverview
+        filters={listFilters}
+        onFiltersChange={setListFilters}
+        onSubmit={applyListFilters}
+        busy={busy}
+        perspective={perspective}
+        onPerspectiveChange={changeJourneyPerspective}
+        journeyCount={ots.length + assemblyOts.length}
+        runningCount={runningJourneyCount}
+        machineCount={boardMachines.length}
+        assemblyCenterCount={assemblyCenterCount}
+        assemblyOts={assemblyOts}
+        assemblyCenters={assemblyCenters}
+        centerCatalogWarning={centerCatalogWarning}
+        journeyWarnings={journeyWarnings}
+        selectedAssemblyOtId={assemblyContextOtId}
+      />
+      )}
+
+      <Stack
+        id="plant-journeys-panel-fabrication"
+        role="tabpanel"
+        aria-labelledby="plant-journeys-tab-fabrication"
+        hidden={perspective !== 'FABRICACION'}
+        spacing={2.5}
+        sx={{ display: perspective === 'FABRICACION' ? 'flex' : 'none' }}
+      >
+
+      {!isDetail && (
+      <Paper
+        ref={creationRef}
+        tabIndex={-1}
+        aria-label="Preparar OT de máquina"
+        variant="outlined"
+        sx={{ p: 2 }}
+      >
         <Typography variant="overline" color="primary.main">1 · Jornada de máquina</Typography>
-        <Typography variant="h6" fontWeight={850}>Crear una OT sin amarrarla a un color</Typography>
+        <Typography component="h2" variant="h6" fontWeight={850}>
+          Crear una OT sin amarrarla a un color
+        </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Define solamente dónde y cuándo se trabajará. Los colores se agregan después como una cola.
         </Typography>
@@ -1035,90 +1841,111 @@ export default function OtMangasScm() {
         </Stack>
       </Paper>
 
+      )}
       {busy && <Box sx={{ display: 'grid', placeItems: 'center', py: 2 }}><CircularProgress /></Box>}
 
       <Paper variant="outlined" sx={{ p: 2 }}>
-        <Typography variant="overline" color="primary.main">2 · Cola de producción</Typography>
-        <Paper
-          component="form"
-          onSubmit={applyListFilters}
-          variant="outlined"
-          sx={{ p: 1.5, my: 1.5, bgcolor: 'grey.50' }}
-        >
-          <Typography fontWeight={850}>Filtros de consulta</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Buscan jornadas existentes y no modifican el formulario de creación de arriba.
-          </Typography>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
-            <TextField
-              size="small"
-              label="Fecha a consultar"
-              type="date"
-              value={listFilters.fecha_operativa}
-              InputLabelProps={{ shrink: true }}
-              onChange={(event) => setListFilters({
-                ...listFilters, fecha_operativa: event.target.value,
-              })}
-            />
-            <FormControl size="small" sx={{ minWidth: 180 }}>
-              <InputLabel>Turno a consultar</InputLabel>
-              <Select
-                label="Turno a consultar"
-                value={listFilters.turno}
-                onChange={(event) => setListFilters({
-                  ...listFilters, turno: event.target.value,
-                })}
-              >
-                <MenuItem value="DIA">Día</MenuItem>
-                <MenuItem value="NOCHE">Noche</MenuItem>
-                <MenuItem value="EXTRA">Extra</MenuItem>
-              </Select>
-            </FormControl>
+        {!isDetail && (<>
+        <Typography variant="overline" color="primary.main">2 · Tablero diario por máquina</Typography>
+        <Typography component="h2" variant="h6" fontWeight={850}>
+          Estado del turno de un vistazo
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Cada máquina permanece visible aunque todavía no tenga OT. Abre una tarjeta para continuar en su detalle.
+        </Typography>
+        <Paper variant="outlined" sx={{ p: 1.5, my: 1.5, bgcolor: 'grey.50' }}>
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={1.5}
+            alignItems={{ md: 'center' }}
+          >
+            <Box sx={{ flex: 1 }}>
+              <Typography fontWeight={850}>Detalle de Máquinas</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Este selector enfoca el detalle; no cambia el tablero ni el turno consultado.
+              </Typography>
+            </Box>
             <FormControl size="small" sx={{ minWidth: 260 }}>
-              <InputLabel>Máquina a consultar</InputLabel>
+              <InputLabel>Filtrar lista por máquina</InputLabel>
               <Select
-                label="Máquina a consultar"
+                label="Filtrar lista por máquina"
                 value={listFilters.maquina_id}
-                onChange={(event) => setListFilters({
-                  ...listFilters, maquina_id: event.target.value,
-                })}
+                onChange={(event) => {
+                  const machineId = event.target.value;
+                  setListFilters({ ...listFilters, maquina_id: machineId });
+                  const nextOt = machineId
+                    ? ots.find(
+                      (item) => String(machineIdFromOt(item)) === String(machineId),
+                    )
+                    : ots[0];
+                  if (nextOt) {
+                    setSelectedOtId(nextOt.public_id);
+                    setSelectedWorkId(nextOt.trabajos_color?.[0]?.id || '');
+                  } else {
+                    setSelectedOtId('');
+                    setSelectedWorkId('');
+                  }
+                }}
               >
-                {catalogs.machines.map((item) => (
+                <MenuItem value=""><em>Todas las máquinas</em></MenuItem>
+                {boardMachines.map((item) => (
                   <MenuItem key={item.id} value={item.id}>
                     {item.codigo} · {item.nombre}
                   </MenuItem>
                 ))}
               </Select>
             </FormControl>
-            <Button
-              type="submit"
-              variant="outlined"
-              disabled={busy || !listFilters.fecha_operativa
-                || !listFilters.turno || !listFilters.maquina_id}
-            >
-              Buscar OT
-            </Button>
           </Stack>
         </Paper>
-        {ots.length > 0 && (
+
+        <DailyMachineBoard
+          machines={boardMachines}
+          ots={ots}
+          workers={catalogs.workers}
+          orders={catalogs.orders}
+          selectedOtId={selectedOtId}
+          canCreateOt={canCreateOt}
+          onOpen={openMachineCard}
+        />
+
+        <Divider sx={{ my: 2.5 }} />
+        </>)}
+        {!isLanding && (<>
+
+        <Box ref={detailRef} sx={{ scrollMarginTop: 16 }}>
+          <Typography
+            component="h3"
+            variant="h6"
+            fontWeight={850}
+            id="ot-machine-detail-heading"
+          >
+            {selectedOt ? `Detalle de ${selectedOt.codigo_ot}` : 'Lista y detalle de OT'}
+          </Typography>
+        </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Alternativa compacta para seleccionar cualquiera de las OT, incluidas coincidencias históricas en una misma máquina.
+        </Typography>
+        {filteredOts.length > 0 && (
           <Stack
             direction={{ xs: 'column', md: 'row' }}
             spacing={2}
             alignItems={{ md: 'center' }}
             sx={{ mb: 2 }}
           >
-            <FormControl sx={{ minWidth: 310 }}>
-              <InputLabel>OT de máquina</InputLabel>
+            <FormControl sx={{ width: { xs: '100%', md: 'auto' }, minWidth: { md: 310 } }}>
+              <InputLabel id="ot-machine-select-label">OT de máquina</InputLabel>
               <Select
+                id="ot-machine-select"
+                labelId="ot-machine-select-label"
                 label="OT de máquina"
-                value={selectedOtId}
+                value={selectedFilteredOtId}
                 onChange={(event) => {
                   setSelectedOtId(event.target.value);
                   const next = ots.find((item) => item.public_id === event.target.value);
                   setSelectedWorkId(next?.trabajos_color?.[0]?.id || '');
                 }}
               >
-                {ots.map((item) => (
+                {filteredOts.map((item) => (
                   <MenuItem key={item.public_id} value={item.public_id}>
                     {item.codigo_ot} · {item.maquina_codigo || item.maquina} · {item.fecha_operativa} · {stateLabel(item.turno)}
                   </MenuItem>
@@ -1140,7 +1967,7 @@ export default function OtMangasScm() {
         )}
         {!selectedOt ? (
           <Alert severity="info">
-            No hay OT para la fecha, turno y máquina seleccionados. Ajusta los filtros o crea la jornada arriba.
+            No hay OT para la fecha y turno seleccionados. Las máquinas siguen visibles para preparar su jornada.
           </Alert>
         ) : (
           <ColorWorkQueue
@@ -1149,45 +1976,92 @@ export default function OtMangasScm() {
             onSelect={setSelectedWorkId}
           />
         )}
+        </>)}
       </Paper>
 
+      {!isLanding && (<>
       {selectedOt && canCreateOt && (
         <Paper variant="outlined" sx={{ p: 2 }}>
-          <Typography variant="h6" fontWeight={850}>Agregar Trabajo de color</Typography>
+          <Typography component="h2" variant="h6" fontWeight={850}>
+            Agregar Trabajo de color
+          </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Selecciona la OF y su corrida. El color y las salidas se heredan; no se escriben manualmente.
+            Selecciona la OF. El color y las salidas provienen de su configuración liberada; no se escriben manualmente.
           </Typography>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ mb: 2 }}>
             <FormControl sx={{ minWidth: 260 }}>
-              <InputLabel>Orden de fabricación</InputLabel>
+              <InputLabel id="fabrication-order-select-label">
+                Orden de fabricación
+              </InputLabel>
               <Select
+                id="fabrication-order-select"
+                labelId="fabrication-order-select-label"
                 label="Orden de fabricación"
                 value={workForm.orderId}
                 onChange={(event) => selectOrder(event.target.value)}
               >
-                {catalogs.orders.map((item) => (
+                {eligibleOrders.map((item) => (
                   <MenuItem key={item.id} value={item.id}>{item.codigo}</MenuItem>
                 ))}
               </Select>
             </FormControl>
-            <FormControl sx={{ minWidth: 260 }}>
-              <InputLabel>Corrida y color</InputLabel>
-              <Select
-                label="Corrida y color"
-                value={workForm.runId}
-                onChange={(event) => setWorkForm({
-                  ...workForm, runId: event.target.value,
-                })}
+            {availableRuns.length === 1 && (
+              <Paper
+                data-testid="single-production-color"
+                variant="outlined"
+                sx={{ px: 1.75, py: 1.25, minWidth: { md: 280 }, flex: 1 }}
               >
-                {(selectedOrder?.corridas || [])
-                  .filter((item) => ['LIBERADA', 'EN_EJECUCION'].includes(item.estado))
-                  .map((item) => (
-                    <MenuItem key={item.id} value={item.id}>
-                      {item.codigo} · {item.color || item.color_nombre || 'color definido en la corrida'}
+                <Typography variant="caption" color="text.secondary">
+                  Color a fabricar
+                </Typography>
+                <Typography fontWeight={900}>
+                  {productionColorName(availableRuns[0], draftPlan?.lineas)}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {productionRunArticleNames(
+                    availableRuns[0], draftPlan?.lineas,
+                  ).join(', ') || 'Artículo no informado en la OF'} · {selectedOrder.codigo}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  {selectedRunHasColor
+                    ? 'Definido en la configuración liberada de la OF; no se edita aquí.'
+                    : 'Completa el color en la configuración de la OF y libérala nuevamente.'}
+                </Typography>
+              </Paper>
+            )}
+            {availableRuns.length > 1 && (
+              <FormControl sx={{ minWidth: 260 }}>
+                <InputLabel id="production-color-select-label">Color a fabricar</InputLabel>
+                <Select
+                  id="production-color-select"
+                  labelId="production-color-select-label"
+                  label="Color a fabricar"
+                  value={workForm.runId}
+                  onChange={(event) => setWorkForm({
+                    ...workForm, runId: event.target.value,
+                  })}
+                >
+                  {availableRuns.map((item, index) => (
+                    <MenuItem
+                      key={item.id}
+                      value={item.id}
+                      disabled={productionColorName(
+                        item, draftPlan?.lineas,
+                      ) === UNKNOWN_PRODUCTION_COLOR}
+                    >
+                      {productionRunOptionLabel(
+                        item, selectedOrder, draftPlan?.lineas, index,
+                      )}
                     </MenuItem>
                   ))}
-              </Select>
-            </FormControl>
+                </Select>
+              </FormControl>
+            )}
+            {selectedOrder && availableRuns.length === 0 && (
+              <Alert severity="warning" sx={{ minWidth: { md: 280 } }}>
+                Esta OF no tiene colores liberados para fabricar.
+              </Alert>
+            )}
             <FormControl sx={{ minWidth: 240 }}>
               <InputLabel>Maquinista inicial</InputLabel>
               <Select
@@ -1243,7 +2117,11 @@ export default function OtMangasScm() {
               </Table>
             </TableContainer>
           )}
-          <Button variant="contained" disabled={busy || !selectedRun} onClick={createWork}>
+          <Button
+            variant="contained"
+            disabled={busy || !selectedRun || !selectedRunHasColor}
+            onClick={createWork}
+          >
             Agregar a la cola de esta OT
           </Button>
         </Paper>
@@ -1259,9 +2137,11 @@ export default function OtMangasScm() {
             sx={{ mb: 2 }}
           >
             <Box sx={{ flex: 1 }}>
-              <Typography variant="h6" fontWeight={850}>{selectedWork.color}</Typography>
+              <Typography component="h2" variant="h6" fontWeight={850}>
+                {selectedWork.color}
+              </Typography>
               <Typography variant="body2" color="text.secondary">
-                {selectedWork.orden_fabricacion_codigo} · {selectedWork.corrida_codigo} · responsable {currentWorker?.trabajador || 'por asignar'}
+                {selectedWork.orden_fabricacion_codigo} · responsable {currentWorker?.trabajador || 'por asignar'}
               </Typography>
             </Box>
             <Chip
@@ -1560,8 +2440,39 @@ export default function OtMangasScm() {
 
       {printJob && (
         <Alert severity="info">
-          Trabajo <strong>{printJob.print_job_id}</strong> generado con {printJob.labels.length} etiqueta(s).
-          Ya puede abrirse desde la estación de pesaje.
+          <Stack spacing={1}>
+            <Box>
+              <Typography fontWeight={850}>
+                {printJob.labels?.length === 1 ? 'Preetiqueta generada' : 'Preetiquetas generadas'}
+                {' y pendiente'}{printJob.labels?.length === 1 ? '' : 's'} de impresión
+              </Typography>
+              <Typography variant="body2">
+                Trabajo <strong>{printJob.print_job_id}</strong> · {printJob.labels?.length || 0}{' '}
+                {printJob.labels?.length === 1 ? 'etiqueta' : 'etiquetas'}.
+                La vista previa no registra una impresión física.
+              </Typography>
+            </Box>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              alignItems={{ sm: 'center' }}
+            >
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => copyPrintJobId(printJob.print_job_id)}
+              >
+                Copiar ID del trabajo
+              </Button>
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => openPrintJobPreview(printJob.print_job_id)}
+              >
+                Abrir vista previa en estación
+              </Button>
+            </Stack>
+          </Stack>
         </Alert>
       )}
 
@@ -1583,6 +2494,9 @@ export default function OtMangasScm() {
           </Box>
         </Alert>
       )}
+
+      </>)}
+      </Stack>
 
       <Dialog open={Boolean(workActionDialog)} onClose={() => setWorkActionDialog(null)} fullWidth maxWidth="sm">
         <DialogTitle>

@@ -38,6 +38,14 @@ export const calcularPlanOpScm = (order) => data(
   ),
 );
 
+export const actualizarRutasOpScm = (order) => data(
+  () => api.post(
+    `/scm/v1/ordenes-produccion/${order.id}/actualizar-rutas`,
+    { version: order.version },
+    config(true),
+  ),
+);
+
 export const ajustarMetasPlanOpScm = (order, plan, ajustes, motivo) => data(
   () => api.post(
     `/scm/v1/ordenes-produccion/${order.id}/ajustar-metas`,

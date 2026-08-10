@@ -63,7 +63,7 @@ export const workspaceAreas = [
   { key: 'production', label: 'Producción', order: 20, icon: 'production', path: '/produccion/ordenes-fabricacion' },
   { key: 'materials', label: 'Materiales', order: 30, icon: 'materials', path: '/materiales/preparaciones' },
   { key: 'warehouse', label: 'Almacén e inventario', order: 40, icon: 'warehouse', path: '/produccion/kardex' },
-  { key: 'control', label: 'Control', order: 50, icon: 'control', path: '/produccion/avance' },
+  { key: 'control', label: 'Control', order: 50, icon: 'control', path: '/control/supervision-produccion' },
   { key: 'masters', label: 'Datos maestros', order: 100, icon: 'catalog', path: '/datos-maestros', support: true, childMode: 'hub' },
   { key: 'admin', label: 'Administración', order: 110, icon: 'settings', path: '/configuracion', support: true },
   { key: 'guide', label: 'Guía SCM', order: 120, icon: 'guide', path: '/guia/scm', support: true },
@@ -76,7 +76,7 @@ export const workspaceFeatures = [
   feature({ key: 'planning.exceptionalOp', areaKey: 'planning', sectionKey: 'demand', label: 'OP excepcional', description: 'Alta excepcional y justificada.', path: '/produccion/ordenes/nueva-excepcional', aliases: ['/ordenes/nueva'], requiredAny: ['OP_CREAR'], maturity: 'LEGACY_MARCHA_BLANCA', task: false, icon: 'orders' }),
 
   feature({ key: 'production.fabrication', areaKey: 'production', sectionKey: 'fabrication', label: 'Fabricación · OF', description: 'Configura y libera órdenes de fabricación.', path: '/produccion/ordenes-fabricacion', requiredAny: ['OF_VER'], icon: 'production', defaultPriority: 20, task: true }),
-  feature({ key: 'production.machineWork', areaKey: 'production', sectionKey: 'machine-work', label: 'Jornadas y Trabajos de color', description: 'OT, trabajos, mangas, asignaciones y preetiquetas.', path: '/produccion/ots-mangas', requiredAny: ['OT_VER', 'PLAN_MANGA_VER'], icon: 'records', defaultPriority: 30, task: true }),
+  feature({ key: 'production.machineWork', areaKey: 'production', sectionKey: 'machine-work', label: 'OTs de planta', description: 'Prepara OT por recurso y entra al trabajo de colores y mangas.', path: '/produccion/ots-planta', matches: ['/produccion/ots-planta/trabajo'], aliases: ['/produccion/ots-mangas'], requiredAny: ['OT_VER'], icon: 'records', defaultPriority: 30, task: true }),
   feature({ key: 'production.assembly', areaKey: 'production', sectionKey: 'assembly', label: 'Armado · OA', description: 'Libera y ejecuta órdenes de armado.', path: '/produccion/ordenes-armado', aliases: ['/produccion/ordenes-ensamble'], requiredAny: ['OA_VER'], icon: 'assembly', defaultPriority: 40, task: true }),
 
   feature({ key: 'materials.preparation', areaKey: 'materials', sectionKey: 'preparation', label: 'Preparación de materiales', description: 'Requerimientos, reservas, emisiones y devoluciones.', path: '/materiales/preparaciones', matches: ['/materiales/preparaciones/:numeroOp'], aliases: ['/ordenes/:numeroOp/materiales', '/materiales'], requiredAny: ['OPERACION_PLANIFICAR', 'WIP_VER'], icon: 'reservations', defaultPriority: 20, task: true }),
@@ -86,9 +86,11 @@ export const workspaceFeatures = [
   feature({ key: 'warehouse.receiving', areaKey: 'warehouse', sectionKey: 'receiving', label: 'Recepción y Calidad', description: 'Recibe mangas, ubica y resuelve Calidad.', path: '/produccion/recepcion-mangas', requiredAny: ['RECEPCION_MANGA_VER', 'CALIDAD_MANGA_VER'], icon: 'receipts', defaultPriority: 20, task: true }),
   feature({ key: 'warehouse.kardex', areaKey: 'warehouse', sectionKey: 'inventory', label: 'Kardex y existencias', description: 'Consulta saldos y movimientos trazables.', path: '/produccion/kardex', requiredAny: ['INVENTARIO_VER'], icon: 'inventory', defaultPriority: 10, keywords: ['inventario', 'existencias', 'movimientos'], task: true }),
 
-  feature({ key: 'control.progress', areaKey: 'control', sectionKey: 'progress', label: 'Avance de planta', description: 'Seguimiento de cumplimiento y producción.', path: '/produccion/avance', aliases: ['/pesaje/avance'], requiredAny: ['WIP_VER'], icon: 'progress', defaultPriority: 10, task: true }),
+  feature({ key: 'control.productionSupervision', areaKey: 'control', sectionKey: 'production-supervision', label: 'Supervisión de producción', description: 'Consulta OT, recursos, avance y excepciones sin mezclar acciones operativas.', path: '/control/supervision-produccion', aliases: ['/produccion/supervision'], requiredAny: ['OT_VER'], icon: 'control', defaultPriority: 0, keywords: ['OT', 'supervisión', 'jornadas', 'observabilidad'], task: true }),
+  feature({ key: 'control.printJobs', areaKey: 'control', sectionKey: 'printing', label: 'Impresión y etiquetas', description: 'Supervisa la cola central y abre la vista previa en la estación.', path: '/control/impresion-etiquetas', requiredAny: ['OT_VER'], icon: 'documents', defaultPriority: 5, keywords: ['stickers', 'etiquetas', 'impresión', 'prepesaje', 'postpesaje'], task: true }),
+  feature({ key: 'control.progress', areaKey: 'control', sectionKey: 'progress', label: 'Avance de planta · legacy', description: 'Seguimiento de cumplimiento y producción desde reportes locales legacy.', path: '/produccion/avance', aliases: ['/pesaje/avance'], requiredAny: ['WIP_VER'], icon: 'progress', defaultPriority: 10, task: true }),
   feature({ key: 'control.alerts', areaKey: 'control', sectionKey: 'alerts', label: 'Alertas operativas', description: 'Excepciones que requieren atención.', path: '/produccion/alertas', requiredAny: ['ALERTA_VER'], icon: 'alerts', defaultPriority: 20, task: true }),
-  feature({ key: 'control.weighings', areaKey: 'control', sectionKey: 'weighings', label: 'Pesajes y correcciones', description: 'Histórico, conciliación y anulaciones.', path: '/produccion/pesajes', aliases: ['/pesaje/ordenes'], requiredAny: ['MANGA_PESAJE_VER'], icon: 'weighing', defaultPriority: 30, task: true }),
+  feature({ key: 'control.weighings', areaKey: 'control', sectionKey: 'weighings', label: 'Pesajes y correcciones · legacy', description: 'Histórico, conciliación y anulaciones de la fuente local legacy.', path: '/produccion/pesajes', aliases: ['/pesaje/ordenes'], requiredAny: ['MANGA_PESAJE_VER'], icon: 'weighing', defaultPriority: 30, task: true }),
   feature({ key: 'control.legacyOrders', areaKey: 'control', sectionKey: 'white-run', label: 'Órdenes legacy', description: 'Compatibilidad temporal de marcha blanca.', path: '/produccion/ordenes', aliases: ['/ordenes'], requiredAny: ['OP_VER'], maturity: 'LEGACY_MARCHA_BLANCA', icon: 'orders', task: false }),
   feature({ key: 'control.dailyRecords', areaKey: 'control', sectionKey: 'white-run', label: 'Registro diario legacy', description: 'Registro paralelo de marcha blanca.', path: '/produccion/registros', aliases: ['/registros'], requiredAny: ['OT_VER'], maturity: 'LEGACY_MARCHA_BLANCA', icon: 'records', task: false }),
   feature({ key: 'control.talonarios', areaKey: 'control', sectionKey: 'white-run', label: 'Talonarios OT', description: 'Control físico de contingencia.', path: '/produccion/talonarios', aliases: ['/registros/talonarios'], requiredAny: ['OT_CREAR'], maturity: 'LEGACY_MARCHA_BLANCA', icon: 'documents', task: false }),
@@ -182,7 +184,9 @@ export const buildAreaNavigation = ({
       ));
     return {
       ...area,
-      path: features[0]?.path || area.path,
+      // Las areas con hub tienen un punto de entrada propio que organiza sus
+      // funciones. No debe sustituirse por el primer catalogo ordenado.
+      path: area.childMode === 'hub' ? area.path : (features[0]?.path || area.path),
       features,
     };
   });

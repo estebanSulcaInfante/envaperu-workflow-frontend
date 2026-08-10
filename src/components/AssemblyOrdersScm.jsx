@@ -11,7 +11,7 @@ import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import {
   listarOrdenesArmadoScm,
   transicionarOrdenArmadoScm,
@@ -42,7 +42,9 @@ import {
 import PageHeader from './ui/PageHeader';
 import ProcessJourney from './ui/ProcessJourney';
 import EmptyState from './ui/EmptyState';
+import OrderScheduleStrip from './ui/OrderScheduleStrip';
 import { useScmActor } from '../context/ScmActorContext';
+import { todayInLima } from '../utils/limaDate';
 
 const actions = {
   BORRADOR: { action: 'liberar', label: 'Liberar OA', color: 'success' },
@@ -52,11 +54,28 @@ const actions = {
 const OPERATION_TYPE_LABEL = {
   ENSAMBLE: 'ARMADO',
 };
+const assemblyModeLabel = (value) => (
+  value === 'CONCURRENTE' ? 'Concurrente con fabricación' : 'En mesa de armado'
+);
+const colorWorkOutputsLabel = (work) => (work?.articulos_salida || [])
+  .map((article) => `${article.codigo} · ${article.nombre}`)
+  .join(', ');
 
 export default function AssemblyOrdersScm() {
   const { can, experience } = useScmActor();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedOrderId = searchParams.get('oa') || '';
+  const requestedOtId = searchParams.get('ot') || '';
+  const requestedJourneyDate = /^\d{4}-\d{2}-\d{2}$/.test(searchParams.get('fecha') || '')
+    ? searchParams.get('fecha')
+    : todayInLima();
+  const requestedJourneyShift = ['DIA', 'NOCHE', 'EXTRA'].includes(
+    String(searchParams.get('turno') || '').toUpperCase(),
+  ) ? String(searchParams.get('turno')).toUpperCase() : 'DIA';
   const canRelease = can('OA_LIBERAR');
   const canExecute = can('OA_EJECUTAR');
+  const canCreateOt = can('OT_CREAR');
+  const canViewOt = can('OT_VER');
   const [orders, setOrders] = useState([]);
   const [orderId, setOrderId] = useState('');
   const [busy, setBusy] = useState(true);
@@ -82,13 +101,14 @@ export default function AssemblyOrdersScm() {
   const [correctionForm, setCorrectionForm] = useState({ cantidad_propuesta: '', motivo: '' });
   const [approvalReason, setApprovalReason] = useState('');
   const [otForm, setOtForm] = useState({
-    fecha_operativa: new Date().toISOString().slice(0, 10),
-    turno: 'DIA',
+    fecha_operativa: requestedJourneyDate,
+    turno: requestedJourneyShift,
     centro_trabajo_id: '',
     responsable_id: '',
     cantidad_objetivo: '',
     modo_ejecucion: 'MESA',
     ot_fabricacion_contexto_id: '',
+    trabajo_color_contexto_id: '',
   });
   const [closeForm, setCloseForm] = useState({
     cantidad_real: '', cantidad_rechazada: '0', motivo: '',
@@ -98,6 +118,16 @@ export default function AssemblyOrdersScm() {
     () => orders.find((item) => item.id === orderId) || orders[0] || null,
     [orderId, orders],
   );
+  const journeysReturnPath = useMemo(() => {
+    const params = new URLSearchParams();
+    ['fecha', 'turno', 'modo', 'ot'].forEach((key) => {
+      const value = searchParams.get(key);
+      if (value) params.set(key, value);
+    });
+    if (!params.has('modo')) params.set('modo', 'armado');
+    const query = params.toString();
+    return `/produccion/ots-planta${query ? `?${query}` : ''}`;
+  }, [searchParams]);
 
   const load = useCallback(async (preferredId = '') => {
     setBusy(true);
@@ -116,12 +146,32 @@ export default function AssemblyOrdersScm() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(requestedOrderId); }, [load, requestedOrderId]);
+
+  const chooseOrder = (nextOrderId) => {
+    setOrderId(nextOrderId);
+    setFabricationOts([]);
+    setOtForm((current) => ({
+      ...current,
+      modo_ejecucion: 'MESA',
+      ot_fabricacion_contexto_id: '',
+      trabajo_color_contexto_id: '',
+      centro_trabajo_id: '',
+      responsable_id: '',
+      cantidad_objetivo: '',
+    }));
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set('oa', nextOrderId);
+      next.delete('ot');
+      return next;
+    }, { replace: true });
+  };
 
   const refreshOts = useCallback(async (order = selected) => {
     if (!order) return;
     const [otPayload, requestPayload, planPayload] = await Promise.all([
-      listarOtArmadoScm(order.id),
+      canViewOt ? listarOtArmadoScm(order.id) : Promise.resolve({ items: [] }),
       can('ABASTECIMIENTO_VER')
         ? listarSolicitudesAbastecimientoScm()
         : Promise.resolve({ items: [] }),
@@ -132,7 +182,7 @@ export default function AssemblyOrdersScm() {
     setOts(otPayload.items || []);
     setSupplyRequests(requestPayload.items || []);
     setOutputPlan(planPayload.plan || null);
-  }, [can, selected]);
+  }, [can, canViewOt, selected]);
 
   useEffect(() => {
     if (!selected?.id) {
@@ -142,10 +192,11 @@ export default function AssemblyOrdersScm() {
     }
     let active = true;
     Promise.all([
-      listarOtArmadoScm(selected.id),
-      listarCentrosTrabajoScm(),
-      listarOtScm(undefined, 'FABRICACION'),
-      getTrabajadores({ incluir_inactivos: false }),
+      canViewOt ? listarOtArmadoScm(selected.id) : Promise.resolve({ items: [] }),
+      canCreateOt ? listarCentrosTrabajoScm() : Promise.resolve([]),
+      canCreateOt
+        ? getTrabajadores({ incluir_inactivos: false })
+        : Promise.resolve([]),
       can('ABASTECIMIENTO_VER')
         ? listarSolicitudesAbastecimientoScm()
         : Promise.resolve({ items: [] }),
@@ -153,7 +204,7 @@ export default function AssemblyOrdersScm() {
         ? obtenerPlanMangasArmadoScm(selected.id)
         : Promise.resolve({ plan: null }),
     ]).then(([
-      otPayload, centerItems, fabricationPayload, workerItems, requestPayload, planPayload,
+      otPayload, centerItems, workerItems, requestPayload, planPayload,
     ]) => {
       if (!active) return;
       const validCenters = centerItems.filter((center) => (
@@ -161,9 +212,6 @@ export default function AssemblyOrdersScm() {
       ));
       setOts(otPayload.items || []);
       setCenters(validCenters);
-      setFabricationOts((fabricationPayload.items || []).filter((item) => (
-        ['PLANIFICADA', 'EN_EJECUCION'].includes(item.estado)
-      )));
       setWorkers((workerItems || []).filter((worker) => worker.activo));
       setSupplyRequests(requestPayload.items || []);
       setOutputPlan(planPayload.plan || null);
@@ -178,7 +226,28 @@ export default function AssemblyOrdersScm() {
       if (active) setError(mensajeErrorScm(requestError, 'No se pudieron cargar las OT de Armado.'));
     });
     return () => { active = false; };
-  }, [can, selected]);
+  }, [can, canCreateOt, canViewOt, selected]);
+
+  useEffect(() => {
+    if (!otOpen || !otForm.fecha_operativa) return undefined;
+    let active = true;
+    listarOtScm(undefined, 'FABRICACION', {
+      fecha_operativa: otForm.fecha_operativa,
+    }).then((payload) => {
+      if (!active) return;
+      setFabricationOts((payload.items || []).filter((item) => (
+        ['PLANIFICADA', 'EN_EJECUCION'].includes(item.estado)
+      )));
+    }).catch((requestError) => {
+      if (!active) return;
+      setFabricationOts([]);
+      setError(mensajeErrorScm(
+        requestError,
+        'No se pudieron consultar las OT de fabricación de la fecha seleccionada.',
+      ));
+    });
+    return () => { active = false; };
+  }, [otForm.fecha_operativa, otOpen]);
 
   const createOt = async () => {
     setBusy(true);
@@ -188,6 +257,8 @@ export default function AssemblyOrdersScm() {
         ...otForm,
         ot_fabricacion_contexto_id: otForm.modo_ejecucion === 'CONCURRENTE'
           ? otForm.ot_fabricacion_contexto_id : null,
+        trabajo_color_contexto_id: otForm.modo_ejecucion === 'CONCURRENTE'
+          ? otForm.trabajo_color_contexto_id || null : null,
         centro_trabajo_id: Number(otForm.centro_trabajo_id),
         responsable_id: Number(otForm.responsable_id),
         cantidad_objetivo: Number(otForm.cantidad_objetivo),
@@ -377,11 +448,18 @@ export default function AssemblyOrdersScm() {
     Number(selected?.salida?.cantidad_objetivo || 0) - assignedQuota,
   );
   const outputPlanLine = outputPlan?.lineas?.[0] || null;
+  const selectedFabricationContext = fabricationOts.find(
+    (item) => item.public_id === otForm.ot_fabricacion_contexto_id,
+  ) || null;
+  const activeContextWorks = (selectedFabricationContext?.trabajos_color || []).filter(
+    (item) => ['PLANIFICADO', 'EN_EJECUCION', 'PAUSADO'].includes(item.estado),
+  );
 
   const openOtDialog = () => {
     setOtForm((current) => ({
       ...current,
-      fecha_operativa: new Date().toISOString().slice(0, 10),
+      fecha_operativa: requestedJourneyDate,
+      turno: requestedJourneyShift,
       cantidad_objetivo: pendingQuota || '',
     }));
     setOtOpen(true);
@@ -393,7 +471,10 @@ export default function AssemblyOrdersScm() {
         title="Órdenes de armado"
         description="Libera y ejecuta operaciones de prearmado, armado, acabado o empaque contra la BOM congelada por planificación."
         actions={(
-          <Stack direction="row" spacing={1}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Button component={RouterLink} to={journeysReturnPath} variant="text">
+              Volver a Jornadas
+            </Button>
             <Button startIcon={<RefreshIcon />} variant="outlined" onClick={() => load(selected?.id)}>
               Actualizar
             </Button>
@@ -413,16 +494,23 @@ export default function AssemblyOrdersScm() {
         La OA define el total. Las OT reparten ese total por fecha, mesa, turno y responsable;
         cada OT genera su propia solicitud de componentes desde la BOM congelada.
       </Alert>
+      {!canViewOt && (
+        <Alert severity="info">
+          Puedes consultar la OA, pero las jornadas requieren el permiso de consulta de OT.
+        </Alert>
+      )}
 
       {selected && (
+        <Stack spacing={1.25}>
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
             <FormControl sx={{ width: { xs: '100%', md: 360 }, minWidth: 0 }}>
-              <InputLabel>Orden de armado</InputLabel>
+              <InputLabel id="assembly-order-selector-label">Orden de armado</InputLabel>
               <Select
+                labelId="assembly-order-selector-label"
                 label="Orden de armado"
                 value={selected.id}
-                onChange={(event) => setOrderId(event.target.value)}
+                onChange={(event) => chooseOrder(event.target.value)}
               >
                 {orders.map((order) => (
                   <MenuItem key={order.id} value={order.id}>
@@ -455,6 +543,8 @@ export default function AssemblyOrdersScm() {
             </>
           </Stack>
         </Paper>
+        <OrderScheduleStrip order={selected} />
+        </Stack>
       )}
 
       {busy && <Box sx={{ display: 'grid', placeItems: 'center', py: 4 }}><CircularProgress /></Box>}
@@ -586,7 +676,7 @@ export default function AssemblyOrdersScm() {
                   {' · '}{pendingQuota.toFixed(3)} un pendientes
                 </Typography>
               </Box>
-              {can('OT_CREAR') && ['LIBERADA', 'EN_EJECUCION'].includes(selected.estado) && (
+              {canCreateOt && ['LIBERADA', 'EN_EJECUCION'].includes(selected.estado) && (
                 <Button
                   variant="contained"
                   startIcon={<AddTaskOutlinedIcon />}
@@ -607,7 +697,7 @@ export default function AssemblyOrdersScm() {
                 <Table size="small">
                   <TableHead><TableRow>
                     <TableCell>OT / jornada</TableCell>
-                    <TableCell>Mesa y responsable</TableCell>
+                    <TableCell>Centro, modalidad y responsable</TableCell>
                     <TableCell align="right">Cuota</TableCell>
                     <TableCell>Abastecimiento</TableCell>
                     <TableCell align="right">Siguiente acción</TableCell>
@@ -619,7 +709,11 @@ export default function AssemblyOrdersScm() {
                     const mangas = ot.mangas || [];
                     return (
                       <Fragment key={ot.public_id}>
-                        <TableRow>
+                        <TableRow
+                          data-testid={`assembly-ot-${ot.public_id}`}
+                          aria-current={requestedOtId === ot.public_id ? 'true' : undefined}
+                          sx={requestedOtId === ot.public_id ? { bgcolor: 'action.selected' } : undefined}
+                        >
                           <TableCell>
                             <Typography fontWeight={750}>{ot.codigo_ot}</Typography>
                             <Typography variant="caption" color="text.secondary">
@@ -628,7 +722,21 @@ export default function AssemblyOrdersScm() {
                           </TableCell>
                           <TableCell>
                             {ot.centro_trabajo?.nombre || 'Sin mesa'}<br />
-                            <Typography variant="caption">{ot.responsable || 'Sin responsable'}</Typography>
+                            <Typography variant="caption" display="block">
+                              {assemblyModeLabel(ot.modo_ejecucion_armado || ot.modo_ejecucion_ensamble)}
+                            </Typography>
+                            {ot.ot_fabricacion_contexto && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                {ot.ot_fabricacion_contexto.codigo_ot}
+                                {ot.ot_fabricacion_contexto.maquina
+                                  ? ` · ${ot.ot_fabricacion_contexto.maquina}` : ''}
+                                {ot.trabajo_color_contexto?.color
+                                  ? ` · ${ot.trabajo_color_contexto.color}` : ''}
+                              </Typography>
+                            )}
+                            <Typography variant="caption">
+                              Responsable: {ot.responsable || 'Sin responsable'}
+                            </Typography>
                           </TableCell>
                           <TableCell align="right">
                             {ot.cantidad_confirmada || 0} / {ot.cantidad_objetivo} un
@@ -1007,50 +1115,61 @@ export default function AssemblyOrdersScm() {
                 ...otForm,
                 fecha_operativa: event.target.value,
                 ot_fabricacion_contexto_id: '',
+                trabajo_color_contexto_id: '',
               })}
             />
             <FormControl fullWidth>
-              <InputLabel id="assembly-execution-mode-label">Modalidad de ejecuciÃ³n</InputLabel>
+              <InputLabel id="assembly-execution-mode-label">Modalidad de ejecución</InputLabel>
               <Select
                 labelId="assembly-execution-mode-label"
-                label="Modalidad de ejecuciÃ³n"
+                label="Modalidad de ejecución"
                 value={otForm.modo_ejecucion}
                 onChange={(event) => setOtForm({
                   ...otForm,
                   modo_ejecucion: event.target.value,
                   ot_fabricacion_contexto_id: '',
+                  trabajo_color_contexto_id: '',
                 })}
               >
                 <MenuItem value="MESA">En mesa de armado</MenuItem>
                 {selected?.operacion?.permite_concurrente && (
-                  <MenuItem value="CONCURRENTE">Concurrente con fabricaciÃ³n</MenuItem>
+                  <MenuItem value="CONCURRENTE">Concurrente con fabricación</MenuItem>
                 )}
               </Select>
             </FormControl>
             {otForm.modo_ejecucion === 'CONCURRENTE' && (
               <>
                 <Alert severity="info">
-                  El prearmado se vincula a la fabricaciÃ³n para conservar su contexto,
-                  pero el peso del componente incorporado no se acredita como producciÃ³n de mÃ¡quina.
+                  El prearmado se vincula a la fabricación para conservar su contexto,
+                  pero el peso del componente incorporado no se acredita como producción de máquina.
                 </Alert>
                 <FormControl fullWidth>
                   <InputLabel id="assembly-fabrication-context-label">
-                    OT de fabricaciÃ³n de contexto
+                    OT de fabricación de contexto
                   </InputLabel>
                   <Select
                     labelId="assembly-fabrication-context-label"
-                    label="OT de fabricaciÃ³n de contexto"
+                    label="OT de fabricación de contexto"
                     value={otForm.ot_fabricacion_contexto_id}
                     onChange={(event) => setOtForm({
                       ...otForm,
                       ot_fabricacion_contexto_id: event.target.value,
+                      trabajo_color_contexto_id: (() => {
+                        const context = fabricationOts.find(
+                          (item) => item.public_id === event.target.value,
+                        );
+                        const contextWorks = (context?.trabajos_color || []).filter(
+                          (item) => ['PLANIFICADO', 'EN_EJECUCION', 'PAUSADO'].includes(item.estado),
+                        );
+                        return contextWorks.length === 1 ? contextWorks[0].id : '';
+                      })(),
                     })}
                   >
                     {fabricationOts.filter((item) => (
                       item.fecha_operativa === otForm.fecha_operativa
                     )).map((item) => (
                       <MenuItem key={item.public_id} value={item.public_id}>
-                        {item.codigo_ot} Â· {item.maquina || 'MÃ¡quina sin nombre'} Â· {item.turno}
+                        {item.codigo_ot} · {item.maquina || 'Máquina sin nombre'} · {item.turno}
                       </MenuItem>
                     ))}
                   </Select>
@@ -1059,14 +1178,62 @@ export default function AssemblyOrdersScm() {
                   item.fecha_operativa === otForm.fecha_operativa
                 )) && (
                   <Alert severity="warning">
-                    No hay una OT de fabricaciÃ³n activa para esta fecha.
+                    No hay una OT de fabricación activa para esta fecha.
                   </Alert>
+                )}
+                {activeContextWorks.length === 1 && (
+                  <Paper variant="outlined" sx={{ px: 1.5, py: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Trabajo de color concurrente
+                    </Typography>
+                    <Typography fontWeight={800}>
+                      {activeContextWorks[0].color || 'Color no informado'}
+                      {' · '}{activeContextWorks[0].orden_fabricacion_codigo || 'OF no informada'}
+                    </Typography>
+                    {colorWorkOutputsLabel(activeContextWorks[0]) && (
+                      <Typography variant="body2" color="text.secondary">
+                        {colorWorkOutputsLabel(activeContextWorks[0])}
+                      </Typography>
+                    )}
+                  </Paper>
+                )}
+                {selectedFabricationContext && activeContextWorks.length === 0 && (
+                  <Alert severity="error">
+                    Esta OT de fabricación no tiene un Trabajo de color activo. Selecciona otra
+                    OT o crea primero su Trabajo de color.
+                  </Alert>
+                )}
+                {activeContextWorks.length > 1 && (
+                  <FormControl fullWidth required>
+                    <InputLabel id="assembly-color-work-context-label">
+                      Trabajo de color concurrente
+                    </InputLabel>
+                    <Select
+                      labelId="assembly-color-work-context-label"
+                      label="Trabajo de color concurrente"
+                      value={otForm.trabajo_color_contexto_id}
+                      onChange={(event) => setOtForm({
+                        ...otForm, trabajo_color_contexto_id: event.target.value,
+                      })}
+                    >
+                      {activeContextWorks.map((work) => (
+                        <MenuItem key={work.id} value={work.id}>
+                          {work.color || 'Color no informado'}
+                          {' · '}{work.orden_fabricacion_codigo || 'OF no informada'}
+                          {colorWorkOutputsLabel(work)
+                            ? ` · ${colorWorkOutputsLabel(work)}` : ''}
+                          {' · '}{String(work.estado || '').replaceAll('_', ' ')}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
                 )}
               </>
             )}
             <FormControl fullWidth>
-              <InputLabel>Mesa o centro de Armado</InputLabel>
+              <InputLabel id="assembly-work-center-label">Mesa o centro de Armado</InputLabel>
               <Select
+                labelId="assembly-work-center-label"
                 label="Mesa o centro de Armado"
                 value={otForm.centro_trabajo_id}
                 onChange={(event) => setOtForm({ ...otForm, centro_trabajo_id: event.target.value })}
@@ -1079,8 +1246,9 @@ export default function AssemblyOrdersScm() {
               </Select>
             </FormControl>
             <FormControl fullWidth>
-              <InputLabel>Responsable de Armado</InputLabel>
+              <InputLabel id="assembly-responsible-label">Responsable de Armado</InputLabel>
               <Select
+                labelId="assembly-responsible-label"
                 label="Responsable de Armado"
                 value={otForm.responsable_id}
                 onChange={(event) => setOtForm({ ...otForm, responsable_id: event.target.value })}
@@ -1093,8 +1261,9 @@ export default function AssemblyOrdersScm() {
               </Select>
             </FormControl>
             <FormControl fullWidth>
-              <InputLabel>Turno</InputLabel>
+              <InputLabel id="assembly-shift-label">Turno</InputLabel>
               <Select
+                labelId="assembly-shift-label"
                 label="Turno"
                 value={otForm.turno}
                 onChange={(event) => setOtForm({ ...otForm, turno: event.target.value })}
@@ -1125,6 +1294,8 @@ export default function AssemblyOrdersScm() {
               || !otForm.responsable_id
               || (otForm.modo_ejecucion === 'CONCURRENTE'
                 && !otForm.ot_fabricacion_contexto_id)
+              || (otForm.modo_ejecucion === 'CONCURRENTE'
+                && !otForm.trabajo_color_contexto_id)
               || Number(otForm.cantidad_objetivo) <= 0
               || Number(otForm.cantidad_objetivo) > pendingQuota
             }

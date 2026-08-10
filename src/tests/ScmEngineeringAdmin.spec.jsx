@@ -69,6 +69,7 @@ import {
   crearArticuloWipScm,
   crearCentroTrabajoScm,
   crearEstructuraScm,
+  crearRutaScm,
   descartarEstructuraScm,
   listarArticulosScm,
   listarCentrosTrabajoScm,
@@ -131,6 +132,7 @@ const renderPage = () => render(
 describe('Ingeniería SCM R-core', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState({}, '', '/');
     actorState.id = 1;
     listarArticulosScm.mockResolvedValue(articles);
     listarCentrosTrabajoScm.mockResolvedValue([]);
@@ -158,6 +160,63 @@ describe('Ingeniería SCM R-core', () => {
       version: 1,
       activo: true,
     });
+  });
+
+  it('restaura el PT y el contexto de la OP desde el enlace de un bloqueo', async () => {
+    listarArticulosScm.mockResolvedValue([
+      ...articles,
+      {
+        id: 5,
+        codigo: 'PT-000002',
+        nombre: 'Producto del plan bloqueado',
+        clase: 'PRODUCTO_TERMINADO',
+        unidad_base: 'UN',
+        subtipo: { producto_terminado_id: 'PT-000002' },
+      },
+    ]);
+    window.history.replaceState(
+      {},
+      '',
+      '/datos-maestros/ingenieria-scm?tab=rutas&producto=PT-000002&faltante=PC-FALTA&op=OP-000001&volver=%2Fplanificacion%3Fop%3Dop-blocked',
+    );
+
+    renderPage();
+
+    expect(await screen.findByRole('tab', { name: 'Rutas' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await waitFor(() => expect(
+      screen.getByRole('combobox', { name: 'Producto terminado' }).value,
+    ).toMatch(/PT-000002.*Producto del plan bloqueado/));
+    expect(screen.getByText(/La planificación de OP-000001 requiere una operación/i))
+      .toBeVisible();
+    expect(screen.getByText(/PC-FALTA/)).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Volver a OP-000001' })).toHaveAttribute(
+      'href',
+      '/planificacion?op=op-blocked',
+    );
+  });
+
+  it('abre Empaque con la Pieza-color exacta indicada por Jornadas', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/datos-maestros/ingenieria-scm?tab=empaque&articulo=1',
+    );
+
+    renderPage();
+
+    expect(await screen.findByRole('tab', { name: 'Empaque' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await waitFor(() => expect(
+      screen.getByRole('combobox', { name: 'Artículo empacable' }).value,
+    ).toMatch(/PC-000001.*Asa azul/));
+    expect(screen.getByText(/Configurando empaque para PC-000001.*Asa azul/i))
+      .toBeVisible();
+    expect(screen.getByText(/supervisor.*validar físicamente/i)).toBeVisible();
   });
 
   it('presenta las cinco áreas R-core conectadas a la API', async () => {
@@ -295,7 +354,7 @@ describe('Ingeniería SCM R-core', () => {
     renderPage();
 
     await user.click(await screen.findByRole('tab', { name: 'Rutas' }));
-    await user.click(screen.getByRole('button', { name: 'Centro de trabajo' }));
+    await user.click(screen.getByRole('button', { name: 'Nuevo centro de trabajo' }));
     const dialog = screen.getByRole('dialog', { name: 'Nuevo centro de trabajo' });
     expect(within(dialog).queryByRole('textbox', { name: 'Código' })).not.toBeInTheDocument();
     expect(within(dialog).getByText(/código se generará automáticamente/i)).toBeVisible();
@@ -313,7 +372,7 @@ describe('Ingeniería SCM R-core', () => {
     renderPage();
 
     await user.click(await screen.findByRole('tab', { name: 'Rutas' }));
-    await user.click(screen.getByRole('button', { name: 'Centro de trabajo' }));
+    await user.click(screen.getByRole('button', { name: 'Nuevo centro de trabajo' }));
     const dialog = screen.getByRole('dialog', { name: 'Nuevo centro de trabajo' });
     await user.type(
       within(dialog).getByRole('textbox', { name: 'Nombre' }),
@@ -327,6 +386,124 @@ describe('Ingeniería SCM R-core', () => {
       nombre: 'Sopladora principal',
       tipo: 'SOPLADO',
     }));
+  });
+
+  it('explica por qué Nueva ruta está deshabilitada cuando falta un centro', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('tab', { name: 'Rutas' }));
+
+    expect(screen.getByRole('button', { name: 'Nueva ruta' })).toBeDisabled();
+    expect(screen.getByText(
+      /Crea al menos un centro de trabajo activo antes de crear una ruta/i,
+    )).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Nuevo centro de trabajo' })).toBeVisible();
+  });
+
+  it('deriva ARMADO y selecciona solamente la BOM aprobada compatible con la salida', async () => {
+    const approvedStructure = {
+      id: 41,
+      numero_revision: 1,
+      estado: 'APROBADA',
+      articulo_resultado_id: 3,
+      articulo_resultado: articles[2],
+      componentes: [],
+    };
+    const incompatibleStructure = {
+      ...approvedStructure,
+      id: 42,
+      articulo_resultado_id: 2,
+      articulo_resultado: articles[1],
+    };
+    listarCentrosTrabajoScm.mockResolvedValue([{
+      id: 7,
+      codigo: 'CT-000007',
+      nombre: 'Mesa de armado',
+      tipo: 'ENSAMBLE',
+      activo: true,
+    }]);
+    listarEstructurasScm.mockImplementation((articleId) => Promise.resolve({
+      2: [incompatibleStructure],
+      3: [approvedStructure],
+    }[Number(articleId)] || []));
+    crearRutaScm.mockResolvedValue({ id: 90 });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('tab', { name: 'Rutas' }));
+    await user.click(screen.getByRole('button', { name: 'Nueva ruta' }));
+    const dialog = screen.getByRole('dialog', { name: /Nueva ruta/ });
+
+    expect(within(dialog).getByRole('combobox', { name: 'Tipo de operación' }))
+      .toHaveTextContent('Selecciona');
+    expect(within(dialog).getByRole('combobox', { name: 'Forma de ejecución' }))
+      .toHaveTextContent('Selecciona');
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Centro de trabajo' }));
+    await user.click(screen.getByRole('option', { name: /CT-000007.*Mesa de armado/ }));
+
+    expect(within(dialog).getByRole('combobox', { name: 'Tipo de operación' }))
+      .toHaveTextContent('ARMADO');
+    expect(within(dialog).getByRole('combobox', { name: 'Forma de ejecución' }))
+      .toHaveTextContent(/Prearmado o armado/);
+    expect(within(dialog).getByRole('combobox', { name: 'Estructura aprobada' }))
+      .toHaveTextContent(/PT-000001.*rev\. 1/);
+    await user.click(within(dialog).getByRole('combobox', { name: 'Estructura aprobada' }));
+    expect(screen.getByRole('option', { name: /PT-000001.*rev\. 1/ })).toBeVisible();
+    expect(screen.queryByRole('option', { name: /WIP-000001/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('option', { name: /PT-000001.*rev\. 1/ }));
+    expect(within(dialog).getByText(/Escribe un nombre para el Paso 1/i)).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: 'Crear borrador' })).toBeDisabled();
+
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Nombre de la operación' }),
+      'Armado final',
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Crear borrador' }));
+
+    await waitFor(() => expect(crearRutaScm).toHaveBeenCalledWith(
+      'PT-000001',
+      expect.objectContaining({
+        operaciones: [expect.objectContaining({
+          tipo: 'ENSAMBLE',
+          executor_kind: 'ORDEN_OPERACION',
+          centro_trabajo_id: 7,
+          articulo_salida_id: 3,
+          estructura_revision_id: 41,
+        })],
+      }),
+    ));
+  });
+
+  it('explica la ausencia de una BOM compatible y lleva a Estructuras BOM', async () => {
+    listarCentrosTrabajoScm.mockResolvedValue([{
+      id: 7,
+      codigo: 'CT-000007',
+      nombre: 'Mesa de armado',
+      tipo: 'ENSAMBLE',
+      activo: true,
+    }]);
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('tab', { name: 'Rutas' }));
+    await user.click(screen.getByRole('button', { name: 'Nueva ruta' }));
+    const dialog = screen.getByRole('dialog', { name: /Nueva ruta/ });
+    await user.click(within(dialog).getByRole('combobox', { name: 'Centro de trabajo' }));
+    await user.click(screen.getByRole('option', { name: /CT-000007.*Mesa de armado/ }));
+
+    expect(within(dialog).getByText(
+      /No existe una BOM aprobada cuyo resultado sea PT-000001/i,
+    )).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: 'Ir a Estructuras BOM' }));
+    await waitForElementToBeRemoved(() => screen.queryByRole('dialog', { name: /Nueva ruta/ }));
+
+    expect(screen.getByRole('tab', { name: 'Estructuras BOM' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByText(/no tiene una estructura vigente o en preparación/i)).toBeVisible();
   });
 
   it('permite marcar una operación de prearmado como concurrente', async () => {
@@ -499,7 +676,7 @@ describe('Ingeniería SCM R-core', () => {
 
     await user.click(await screen.findByRole('tab', { name: 'Rutas' }));
     expect(await screen.findByText('Ruta de armado · creador #1')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Publicar' }));
+    await user.click(screen.getByRole('button', { name: 'Publicar (queda aprobada)' }));
 
     await waitFor(() => expect(publicarRutaScm).toHaveBeenCalledWith(draft));
     expect(await screen.findByText('Ruta publicada directamente por jefatura.')).toBeVisible();
@@ -524,7 +701,9 @@ describe('Ingeniería SCM R-core', () => {
     const rulesSection = screen.getByRole('heading', {
       name: 'Reglas de empaque en borrador',
     }).parentElement;
-    const publish = within(rulesSection).getByRole('button', { name: 'Publicar' });
+    const publish = within(rulesSection).getByRole('button', {
+      name: 'Publicar (queda aprobada)',
+    });
     expect(publish).toBeEnabled();
     await user.click(publish);
 
@@ -718,9 +897,13 @@ describe('Ingeniería SCM R-core', () => {
     await user.click(screen.getByRole('combobox'));
     await user.click(screen.getByRole('option', { name: /WIP-000001/ }));
     expect(screen.queryByRole('button', { name: 'Enviar a aprobación' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Publicar' }));
-    const publishDialog = screen.getByRole('dialog', { name: 'Publicar estructura' });
-    await user.click(within(publishDialog).getByRole('button', { name: 'Publicar estructura' }));
+    await user.click(screen.getByRole('button', { name: 'Publicar (queda aprobada)' }));
+    const publishDialog = screen.getByRole('dialog', {
+      name: 'Publicar estructura (queda aprobada)',
+    });
+    await user.click(within(publishDialog).getByRole('button', {
+      name: 'Publicar (queda aprobada)',
+    }));
 
     await waitFor(() => expect(publicarEstructuraScm).toHaveBeenCalledWith(draft));
   });

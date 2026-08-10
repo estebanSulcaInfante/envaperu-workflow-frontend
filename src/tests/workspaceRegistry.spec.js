@@ -14,12 +14,34 @@ describe('US-010N1: registro único del workspace', () => {
     expect(getWorkspaceFeature('/produccion/recepcion-mangas')?.areaKey).toBe('warehouse');
     expect(getWorkspaceFeature('/produccion/reproceso')?.areaKey).toBe('materials');
     expect(getWorkspaceFeature('/produccion/alertas')?.areaKey).toBe('control');
-    expect(getWorkspaceFeature('/produccion/ots-mangas')?.areaKey).toBe('production');
+    expect(getWorkspaceFeature('/produccion/ots-planta')?.areaKey).toBe('production');
   });
 
   it('mantiene claves y rutas primarias únicas', () => {
     expect(new Set(workspaceFeatures.map((item) => item.key)).size).toBe(workspaceFeatures.length);
     expect(new Set(workspaceFeatures.map((item) => item.path)).size).toBe(workspaceFeatures.length);
+  });
+
+  it('reserva OTs de planta para quien puede consultar OT', () => {
+    expect(getFeatureByKey('production.machineWork')?.requiredAny).toEqual(['OT_VER']);
+  });
+
+  it('ubica la supervisión de producción como primera función de Control', () => {
+    const feature = getFeatureByKey('control.productionSupervision');
+    expect(feature).toMatchObject({
+      path: '/control/supervision-produccion',
+      requiredAny: ['OT_VER'],
+      areaKey: 'control',
+    });
+    expect(getWorkspaceFeature('/produccion/supervision')?.key)
+      .toBe('control.productionSupervision');
+
+    const control = buildAreaNavigation({
+      canAny: (required) => !required.length || required.includes('OT_VER'),
+      runtimeFlags: { showLegacy: false, allowPrototype: false, allowOutOfPilot: false },
+    }).find((item) => item.key === 'control');
+    expect(control?.features[0].key).toBe('control.productionSupervision');
+    expect(control?.path).toBe('/control/supervision-produccion');
   });
 
   it('separa el catálogo de moldes de su detalle editable', () => {
@@ -66,6 +88,22 @@ describe('US-010N1: registro único del workspace', () => {
       expect(areas.find((item) => item.key === areaKey)?.path).toBe(expectedPath);
     },
   );
+
+  it('conserva el hub de Datos maestros como entrada a todos sus catalogos', () => {
+    const areas = buildAreaNavigation({
+      canAny: (required) => !required.length || required.includes('ARTICULO_VER'),
+      runtimeFlags: { showLegacy: false, allowPrototype: false, allowOutOfPilot: false },
+    });
+    const masters = areas.find((item) => item.key === 'masters');
+
+    expect(masters?.path).toBe('/datos-maestros');
+    expect(masters?.features.map((item) => item.key)).toEqual(expect.arrayContaining([
+      'masters.hub',
+      'masters.products',
+      'masters.pieces',
+      'masters.molds',
+    ]));
+  });
 
   it('gobierna legacy, prototipo y fuera del piloto por madurez', () => {
     expect(featureIsAvailable(

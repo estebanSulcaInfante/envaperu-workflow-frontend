@@ -147,13 +147,20 @@ const newOperation = (sequence = 1) => ({
   clave: `OP${sequence}`,
   secuencia_visible: String(sequence),
   nombre: '',
-  tipo: sequence === 1 ? 'INYECCION' : 'ENSAMBLE',
-  executor_kind: sequence === 1 ? 'OP_OT' : 'ORDEN_OPERACION',
+  tipo: '',
+  executor_kind: '',
   centro_trabajo_id: '',
   articulo_salida_id: '',
   estructura_revision_id: '',
   permite_concurrente: false,
 });
+const executorKindForOperationType = (type) => {
+  if (['INYECCION', 'SOPLADO'].includes(type)) return 'OP_OT';
+  if (['PREARMADO', 'ENSAMBLE', 'ACABADO', 'EMPAQUE'].includes(type)) {
+    return 'ORDEN_OPERACION';
+  }
+  return '';
+};
 const nextOperationKey = (operations) => {
   const last = operations.reduce((maximum, operation) => {
     const match = /^OP(\d+)$/.exec(operation.clave);
@@ -161,6 +168,20 @@ const nextOperationKey = (operations) => {
   }, 0);
   return `OP${last + 1}`;
 };
+
+const initialPlanningContext = () => {
+  const params = new URLSearchParams(globalThis.location?.search || '');
+  const requestedReturn = params.get('volver') || '';
+  return {
+    orderCode: params.get('op') || '',
+    missingArticleCode: params.get('faltante') || '',
+    returnTo: requestedReturn.startsWith('/planificacion') ? requestedReturn : '',
+  };
+};
+
+const requestedPackagingArticleId = () => (
+  new URLSearchParams(globalThis.location?.search || '').get('articulo') || ''
+);
 
 const normalizeRouteOutputs = (operations, targetArticleId, articlesById) => (
   operations.map((operation, index) => {
@@ -265,13 +286,20 @@ function ScmEngineeringAdmin() {
     motivo: '',
   });
   const [showStructureHistory, setShowStructureHistory] = useState(false);
-  const [packagingArticleId, setPackagingArticleId] = useState('');
+  const [packagingArticleId, setPackagingArticleId] = useState(
+    requestedPackagingArticleId,
+  );
   const [packagingProfileId, setPackagingProfileId] = useState('');
   const [routeStepToDelete, setRouteStepToDelete] = useState(null);
+  const [planningContext] = useState(initialPlanningContext);
 
   const productArticles = useMemo(
     () => articles.filter(isRoutableProduct),
     [articles],
+  );
+  const activeCenters = useMemo(
+    () => centers.filter((item) => item.activo !== false),
+    [centers],
   );
   const articlesById = useMemo(
     () => new Map(articles.map((item) => [Number(item.id), item])),
@@ -297,6 +325,9 @@ function ScmEngineeringAdmin() {
     [articles],
   );
   const selectedArticle = articles.find((item) => item.id === Number(selectedArticleId));
+  const packagingArticle = articles.find(
+    (item) => item.id === Number(packagingArticleId),
+  );
   const structureComponentArticles = useMemo(
     () => articles.filter((item) => (
       (item.clase === 'PIEZA_COLOR' || item.clase === 'SUBENSAMBLE_WIP')
@@ -388,6 +419,24 @@ function ScmEngineeringAdmin() {
       setRoutes(routeResults
         .filter((result) => result.status === 'fulfilled')
         .flatMap((result) => result.value));
+      const requestedArticleId = requestedPackagingArticleId();
+      const requestedArticleIndex = articleRows.findIndex(
+        (item) => String(item.id) === String(requestedArticleId),
+      );
+      if (requestedArticleIndex >= 0) {
+        const requestedProfiles = (
+          articleProfileResults[requestedArticleIndex]?.status === 'fulfilled'
+            ? articleProfileResults[requestedArticleIndex].value.perfiles
+            : []
+        );
+        const currentDefault = requestedProfiles.find(
+          (item) => item.activo && item.es_predeterminado,
+        );
+        setPackagingArticleId(String(requestedArticleId));
+        setPackagingProfileId(
+          currentDefault ? String(currentDefault.perfil_empacable_id) : '',
+        );
+      }
       if (errors.length) {
         setError([...new Set(errors)].join(' · '));
       }
@@ -398,7 +447,18 @@ function ScmEngineeringAdmin() {
         )) ? current : ''
       ));
       setSelectedProductId((current) => (
-        current || String(products[0]?.subtipo?.producto_terminado_id || '')
+        products.some((item) => (
+          item.subtipo?.producto_terminado_id === current
+        ))
+          ? current
+          : String(
+            products.find((item) => (
+              item.subtipo?.producto_terminado_id
+                === new URLSearchParams(globalThis.location?.search || '').get('producto')
+            ))?.subtipo?.producto_terminado_id
+            || products[0]?.subtipo?.producto_terminado_id
+            || '',
+          )
       ));
     } catch (requestError) {
       setError(mensajeErrorScm(
@@ -446,6 +506,31 @@ function ScmEngineeringAdmin() {
     (item) => ['BORRADOR', 'PENDIENTE_APROBACION'].includes(item.estado),
   );
   const routesForSelection = routes.filter((item) => item.producto_id === selectedProductId);
+  const newRouteDisabledReason = !selectedProductId
+    ? 'Selecciona un producto terminado antes de crear una ruta.'
+    : activeCenters.length === 0
+      ? 'Crea al menos un centro de trabajo activo antes de crear una ruta.'
+      : '';
+  const routeFormBlockingReasons = routeForm.operaciones.flatMap((operation, index) => {
+    const step = `Paso ${index + 1}`;
+    return [
+      !operation.nombre.trim() ? `Escribe un nombre para el ${step}.` : '',
+      !operation.tipo ? `Selecciona el tipo de operación del ${step}.` : '',
+      !operation.executor_kind ? `Selecciona la forma de ejecución del ${step}.` : '',
+      !operation.centro_trabajo_id ? `Selecciona el centro de trabajo del ${step}.` : '',
+      !operation.articulo_salida_id ? `Define la salida del ${step}.` : '',
+      operation.executor_kind === 'ORDEN_OPERACION' && !operation.estructura_revision_id
+        ? `Selecciona una estructura aprobada compatible para el ${step}.`
+        : '',
+    ].filter(Boolean);
+  });
+
+  const goToStructuresForArticle = (articleId) => {
+    setSelectedArticleId(String(articleId || ''));
+    setShowStructureHistory(false);
+    setDialog(null);
+    setTab(1);
+  };
 
   const openBom = () => {
     setEditingBom(null);
@@ -470,8 +555,6 @@ function ScmEngineeringAdmin() {
       notas: '',
       operaciones: [{
         ...newOperation(),
-        nombre: 'Producción',
-        centro_trabajo_id: String(centers[0]?.id || ''),
         articulo_salida_id: String(routeTargetArticle?.id || ''),
       }],
     });
@@ -677,7 +760,7 @@ function ScmEngineeringAdmin() {
             'Ruta publicada directamente por jefatura.',
           )}
         >
-          Publicar
+          Publicar (queda aprobada)
         </Button>
       );
     }
@@ -966,7 +1049,7 @@ function ScmEngineeringAdmin() {
                                 setDialog('structureResolution');
                               }}
                             >
-                              Publicar
+                              Publicar (queda aprobada)
                             </Button>
                           ) : (
                             <Button
@@ -1054,7 +1137,14 @@ function ScmEngineeringAdmin() {
                 </Paper>
               ))}
               {selectedArticleId && currentStructuresForSelection.length === 0 && (
-                <Alert severity="warning">
+                <Alert
+                  severity="warning"
+                  action={canAdminStructures ? (
+                    <Button color="inherit" size="small" onClick={openBom}>
+                      Crear primera revisión
+                    </Button>
+                  ) : undefined}
+                >
                   {selectedArticle?.nombre || 'El artículo'} no tiene una estructura vigente o en preparación.
                   {historicalStructuresForSelection.length > 0
                     ? ' Consulta el historial para reutilizar una composición anterior.'
@@ -1066,6 +1156,26 @@ function ScmEngineeringAdmin() {
 
           {tab === 2 && (
             <Stack spacing={2}>
+              {planningContext.orderCode && planningContext.missingArticleCode && (
+                <Alert
+                  severity="warning"
+                  action={planningContext.returnTo ? (
+                    <Button
+                      component="a"
+                      href={planningContext.returnTo}
+                      color="inherit"
+                      size="small"
+                    >
+                      Volver a {planningContext.orderCode}
+                    </Button>
+                  ) : undefined}
+                >
+                  La planificación de {planningContext.orderCode} requiere una operación cuya
+                  salida sea {planningContext.missingArticleCode}. Revisa la ruta del producto
+                  seleccionado, publica únicamente la definición técnica correcta y vuelve a
+                  recalcular el plan.
+                </Alert>
+              )}
               <Paper variant="outlined" sx={{ p: 2 }}>
                 <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5}>
                   <ScmArticleAutocomplete
@@ -1091,12 +1201,12 @@ function ScmEngineeringAdmin() {
                         }}
                         sx={{ whiteSpace: 'nowrap', flex: { sm: 1, lg: 'initial' } }}
                       >
-                        Centro de trabajo
+                        Nuevo centro de trabajo
                       </Button>
                       <Button
                         variant="contained"
                         startIcon={<AddIcon />}
-                        disabled={!selectedProductId || centers.length === 0}
+                        disabled={Boolean(newRouteDisabledReason)}
                         onClick={openRoute}
                         sx={{ whiteSpace: 'nowrap', flex: { sm: 1, lg: 'initial' } }}
                       >
@@ -1106,6 +1216,9 @@ function ScmEngineeringAdmin() {
                   )}
                 </Stack>
               </Paper>
+              {canAdminRoutes && newRouteDisabledReason && (
+                <Alert severity="info">{newRouteDisabledReason}</Alert>
+              )}
               <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                 {centers.map((center) => (
                   <Chip
@@ -1248,6 +1361,14 @@ function ScmEngineeringAdmin() {
 
           {tab === 3 && (
             <Stack spacing={2}>
+              {packagingArticle && (
+                <Alert severity="info">
+                  Configurando empaque para {packagingArticle.codigo} · {packagingArticle.nombre}.
+                  El perfil puede compartirse con otro artículo que conserve la misma estructura
+                  física, pero un supervisor debe validar físicamente el acomodo, la capacidad,
+                  la tara y los límites de peso antes de publicar la regla.
+                </Alert>
+              )}
               {canAdminPackaging && <Paper variant="outlined" sx={{ p: 2 }}>
                 <Typography variant="h6">Perfil predeterminado por artículo</Typography>
                 <Typography variant="caption" color="text.secondary">
@@ -1659,7 +1780,7 @@ function ScmEngineeringAdmin() {
                             'Regla de empaque publicada directamente por jefatura.',
                           )}
                         >
-                          Publicar
+                          Publicar (queda aprobada)
                         </Button>
                       ) : approvalButton(
                           revision,
@@ -1777,6 +1898,7 @@ function ScmEngineeringAdmin() {
                   type="number"
                   size="small"
                   value={line.cantidad}
+                  helperText="Unidades del componente necesarias para producir 1 unidad del resultado."
                   onChange={(event) => {
                     const next = [...bomForm.componentes];
                     next[index] = { ...line, cantidad: event.target.value };
@@ -1792,6 +1914,7 @@ function ScmEngineeringAdmin() {
                   type="number"
                   size="small"
                   value={line.merma_tecnica_pct}
+                  helperText="Pérdida adicional esperada de este componente durante la transformación."
                   onChange={(event) => {
                     const next = [...bomForm.componentes];
                     next[index] = { ...line, merma_tecnica_pct: event.target.value };
@@ -1872,7 +1995,7 @@ function ScmEngineeringAdmin() {
             reject: 'Rechazar estructura',
             discard: 'Descartar borrador de estructura',
             retire: 'Retirar revisión aprobada',
-            publish: 'Publicar estructura',
+            publish: 'Publicar estructura (queda aprobada)',
             clone: 'Crear nueva revisión basada en esta',
           }[structureResolution.action]}
         </DialogTitle>
@@ -1919,7 +2042,7 @@ function ScmEngineeringAdmin() {
               reject: 'Confirmar rechazo',
               discard: 'Confirmar descarte',
               retire: 'Confirmar retiro',
-              publish: 'Publicar estructura',
+              publish: 'Publicar (queda aprobada)',
               clone: 'Crear borrador',
             }[structureResolution.action]}
           </Button>
@@ -2002,6 +2125,10 @@ function ScmEngineeringAdmin() {
               const outputArticle = isTerminal
                 ? routeTargetArticle
                 : articlesById.get(Number(operation.articulo_salida_id));
+              const compatibleApprovedStructures = structures.filter((item) => (
+                item.estado === 'APROBADA'
+                && Number(item.articulo_resultado_id) === Number(outputArticle?.id)
+              ));
               const inputLabel = index === 0
                 ? 'Entradas definidas por la BOM'
                 : previousOutput
@@ -2067,7 +2194,7 @@ function ScmEngineeringAdmin() {
                     <Box sx={{ px: 1.5, py: 1, borderRadius: 1, bgcolor: 'background.default' }}>
                       <Typography variant="body2">
                         <strong>Entrada:</strong> {inputLabel}
-                        {' → '}<strong>Transformación:</strong> {OPERATION_TYPE_LABEL[operation.tipo] || operation.tipo}
+                        {' → '}<strong>Transformación:</strong> {OPERATION_TYPE_LABEL[operation.tipo] || operation.tipo || 'Por definir'}
                         {' → '}<strong>Salida:</strong> {outputLabel}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
@@ -2094,37 +2221,66 @@ function ScmEngineeringAdmin() {
                         sx={{ flex: 1 }}
                       />
                       <FormControl size="small" sx={{ minWidth: 160 }}>
-                        <InputLabel>Tipo de operación</InputLabel>
+                        <InputLabel id={`route-step-${index}-type-label`}>
+                          Tipo de operación
+                        </InputLabel>
                         <Select
+                          labelId={`route-step-${index}-type-label`}
                           label="Tipo de operación"
                           value={operation.tipo}
+                          displayEmpty
+                          renderValue={(value) => (
+                            value ? OPERATION_TYPE_LABEL[value] || value : 'Selecciona'
+                          )}
                           onChange={(event) => {
+                            const executorKind = executorKindForOperationType(event.target.value);
+                            const approvedStructure = executorKind === 'ORDEN_OPERACION'
+                              ? approvedStructureByArticleId.get(Number(operation.articulo_salida_id))
+                              : null;
                             const next = [...routeForm.operaciones];
                             next[index] = {
                               ...operation,
                               tipo: event.target.value,
+                              executor_kind: executorKind,
+                              estructura_revision_id: approvedStructure
+                                ? String(approvedStructure.id) : '',
                               permite_concurrente: event.target.value === 'PREARMADO'
                                 ? operation.permite_concurrente : false,
                             };
                             setRouteForm({ ...routeForm, operaciones: next });
                           }}
                         >
+                          <MenuItem value="" disabled>Selecciona</MenuItem>
                           {OPERATION_TYPES.map((type) => (
                             <MenuItem key={type} value={type}>{OPERATION_TYPE_LABEL[type]}</MenuItem>
                           ))}
                         </Select>
                       </FormControl>
                       <FormControl size="small" sx={{ minWidth: 260 }}>
-                        <InputLabel>Forma de ejecución</InputLabel>
+                        <InputLabel id={`route-step-${index}-executor-label`}>
+                          Forma de ejecución
+                        </InputLabel>
                         <Select
+                          labelId={`route-step-${index}-executor-label`}
                           label="Forma de ejecución"
                           value={operation.executor_kind}
+                          displayEmpty
+                          renderValue={(value) => value ? EXECUTOR_LABEL[value] : 'Selecciona'}
                           onChange={(event) => {
+                            const approvedStructure = event.target.value === 'ORDEN_OPERACION'
+                              ? approvedStructureByArticleId.get(Number(operation.articulo_salida_id))
+                              : null;
                             const next = [...routeForm.operaciones];
-                            next[index] = { ...operation, executor_kind: event.target.value };
+                            next[index] = {
+                              ...operation,
+                              executor_kind: event.target.value,
+                              estructura_revision_id: approvedStructure
+                                ? String(approvedStructure.id) : '',
+                            };
                             setRouteForm({ ...routeForm, operaciones: next });
                           }}
                         >
+                          <MenuItem value="" disabled>Selecciona</MenuItem>
                           <MenuItem value="OP_OT">{EXECUTOR_LABEL.OP_OT}</MenuItem>
                           <MenuItem value="ORDEN_OPERACION">{EXECUTOR_LABEL.ORDEN_OPERACION}</MenuItem>
                         </Select>
@@ -2133,17 +2289,37 @@ function ScmEngineeringAdmin() {
 
                     <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
                       <FormControl fullWidth size="small">
-                        <InputLabel>Centro de trabajo</InputLabel>
+                        <InputLabel id={`route-step-${index}-center-label`}>
+                          Centro de trabajo
+                        </InputLabel>
                         <Select
+                          labelId={`route-step-${index}-center-label`}
                           label="Centro de trabajo"
                           value={operation.centro_trabajo_id}
                           onChange={(event) => {
+                            const selectedCenter = activeCenters.find(
+                              (center) => String(center.id) === String(event.target.value),
+                            );
+                            const type = selectedCenter?.tipo || '';
+                            const executorKind = executorKindForOperationType(type);
+                            const approvedStructure = executorKind === 'ORDEN_OPERACION'
+                              ? approvedStructureByArticleId.get(Number(operation.articulo_salida_id))
+                              : null;
                             const next = [...routeForm.operaciones];
-                            next[index] = { ...operation, centro_trabajo_id: event.target.value };
+                            next[index] = {
+                              ...operation,
+                              centro_trabajo_id: event.target.value,
+                              tipo: type,
+                              executor_kind: executorKind,
+                              estructura_revision_id: approvedStructure
+                                ? String(approvedStructure.id) : '',
+                              permite_concurrente: type === 'PREARMADO'
+                                ? operation.permite_concurrente : false,
+                            };
                             setRouteForm({ ...routeForm, operaciones: next });
                           }}
                         >
-                          {centers.map((center) => (
+                          {activeCenters.map((center) => (
                             <MenuItem key={center.id} value={String(center.id)}>
                               {center.codigo} · {center.nombre}
                             </MenuItem>
@@ -2165,31 +2341,74 @@ function ScmEngineeringAdmin() {
                           articles={routeIntermediateArticles}
                           value={operation.articulo_salida_id}
                           onChange={(articleId) => {
+                            const approvedStructure = operation.executor_kind === 'ORDEN_OPERACION'
+                              ? approvedStructureByArticleId.get(Number(articleId))
+                              : null;
                             const next = [...routeForm.operaciones];
-                            next[index] = { ...operation, articulo_salida_id: articleId };
+                            next[index] = {
+                              ...operation,
+                              articulo_salida_id: articleId,
+                              estructura_revision_id: approvedStructure
+                                ? String(approvedStructure.id) : '',
+                            };
                             setRouteForm({ ...routeForm, operaciones: next });
                           }}
                         />
                       )}
                       {operation.executor_kind === 'ORDEN_OPERACION' && (
                         <FormControl fullWidth size="small">
-                          <InputLabel>Estructura aprobada</InputLabel>
+                          <InputLabel id={`route-step-${index}-structure-label`}>
+                            Estructura aprobada
+                          </InputLabel>
                           <Select
+                            labelId={`route-step-${index}-structure-label`}
                             label="Estructura aprobada"
                             value={operation.estructura_revision_id}
+                            displayEmpty
+                            renderValue={(value) => {
+                              const selected = compatibleApprovedStructures.find(
+                                (item) => String(item.id) === String(value),
+                              );
+                              return selected
+                                ? `${selected.articulo_resultado?.codigo} · rev. ${selected.numero_revision}`
+                                : 'Selecciona una estructura compatible';
+                            }}
                             onChange={(event) => {
                               const next = [...routeForm.operaciones];
                               next[index] = { ...operation, estructura_revision_id: event.target.value };
                               setRouteForm({ ...routeForm, operaciones: next });
                             }}
                           >
-                            {structures.filter((item) => item.estado === 'APROBADA').map((item) => (
+                            <MenuItem value="" disabled>
+                              Selecciona una estructura compatible
+                            </MenuItem>
+                            {compatibleApprovedStructures.map((item) => (
                               <MenuItem key={item.id} value={String(item.id)}>
                                 {item.articulo_resultado?.codigo} · rev. {item.numero_revision}
                               </MenuItem>
                             ))}
                           </Select>
                         </FormControl>
+                      )}
+                      {operation.executor_kind === 'ORDEN_OPERACION'
+                        && outputArticle
+                        && compatibleApprovedStructures.length === 0 && (
+                        <Alert
+                          severity="warning"
+                          sx={{ flexBasis: '100%' }}
+                          action={(
+                            <Button
+                              color="inherit"
+                              size="small"
+                              onClick={() => goToStructuresForArticle(outputArticle.id)}
+                            >
+                              Ir a Estructuras BOM
+                            </Button>
+                          )}
+                        >
+                          No existe una BOM aprobada cuyo resultado sea {outputArticle.codigo}.
+                          Crea o publica la revisión correcta antes de continuar.
+                        </Alert>
                       )}
                       {operation.tipo === 'PREARMADO' && (
                         <FormControlLabel
@@ -2235,6 +2454,20 @@ function ScmEngineeringAdmin() {
             >
               Agregar operación
             </Button>
+            {routeFormBlockingReasons.length > 0 && (
+              <Alert severity="info">
+                <Typography variant="body2" fontWeight={800}>
+                  Completa lo siguiente para crear el borrador:
+                </Typography>
+                <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                  {routeFormBlockingReasons.map((reason) => (
+                    <Typography component="li" variant="body2" key={reason}>
+                      {reason}
+                    </Typography>
+                  ))}
+                </Box>
+              </Alert>
+            )}
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -2244,6 +2477,8 @@ function ScmEngineeringAdmin() {
             disabled={saving || routeForm.operaciones.some((operation) => (
               !operation.clave.trim()
               || !operation.nombre.trim()
+              || !operation.tipo
+              || !operation.executor_kind
               || !operation.centro_trabajo_id
               || !operation.articulo_salida_id
               || (

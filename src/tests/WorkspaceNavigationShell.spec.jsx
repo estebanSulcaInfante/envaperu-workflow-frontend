@@ -51,6 +51,15 @@ describe('US-010N1: shell de navegación', () => {
     expect(screen.getByRole('link', { name: /Armado · OA/i })).toBeVisible();
   });
 
+  it('mantiene el área clicable del padre al ancho completo del sidebar', () => {
+    renderWithShell(<Sidebar />, '/produccion/ots-planta');
+
+    const production = screen.getByRole('button', { name: /Producción/i });
+    const currentSection = screen.getByRole('link', { name: /OTs de planta/i });
+    expect(production).toHaveStyle({ width: '100%', boxSizing: 'border-box' });
+    expect(currentSection).toHaveStyle({ width: '100%', boxSizing: 'border-box' });
+  });
+
   it('permite contraer el área activa sin anunciar un toggle inerte', async () => {
     const user = userEvent.setup();
     renderWithShell(<Sidebar />);
@@ -63,6 +72,13 @@ describe('US-010N1: shell de navegación', () => {
     expect(warehouse).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('link', { name: /Kardex y existencias/i }))
       .not.toBeInTheDocument();
+  });
+
+  it('abre el hub de Datos maestros en vez de un catalogo arbitrario', () => {
+    renderWithShell(<Sidebar />);
+
+    expect(screen.getByRole('link', { name: /Datos maestros/i }))
+      .toHaveAttribute('href', '/datos-maestros');
   });
 
   it('no monta un corte fuera del piloto mediante URL directa', () => {

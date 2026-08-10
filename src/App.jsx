@@ -25,6 +25,8 @@ import PreparacionMateriales from './components/PreparacionMateriales';
 import RecepcionMateriales from './components/RecepcionMateriales';
 import ScmGuide from './components/ScmGuide';
 import ProductionProgressDashboard from './components/ProductionProgressDashboard';
+import ProductionSupervisionScm from './components/ProductionSupervisionScm';
+import PrintJobsControlScm from './components/PrintJobsControlScm';
 import LegacyProductionOrders from './components/LegacyProductionOrders';
 import MasterDataHub from './components/MasterDataHub';
 import ColoresRecetasAdmin from './components/ColoresRecetasAdmin';
@@ -155,9 +157,15 @@ function App() {
                 <Route path="/produccion/ordenes/nueva-excepcional" element={workspace('planning.exceptionalOp', <OrdenForm />)} />
                 <Route path="/produccion/registros" element={workspace('control.dailyRecords', <RegistrosLista />)} />
                 <Route path="/produccion/talonarios" element={workspace('control.talonarios', <TalonariosAdmin />)} />
+                <Route path="/control" element={<WorkspaceAreaRedirect areaKey="control" />} />
+                <Route path="/control/supervision-produccion" element={workspace('control.productionSupervision', <ProductionSupervisionScm />)} />
+                <Route path="/control/impresion-etiquetas" element={workspace('control.printJobs', <PrintJobsControlScm />)} />
+                <Route path="/produccion/supervision" element={<Navigate to="/control/supervision-produccion" replace />} />
                 <Route path="/produccion/avance" element={workspace('control.progress', <ProductionProgressDashboard />)} />
                 <Route path="/produccion/pesajes" element={workspace('control.weighings', <LegacyProductionOrders />)} />
-                <Route path="/produccion/ots-mangas" element={workspace('production.machineWork', <OtMangasScm />)} />
+                <Route path="/produccion/ots-planta" element={workspace('production.machineWork', <OtMangasScm view="landing" />)} />
+                <Route path="/produccion/ots-planta/trabajo" element={workspace('production.machineWork', <OtMangasScm view="detail" />)} />
+                <Route path="/produccion/ots-mangas" element={workspace('production.machineWork', <OtMangasScm view="landing" />)} />
                 <Route path="/produccion/ordenes-fabricacion" element={workspace('production.fabrication', <FabricationOrdersScm />)} />
                 <Route path="/produccion/ordenes-armado" element={workspace('production.assembly', <AssemblyOrdersScm />)} />
                 <Route path="/produccion/ordenes-ensamble" element={<Navigate to="/produccion/ordenes-armado" replace />} />

@@ -54,6 +54,8 @@ const icons = {
 
 function navButtonSx(active, nested = false, collapsed = false) {
   return {
+    width: '100%',
+    boxSizing: 'border-box',
     minHeight: nested ? 36 : 44,
     justifyContent: collapsed ? 'center' : 'initial',
     pl: nested ? 6.5 : 1.5,

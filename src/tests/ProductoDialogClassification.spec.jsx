@@ -43,6 +43,8 @@ describe('ProductoDialog: alta contextual de clasificación', () => {
     const onClose = vi.fn();
     renderDialog(onClose);
 
+    expect(await screen.findByRole('heading', { name: 'Nuevo producto terminado' }))
+      .toBeVisible();
     const lineInput = await screen.findByRole('combobox', { name: 'Línea' });
     await user.click(lineInput);
     await user.click(await screen.findByRole('option', { name: 'HOGAR' }));

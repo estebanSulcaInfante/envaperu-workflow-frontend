@@ -173,7 +173,7 @@ function DemandPanel({ solicitud }) {
         <Table size="small" sx={{ minWidth: 820 }}>
           <TableHead>
             <TableRow sx={{ bgcolor: '#F4F6F8' }}>
-              <TableCell>ProductoTerminado</TableCell>
+              <TableCell>Producto terminado</TableCell>
               <TableCell>BOM congelada</TableCell>
               <TableCell align="right">Solicitado</TableCell>
               <TableCell align="right">Cobertura PT</TableCell>
@@ -421,7 +421,7 @@ function ReleasePanel({ solicitud, capabilities }) {
   const fullCoverage = solicitud.faltanteTotal === 0 && solicitud.propuestas.length === 0;
 
   if (fullCoverage) {
-    return <Alert severity="success">La solicitud se cubre con inventario de ProductoTerminado. No requiere liberar una OP.</Alert>;
+    return <Alert severity="success">La solicitud se cubre con inventario de producto terminado. No requiere liberar una OP.</Alert>;
   }
 
   const checks = [
@@ -556,7 +556,7 @@ function PlanificacionProduccion() {
             Planificación de producción
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Demanda de ProductoTerminado, cobertura y generación de OP
+            Demanda de producto terminado, cobertura y generación de OP
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
@@ -576,7 +576,7 @@ function PlanificacionProduccion() {
       <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 1 }}>
         <Grid container spacing={2}>
           <Grid size={{ xs: 6, md: 3 }}><Metric label="Solicitudes activas" value={formatUnits(workspace.resumen.solicitudesActivas)} detail="Pendientes de cierre" /></Grid>
-          <Grid size={{ xs: 6, md: 3 }}><Metric label="Unidades solicitadas" value={formatUnits(workspace.resumen.unidadesSolicitadas)} detail="ProductoTerminado" accent="#176B52" /></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><Metric label="Unidades solicitadas" value={formatUnits(workspace.resumen.unidadesSolicitadas)} detail="Producto terminado" accent="#176B52" /></Grid>
           <Grid size={{ xs: 6, md: 3 }}><Metric label="Propuestas de OP" value={formatUnits(workspace.resumen.propuestasOp)} detail="Incluye OP liberadas" accent="#6B4F83" /></Grid>
           <Grid size={{ xs: 6, md: 3 }}><Metric label="Solicitudes bloqueadas" value={formatUnits(workspace.resumen.bloqueos)} detail="Requieren resolución" accent="#9A3B26" /></Grid>
         </Grid>
