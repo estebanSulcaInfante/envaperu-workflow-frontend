@@ -38,10 +38,6 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import ApprovalOutlinedIcon from '@mui/icons-material/ApprovalOutlined';
-import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import PowerSettingsNewOutlinedIcon from '@mui/icons-material/PowerSettingsNewOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -86,6 +82,25 @@ import PageHeader from './ui/PageHeader';
 import ScmArticleAutocomplete from './ui/ScmArticleAutocomplete';
 import { useScmActor } from '../context/ScmActorContext';
 import { matchesOmniSearch } from '../utils/tableSearch';
+import {
+  ApprovalActionPanel,
+  PackagingProfileEditor,
+  PackagingRuleEditor,
+  RouteRevisionEditor,
+  StructureRevisionEditor,
+  buildRoutePayload,
+  buildStructurePayload,
+  compactDecimal,
+  emptyPackagingProfileValue,
+  emptyPackagingRuleValue,
+  emptyRouteValue,
+  emptyStructureValue,
+  EXECUTOR_LABEL,
+  normalizeRouteRevision,
+  normalizeStructureRevision,
+  OPERATION_TYPES,
+  OPERATION_TYPE_LABEL,
+} from './scmEngineering/editors';
 
 const ARTICLE_CLASS = {
   PIEZA_COLOR: 'Pieza-color',
@@ -100,20 +115,7 @@ const STATUS_COLOR = {
   RECHAZADA: 'error',
   DESCARTADA: 'default',
 };
-const OPERATION_TYPES = ['INYECCION', 'SOPLADO', 'PREARMADO', 'ENSAMBLE', 'ACABADO', 'EMPAQUE'];
-const OPERATION_TYPE_LABEL = {
-  INYECCION: 'INYECCIÓN',
-  SOPLADO: 'SOPLADO',
-  PREARMADO: 'PREARMADO',
-  ENSAMBLE: 'ARMADO',
-  ACABADO: 'ACABADO',
-  EMPAQUE: 'EMPAQUE',
-};
 const CONTAINER_CLASSES = ['MANGA', 'BOLSA', 'JABA', 'CAJA', 'OTRO'];
-const EXECUTOR_LABEL = {
-  OP_OT: 'Fabricación mediante OF y Trabajo de color',
-  ORDEN_OPERACION: 'Prearmado o armado mediante OA / OT de Armado',
-};
 const emptyWip = { nombre: '', descripcion: '', requiere_calidad: false };
 const emptyCenter = { nombre: '', tipo: 'PREARMADO' };
 const emptyContainer = {
@@ -123,50 +125,6 @@ const emptyContainer = {
   tara_nominal_g: '0',
   tolerancia_tara_g: '0',
   peso_bruto_max_kg: '',
-};
-const emptyProfile = { nombre: '', descripcion_fisica: '' };
-const emptyRule = {
-  perfil_empacable_id: '',
-  tipo_contenedor_id: '',
-  medicion_fisica_probada: false,
-  cantidad_objetivo_un: '',
-  cantidad_maxima_probada_un: '',
-  peso_neto_operativo_max_kg: '',
-  margen_seguridad_kg: '0',
-  tolerancia_peso_abs_g: '0',
-  tolerancia_peso_pct: '0',
-  notas: '',
-};
-const newBomLine = () => ({ articulo_id: '', cantidad: '1', merma_tecnica_pct: '0' });
-const compactDecimal = (value) => {
-  const text = String(value ?? '');
-  if (!/^-?\d+(\.\d+)?$/.test(text)) return text;
-  return text.includes('.') ? text.replace(/0+$/, '').replace(/\.$/, '') : text;
-};
-const newOperation = (sequence = 1) => ({
-  clave: `OP${sequence}`,
-  secuencia_visible: String(sequence),
-  nombre: '',
-  tipo: '',
-  executor_kind: '',
-  centro_trabajo_id: '',
-  articulo_salida_id: '',
-  estructura_revision_id: '',
-  permite_concurrente: false,
-});
-const executorKindForOperationType = (type) => {
-  if (['INYECCION', 'SOPLADO'].includes(type)) return 'OP_OT';
-  if (['PREARMADO', 'ENSAMBLE', 'ACABADO', 'EMPAQUE'].includes(type)) {
-    return 'ORDEN_OPERACION';
-  }
-  return '';
-};
-const nextOperationKey = (operations) => {
-  const last = operations.reduce((maximum, operation) => {
-    const match = /^OP(\d+)$/.exec(operation.clave);
-    return match ? Math.max(maximum, Number(match[1])) : maximum;
-  }, 0);
-  return `OP${last + 1}`;
 };
 
 const initialPlanningContext = () => {
@@ -181,27 +139,6 @@ const initialPlanningContext = () => {
 
 const requestedPackagingArticleId = () => (
   new URLSearchParams(globalThis.location?.search || '').get('articulo') || ''
-);
-
-const normalizeRouteOutputs = (operations, targetArticleId, articlesById) => (
-  operations.map((operation, index) => {
-    const isTerminal = index === operations.length - 1;
-    if (isTerminal) {
-      return { ...operation, articulo_salida_id: String(targetArticleId || '') };
-    }
-    const currentOutput = articlesById.get(Number(operation.articulo_salida_id));
-    return currentOutput?.clase === 'PRODUCTO_TERMINADO'
-      ? { ...operation, articulo_salida_id: '' }
-      : operation;
-  })
-);
-
-const hasMeaningfulRouteStepData = (operation) => Boolean(
-  operation.nombre?.trim()
-  || operation.centro_trabajo_id
-  || operation.articulo_salida_id
-  || operation.estructura_revision_id
-  || operation.permite_concurrente
 );
 
 const isRoutableProduct = (item) => (
@@ -243,6 +180,17 @@ function ScmEngineeringAdmin() {
   const canPublishPackagingDirectly = can('EMPAQUE_PUBLICAR_DIRECTO');
   const isReadOnly = !canAdminArticles && !canAdminStructures && !canApproveStructures
     && !canAdminRoutes && !canApproveRoutes && !canAdminPackaging && !canApprovePackaging;
+  const canonicalCapabilities = [
+    canAdminStructures && 'ESTRUCTURA_ADMINISTRAR',
+    canApproveStructures && 'ESTRUCTURA_APROBAR',
+    canPublishStructuresDirectly && 'ESTRUCTURA_PUBLICAR_DIRECTO',
+    canAdminRoutes && 'RUTA_ADMINISTRAR',
+    canApproveRoutes && 'RUTA_APROBAR',
+    canPublishRoutesDirectly && 'RUTA_PUBLICAR_DIRECTO',
+    canAdminPackaging && 'EMPAQUE_ADMINISTRAR',
+    canApprovePackaging && 'EMPAQUE_APROBAR',
+    canPublishPackagingDirectly && 'EMPAQUE_PUBLICAR_DIRECTO',
+  ].filter(Boolean);
   const [tab, setTab] = useState(() => ({
     articulos: 0,
     estructuras: 1,
@@ -267,12 +215,12 @@ function ScmEngineeringAdmin() {
   const [selectedProductId, setSelectedProductId] = useState('');
   const [dialog, setDialog] = useState(null);
   const [wipForm, setWipForm] = useState(emptyWip);
-  const [bomForm, setBomForm] = useState({ notas: '', componentes: [newBomLine()] });
+  const [bomForm, setBomForm] = useState(emptyStructureValue);
   const [centerForm, setCenterForm] = useState(emptyCenter);
-  const [routeForm, setRouteForm] = useState({ notas: '', operaciones: [newOperation()] });
+  const [routeForm, setRouteForm] = useState(emptyRouteValue);
   const [containerForm, setContainerForm] = useState(emptyContainer);
-  const [profileForm, setProfileForm] = useState(emptyProfile);
-  const [ruleForm, setRuleForm] = useState(emptyRule);
+  const [profileForm, setProfileForm] = useState(emptyPackagingProfileValue);
+  const [ruleForm, setRuleForm] = useState(emptyPackagingRuleValue);
   const [editingWip, setEditingWip] = useState(null);
   const [editingBom, setEditingBom] = useState(null);
   const [editingCenter, setEditingCenter] = useState(null);
@@ -290,7 +238,6 @@ function ScmEngineeringAdmin() {
     requestedPackagingArticleId,
   );
   const [packagingProfileId, setPackagingProfileId] = useState('');
-  const [routeStepToDelete, setRouteStepToDelete] = useState(null);
   const [planningContext] = useState(initialPlanningContext);
 
   const productArticles = useMemo(
@@ -301,21 +248,11 @@ function ScmEngineeringAdmin() {
     () => centers.filter((item) => item.activo !== false),
     [centers],
   );
-  const articlesById = useMemo(
-    () => new Map(articles.map((item) => [Number(item.id), item])),
-    [articles],
-  );
   const routeTargetArticle = useMemo(
     () => productArticles.find(
       (item) => item.subtipo?.producto_terminado_id === selectedProductId,
     ),
     [productArticles, selectedProductId],
-  );
-  const routeIntermediateArticles = useMemo(
-    () => articles.filter((item) => (
-      item.clase === 'PIEZA_COLOR' || item.clase === 'SUBENSAMBLE_WIP'
-    )),
-    [articles],
   );
   const structureResultArticles = useMemo(
     () => articles.filter((item) => (
@@ -335,18 +272,6 @@ function ScmEngineeringAdmin() {
     )),
     [articles, selectedArticleId],
   );
-  const approvedStructureByArticleId = useMemo(() => {
-    const approved = new Map();
-    structures
-      .filter((item) => item.estado === 'APROBADA')
-      .sort((left, right) => right.numero_revision - left.numero_revision)
-      .forEach((item) => {
-        if (!approved.has(item.articulo_resultado_id)) {
-          approved.set(item.articulo_resultado_id, item);
-        }
-      });
-    return approved;
-  }, [structures]);
   const filteredArticles = useMemo(
     () => articles.filter((item) => matchesOmniSearch(item, search)),
     [articles, search],
@@ -511,19 +436,6 @@ function ScmEngineeringAdmin() {
     : activeCenters.length === 0
       ? 'Crea al menos un centro de trabajo activo antes de crear una ruta.'
       : '';
-  const routeFormBlockingReasons = routeForm.operaciones.flatMap((operation, index) => {
-    const step = `Paso ${index + 1}`;
-    return [
-      !operation.nombre.trim() ? `Escribe un nombre para el ${step}.` : '',
-      !operation.tipo ? `Selecciona el tipo de operación del ${step}.` : '',
-      !operation.executor_kind ? `Selecciona la forma de ejecución del ${step}.` : '',
-      !operation.centro_trabajo_id ? `Selecciona el centro de trabajo del ${step}.` : '',
-      !operation.articulo_salida_id ? `Define la salida del ${step}.` : '',
-      operation.executor_kind === 'ORDEN_OPERACION' && !operation.estructura_revision_id
-        ? `Selecciona una estructura aprobada compatible para el ${step}.`
-        : '',
-    ].filter(Boolean);
-  });
 
   const goToStructuresForArticle = (articleId) => {
     setSelectedArticleId(String(articleId || ''));
@@ -534,71 +446,26 @@ function ScmEngineeringAdmin() {
 
   const openBom = () => {
     setEditingBom(null);
-    setBomForm({ notas: '', componentes: [newBomLine()] });
+    setBomForm(emptyStructureValue());
     setDialog('bom');
   };
   const editBom = (revision) => {
     setEditingBom(revision);
-    setBomForm({
-      notas: revision.notas || '',
-      componentes: revision.componentes.map((line) => ({
-        articulo_id: String(line.articulo_id),
-        cantidad: compactDecimal(line.cantidad),
-        merma_tecnica_pct: compactDecimal(line.merma_tecnica_pct || 0),
-      })),
-    });
+    setBomForm(normalizeStructureRevision(revision));
     setDialog('bom');
   };
   const openRoute = () => {
     setEditingRoute(null);
-    setRouteForm({
-      notas: '',
-      operaciones: [{
-        ...newOperation(),
-        articulo_salida_id: String(routeTargetArticle?.id || ''),
-      }],
-    });
+    setRouteForm(emptyRouteValue(routeTargetArticle));
     setDialog('route');
   };
   const editRoute = (revision) => {
-    const keysById = new Map(
-      revision.operaciones.map((operation) => [operation.id, operation.clave]),
-    );
     setEditingRoute(revision);
-    setRouteForm({
-      notas: revision.notas || '',
-      operaciones: normalizeRouteOutputs(revision.operaciones.map((operation) => ({
-        clave: operation.clave,
-        secuencia_visible: String(operation.secuencia_visible),
-        nombre: operation.nombre,
-        tipo: operation.tipo,
-        executor_kind: operation.executor_kind,
-        centro_trabajo_id: String(operation.centro_trabajo_id),
-        articulo_salida_id: String(operation.articulo_salida_id),
-        estructura_revision_id: operation.estructura_revision_id
-          ? String(operation.estructura_revision_id)
-          : '',
-        permite_concurrente: operation.permite_concurrente,
-      })), routeTargetArticle?.id, articlesById),
-      precedencias: revision.precedencias.map((edge) => ({
-        anterior_clave: keysById.get(edge.anterior_id ?? edge.operacion_anterior_id),
-        siguiente_clave: keysById.get(edge.siguiente_id ?? edge.operacion_siguiente_id),
-      })),
-    });
+    setRouteForm(normalizeRouteRevision(revision, routeTargetArticle, articles));
     setDialog('route');
   };
 
-  const saveBom = () => {
-    const payload = {
-      notas: bomForm.notas || null,
-      componentes: bomForm.componentes.map((line, index) => ({
-        secuencia: index + 1,
-        articulo_id: Number(line.articulo_id),
-        cantidad: Number(line.cantidad),
-        unidad: 'UN',
-        merma_tecnica_pct: Number(line.merma_tecnica_pct || 0),
-      })),
-    };
+  const saveBom = (payload = buildStructurePayload(bomForm)) => {
     return runMutation(
       () => editingBom
         ? actualizarEstructuraScm(
@@ -656,27 +523,7 @@ function ScmEngineeringAdmin() {
     return undefined;
   };
 
-  const saveRoute = () => {
-    const payload = {
-      notas: routeForm.notas || null,
-      operaciones: routeForm.operaciones.map((operation, index) => ({
-        clave: operation.clave,
-        secuencia_visible: index + 1,
-        nombre: operation.nombre,
-        tipo: operation.tipo,
-        executor_kind: operation.executor_kind,
-        centro_trabajo_id: Number(operation.centro_trabajo_id),
-        articulo_salida_id: Number(operation.articulo_salida_id),
-        estructura_revision_id: operation.executor_kind === 'ORDEN_OPERACION'
-          ? Number(operation.estructura_revision_id)
-          : null,
-        permite_concurrente: operation.permite_concurrente,
-      })),
-      precedencias: routeForm.operaciones.slice(1).map((operation, index) => ({
-        anterior_clave: routeForm.operaciones[index].clave,
-        siguiente_clave: operation.clave,
-      })),
-    };
+  const saveRoute = (payload = buildRoutePayload(routeForm, routeTargetArticle, articles)) => {
     return runMutation(
       () => editingRoute
         ? actualizarRutaScm(
@@ -688,41 +535,6 @@ function ScmEngineeringAdmin() {
     );
   };
 
-  const moveRouteOperation = (fromIndex, toIndex) => {
-    if (
-      fromIndex === toIndex
-      || fromIndex < 0
-      || toIndex < 0
-      || fromIndex >= routeForm.operaciones.length
-      || toIndex >= routeForm.operaciones.length
-    ) {
-      return;
-    }
-    const operations = [...routeForm.operaciones];
-    const [moved] = operations.splice(fromIndex, 1);
-    operations.splice(toIndex, 0, moved);
-    setRouteForm({
-      ...routeForm,
-      operaciones: normalizeRouteOutputs(
-        operations,
-        routeTargetArticle?.id,
-        articlesById,
-      ),
-    });
-  };
-
-  const removeRouteOperation = (index) => {
-    const operations = routeForm.operaciones.filter((_, row) => row !== index);
-    setRouteForm({
-      ...routeForm,
-      operaciones: normalizeRouteOutputs(
-        operations,
-        routeTargetArticle?.id,
-        articlesById,
-      ),
-    });
-    setRouteStepToDelete(null);
-  };
 
   const approvalButton = (revision, approve, successMessage, allowed) => {
     if (!allowed) return null;
@@ -814,6 +626,59 @@ function ScmEngineeringAdmin() {
         </Button>
       </Stack>
     );
+  };
+
+  const runApprovalPanelAction = (domain, action, revision) => {
+    if (domain === 'ESTRUCTURA') {
+      if (action === 'submit') {
+        return runMutation(
+          () => enviarEstructuraScm(revision),
+          'Estructura enviada a aprobación.',
+        );
+      }
+      if (action === 'approve') {
+        return runMutation(
+          () => aprobarEstructuraScm(revision),
+          'Estructura aprobada.',
+        );
+      }
+      if (action === 'reject') {
+        setStructureResolution({ action: 'reject', revision, motivo: '' });
+        setDialog('structureResolution');
+        return undefined;
+      }
+      if (action === 'publish') {
+        setStructureResolution({ action: 'publish', revision, motivo: '' });
+        setDialog('structureResolution');
+        return undefined;
+      }
+    }
+    if (domain === 'RUTA') {
+      if (action === 'approve') {
+        return runMutation(() => aprobarRutaScm(revision), 'Ruta aprobada.');
+      }
+      if (action === 'publish') {
+        return runMutation(
+          () => publicarRutaScm(revision),
+          'Ruta publicada directamente por jefatura.',
+        );
+      }
+    }
+    if (domain === 'EMPAQUE') {
+      if (action === 'approve') {
+        return runMutation(
+          () => aprobarReglaEmpaqueScm(revision),
+          'Regla de empaque aprobada.',
+        );
+      }
+      if (action === 'publish') {
+        return runMutation(
+          () => publicarReglaEmpaqueScm(revision),
+          'Regla de empaque publicada directamente por jefatura.',
+        );
+      }
+    }
+    return undefined;
   };
 
   const tabs = ['Artículos', 'Estructuras BOM', 'Rutas', 'Empaque', 'Aprobaciones'];
@@ -1579,7 +1444,7 @@ function ScmEngineeringAdmin() {
                       startIcon={<AddIcon />}
                       onClick={() => {
                         setEditingProfile(null);
-                        setProfileForm(emptyProfile);
+                        setProfileForm(emptyPackagingProfileValue());
                         setDialog('profile');
                       }}
                     >
@@ -1648,7 +1513,7 @@ function ScmEngineeringAdmin() {
                     disabled={!profiles.length || !containers.length}
                     onClick={() => {
                       setEditingRule(null);
-                      setRuleForm(emptyRule);
+                      setRuleForm(emptyPackagingRuleValue());
                       setDialog('rule');
                     }}
                   >
@@ -1740,7 +1605,16 @@ function ScmEngineeringAdmin() {
                         {revision.articulo_resultado?.codigo} · rev. {revision.numero_revision}
                         {' '}· creador #{revision.creada_por_id}
                       </Typography>
-                      {structureApprovalActions(revision)}
+                      <ApprovalActionPanel
+                        domain="ESTRUCTURA"
+                        revision={revision}
+                        actorId={actorId}
+                        capabilities={canonicalCapabilities}
+                        busy={saving}
+                        onAction={(action, item) => runApprovalPanelAction(
+                          'ESTRUCTURA', action, item,
+                        )}
+                      />
                     </Stack>
                   ))}
                   {pendingStructures.length === 0 && <Typography color="text.secondary">Sin estructuras pendientes.</Typography>}
@@ -1755,7 +1629,16 @@ function ScmEngineeringAdmin() {
                         {revision.articulo_objetivo?.codigo} · rev. {revision.numero_revision}
                         {' '}· creador #{revision.creada_por_id}
                       </Typography>
-                      {routeApprovalAction(revision)}
+                      <ApprovalActionPanel
+                        domain="RUTA"
+                        revision={revision}
+                        actorId={actorId}
+                        capabilities={canonicalCapabilities}
+                        busy={saving}
+                        onAction={(action, item) => runApprovalPanelAction(
+                          'RUTA', action, item,
+                        )}
+                      />
                     </Stack>
                   ))}
                   {pendingRoutes.length === 0 && <Typography color="text.secondary">Sin rutas por aprobar.</Typography>}
@@ -1770,24 +1653,16 @@ function ScmEngineeringAdmin() {
                         {revision.perfil_empacable?.nombre} + {revision.tipo_contenedor?.nombre}
                         {' '}· rev. {revision.numero_revision} · creador #{revision.creada_por_id}
                       </Typography>
-                      {canPublishPackagingDirectly ? (
-                        <Button
-                          size="small"
-                          variant="contained"
-                          disabled={saving}
-                          onClick={() => runMutation(
-                            () => publicarReglaEmpaqueScm(revision),
-                            'Regla de empaque publicada directamente por jefatura.',
-                          )}
-                        >
-                          Publicar (queda aprobada)
-                        </Button>
-                      ) : approvalButton(
-                          revision,
-                          () => aprobarReglaEmpaqueScm(revision),
-                          'Regla de empaque aprobada.',
-                          canApprovePackaging,
+                      <ApprovalActionPanel
+                        domain="EMPAQUE"
+                        revision={revision}
+                        actorId={actorId}
+                        capabilities={canonicalCapabilities}
+                        busy={saving}
+                        onAction={(action, item) => runApprovalPanelAction(
+                          'EMPAQUE', action, item,
                         )}
+                      />
                     </Stack>
                   ))}
                   {pendingRules.length === 0 && <Typography color="text.secondary">Sin reglas por aprobar.</Typography>}
@@ -1862,128 +1737,29 @@ function ScmEngineeringAdmin() {
 
       <Dialog open={dialog === 'bom'} onClose={() => setDialog(null)} fullWidth maxWidth="md">
         <DialogTitle>
-          {editingBom ? `Editar estructura · revisión ${editingBom.numero_revision}` : `Nueva estructura · ${selectedArticle?.nombre}`}
+          {editingBom
+            ? `Editar estructura · revisión ${editingBom.numero_revision}`
+            : `Nueva estructura · ${selectedArticle?.nombre}`}
         </DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            <TextField
-              label="Notas de revisión"
-              value={bomForm.notas}
-              onChange={(event) => setBomForm({ ...bomForm, notas: event.target.value })}
+          <Box sx={{ pt: 1 }}>
+            <StructureRevisionEditor
+              targetArticle={selectedArticle}
+              componentArticles={structureComponentArticles}
+              structures={structures}
+              revision={editingBom}
+              value={bomForm}
+              onChange={setBomForm}
+              onNavigateStructure={goToStructuresForArticle}
+              onCancel={() => setDialog(null)}
+              onSubmit={saveBom}
+              busy={saving}
+              showHeading={false}
+              submitLabel={editingBom ? 'Guardar borrador' : 'Crear borrador'}
             />
-            {bomForm.componentes.map((line, index) => {
-              const componentArticle = articles.find(
-                (item) => item.id === Number(line.articulo_id),
-              );
-              const selectedWip = componentArticle?.clase === 'SUBENSAMBLE_WIP'
-                ? componentArticle : null;
-              const approvedWipStructure = selectedWip
-                ? approvedStructureByArticleId.get(selectedWip.id) : null;
-              return (
-                <Box key={index}>
-                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-                    <ScmArticleAutocomplete
-                      label="Artículo componente"
-                      articles={structureComponentArticles}
-                      value={line.articulo_id}
-                      placeholder="Buscar pieza-color o WIP"
-                      onChange={(articleId) => {
-                      const next = [...bomForm.componentes];
-                      next[index] = { ...line, articulo_id: articleId };
-                      setBomForm({ ...bomForm, componentes: next });
-                    }}
-                    />
-                    <TextField
-                  label="Cantidad UN"
-                  type="number"
-                  size="small"
-                  value={line.cantidad}
-                  helperText="Unidades del componente necesarias para producir 1 unidad del resultado."
-                  onChange={(event) => {
-                    const next = [...bomForm.componentes];
-                    next[index] = { ...line, cantidad: event.target.value };
-                    setBomForm({ ...bomForm, componentes: next });
-                  }}
-                  sx={{
-                    width: { xs: '100%', md: 150 },
-                    flexShrink: 0,
-                  }}
-                    />
-                    <TextField
-                  label="Pérdida esperada del componente (%)"
-                  type="number"
-                  size="small"
-                  value={line.merma_tecnica_pct}
-                  helperText="Pérdida adicional esperada de este componente durante la transformación."
-                  onChange={(event) => {
-                    const next = [...bomForm.componentes];
-                    next[index] = { ...line, merma_tecnica_pct: event.target.value };
-                    setBomForm({ ...bomForm, componentes: next });
-                  }}
-                  sx={{
-                    width: { xs: '100%', md: 270 },
-                    flexShrink: 0,
-                  }}
-                    />
-                    <IconButton
-                  aria-label={`Quitar componente ${index + 1}`}
-                  disabled={bomForm.componentes.length === 1}
-                  onClick={() => setBomForm({
-                    ...bomForm,
-                    componentes: bomForm.componentes.filter((_, row) => row !== index),
-                  })}
-                    >
-                      <DeleteOutlineIcon />
-                    </IconButton>
-                  </Stack>
-                  {selectedWip && approvedWipStructure && (
-                    <Alert severity="info" sx={{ mt: 1 }}>
-                      <Typography variant="body2" fontWeight={800}>
-                        Composición vigente de {selectedWip.codigo} · revisión{' '}
-                        {approvedWipStructure.numero_revision}
-                      </Typography>
-                      <Typography variant="body2">
-                        {approvedWipStructure.componentes.map((component) => (
-                          `${compactDecimal(component.cantidad)} × ${component.articulo?.codigo} · ${component.articulo?.nombre}`
-                        )).join(' + ')}
-                      </Typography>
-                    </Alert>
-                  )}
-                  {selectedWip && !approvedWipStructure && (
-                    <Alert severity="warning" sx={{ mt: 1 }}>
-                      {selectedWip.codigo} no tiene una estructura aprobada. No publiques
-                      esta BOM hasta definir la composición del WIP.
-                    </Alert>
-                  )}
-                </Box>
-              );
-            })}
-            <Button
-              startIcon={<AddIcon />}
-              onClick={() => setBomForm({
-                ...bomForm,
-                componentes: [...bomForm.componentes, newBomLine()],
-              })}
-              sx={{ alignSelf: 'flex-start' }}
-            >
-              Agregar componente
-            </Button>
-          </Stack>
+          </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialog(null)}>Cancelar</Button>
-          <Button
-            variant="contained"
-            disabled={saving || bomForm.componentes.some(
-              (line) => !line.articulo_id || Number(line.cantidad) <= 0,
-            )}
-            onClick={saveBom}
-          >
-            {editingBom ? 'Guardar borrador' : 'Crear borrador'}
-          </Button>
-        </DialogActions>
       </Dialog>
-
       <Dialog
         open={dialog === 'structureResolution'}
         onClose={() => setDialog(null)}
@@ -2102,422 +1878,30 @@ function ScmEngineeringAdmin() {
 
       <Dialog open={dialog === 'route'} onClose={() => setDialog(null)} fullWidth maxWidth="lg">
         <DialogTitle>
-          {editingRoute ? `Editar ruta · revisión ${editingRoute.numero_revision}` : `Nueva ruta · ${selectedProductId}`}
+          {editingRoute
+            ? `Editar ruta · revisión ${editingRoute.numero_revision}`
+            : `Nueva ruta · ${selectedProductId}`}
         </DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            <Alert severity="info">
-              La BOM define qué consume cada salida; la ruta define el orden, centro y
-              forma de ejecución. Fabricación mediante OF y Trabajo de color se usa para
-              trabajo de máquina. Prearmado o armado mediante OA / OT de Armado exige la
-              estructura aprobada de su salida.
-            </Alert>
-            <TextField
-              label="Notas de revisión"
-              value={routeForm.notas}
-              onChange={(event) => setRouteForm({ ...routeForm, notas: event.target.value })}
+          <Box sx={{ pt: 1 }}>
+            <RouteRevisionEditor
+              targetArticle={routeTargetArticle}
+              articles={articles}
+              centers={centers}
+              structures={structures}
+              revision={editingRoute}
+              value={routeForm}
+              onChange={setRouteForm}
+              onNavigateStructure={goToStructuresForArticle}
+              onCancel={() => setDialog(null)}
+              onSubmit={saveRoute}
+              busy={saving}
+              showHeading={false}
+              submitLabel={editingRoute ? 'Guardar borrador' : 'Crear borrador'}
             />
-            {routeForm.operaciones.map((operation, index) => {
-              const isTerminal = index === routeForm.operaciones.length - 1;
-              const previousOutput = index > 0
-                ? articlesById.get(Number(routeForm.operaciones[index - 1].articulo_salida_id))
-                : null;
-              const outputArticle = isTerminal
-                ? routeTargetArticle
-                : articlesById.get(Number(operation.articulo_salida_id));
-              const compatibleApprovedStructures = structures.filter((item) => (
-                item.estado === 'APROBADA'
-                && Number(item.articulo_resultado_id) === Number(outputArticle?.id)
-              ));
-              const inputLabel = index === 0
-                ? 'Entradas definidas por la BOM'
-                : previousOutput
-                  ? `${previousOutput.codigo} · ${previousOutput.nombre}`
-                  : `Salida pendiente del Paso ${index}`;
-              const outputLabel = outputArticle
-                ? `${outputArticle.codigo} · ${outputArticle.nombre}`
-                : 'Salida pendiente';
-              return (
-                <Paper
-                  key={operation.clave}
-                  variant="outlined"
-                  data-route-operation-index={index}
-                  sx={{
-                    p: 2,
-                    borderWidth: isTerminal ? 2 : 1,
-                    borderColor: isTerminal ? 'primary.main' : 'divider',
-                    bgcolor: isTerminal ? 'action.hover' : 'background.paper',
-                  }}
-                >
-                  <Stack spacing={1.5}>
-                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} justifyContent="space-between">
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <DragIndicatorIcon color="action" />
-                        <Typography variant="h6">Paso {index + 1}</Typography>
-                        {isTerminal && <Chip size="small" color="primary" label="Paso terminal" />}
-                      </Stack>
-                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                        <Typography variant="caption" color="text.secondary">Mover paso:</Typography>
-                        <Button
-                          size="small"
-                          startIcon={<ArrowUpwardIcon />}
-                          aria-label={`Mover paso ${index + 1} antes`}
-                          disabled={index === 0}
-                          onClick={() => moveRouteOperation(index, index - 1)}
-                        >
-                          Antes
-                        </Button>
-                        <Button
-                          size="small"
-                          startIcon={<ArrowDownwardIcon />}
-                          aria-label={`Mover paso ${index + 1} después`}
-                          disabled={isTerminal}
-                          onClick={() => moveRouteOperation(index, index + 1)}
-                        >
-                          Después
-                        </Button>
-                        <Button
-                          size="small"
-                          color="error"
-                          startIcon={<DeleteOutlineIcon />}
-                          aria-label={`Eliminar paso ${index + 1}`}
-                          disabled={routeForm.operaciones.length === 1}
-                          onClick={() => hasMeaningfulRouteStepData(operation)
-                            ? setRouteStepToDelete(index)
-                            : removeRouteOperation(index)}
-                        >
-                          Eliminar paso
-                        </Button>
-                      </Stack>
-                    </Stack>
-
-                    <Box sx={{ px: 1.5, py: 1, borderRadius: 1, bgcolor: 'background.default' }}>
-                      <Typography variant="body2">
-                        <strong>Entrada:</strong> {inputLabel}
-                        {' → '}<strong>Transformación:</strong> {OPERATION_TYPE_LABEL[operation.tipo] || operation.tipo || 'Por definir'}
-                        {' → '}<strong>Salida:</strong> {outputLabel}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {isTerminal ? 'Fin de ruta' : `Continúa en el Paso ${index + 2}`}
-                      </Typography>
-                    </Box>
-
-                    {!isTerminal && !operation.articulo_salida_id && (
-                      <Alert severity="warning">
-                        El Paso {index + 1} ahora es intermedio. Selecciona una salida Pieza-color o WIP.
-                      </Alert>
-                    )}
-
-                    <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1}>
-                      <TextField
-                        label="Nombre de la operación"
-                        size="small"
-                        value={operation.nombre}
-                        onChange={(event) => {
-                          const next = [...routeForm.operaciones];
-                          next[index] = { ...operation, nombre: event.target.value };
-                          setRouteForm({ ...routeForm, operaciones: next });
-                        }}
-                        sx={{ flex: 1 }}
-                      />
-                      <FormControl size="small" sx={{ minWidth: 160 }}>
-                        <InputLabel id={`route-step-${index}-type-label`}>
-                          Tipo de operación
-                        </InputLabel>
-                        <Select
-                          labelId={`route-step-${index}-type-label`}
-                          label="Tipo de operación"
-                          value={operation.tipo}
-                          displayEmpty
-                          renderValue={(value) => (
-                            value ? OPERATION_TYPE_LABEL[value] || value : 'Selecciona'
-                          )}
-                          onChange={(event) => {
-                            const executorKind = executorKindForOperationType(event.target.value);
-                            const approvedStructure = executorKind === 'ORDEN_OPERACION'
-                              ? approvedStructureByArticleId.get(Number(operation.articulo_salida_id))
-                              : null;
-                            const next = [...routeForm.operaciones];
-                            next[index] = {
-                              ...operation,
-                              tipo: event.target.value,
-                              executor_kind: executorKind,
-                              estructura_revision_id: approvedStructure
-                                ? String(approvedStructure.id) : '',
-                              permite_concurrente: event.target.value === 'PREARMADO'
-                                ? operation.permite_concurrente : false,
-                            };
-                            setRouteForm({ ...routeForm, operaciones: next });
-                          }}
-                        >
-                          <MenuItem value="" disabled>Selecciona</MenuItem>
-                          {OPERATION_TYPES.map((type) => (
-                            <MenuItem key={type} value={type}>{OPERATION_TYPE_LABEL[type]}</MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                      <FormControl size="small" sx={{ minWidth: 260 }}>
-                        <InputLabel id={`route-step-${index}-executor-label`}>
-                          Forma de ejecución
-                        </InputLabel>
-                        <Select
-                          labelId={`route-step-${index}-executor-label`}
-                          label="Forma de ejecución"
-                          value={operation.executor_kind}
-                          displayEmpty
-                          renderValue={(value) => value ? EXECUTOR_LABEL[value] : 'Selecciona'}
-                          onChange={(event) => {
-                            const approvedStructure = event.target.value === 'ORDEN_OPERACION'
-                              ? approvedStructureByArticleId.get(Number(operation.articulo_salida_id))
-                              : null;
-                            const next = [...routeForm.operaciones];
-                            next[index] = {
-                              ...operation,
-                              executor_kind: event.target.value,
-                              estructura_revision_id: approvedStructure
-                                ? String(approvedStructure.id) : '',
-                            };
-                            setRouteForm({ ...routeForm, operaciones: next });
-                          }}
-                        >
-                          <MenuItem value="" disabled>Selecciona</MenuItem>
-                          <MenuItem value="OP_OT">{EXECUTOR_LABEL.OP_OT}</MenuItem>
-                          <MenuItem value="ORDEN_OPERACION">{EXECUTOR_LABEL.ORDEN_OPERACION}</MenuItem>
-                        </Select>
-                      </FormControl>
-                    </Stack>
-
-                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-                      <FormControl fullWidth size="small">
-                        <InputLabel id={`route-step-${index}-center-label`}>
-                          Centro de trabajo
-                        </InputLabel>
-                        <Select
-                          labelId={`route-step-${index}-center-label`}
-                          label="Centro de trabajo"
-                          value={operation.centro_trabajo_id}
-                          onChange={(event) => {
-                            const selectedCenter = activeCenters.find(
-                              (center) => String(center.id) === String(event.target.value),
-                            );
-                            const type = selectedCenter?.tipo || '';
-                            const executorKind = executorKindForOperationType(type);
-                            const approvedStructure = executorKind === 'ORDEN_OPERACION'
-                              ? approvedStructureByArticleId.get(Number(operation.articulo_salida_id))
-                              : null;
-                            const next = [...routeForm.operaciones];
-                            next[index] = {
-                              ...operation,
-                              centro_trabajo_id: event.target.value,
-                              tipo: type,
-                              executor_kind: executorKind,
-                              estructura_revision_id: approvedStructure
-                                ? String(approvedStructure.id) : '',
-                              permite_concurrente: type === 'PREARMADO'
-                                ? operation.permite_concurrente : false,
-                            };
-                            setRouteForm({ ...routeForm, operaciones: next });
-                          }}
-                        >
-                          {activeCenters.map((center) => (
-                            <MenuItem key={center.id} value={String(center.id)}>
-                              {center.codigo} · {center.nombre}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                      {isTerminal ? (
-                        <TextField
-                          fullWidth
-                          size="small"
-                          label="Salida terminal (bloqueada)"
-                          value={outputLabel}
-                          slotProps={{ input: { readOnly: true } }}
-                          helperText={`Esta operación termina la ruta y produce ${routeTargetArticle?.codigo || 'el PT seleccionado'}.`}
-                        />
-                      ) : (
-                        <ScmArticleAutocomplete
-                          label="Salida intermedia (Pieza-color o WIP)"
-                          articles={routeIntermediateArticles}
-                          value={operation.articulo_salida_id}
-                          onChange={(articleId) => {
-                            const approvedStructure = operation.executor_kind === 'ORDEN_OPERACION'
-                              ? approvedStructureByArticleId.get(Number(articleId))
-                              : null;
-                            const next = [...routeForm.operaciones];
-                            next[index] = {
-                              ...operation,
-                              articulo_salida_id: articleId,
-                              estructura_revision_id: approvedStructure
-                                ? String(approvedStructure.id) : '',
-                            };
-                            setRouteForm({ ...routeForm, operaciones: next });
-                          }}
-                        />
-                      )}
-                      {operation.executor_kind === 'ORDEN_OPERACION' && (
-                        <FormControl fullWidth size="small">
-                          <InputLabel id={`route-step-${index}-structure-label`}>
-                            Estructura aprobada
-                          </InputLabel>
-                          <Select
-                            labelId={`route-step-${index}-structure-label`}
-                            label="Estructura aprobada"
-                            value={operation.estructura_revision_id}
-                            displayEmpty
-                            renderValue={(value) => {
-                              const selected = compatibleApprovedStructures.find(
-                                (item) => String(item.id) === String(value),
-                              );
-                              return selected
-                                ? `${selected.articulo_resultado?.codigo} · rev. ${selected.numero_revision}`
-                                : 'Selecciona una estructura compatible';
-                            }}
-                            onChange={(event) => {
-                              const next = [...routeForm.operaciones];
-                              next[index] = { ...operation, estructura_revision_id: event.target.value };
-                              setRouteForm({ ...routeForm, operaciones: next });
-                            }}
-                          >
-                            <MenuItem value="" disabled>
-                              Selecciona una estructura compatible
-                            </MenuItem>
-                            {compatibleApprovedStructures.map((item) => (
-                              <MenuItem key={item.id} value={String(item.id)}>
-                                {item.articulo_resultado?.codigo} · rev. {item.numero_revision}
-                              </MenuItem>
-                            ))}
-                          </Select>
-                        </FormControl>
-                      )}
-                      {operation.executor_kind === 'ORDEN_OPERACION'
-                        && outputArticle
-                        && compatibleApprovedStructures.length === 0 && (
-                        <Alert
-                          severity="warning"
-                          sx={{ flexBasis: '100%' }}
-                          action={(
-                            <Button
-                              color="inherit"
-                              size="small"
-                              onClick={() => goToStructuresForArticle(outputArticle.id)}
-                            >
-                              Ir a Estructuras BOM
-                            </Button>
-                          )}
-                        >
-                          No existe una BOM aprobada cuyo resultado sea {outputArticle.codigo}.
-                          Crea o publica la revisión correcta antes de continuar.
-                        </Alert>
-                      )}
-                      {operation.tipo === 'PREARMADO' && (
-                        <FormControlLabel
-                          sx={{ minWidth: 230, m: 0 }}
-                          control={(
-                            <Checkbox
-                              checked={operation.permite_concurrente}
-                              onChange={(event) => {
-                                const next = [...routeForm.operaciones];
-                                next[index] = { ...operation, permite_concurrente: event.target.checked };
-                                setRouteForm({ ...routeForm, operaciones: next });
-                              }}
-                            />
-                          )}
-                          label="Permite ejecución concurrente"
-                        />
-                      )}
-                    </Stack>
-                  </Stack>
-                </Paper>
-              );
-            })}
-            <Button
-              startIcon={<AddIcon />}
-              onClick={() => {
-                const operations = [
-                  ...routeForm.operaciones,
-                  {
-                    ...newOperation(routeForm.operaciones.length + 1),
-                    clave: nextOperationKey(routeForm.operaciones),
-                  },
-                ];
-                setRouteForm({
-                  ...routeForm,
-                  operaciones: normalizeRouteOutputs(
-                    operations,
-                    routeTargetArticle?.id,
-                    articlesById,
-                  ),
-                });
-              }}
-              sx={{ alignSelf: 'flex-start' }}
-            >
-              Agregar operación
-            </Button>
-            {routeFormBlockingReasons.length > 0 && (
-              <Alert severity="info">
-                <Typography variant="body2" fontWeight={800}>
-                  Completa lo siguiente para crear el borrador:
-                </Typography>
-                <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
-                  {routeFormBlockingReasons.map((reason) => (
-                    <Typography component="li" variant="body2" key={reason}>
-                      {reason}
-                    </Typography>
-                  ))}
-                </Box>
-              </Alert>
-            )}
-          </Stack>
+          </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialog(null)}>Cancelar</Button>
-          <Button
-            variant="contained"
-            disabled={saving || routeForm.operaciones.some((operation) => (
-              !operation.clave.trim()
-              || !operation.nombre.trim()
-              || !operation.tipo
-              || !operation.executor_kind
-              || !operation.centro_trabajo_id
-              || !operation.articulo_salida_id
-              || (
-                operation.executor_kind === 'ORDEN_OPERACION'
-                && !operation.estructura_revision_id
-              )
-            ))}
-            onClick={saveRoute}
-          >
-            {editingRoute ? 'Guardar borrador' : 'Crear borrador'}
-          </Button>
-        </DialogActions>
       </Dialog>
-
-      <Dialog
-        open={routeStepToDelete !== null}
-        onClose={() => setRouteStepToDelete(null)}
-        maxWidth="xs"
-        fullWidth
-      >
-        <DialogTitle>Eliminar paso de la ruta</DialogTitle>
-        <DialogContent>
-          <Alert severity="warning" sx={{ mt: 1 }}>
-            El Paso {routeStepToDelete === null ? '' : routeStepToDelete + 1} contiene datos.
-            Al eliminarlo, el sistema recalculará la secuencia y la salida terminal.
-          </Alert>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setRouteStepToDelete(null)}>Conservar paso</Button>
-          <Button
-            color="error"
-            variant="contained"
-            onClick={() => removeRouteOperation(routeStepToDelete)}
-          >
-            Confirmar eliminación
-          </Button>
-        </DialogActions>
-      </Dialog>
-
       <Dialog open={dialog === 'container'} onClose={() => setDialog(null)} fullWidth maxWidth="sm">
         <DialogTitle>{editingContainer ? 'Editar tipo de contenedor' : 'Nuevo tipo de contenedor'}</DialogTitle>
         <DialogContent>
@@ -2583,118 +1967,71 @@ function ScmEngineeringAdmin() {
       </Dialog>
 
       <Dialog open={dialog === 'profile'} onClose={() => setDialog(null)} fullWidth maxWidth="sm">
-        <DialogTitle>{editingProfile ? 'Editar perfil empacable' : 'Nuevo perfil empacable'}</DialogTitle>
+        <DialogTitle>
+          {editingProfile ? 'Editar perfil empacable' : 'Nuevo perfil empacable'}
+        </DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            <TextField
-              label={editingProfile ? 'Código' : 'Código automático'}
-              value={editingProfile?.codigo || 'PEM-######'}
-              disabled
+          <Box sx={{ pt: 1 }}>
+            <PackagingProfileEditor
+              value={profileForm}
+              onChange={setProfileForm}
+              onCancel={() => setDialog(null)}
+              onSubmit={(payload) => runMutation(
+                () => editingProfile
+                  ? actualizarPerfilEmpacableScm(editingProfile.id, {
+                    ...payload,
+                    version: editingProfile.version,
+                  })
+                  : crearPerfilEmpacableScm(payload),
+                editingProfile
+                  ? 'Perfil empacable actualizado.'
+                  : 'Perfil empacable creado.',
+              )}
+              busy={saving}
+              showHeading={false}
+              submitLabel={editingProfile ? 'Guardar cambios' : 'Crear'}
             />
-            <TextField label="Nombre" value={profileForm.nombre} onChange={(event) => setProfileForm({ ...profileForm, nombre: event.target.value })} />
-            <TextField multiline minRows={3} label="Descripción física" value={profileForm.descripcion_fisica} onChange={(event) => setProfileForm({ ...profileForm, descripcion_fisica: event.target.value })} />
-          </Stack>
+          </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialog(null)}>Cancelar</Button>
-          <Button
-            variant="contained"
-            disabled={!profileForm.nombre.trim() || saving}
-            onClick={() => runMutation(
-              () => editingProfile
-                ? actualizarPerfilEmpacableScm(editingProfile.id, {
-                  version: editingProfile.version,
-                  nombre: profileForm.nombre,
-                  descripcion_fisica: profileForm.descripcion_fisica || null,
-                })
-                : crearPerfilEmpacableScm({
-                  nombre: profileForm.nombre,
-                  descripcion_fisica: profileForm.descripcion_fisica || null,
-                }),
-              editingProfile ? 'Perfil empacable actualizado.' : 'Perfil empacable creado.',
-            )}
-          >
-            {editingProfile ? 'Guardar cambios' : 'Crear'}
-          </Button>
-        </DialogActions>
       </Dialog>
 
       <Dialog open={dialog === 'rule'} onClose={() => setDialog(null)} fullWidth maxWidth="md">
-        <DialogTitle>{editingRule ? 'Editar regla de empaque' : 'Nueva regla de empaque'}</DialogTitle>
+        <DialogTitle>
+          {editingRule ? 'Editar regla de empaque' : 'Nueva regla de empaque'}
+        </DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ pt: 1 }}>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-              <FormControl fullWidth>
-                <InputLabel>Perfil empacable</InputLabel>
-                <Select label="Perfil empacable" value={ruleForm.perfil_empacable_id} onChange={(event) => setRuleForm({ ...ruleForm, perfil_empacable_id: event.target.value })} disabled={Boolean(editingRule)}>
-                  {profiles.map((profile) => <MenuItem key={profile.id} value={String(profile.id)}>{profile.codigo} · {profile.nombre}</MenuItem>)}
-                </Select>
-              </FormControl>
-              <FormControl fullWidth>
-                <InputLabel>Tipo de contenedor</InputLabel>
-                <Select label="Tipo de contenedor" value={ruleForm.tipo_contenedor_id} onChange={(event) => setRuleForm({ ...ruleForm, tipo_contenedor_id: event.target.value })} disabled={Boolean(editingRule)}>
-                  {containers.map((container) => <MenuItem key={container.id} value={String(container.id)}>{container.codigo} · {container.nombre}</MenuItem>)}
-                </Select>
-              </FormControl>
-            </Stack>
-            <FormControlLabel
-              control={<Checkbox checked={ruleForm.medicion_fisica_probada} onChange={(event) => setRuleForm({ ...ruleForm, medicion_fisica_probada: event.target.checked })} />}
-              label="Acomodo máximo validado mediante prueba física"
+          <Box sx={{ pt: 1 }}>
+            <PackagingRuleEditor
+              value={ruleForm}
+              profiles={profiles}
+              containers={containers}
+              revision={editingRule}
+              onChange={setRuleForm}
+              onCancel={() => setDialog(null)}
+              onSubmit={(payload) => {
+                const {
+                  perfil_empacable_id: _profileId,
+                  tipo_contenedor_id: _containerId,
+                  ...mutableRule
+                } = payload;
+                return runMutation(
+                  () => editingRule
+                    ? actualizarReglaEmpaqueScm(editingRule.revision_id, {
+                      ...mutableRule,
+                      version: editingRule.version,
+                    })
+                    : crearReglaEmpaqueScm(payload),
+                  editingRule
+                    ? 'Borrador de regla actualizado.'
+                    : 'Borrador de regla creado.',
+                );
+              }}
+              busy={saving}
+              showHeading={false}
+              submitLabel={editingRule ? 'Guardar borrador' : 'Crear borrador'}
             />
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-              <TextField fullWidth label="Cantidad operativa objetivo (un)" helperText="Carga recomendada; la capacidad final puede ser menor." type="number" value={ruleForm.cantidad_objetivo_un} onChange={(event) => setRuleForm({ ...ruleForm, cantidad_objetivo_un: event.target.value })} />
-              <TextField fullWidth label="Máximo físico por acomodo (un)" helperText="Techo por geometría, volumen, anidamiento y manipulación." type="number" value={ruleForm.cantidad_maxima_probada_un} onChange={(event) => setRuleForm({ ...ruleForm, cantidad_maxima_probada_un: event.target.value })} />
-              <TextField fullWidth label="Límite neto operativo (kg)" helperText="Con el peso unitario del artículo determina el techo por peso." type="number" value={ruleForm.peso_neto_operativo_max_kg} onChange={(event) => setRuleForm({ ...ruleForm, peso_neto_operativo_max_kg: event.target.value })} />
-            </Stack>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-              <TextField fullWidth label="Margen seguridad (kg)" type="number" value={ruleForm.margen_seguridad_kg} onChange={(event) => setRuleForm({ ...ruleForm, margen_seguridad_kg: event.target.value })} />
-              <TextField fullWidth label="Tolerancia absoluta (g)" type="number" value={ruleForm.tolerancia_peso_abs_g} onChange={(event) => setRuleForm({ ...ruleForm, tolerancia_peso_abs_g: event.target.value })} />
-              <TextField fullWidth label="Tolerancia (%)" type="number" value={ruleForm.tolerancia_peso_pct} onChange={(event) => setRuleForm({ ...ruleForm, tolerancia_peso_pct: event.target.value })} />
-            </Stack>
-            <TextField multiline minRows={2} label="Notas" value={ruleForm.notas} onChange={(event) => setRuleForm({ ...ruleForm, notas: event.target.value })} />
-          </Stack>
+          </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialog(null)}>Cancelar</Button>
-          <Button
-            variant="contained"
-            disabled={
-              saving
-              || !ruleForm.perfil_empacable_id
-              || !ruleForm.tipo_contenedor_id
-              || Number(ruleForm.cantidad_objetivo_un) <= 0
-              || Number(ruleForm.cantidad_maxima_probada_un) <= 0
-              || Number(ruleForm.peso_neto_operativo_max_kg) <= 0
-            }
-            onClick={() => runMutation(
-              () => {
-                const values = {
-                  medicion_fisica_probada: ruleForm.medicion_fisica_probada,
-                  cantidad_objetivo_un: Number(ruleForm.cantidad_objetivo_un),
-                cantidad_maxima_probada_un: Number(ruleForm.cantidad_maxima_probada_un),
-                peso_neto_operativo_max_kg: Number(ruleForm.peso_neto_operativo_max_kg),
-                margen_seguridad_kg: Number(ruleForm.margen_seguridad_kg),
-                tolerancia_peso_abs_g: Number(ruleForm.tolerancia_peso_abs_g),
-                  tolerancia_peso_pct: Number(ruleForm.tolerancia_peso_pct),
-                  notas: ruleForm.notas || null,
-                };
-                return editingRule
-                  ? actualizarReglaEmpaqueScm(editingRule.revision_id, {
-                    ...values,
-                    version: editingRule.version,
-                  })
-                  : crearReglaEmpaqueScm({
-                    ...values,
-                    perfil_empacable_id: Number(ruleForm.perfil_empacable_id),
-                    tipo_contenedor_id: Number(ruleForm.tipo_contenedor_id),
-                  });
-              },
-              editingRule ? 'Borrador de regla actualizado.' : 'Borrador de regla creado.',
-            )}
-          >
-            {editingRule ? 'Guardar borrador' : 'Crear borrador'}
-          </Button>
-        </DialogActions>
       </Dialog>
     </Stack>
   );

@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router-dom';
 import ConfigurarProducto from '../components/ConfigurarProducto';
 
 vi.mock('../services/api', () => ({
+  asociarFamiliaALinea: vi.fn(),
   buscarPiezasGlobales: vi.fn(),
   configurarProductoCascada: vi.fn(),
   crearColor: vi.fn(),

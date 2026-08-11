@@ -37,17 +37,21 @@ describe('US-010N1: navegación SCM por áreas', () => {
     expect(workspaceTabIsActive('/datos-maestros/productos', overview)).toBe(false);
   });
 
-  it('mantiene líneas/familias y configuración guiada en el hub canónico', () => {
+  it('mantiene líneas/familias y el alta integral en el hub canónico', () => {
     const masters = workspaceNavigation.find((item) => item.id === 'masters');
     const classification = masters.tabs.find(
       (tab) => tab.path === '/datos-maestros/clasificacion',
     );
-    const wizard = masters.tabs.find(
+    const onboarding = masters.tabs.find(
+      (tab) => tab.path === '/datos-maestros/alta-producto',
+    );
+    const legacyWizard = masters.tabs.find(
       (tab) => tab.path === '/datos-maestros/configuracion-guiada',
     );
 
     expect(classification?.label).toBe('Líneas y familias');
-    expect(wizard?.label).toBe('Configuración guiada');
+    expect(onboarding?.label).toBe('Alta integral de producto');
+    expect(legacyWizard).toBeUndefined();
     expect(workspaceTabIsActive('/datos-maestros/clasificacion', classification)).toBe(true);
     expect(getWorkspaceNavigation('/catalogo/configurar')?.id).toBe('masters');
   });
@@ -84,16 +88,18 @@ describe('US-010N1: navegación SCM por áreas', () => {
     expect(visiblePrimary.map((item) => item.id)).toEqual(['home']);
     expect(visibleMasterTabs.map((item) => item.label)).toEqual(expect.arrayContaining([
       'Resumen de maestros',
+      'Alta integral de producto',
       'Productos',
       'Piezas y SKU',
       'Moldes',
-      'Configuración guiada',
       'Ingeniería SCM',
       'Líneas y familias',
       'Colores y recetas',
       'Materiales y proveedores',
       'Máquinas',
     ]));
+    expect(visibleMasterTabs.map((item) => item.label))
+      .not.toContain('Configuración técnica de molde y piezas');
     expect(visibleMasterTabs.map((item) => item.label)).not.toContain('Trabajadores');
   });
 });

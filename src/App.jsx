@@ -48,6 +48,7 @@ import { ScmActorProvider } from './context/ScmActorContext';
 import { AuthProvider } from './context/AuthContext';
 import AuthGate from './components/auth/AuthGate';
 import RolesCapabilitiesAdmin from './components/RolesCapabilitiesAdmin';
+import ProductOnboardingPage from './components/productOnboarding/ProductOnboardingPage';
 
 const workspace = (featureKey, element) => (
   <WorkspaceFeatureRoute featureKey={featureKey}>{element}</WorkspaceFeatureRoute>
@@ -187,6 +188,9 @@ function App() {
                 <Route path="/materiales/preparaciones/:numeroOp" element={workspace('materials.preparation', <PreparacionMateriales />)} />
                 <Route path="/ordenes/:numeroOp/materiales" element={workspace('materials.preparation', <PreparacionMateriales />)} />
                 <Route path="/datos-maestros" element={workspace('masters.hub', <MasterDataHub />)} />
+                <Route path="/datos-maestros/alta-producto" element={workspace('masters.productOnboarding', <ProductOnboardingPage />)} />
+                <Route path="/datos-maestros/alta-producto/:draftId" element={workspace('masters.productOnboarding', <ProductOnboardingPage />)} />
+                <Route path="/datos-maestros/alta-producto/:draftId/:stepId" element={workspace('masters.productOnboarding', <ProductOnboardingPage />)} />
                 <Route path="/datos-maestros/productos" element={workspace('masters.products', <ProductosAdmin />)} />
                 <Route path="/datos-maestros/piezas" element={workspace('masters.pieces', <PiezasAdmin />)} />
                 <Route path="/datos-maestros/trabajadores" element={workspace('masters.workers', <TrabajadoresAdmin />)} />

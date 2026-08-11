@@ -11,7 +11,12 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { crearFamiliaEnLinea, crearLinea } from '../../services/api';
+import {
+  asociarFamiliaALinea,
+  crearFamiliaEnLinea,
+  crearLinea,
+  obtenerFamilias,
+} from '../../services/api';
 
 const emptyForm = { nombre: '' };
 
@@ -30,14 +35,30 @@ function ClassificationQuickCreateDialog({
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [globalFamilies, setGlobalFamilies] = useState([]);
+  const [checkingFamilies, setCheckingFamilies] = useState(false);
   const isFamily = entity === 'familia';
+  const normalizedName = form.nombre.trim().toLocaleUpperCase('es-PE');
+  const existingFamily = isFamily
+    ? globalFamilies.find((item) => item.nombre.trim().toLocaleUpperCase('es-PE') === normalizedName)
+    : null;
+  const existingFamilyInactive = existingFamily?.activo === false;
 
   useEffect(() => {
     if (!open) return;
     setForm({ nombre: initialName.trim().toUpperCase() });
     setSaving(false);
     setError('');
-  }, [initialName, open]);
+    if (entity === 'familia') {
+      setCheckingFamilies(true);
+      obtenerFamilias({ include_inactive: true })
+        .then((items) => setGlobalFamilies(Array.isArray(items) ? items : items?.items || []))
+        .catch(() => setGlobalFamilies([]))
+        .finally(() => setCheckingFamilies(false));
+    } else {
+      setGlobalFamilies([]);
+    }
+  }, [entity, initialName, open]);
 
   const handleClose = () => {
     if (!saving) onClose?.();
@@ -61,9 +82,11 @@ function ClassificationQuickCreateDialog({
     try {
       const payload = { nombre };
       const response = isFamily
-        ? await crearFamiliaEnLinea(linea.id, payload)
+        ? existingFamily
+          ? await asociarFamiliaALinea(linea.id, existingFamily.id)
+          : await crearFamiliaEnLinea(linea.id, payload)
         : await crearLinea(payload);
-      const created = isFamily ? response?.familia : response;
+      const created = isFamily ? response?.familia || existingFamily : response;
 
       if (!created?.id) throw new Error('La API no devolvió el clasificador creado.');
       await onCreated?.(created);
@@ -95,11 +118,19 @@ function ClassificationQuickCreateDialog({
             </Typography>
           )}
           {error && <Alert severity="error">{error}</Alert>}
+          {isFamily && existingFamily && (
+            <Alert severity="info">
+              La Familia <strong>{existingFamily.nombre}</strong> ya existe globalmente.
+              {existingFamilyInactive
+                ? ' Se reactivará y vinculará a esta Línea sin crear un duplicado.'
+                : ' Se vinculará a esta Línea sin crear un duplicado.'}
+            </Alert>
+          )}
           <TextField
             label="Código automático"
             value={`${isFamily ? 'FAM' : 'LIN'}-######`}
             disabled
-            helperText="Se asignará al guardar"
+            helperText={existingFamily ? 'Se conservará el código existente' : 'Se asignará al guardar'}
           />
           <TextField
             label="Nombre"
@@ -120,9 +151,13 @@ function ClassificationQuickCreateDialog({
           type="submit"
           form="quick-create-classification-form"
           variant="contained"
-          disabled={saving || (isFamily && !linea?.id)}
+          disabled={saving || checkingFamilies || (isFamily && !linea?.id)}
         >
-          {saving ? <CircularProgress size={20} /> : 'Crear y seleccionar'}
+          {saving || checkingFamilies
+            ? <CircularProgress size={20} />
+            : existingFamilyInactive
+              ? 'Reactivar y vincular'
+              : existingFamily ? 'Vincular y seleccionar' : 'Crear y seleccionar'}
         </Button>
       </DialogActions>
     </Dialog>

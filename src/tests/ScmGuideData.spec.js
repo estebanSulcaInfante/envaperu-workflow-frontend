@@ -33,12 +33,13 @@ describe('guía oficial de OT de máquina y Trabajo de color', () => {
   it('incluye un recorrido accionable desde el PT hasta la creación de mangas', () => {
     const catalogs = textOf(stage('catalogos'));
 
+    expect(catalogs).toContain('Alta integral: interfaz principal');
+    expect(catalogs).toContain('/datos-maestros/alta-producto');
     expect(catalogs).toContain('Nombre del producto, Línea y Familia');
     expect(catalogs).toContain('1 UN');
     expect(catalogs).toContain('Pérdida esperada');
     expect(catalogs).toContain('Publicar (queda aprobada)');
     expect(catalogs).toContain('Ir a Estructuras BOM');
-    expect(catalogs).toContain('/datos-maestros/productos');
     expect(catalogs).toContain('/datos-maestros/ingenieria-scm?tab=estructuras');
     expect(catalogs).toContain('/datos-maestros/ingenieria-scm?tab=rutas');
     expect(catalogs).toContain('/planificacion');

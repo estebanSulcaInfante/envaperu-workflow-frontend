@@ -15,8 +15,6 @@ import {
   TableHead,
   TableRow,
   Typography,
-  useMediaQuery,
-  useTheme,
 } from '@mui/material';
 import ArrowForwardOutlinedIcon from '@mui/icons-material/ArrowForwardOutlined';
 import CheckCircleOutlineOutlinedIcon from '@mui/icons-material/CheckCircleOutlineOutlined';
@@ -32,10 +30,11 @@ import { matchesOmniSearch } from '../utils/tableSearch';
 import { useScmActor } from '../context/ScmActorContext';
 
 const catalogEntries = [
+  { id: 'alta-producto', area: 'PRODUCT_ENGINEERING', name: 'Alta integral de producto', object: 'Recorrido integral reanudable; las fases técnicas se conectan de forma incremental', path: '/datos-maestros/alta-producto', maturity: 'PILOTO_INCREMENTAL', requiredAny: ['ARTICULO_ADMINISTRAR'] },
   { id: 'productos', area: 'PRODUCT_ENGINEERING', name: 'Productos terminados', object: 'Producto terminado y BOM', path: '/datos-maestros/productos', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_VER'] },
   { id: 'piezas', area: 'PRODUCT_ENGINEERING', name: 'Piezas y SKU', object: 'Pieza, PiezaColor y SKU de pieza', path: '/datos-maestros/piezas', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_VER'] },
   { id: 'moldes', area: 'PRODUCT_ENGINEERING', name: 'Moldes', object: 'Molde, cavidades y salidas por ciclo', path: '/datos-maestros/moldes', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_VER', 'RUTA_VER'] },
-  { id: 'configurar', area: 'PRODUCT_ENGINEERING', name: 'Configuración guiada de producto', object: 'Asistente Molde ↔ Pieza y generación de PiezaColor', path: '/datos-maestros/configuracion-guiada', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR'] },
+  { id: 'configurar', area: 'PRODUCT_ENGINEERING', name: 'Configuración técnica de molde y piezas', object: 'Compatibilidad temporal para cargas heredadas de Molde ↔ Pieza; el alta integral es el recorrido canónico', path: '/datos-maestros/configuracion-guiada', maturity: 'LEGACY_MARCHA_BLANCA', requiredAny: ['ARTICULO_ADMINISTRAR'] },
   { id: 'ingenieria-scm', area: 'PRODUCT_ENGINEERING', name: 'Ingeniería SCM', object: 'Artículos WIP, BOM multinivel, rutas, perfiles y reglas de empaque', path: '/datos-maestros/ingenieria-scm', maturity: 'DISPONIBLE', requiredAny: ['ESTRUCTURA_VER', 'RUTA_VER', 'EMPAQUE_VER'] },
   { id: 'clasificacion', area: 'PRODUCT_ENGINEERING', name: 'Líneas y familias', object: 'Clasificadores de producto y combinaciones N:M habilitadas', path: '/datos-maestros/clasificacion', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR'] },
   { id: 'colores', area: 'PRODUCT_ENGINEERING', name: 'Colores y recetas', object: 'FamiliaColor, ColorProducción, HEX visual y receta versionada', path: '/datos-maestros/colores', maturity: 'DISPONIBLE', requiredAny: ['ARTICULO_ADMINISTRAR', 'EMPAQUE_ADMINISTRAR'] },
@@ -53,6 +52,8 @@ const catalogEntries = [
 
 const maturityConfig = {
   DISPONIBLE: { label: 'Disponible', color: 'success' },
+  PILOTO_INCREMENTAL: { label: 'Piloto incremental', color: 'info' },
+  LEGACY_MARCHA_BLANCA: { label: 'Compatibilidad · marcha blanca', color: 'warning' },
   PROTOTIPO: { label: 'Prototipo local', color: 'info' },
   PENDIENTE: { label: 'Vista pendiente', color: 'default' },
 };
@@ -95,7 +96,7 @@ const loadingStages = [
     items: [
       { label: 'Piezas y SKU', path: '/datos-maestros/piezas', requiredAny: ['ARTICULO_ADMINISTRAR'] },
       { label: 'Moldes', path: '/datos-maestros/moldes', requiredAny: ['ARTICULO_ADMINISTRAR', 'RUTA_ADMINISTRAR'] },
-      { label: 'Configuración guiada', path: '/datos-maestros/configuracion-guiada', requiredAny: ['ARTICULO_ADMINISTRAR'] },
+      { label: 'Configuración heredada (compatibilidad)', path: '/datos-maestros/configuracion-guiada', requiredAny: ['ARTICULO_ADMINISTRAR'] },
     ],
     icon: <PrecisionManufacturingOutlinedIcon />,
   },
@@ -104,6 +105,7 @@ const loadingStages = [
     title: 'Producto e ingeniería',
     description: 'Al final crea el producto y define su composición, ruta y empaque revisionados.',
     items: [
+      { label: 'Alta integral de producto', path: '/datos-maestros/alta-producto', requiredAny: ['ARTICULO_ADMINISTRAR'] },
       { label: 'Productos terminados', path: '/datos-maestros/productos', requiredAny: ['ARTICULO_ADMINISTRAR'] },
       { label: 'Ingeniería SCM', path: '/datos-maestros/ingenieria-scm', requiredAny: ['ESTRUCTURA_ADMINISTRAR', 'RUTA_ADMINISTRAR', 'EMPAQUE_ADMINISTRAR'] },
     ],
@@ -111,13 +113,21 @@ const loadingStages = [
   },
 ];
 
+const maintenanceStages = [{
+  id: 'specialized-maintenance',
+  title: 'Preparar catálogos compartidos',
+  description: 'Mantenimiento especializado para datos reutilizables. No necesitas abandonar el alta integral salvo que falte una autoridad o un catálogo compartido.',
+  items: loadingStages
+    .flatMap((stage) => stage.items)
+    .filter((item) => item.path !== '/datos-maestros/alta-producto'),
+  icon: <PrecisionManufacturingOutlinedIcon />,
+}];
+
 function MasterDataHub() {
   const { canAny, experience } = useScmActor();
-  const theme = useTheme();
-  const compactViewport = useMediaQuery(theme.breakpoints.down('md'));
   const [search, setSearch] = useState('');
   const [area, setArea] = useState('TODAS');
-  const [guideOpen, setGuideOpen] = useState(!compactViewport);
+  const [guideOpen, setGuideOpen] = useState(false);
   const availableEntries = useMemo(
     () => catalogEntries.filter((entry) => (
       canAny(entry.requiredAny || [])
@@ -126,7 +136,7 @@ function MasterDataHub() {
     [canAny],
   );
   const availableStages = useMemo(
-    () => loadingStages
+    () => maintenanceStages
       .map((stage) => ({
         ...stage,
         items: stage.items.filter((item) => canAny(item.requiredAny)),
@@ -151,13 +161,42 @@ function MasterDataHub() {
       {canMaintainCatalogs ? (
         <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
           <Box sx={{ p: { xs: 1.5, md: 2 }, bgcolor: 'primary.50' }}>
-            <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              alignItems={{ xs: 'stretch', md: 'center' }}
+              justifyContent="space-between"
+              spacing={1.5}
+            >
               <Box sx={{ minWidth: 0 }}>
                 <Typography variant="overline" color="primary.main" sx={{ fontWeight: 850 }}>
-                  Carga inicial asistida
+                  Recorrido canónico
                 </Typography>
                 <Typography variant="h6" component="h2" sx={{ fontWeight: 850 }}>
-                  Empieza por la base y evita registros huérfanos
+                  Alta integral de producto
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, maxWidth: 820 }}>
+                  Orquesta identidad, molde, piezas, colores, BOM, ruta y empaque sin obligarte
+                  a saltar entre catálogos. Guarda el avance y vuelve a cualquier fase.
+                </Typography>
+              </Box>
+              <Button
+                component={RouterLink}
+                to="/datos-maestros/alta-producto"
+                variant="contained"
+                endIcon={<ArrowForwardOutlinedIcon />}
+                sx={{ flexShrink: 0 }}
+              >
+                Iniciar alta integral
+              </Button>
+            </Stack>
+            <Divider sx={{ my: 1.5 }} />
+            <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+              <Box>
+                <Typography variant="subtitle2" fontWeight={850}>
+                  Mantenimiento especializado
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Prepara catálogos compartidos sólo cuando el recorrido lo solicite.
                 </Typography>
               </Box>
               <Button
@@ -169,18 +208,12 @@ function MasterDataHub() {
                     sx={{ transform: guideOpen ? 'rotate(180deg)' : 'none', transition: 'transform 160ms' }}
                   />
                 )}
-                onClick={() => setGuideOpen((value) => !value)}
+                onClick={() => setGuideOpen((current) => !current)}
                 sx={{ flexShrink: 0 }}
               >
-                {guideOpen ? 'Ocultar guía' : 'Ver guía'}
+                {guideOpen ? 'Ocultar catálogos' : 'Ver catálogos'}
               </Button>
             </Stack>
-            {guideOpen && (
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, maxWidth: 900 }}>
-                Esta secuencia permite que cada selector ya tenga la información necesaria cuando
-                llegue el momento de crear piezas, productos, recetas y órdenes.
-              </Typography>
-            )}
           </Box>
           <Collapse in={guideOpen} unmountOnExit>
             <Divider />

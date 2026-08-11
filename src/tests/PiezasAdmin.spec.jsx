@@ -5,6 +5,7 @@ import { ThemeProvider, createTheme } from '@mui/material';
 import PiezasAdmin from '../components/PiezasAdmin';
 
 vi.mock('../services/api', () => ({
+  asociarFamiliaALinea: vi.fn(),
   actualizarPiezaGlobal: vi.fn(),
   buscarPiezasGlobales: vi.fn(),
   crearFamiliaEnLinea: vi.fn(),

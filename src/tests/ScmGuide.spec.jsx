@@ -78,20 +78,23 @@ describe('Guía operativa SCM', () => {
     renderGuide('/guia/scm?etapa=catalogos');
 
     expect(screen.getByRole('heading', {
-      name: 'Recorrido completo: del producto terminado a las mangas',
+      name: 'Recorrido canónico: alta integral del PT y luego operación',
     })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Crear producto terminado' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Alta integral de producto' })).toHaveAttribute(
       'href',
-      '/datos-maestros/productos',
+      '/datos-maestros/alta-producto',
     );
-    expect(screen.getByRole('link', { name: 'Definir y publicar BOM' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Mantenimiento especializado de BOM' })).toHaveAttribute(
       'href',
       '/datos-maestros/ingenieria-scm?tab=estructuras',
     );
-    expect(screen.getByRole('link', { name: 'Crear centro y ruta' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Mantenimiento especializado de ruta' })).toHaveAttribute(
       'href',
       '/datos-maestros/ingenieria-scm?tab=rutas',
     );
+    expect(screen.getByRole('heading', {
+      name: 'Alta integral: interfaz principal para un producto nuevo',
+    })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Planificar OP' })).toHaveAttribute(
       'href',
       '/planificacion',

@@ -182,7 +182,7 @@ describe('OA y OT diaria de Armado', () => {
     listarOtScm.mockResolvedValue({
       items: [{
         public_id: 'fab-ot-1', codigo_ot: 'OT-000010', tipo_ot: 'FABRICACION',
-        estado: 'EN_EJECUCION', fecha_operativa: new Date().toISOString().slice(0, 10), turno: 'DIA',
+        estado: 'EN_EJECUCION', fecha_operativa: todayInLima(), turno: 'DIA',
         maquina: 'Haitian 3000',
         trabajos_color: [{
           id: 'work-green', color: 'VERDE SÓLIDO', estado: 'EN_EJECUCION',
@@ -228,7 +228,7 @@ describe('OA y OT diaria de Armado', () => {
     listarOtScm.mockResolvedValue({
       items: [{
         public_id: 'fab-ot-empty', codigo_ot: 'OT-000030', tipo_ot: 'FABRICACION',
-        estado: 'EN_EJECUCION', fecha_operativa: new Date().toISOString().slice(0, 10),
+        estado: 'EN_EJECUCION', fecha_operativa: todayInLima(),
         turno: 'DIA', maquina: 'Haitian 3000', trabajos_color: [],
       }],
     });
@@ -268,7 +268,7 @@ describe('OA y OT diaria de Armado', () => {
     listarOtScm.mockResolvedValue({
       items: [{
         public_id: 'fab-ot-multi', codigo_ot: 'OT-000020', tipo_ot: 'FABRICACION',
-        estado: 'EN_EJECUCION', fecha_operativa: new Date().toISOString().slice(0, 10),
+        estado: 'EN_EJECUCION', fecha_operativa: todayInLima(),
         turno: 'DIA', maquina: 'Haitian 3000',
         trabajos_color: [
           { id: 'work-green', color: 'VERDE SÓLIDO', estado: 'EN_EJECUCION', orden_fabricacion_codigo: 'OF-001' },

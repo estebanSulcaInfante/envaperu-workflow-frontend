@@ -459,10 +459,11 @@ function ConfigurarProducto() {
   return (
     <Paper sx={{ p: 4, maxWidth: 900, mx: 'auto' }}>
       <Typography variant="h5" gutterBottom sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
-        <PrecisionManufacturingIcon /> Configuración guiada de producto
+        <PrecisionManufacturingIcon /> Configuración técnica de molde y piezas
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Configura Molde ↔ Pieza y genera las variantes PiezaColor sin duplicar identidades maestras.
+        Herramienta técnica heredada para Molde ↔ Pieza y variantes PiezaColor.
+        El alta integral de Producto Terminado se realiza desde Datos maestros.
       </Typography>
 
       {error && (
@@ -1041,8 +1042,8 @@ function ConfigurarProducto() {
             }}>
               Crear Otro
             </Button>
-            <Button variant="contained" onClick={() => navigate('/produccion/ordenes/nueva-excepcional')}>
-              Crear Orden de Producción
+            <Button variant="contained" onClick={() => navigate('/datos-maestros')}>
+              Volver a Datos maestros
             </Button>
           </Stack>
         </Box>

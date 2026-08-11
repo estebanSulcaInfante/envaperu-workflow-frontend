@@ -5,6 +5,7 @@ import { ThemeProvider, createTheme } from '@mui/material';
 import ProductoDialog from '../components/ProductoDialog';
 
 vi.mock('../services/api', () => ({
+  asociarFamiliaALinea: vi.fn(),
   actualizarProducto: vi.fn(),
   buscarPiezasColor: vi.fn(),
   crearFamiliaEnLinea: vi.fn(),
