@@ -105,21 +105,40 @@ describe('editores compartidos de Ingenieria SCM', () => {
       }],
     };
 
-    renderEditor(
-      <RouteRevisionEditor
-        targetArticle={targetProduct}
-        articles={[piece, wip, targetProduct]}
-        centers={[{ id: 5, codigo: 'CT-000005', nombre: 'Sopladora', tipo: 'SOPLADO', activo: true }]}
-        structures={[]}
-        value={value}
-        onChange={onChange}
-        onSubmit={vi.fn()}
-      />,
-    );
+    function RouteHarness() {
+      const [current, setCurrent] = useState(value);
+      return (
+        <RouteRevisionEditor
+          targetArticle={targetProduct}
+          articles={[piece, wip, targetProduct]}
+          centers={[{ id: 5, codigo: 'CT-000005', nombre: 'Sopladora', tipo: 'SOPLADO', activo: true }]}
+          structures={[]}
+          value={current}
+          onChange={(next) => {
+            onChange(next);
+            setCurrent(next);
+          }}
+          onSubmit={vi.fn()}
+        />
+      );
+    }
+    renderEditor(<RouteHarness />);
 
     expect(screen.getByLabelText('Salida terminal (bloqueada)').value)
       .toMatch(/PT-000030.*Colador #3/);
     expect(screen.getByText(/Esta ruta siempre termina en el producto de la sesión/i)).toBeVisible();
+    expect(screen.getByText('Tipo de operación', { selector: 'label' }))
+      .toHaveAttribute('data-shrink', 'true');
+    expect(screen.getByText('Forma de ejecución', { selector: 'label' }))
+      .toHaveAttribute('data-shrink', 'true');
+
+    const operationName = screen.getByLabelText('Nombre de la operación');
+    await user.clear(operationName);
+    await user.type(operationName, '   ');
+    expect(operationName).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/no se aceptan solo espacios/i)).toBeVisible();
+    await user.tab();
+    expect(operationName).toHaveValue('');
 
     await user.click(screen.getByRole('button', { name: 'Agregar operación' }));
     const changed = onChange.mock.calls.at(-1)[0];
@@ -127,6 +146,34 @@ describe('editores compartidos de Ingenieria SCM', () => {
     expect(changed.operaciones.at(-1).articulo_salida_id).toBe('30');
     expect(changed.operaciones[0].articulo_salida_id).toBe('');
     expect(buildRoutePayload(value, targetProduct).operaciones[0].articulo_salida_id).toBe(30);
+  });
+
+  it('permite actualizar estructuras aprobadas sin abandonar la ruta', async () => {
+    const user = userEvent.setup();
+    const onRefreshStructures = vi.fn().mockResolvedValue(undefined);
+    renderEditor(
+      <RouteRevisionEditor
+        targetArticle={targetProduct}
+        articles={[piece, wip, targetProduct]}
+        centers={[{ id: 5, codigo: 'CT-000005', nombre: 'Armado', tipo: 'ENSAMBLE', activo: true }]}
+        structures={[]}
+        value={{
+          notas: '',
+          operaciones: [{
+            clave: 'OP1', secuencia_visible: '1', nombre: 'Armar producto', tipo: 'ENSAMBLE',
+            executor_kind: 'ORDEN_OPERACION', centro_trabajo_id: '5',
+            articulo_salida_id: '30', estructura_revision_id: '', permite_concurrente: false,
+          }],
+        }}
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        onRefreshStructures={onRefreshStructures}
+      />,
+    );
+
+    expect(screen.getByText(/No existe una BOM aprobada/i)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /Actualizar lista/i }));
+    expect(onRefreshStructures).toHaveBeenCalledWith(30);
   });
 
   it('expone perfil y regla de empaque como formularios controlados, sin inventar aprobacion', async () => {
@@ -185,6 +232,11 @@ describe('editores compartidos de Ingenieria SCM', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar regla como borrador' }));
     expect(ruleSubmit).toHaveBeenCalledWith(buildPackagingRulePayload(ruleValue));
     expect(screen.getByText(/La medición física sigue pendiente/i)).toBeVisible();
+    expect(screen.getByText(/tolerancias de peso están deshabilitadas durante el piloto/i))
+      .toBeVisible();
+    expect(screen.getByLabelText('Tolerancia absoluta (g)')).toBeDisabled();
+    expect(screen.getByLabelText('Tolerancia (%)')).toBeDisabled();
+    expect(screen.getByLabelText('Margen seguridad (kg)')).toBeEnabled();
   });
 
   it('muestra acciones honestas segun estado y capacidades canonicas', async () => {

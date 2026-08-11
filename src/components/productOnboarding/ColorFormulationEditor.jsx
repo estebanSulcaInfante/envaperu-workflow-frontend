@@ -1,8 +1,14 @@
+import { useState } from 'react';
 import {
   Alert,
   Box,
   Button,
   Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Grid,
   IconButton,
   MenuItem,
@@ -30,11 +36,18 @@ export default function ColorFormulationEditor({
   formulation,
   recipes,
   ingredients,
+  materialCategories = [],
+  onCreateIngredient,
   errors = {},
   showValidation,
   onChange,
   disabled = false,
 }) {
+  const [materialDialog, setMaterialDialog] = useState({ open: false, index: null, role: 'MATERIA_PRIMA' });
+  const [materialName, setMaterialName] = useState('');
+  const [materialCategoryId, setMaterialCategoryId] = useState('');
+  const [materialError, setMaterialError] = useState('');
+  const [savingMaterial, setSavingMaterial] = useState(false);
   const error = (field) => (showValidation ? errors[field] : '');
   const availableRecipes = recipes.filter(
     (recipe) => String(recipe.color_produccion_id) === String(color.color_ref),
@@ -51,6 +64,7 @@ export default function ColorFormulationEditor({
     ...formulation,
     tipo: type,
     receta_ref: null,
+    base_virgen_kg: type === 'NUEVA' ? 25 : formulation.base_virgen_kg,
     componentes: type === 'SIN_PIGMENTO'
       ? formulation.componentes.filter((item) => item.tipo_componente === 'MATERIA_PRIMA')
       : formulation.componentes,
@@ -70,9 +84,76 @@ export default function ColorFormulationEditor({
             : material?.tipo_colorante || (material?.clase === 'COLORANTE' ? 'COLORANTE' : 'ADITIVO');
           if (formulation.tipo === 'SIN_PIGMENTO') next.tipo_componente = 'MATERIA_PRIMA';
         }
+        if (field === 'tipo_componente' && fieldValue !== 'MATERIA_PRIMA' && !next.base_kg) {
+          next.base_kg = formulation.base_virgen_kg || 25;
+        }
         return next;
       }),
     });
+  };
+
+  const openMaterialDialog = (index, role) => {
+    const preferredCode = role === 'MATERIA_PRIMA' ? 'RESINA_VIRGEN' : 'LEGACY_POR_CONFIGURAR';
+    const preferred = materialCategories.find((item) => item.codigo === preferredCode)
+      || materialCategories[0];
+    setMaterialDialog({ open: true, index, role });
+    setMaterialName('');
+    setMaterialCategoryId(preferred?.id || '');
+    setMaterialError('');
+  };
+
+  const closeMaterialDialog = () => {
+    if (savingMaterial) return;
+    setMaterialDialog({ open: false, index: null, role: 'MATERIA_PRIMA' });
+    setMaterialError('');
+  };
+
+  const saveMaterial = async () => {
+    const name = materialName.trim();
+    if (!name) {
+      setMaterialError('Ingresa el nombre que reconocerán producción y compras.');
+      return;
+    }
+    if (!materialCategoryId) {
+      setMaterialError('Selecciona una categoría de recepción para el material.');
+      return;
+    }
+    setSavingMaterial(true);
+    setMaterialError('');
+    try {
+      const role = materialDialog.role;
+      const created = await onCreateIngredient({
+        nombre: name,
+        clase: role === 'MATERIA_PRIMA' ? 'MATERIA_PRIMA' : 'COLORANTE',
+        categoria_recepcion_id: Number(materialCategoryId),
+        unidad_base: 'KG',
+        activo: true,
+        ...(role !== 'MATERIA_PRIMA' ? { tipo_colorante: role } : {}),
+      });
+      onChange({
+        ...formulation,
+        componentes: formulation.componentes.map((component, index) => (
+          index === materialDialog.index ? {
+            ...component,
+            material_id: created.id,
+            tipo_componente: role,
+            ...(role !== 'MATERIA_PRIMA' && !component.base_kg
+              ? { base_kg: formulation.base_virgen_kg || 25 }
+              : {}),
+          } : component
+        )),
+      });
+      setMaterialDialog({ open: false, index: null, role: 'MATERIA_PRIMA' });
+    } catch (requestError) {
+      setMaterialError(
+        requestError?.response?.data?.error?.message
+        || requestError?.response?.data?.error
+        || requestError?.message
+        || 'No se pudo crear el material.',
+      );
+    } finally {
+      setSavingMaterial(false);
+    }
   };
 
   return (
@@ -160,24 +241,44 @@ export default function ColorFormulationEditor({
               </Button>
             </Stack>
             {error('componentes') && <Alert severity="error">{error('componentes')}</Alert>}
+            {ingredients.length === 0 && (
+              <Alert severity="info">
+                No hay materiales disponibles. Añade un ingrediente y usa «Crear materia prima»,
+                «Crear aditivo» o «Crear colorante» para registrarlo sin salir de esta corrección.
+              </Alert>
+            )}
             {formulation.componentes.map((component, index) => {
               const isRaw = component.tipo_componente === 'MATERIA_PRIMA';
               return (
                 <Paper key={`${index}-${component.material_id}`} variant="outlined" sx={{ p: 1.25 }}>
                   <Grid container spacing={1} alignItems="center">
                     <Grid size={{ xs: 12, md: 5 }}>
-                      <TextField
-                        select
-                        fullWidth
-                        size="small"
-                        label="Material"
-                        value={component.material_id}
-                        onChange={(event) => updateComponent(index, 'material_id', event.target.value)}
-                      >
-                        {filteredIngredients.filter((item) => item.activo !== false).map((item) => (
-                          <MenuItem key={item.id} value={item.id}>{itemLabel(item)}</MenuItem>
-                        ))}
-                      </TextField>
+                      <Stack spacing={0.5}>
+                        <TextField
+                          select
+                          fullWidth
+                          size="small"
+                          label="Material"
+                          value={component.material_id}
+                          onChange={(event) => updateComponent(index, 'material_id', event.target.value)}
+                        >
+                          {filteredIngredients.filter((item) => item.activo !== false).map((item) => (
+                            <MenuItem key={item.id} value={item.id}>{itemLabel(item)}</MenuItem>
+                          ))}
+                        </TextField>
+                        {onCreateIngredient && (
+                          <Button
+                            size="small"
+                            startIcon={<AddRoundedIcon />}
+                            onClick={() => openMaterialDialog(index, component.tipo_componente)}
+                            sx={{ alignSelf: 'flex-start' }}
+                          >
+                            Crear {component.tipo_componente === 'MATERIA_PRIMA'
+                              ? 'materia prima'
+                              : component.tipo_componente === 'ADITIVO' ? 'aditivo' : 'colorante'}
+                          </Button>
+                        )}
+                      </Stack>
                     </Grid>
                     <Grid size={{ xs: 12, sm: 5, md: 2.5 }}>
                       <TextField
@@ -257,6 +358,59 @@ export default function ColorFormulationEditor({
         )}
       </Stack>
       </Box>
+      <Dialog open={materialDialog.open} onClose={closeMaterialDialog} fullWidth maxWidth="sm">
+        <DialogTitle>
+          Crear {materialDialog.role === 'MATERIA_PRIMA'
+            ? 'materia prima'
+            : materialDialog.role === 'ADITIVO' ? 'aditivo' : 'colorante'}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 1 }}>
+            <Alert severity="info">
+              Se creará en el catálogo general, se refrescará la lista y quedará seleccionado en esta receta.
+            </Alert>
+            {materialError && <Alert severity="error">{materialError}</Alert>}
+            <TextField
+              autoFocus
+              required
+              fullWidth
+              label="Nombre del material"
+              value={materialName}
+              onChange={(event) => setMaterialName(event.target.value)}
+            />
+            <TextField
+              select
+              required
+              fullWidth
+              label="Categoría de recepción"
+              value={materialCategoryId}
+              onChange={(event) => setMaterialCategoryId(event.target.value)}
+              helperText="Define cómo se recibirá y controlará este material."
+            >
+              {materialCategories.map((category) => (
+                <MenuItem key={category.id} value={category.id}>
+                  {category.codigo} · {category.nombre}
+                </MenuItem>
+              ))}
+            </TextField>
+            {!materialCategories.length && (
+              <Alert severity="warning">
+                No hay categorías de recepción activas. Configura una antes de crear materiales.
+              </Alert>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeMaterialDialog} disabled={savingMaterial}>Cancelar</Button>
+          <Button
+            variant="contained"
+            onClick={saveMaterial}
+            disabled={savingMaterial || !materialCategories.length}
+          >
+            {savingMaterial ? <CircularProgress size={18} /> : 'Crear y seleccionar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 }

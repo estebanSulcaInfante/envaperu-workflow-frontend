@@ -60,6 +60,11 @@ vi.mock('../services/api', () => ({
   obtenerRecetasColorMaestras: vi.fn(),
 }));
 
+vi.mock('../services/scmCatalogApi', () => ({
+  crearMaterialScm: vi.fn(),
+  listarCategoriasRecepcionScm: vi.fn(),
+}));
+
 import {
   aplicarPasoAltaProducto,
   finalizarAltaProducto,
@@ -88,6 +93,10 @@ import {
   obtenerMoldes,
   obtenerRecetasColorMaestras,
 } from '../services/api';
+import {
+  crearMaterialScm,
+  listarCategoriasRecepcionScm,
+} from '../services/scmCatalogApi';
 
 const baseSteps = [
   {
@@ -227,6 +236,9 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     obtenerFamiliasColor.mockResolvedValue([{ id: 3, nombre: 'SOLIDO' }]);
     obtenerIngredientesRecetaColor.mockResolvedValue([]);
     obtenerRecetasColorMaestras.mockResolvedValue({ items: [] });
+    listarCategoriasRecepcionScm.mockResolvedValue([{
+      id: 4, codigo: 'LEGACY_POR_CONFIGURAR', nombre: 'Por configurar', activo: true,
+    }]);
     listarArticulosScm.mockResolvedValue([
       {
         id: 30, codigo: 'PT-000123', nombre: 'COLADOR #3', clase: 'PRODUCTO_TERMINADO',
@@ -329,12 +341,41 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     await user.click(screen.getByRole('button', { name: /Guardar tipo/i }));
 
     await waitFor(() => expect(crearFamiliaColor).toHaveBeenCalledWith({ nombre: 'Translúcido' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /Nuevo tipo de color/i })).not.toBeInTheDocument());
     expect(screen.getByLabelText(/Acabado \/ tipo de color/i)).toHaveTextContent('TRANSLUCIDO');
 
     fireEvent.change(screen.getByLabelText(/Escoger color de la paleta/i), {
       target: { value: '#A1B2C3' },
     });
     expect(screen.getByLabelText(/HEX de referencia/i)).toHaveValue('#A1B2C3');
+
+    await user.click(screen.getByRole('button', { name: 'Nueva' }));
+    expect(screen.getByLabelText(/Base virgen/i)).toHaveValue(25);
+
+    crearMaterialScm.mockResolvedValue({
+      id: 88, codigo: 'ADT-000088', nombre: 'UV MASTER', clase: 'COLORANTE',
+      tipo_colorante: 'ADITIVO', activo: true,
+    });
+    obtenerIngredientesRecetaColor.mockResolvedValue([{
+      id: 88, codigo: 'ADT-000088', nombre: 'UV MASTER', clase: 'COLORANTE',
+      tipo_colorante: 'ADITIVO', activo: true,
+    }]);
+    await user.click(screen.getByRole('button', { name: /Añadir ingrediente/i }));
+    await user.click(screen.getByRole('combobox', { name: 'Rol' }));
+    await user.click(screen.getByRole('option', { name: 'Aditivo' }));
+    await user.click(screen.getByRole('button', { name: /Crear aditivo/i }));
+    await user.type(screen.getByLabelText(/Nombre del material/i), 'UV MASTER');
+    await user.click(screen.getByRole('button', { name: /Crear y seleccionar/i }));
+
+    await waitFor(() => expect(crearMaterialScm).toHaveBeenCalledWith({
+      nombre: 'UV MASTER',
+      clase: 'COLORANTE',
+      categoria_recepcion_id: 4,
+      unidad_base: 'KG',
+      activo: true,
+      tipo_colorante: 'ADITIVO',
+    }));
+    expect(await screen.findByRole('combobox', { name: 'Material' })).toHaveTextContent('UV MASTER');
   });
 
   it('reabre Colores aplicado pero pendiente y permite completar, añadir o quitar', async () => {
@@ -397,9 +438,11 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     const user = userEvent.setup();
     renderStep('colores');
 
-    expect(await screen.findByText(/fase tiene datos aplicados, pero sigue pendiente/i)).toBeVisible();
+    expect(await screen.findByText(/Esta fase necesita completarse/i)).toBeVisible();
     expect(screen.getByRole('button', { name: /Añadir color/i })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: /Completar fase/i }));
+    const completePhase = screen.getByRole('button', { name: /Completar fase/i });
+    expect(completePhase).toHaveClass('MuiButton-contained');
+    await user.click(completePhase);
 
     expect(screen.getByRole('button', { name: /Añadir color/i })).toBeEnabled();
     expect(screen.getByLabelText(/Motivo pendiente/i)).toBeEnabled();
@@ -654,7 +697,9 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     renderStep('componentes');
 
     expect(await screen.findByRole('heading', { name: /Configurar molde y piezas/i })).toBeVisible();
-    expect(screen.getByText(/Completa primero Identidad y fuente/i)).toBeVisible();
+    expect(screen.getAllByText(/Completa primero Identidad y fuente/i).length).toBeGreaterThan(0);
+    expect(screen.getByText('Esta fase todavía está bloqueada')).toBeVisible();
+    expect(screen.getByRole('button', { name: /Ir a Identidad y fuente/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: /Aplicar y continuar/i })).toBeDisabled();
     expect(aplicarPasoAltaProducto).not.toHaveBeenCalled();
   });
@@ -668,7 +713,7 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     renderStep('colores');
 
     expect(await screen.findByRole('heading', { name: /Colores por molde/i })).toBeVisible();
-    expect(screen.getByText(/Completa primero Componentes y moldes/i)).toBeVisible();
+    expect(screen.getAllByText(/Completa primero Componentes y moldes/i).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /Aplicar y continuar/i })).toBeDisabled();
     expect(aplicarPasoAltaProducto).not.toHaveBeenCalled();
   });
@@ -707,7 +752,7 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     const createMode = await screen.findByRole('button', { name: /Crear molde/i });
     expect(createMode).toBeDisabled();
     expect(screen.getByRole('button', { name: /Reutilizar molde/i })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText(/ya fue aplicada a maestros canónicos/i)).toBeVisible();
+    expect(screen.getByText(/Fase aplicada a maestros/i)).toBeVisible();
     expect(screen.getByRole('link', { name: /Editar maestro/i })).toHaveAttribute(
       'href', '/datos-maestros/moldes',
     );
@@ -1006,9 +1051,21 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     } : step);
     session.referencias.ESTRUCTURA = { estructura_revision_ref: 44 };
     obtenerAltaProducto.mockResolvedValue(session);
+    const user = userEvent.setup();
     renderStep('ruta-empaque');
 
     expect(await screen.findByRole('heading', { name: /Ruta de PT-000123/i })).toBeVisible();
+    const operationName = screen.getByLabelText(/Nombre de la operación/i);
+    await user.type(operationName, 'Fabricar balde');
+    expect(operationName).toHaveValue('Fabricar balde');
+    const profileName = screen.getByLabelText('Nombre');
+    await user.type(profileName, 'Perfil para los baldes');
+    expect(profileName).toHaveValue('Perfil para los baldes');
+    const physicalDescription = screen.getByLabelText(/Descripción física/i);
+    await user.type(physicalDescription, 'Manga para baldes terminados');
+    expect(physicalDescription).toHaveValue('Manga para baldes terminados');
+    expect(screen.getByLabelText('Perfil empacable')).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByLabelText('Tipo de contenedor')).toBeEnabled();
     expect(screen.getByRole('heading', { name: /Perfil empacable/i })).toBeVisible();
     expect(screen.getByRole('heading', { name: /Regla de empaque/i })).toBeVisible();
     expect(screen.getByLabelText(/Salida terminal.*bloqueada/i).value)

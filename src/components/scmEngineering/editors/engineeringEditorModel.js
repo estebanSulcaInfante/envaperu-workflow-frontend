@@ -221,7 +221,9 @@ export const buildPackagingProfilePayload = (value = {}) => ({
 
 export const validatePackagingRuleValue = (value = {}) => [
   !value.perfil_empacable_id ? 'Selecciona un perfil empacable.' : '',
-  !value.tipo_contenedor_id ? 'Selecciona un tipo de contenedor.' : '',
+  !Number.isInteger(Number(value.tipo_contenedor_id)) || Number(value.tipo_contenedor_id) <= 0
+    ? 'Selecciona un tipo de contenedor.'
+    : '',
   Number(value.cantidad_objetivo_un) <= 0
     ? 'La cantidad operativa objetivo debe ser mayor que cero.'
     : '',

@@ -97,6 +97,20 @@ describe('AGP-B07: recorrido accesible del alta integral', () => {
     expectKeyboardFocus(phaseButtons[4]);
   });
 
+  it('explica visual y semánticamente qué requisito bloquea cada fase', () => {
+    renderWithTheme(
+      <OnboardingPhaseRail
+        session={session}
+        activeCode="IDENTIDAD"
+        onSelect={vi.fn()}
+      />,
+    );
+
+    const blocked = screen.getByRole('button', { name: /BOM y WIP.*bloqueado por Identidad y fuente/i });
+    expect(within(blocked).getByText('Paso bloqueado')).toBeVisible();
+    expect(within(blocked).getByText('Completa primero: Identidad y fuente')).toBeVisible();
+  });
+
   it('mantiene accesibles por Tab y Shift+Tab las acciones persistentes', async () => {
     const user = userEvent.setup();
     const handlers = {
@@ -135,6 +149,27 @@ describe('AGP-B07: recorrido accesible del alta integral', () => {
     expectKeyboardFocus(actions[2]);
     await user.keyboard('{Enter}');
     expect(handlers.onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it('expone el motivo junto a una acción bloqueada', () => {
+    renderWithTheme(
+      <OnboardingActions
+        canGoBack
+        busy={false}
+        saveState="idle"
+        onBack={vi.fn()}
+        onSave={vi.fn()}
+        onContinue={vi.fn()}
+        onExit={vi.fn()}
+        continueDisabled
+        continueHint="Completa primero Colores antes de aplicar esta fase."
+      />,
+    );
+
+    const continueButton = screen.getByRole('button', { name: 'Guardar y continuar' });
+    expect(continueButton).toBeDisabled();
+    expect(continueButton).toHaveAttribute('aria-describedby', 'onboarding-action-blocker');
+    expect(screen.getByRole('status')).toHaveTextContent('Completa primero Colores');
   });
 
   it('la ayuda contextual no roba foco y puede ocultarse y mostrarse sólo con teclado', async () => {

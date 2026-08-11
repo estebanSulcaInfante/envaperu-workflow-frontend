@@ -90,6 +90,8 @@ export function PackagingRuleEditor({
   busy = false,
   readOnly = false,
   lockIdentity = Boolean(revision),
+  lockProfileIdentity = lockIdentity,
+  lockContainerIdentity = lockIdentity,
   submitLabel = 'Guardar regla como borrador',
   showHeading = true,
   idPrefix = 'packaging-rule',
@@ -116,7 +118,7 @@ export function PackagingRuleEditor({
             labelId={`${idPrefix}-profile-label`}
             label="Perfil empacable"
             value={value.perfil_empacable_id || ''}
-            disabled={disabled || lockIdentity}
+            disabled={disabled || lockProfileIdentity}
             onChange={(event) => onChange({
               ...value,
               perfil_empacable_id: event.target.value,
@@ -134,8 +136,8 @@ export function PackagingRuleEditor({
           <Select
             labelId={`${idPrefix}-container-label`}
             label="Tipo de contenedor"
-            value={value.tipo_contenedor_id || ''}
-            disabled={disabled || lockIdentity}
+            value={Number(value.tipo_contenedor_id) > 0 ? value.tipo_contenedor_id : ''}
+            disabled={disabled || lockContainerIdentity}
             onChange={(event) => onChange({
               ...value,
               tipo_contenedor_id: event.target.value,
@@ -207,6 +209,7 @@ export function PackagingRuleEditor({
         <TextField
           fullWidth
           label="Margen seguridad (kg)"
+          helperText="Reserva que se resta al peso disponible al calcular la capacidad."
           type="number"
           value={value.margen_seguridad_kg ?? '0'}
           disabled={disabled}
@@ -215,9 +218,10 @@ export function PackagingRuleEditor({
         <TextField
           fullWidth
           label="Tolerancia absoluta (g)"
+          helperText="No usado en este piloto."
           type="number"
           value={value.tolerancia_peso_abs_g ?? '0'}
-          disabled={disabled}
+          disabled
           onChange={(event) => onChange({
             ...value,
             tolerancia_peso_abs_g: event.target.value,
@@ -226,12 +230,17 @@ export function PackagingRuleEditor({
         <TextField
           fullWidth
           label="Tolerancia (%)"
+          helperText="No usado en este piloto."
           type="number"
           value={value.tolerancia_peso_pct ?? '0'}
-          disabled={disabled}
+          disabled
           onChange={(event) => onChange({ ...value, tolerancia_peso_pct: event.target.value })}
         />
       </Stack>
+      <Alert severity="info">
+        Las tolerancias de peso están deshabilitadas durante el piloto. El margen de seguridad
+        permanece activo porque sí interviene en el cálculo de capacidad.
+      </Alert>
       <TextField
         multiline
         minRows={2}

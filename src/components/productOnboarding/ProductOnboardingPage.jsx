@@ -17,6 +17,8 @@ import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
+import EditRoundedIcon from '@mui/icons-material/EditRounded';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 import {
   aplicarPasoAltaProducto,
@@ -1136,14 +1138,65 @@ function OnboardingDraft({ draftId, stepId }) {
               '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
             }}
           >
-            {activeMaterialized && (
+            {activeBlocker && (
               <Alert
-                severity={activeColorsPending ? 'warning' : 'success'}
-                sx={{ mb: 2 }}
-                action={activeCanReopen ? (
+                severity="warning"
+                icon={<LockOutlinedIcon />}
+                sx={{ mb: 2, alignItems: 'center' }}
+                action={(
                   <Button
+                    variant="contained"
+                    color="warning"
                     size="small"
-                    color="inherit"
+                    onClick={() => {
+                      const blockerStep = stepByCode(activeBlocker.code);
+                      if (blockerStep) navigateStep(blockerStep);
+                    }}
+                  >
+                    Ir a {activeBlocker.label}
+                  </Button>
+                )}
+              >
+                <Typography variant="subtitle2" sx={{ fontWeight: 850 }}>
+                  Esta fase todavía está bloqueada
+                </Typography>
+                <Typography variant="body2">
+                  {activeBlocker.message} Puedes revisar el contenido, pero no aplicarlo todavía.
+                </Typography>
+              </Alert>
+            )}
+            {activeMaterialized && (
+              <Paper
+                variant="outlined"
+                sx={{
+                  mb: 2,
+                  p: { xs: 1.5, sm: 2 },
+                  borderColor: activeColorsPending ? 'warning.main' : 'success.light',
+                  bgcolor: activeColorsPending ? 'warning.50' : 'success.50',
+                }}
+              >
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1.5}
+                  alignItems={{ md: 'center' }}
+                  justifyContent="space-between"
+                >
+                  <Box>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
+                      {activeColorsPending ? 'Esta fase necesita completarse' : 'Fase aplicada a maestros'}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                      {activeColorsPending
+                        ? 'Quedaron datos pendientes. Continúa aquí para completar recetas, añadir colores o quitar asociaciones sin borrar maestros compartidos.'
+                        : 'Se muestra en modo consulta para evitar reemplazos o invalidaciones accidentales.'}
+                    </Typography>
+                  </Box>
+                  {activeCanReopen ? (
+                  <Button
+                    variant="contained"
+                    color={activeColorsPending ? 'warning' : 'primary'}
+                    size="large"
+                    startIcon={<EditRoundedIcon />}
                     onClick={() => {
                       setSuperseding((current) => ({
                         ...current,
@@ -1152,6 +1205,7 @@ function OnboardingDraft({ draftId, stepId }) {
                       setError('');
                       setSaveState('idle');
                     }}
+                    sx={{ minWidth: { md: 210 }, width: { xs: '100%', md: 'auto' }, flex: '0 0 auto' }}
                   >
                     {activeColorsPending ? 'Completar fase' : 'Reabrir borrador'}
                   </Button>
@@ -1165,19 +1219,17 @@ function OnboardingDraft({ draftId, stepId }) {
                         : activeStep.code === 'COLORES'
                           ? '/datos-maestros/colores'
                           : `/datos-maestros/ingenieria-scm?returnTo=${encodeURIComponent(`/datos-maestros/alta-producto/${draftId}/${activeStep.slug}`)}`}
-                    size="small"
-                    color="inherit"
+                    size="large"
+                    variant="outlined"
+                    sx={{ width: { xs: '100%', md: 'auto' }, flex: '0 0 auto' }}
                   >
                     {['ESTRUCTURA', 'RUTA_EMPAQUE'].includes(activeStep.code)
                       ? 'Abrir Ingeniería SCM'
                       : 'Editar maestro'}
                   </Button>
                 )}
-              >
-                {activeColorsPending
-                  ? 'La fase tiene datos aplicados, pero sigue pendiente. Reábrela para completar recetas, añadir colores o quitar asociaciones de esta alta sin borrar maestros compartidos.'
-                  : 'Esta fase ya fue aplicada a maestros canónicos. Se muestra en modo consulta para evitar crear reemplazos o invalidar fases posteriores por accidente.'}
-              </Alert>
+                </Stack>
+              </Paper>
             )}
             {activeSupersedesKey && (
               <Alert
@@ -1332,6 +1384,13 @@ function OnboardingDraft({ draftId, stepId }) {
         continueHint={activeBlocker?.message
           || (activeEngineeringInvalid ? 'Completa los datos y permisos requeridos para aplicar esta fase.' : '')}
         saveDisabled={activeMaterialized || Boolean(activeSupersedesKey)}
+        saveHint={activeMaterialized
+          ? activeCanReopen
+            ? 'La fase está protegida. Usa “Completar fase” para habilitar sus acciones.'
+            : 'La fase ya fue aplicada. Edítala desde su maestro canónico para conservar trazabilidad.'
+          : activeSupersedesKey
+            ? 'La corrección se registra únicamente con “Aplicar corrección”.'
+            : ''}
         finalized={sessionFinalized}
         continueLabel={activeSupersedesKey
           ? 'Aplicar corrección'

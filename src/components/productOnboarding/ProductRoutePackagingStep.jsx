@@ -169,15 +169,15 @@ export default function ProductRoutePackagingStep({
         const target = targetProductArticle(articles, productRef);
         const routes = target ? await listarRutasScm(productRef) : [];
         if (!active) return;
-        setCatalogs({
+        setCatalogs((current) => ({
+          ...current,
           articles,
           centers,
           containers,
           profiles,
           rules,
           routes,
-          structures: [],
-        });
+        }));
       })
       .catch((requestError) => {
         if (active) setError(mensajeErrorScm(
@@ -232,6 +232,26 @@ export default function ProductRoutePackagingStep({
     target_article_ref: data.target_article_ref || targetArticle?.id || null,
     ruta: { ...data.ruta, ...patch },
   });
+
+  const refreshStructures = async (articleId) => {
+    const normalizedArticleId = Number(articleId);
+    if (!Number.isInteger(normalizedArticleId) || normalizedArticleId <= 0) return;
+    try {
+      const received = await listarEstructurasScm(normalizedArticleId);
+      loadedStructureArticles.current.add(normalizedArticleId);
+      setCatalogs((current) => ({
+        ...current,
+        structures: [
+          ...current.structures.filter(
+            (item) => Number(item.articulo_resultado_id) !== normalizedArticleId,
+          ),
+          ...received,
+        ],
+      }));
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudieron actualizar las estructuras.'));
+    }
+  };
 
   if (loading) {
     return <Stack role="status" alignItems="center" sx={{ py: 8 }}><CircularProgress /></Stack>;
@@ -338,6 +358,7 @@ export default function ProductRoutePackagingStep({
             articles={catalogs.articles}
             centers={catalogs.centers}
             structures={catalogs.structures}
+            onRefreshStructures={refreshStructures}
             revision={data.ruta.modo === 'EDITAR' ? routeRevision : null}
             value={routeValue}
             onChange={(next) => updateRoute({

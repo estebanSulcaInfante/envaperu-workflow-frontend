@@ -57,6 +57,7 @@ function RouteRevisionEditor({
   onSubmit,
   onCancel,
   onNavigateStructure,
+  onRefreshStructures,
   busy = false,
   readOnly = false,
   submitLabel = 'Guardar borrador',
@@ -239,10 +240,20 @@ function RouteRevisionEditor({
                   value={operation.nombre}
                   disabled={disabled}
                   onChange={(event) => updateOperation(index, { nombre: event.target.value })}
+                  onBlur={() => {
+                    const normalizedName = operation.nombre.trim().replace(/\s+/g, ' ');
+                    if (normalizedName !== operation.nombre) {
+                      updateOperation(index, { nombre: normalizedName });
+                    }
+                  }}
+                  error={!operation.nombre.trim()}
+                  helperText={!operation.nombre.trim()
+                    ? 'Escribe un nombre; no se aceptan solo espacios.'
+                    : ' '}
                   sx={{ flex: 1 }}
                 />
                 <FormControl size="small" sx={{ minWidth: { lg: 170 } }}>
-                  <InputLabel id={`route-step-${index}-type-label`}>Tipo de operación</InputLabel>
+                  <InputLabel shrink id={`route-step-${index}-type-label`}>Tipo de operación</InputLabel>
                   <Select
                     labelId={`route-step-${index}-type-label`}
                     label="Tipo de operación"
@@ -274,7 +285,7 @@ function RouteRevisionEditor({
                   </Select>
                 </FormControl>
                 <FormControl size="small" sx={{ minWidth: { lg: 280 } }}>
-                  <InputLabel id={`route-step-${index}-executor-label`}>
+                  <InputLabel shrink id={`route-step-${index}-executor-label`}>
                     Forma de ejecución
                   </InputLabel>
                   <Select
@@ -372,6 +383,7 @@ function RouteRevisionEditor({
                       label="Estructura aprobada"
                       value={operation.estructura_revision_id}
                       disabled={disabled}
+                      onOpen={() => onRefreshStructures?.(operation.articulo_salida_id)}
                       onChange={(event) => updateOperation(index, {
                         estructura_revision_id: event.target.value,
                       })}
@@ -390,14 +402,27 @@ function RouteRevisionEditor({
                 && compatibleStructures.length === 0 && (
                 <Alert
                   severity="warning"
-                  action={onNavigateStructure ? (
-                    <Button
-                      color="inherit"
-                      size="small"
-                      onClick={() => onNavigateStructure(outputArticle.id)}
-                    >
-                      Ir a Estructuras BOM
-                    </Button>
+                  action={(onRefreshStructures || onNavigateStructure) ? (
+                    <Stack direction="row" spacing={0.5}>
+                      {onRefreshStructures && (
+                        <Button
+                          color="inherit"
+                          size="small"
+                          onClick={() => onRefreshStructures(outputArticle.id)}
+                        >
+                          Actualizar lista
+                        </Button>
+                      )}
+                      {onNavigateStructure && (
+                        <Button
+                          color="inherit"
+                          size="small"
+                          onClick={() => onNavigateStructure(outputArticle.id)}
+                        >
+                          Ir a Estructuras BOM
+                        </Button>
+                      )}
+                    </Stack>
                   ) : undefined}
                 >
                   No existe una BOM aprobada cuyo resultado sea {outputArticle.codigo}.

@@ -37,6 +37,10 @@ import {
   obtenerIngredientesRecetaColor,
   obtenerRecetasColorMaestras,
 } from '../../services/api';
+import {
+  crearMaterialScm,
+  listarCategoriasRecepcionScm,
+} from '../../services/scmCatalogApi';
 import ApplicationResultSummary from './ApplicationResultSummary';
 import ColorFormulationEditor from './ColorFormulationEditor';
 import {
@@ -76,7 +80,9 @@ export default function ProductColorsStep({
     ...value,
     color_molde_ref: value?.color_molde_ref || moldReference || null,
   }, resolvedReferences);
-  const [catalogs, setCatalogs] = useState({ colors: [], finishes: [], ingredients: [], recipes: [] });
+  const [catalogs, setCatalogs] = useState({
+    colors: [], finishes: [], ingredients: [], recipes: [], materialCategories: [],
+  });
   const [loading, setLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
   const [finishDialog, setFinishDialog] = useState({ open: false, colorClientId: null });
@@ -119,14 +125,16 @@ export default function ProductColorsStep({
       obtenerFamiliasColor(),
       obtenerIngredientesRecetaColor(),
       obtenerRecetasColorMaestras({ include_inactive: true }),
+      listarCategoriasRecepcionScm(),
     ])
-      .then(([colors, finishes, ingredients, recipes]) => {
+      .then(([colors, finishes, ingredients, recipes, materialCategories]) => {
         if (!active) return;
         setCatalogs({
           colors: asItems(colors).filter((item) => item.activo !== false),
           finishes: asItems(finishes).filter((item) => item.activo !== false),
           ingredients: asItems(ingredients).filter((item) => item.activo !== false),
           recipes: asItems(recipes),
+          materialCategories: asItems(materialCategories).filter((item) => item.activo !== false),
         });
       })
       .catch(() => {
@@ -135,6 +143,14 @@ export default function ProductColorsStep({
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
+
+  const createIngredient = async (payload) => {
+    const created = await crearMaterialScm(payload);
+    const refreshed = asItems(await obtenerIngredientesRecetaColor())
+      .filter((item) => item.activo !== false);
+    setCatalogs((current) => ({ ...current, ingredients: refreshed }));
+    return refreshed.find((item) => String(item.id) === String(created.id)) || created;
+  };
 
   const commitColors = (colors) => {
     const currentFormulations = new Map(data.formulaciones.map((item) => [
@@ -560,6 +576,8 @@ export default function ProductColorsStep({
               formulation={formulation}
               recipes={catalogs.recipes}
               ingredients={catalogs.ingredients}
+              materialCategories={catalogs.materialCategories}
+              onCreateIngredient={createIngredient}
               errors={errors.formulaciones[color.client_id] || errors.formulaciones[color.color_ref] || {}}
               showValidation={showValidation}
               disabled={formulationIsResolved(color)

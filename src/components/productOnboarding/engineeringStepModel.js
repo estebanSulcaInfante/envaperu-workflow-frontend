@@ -245,6 +245,14 @@ export const normalizeRoutePackagingStepData = (
 export const serializeRoutePackagingStepData = (data = {}) => {
   const normalized = normalizeRoutePackagingStepData(data);
   const route = normalized.ruta;
+  const routePayload = route.payload ? {
+    ...route.payload,
+    notas: route.payload.notas?.trim() || null,
+    operaciones: (route.payload.operaciones || []).map((operation) => ({
+      ...operation,
+      nombre: operation.nombre?.trim() || '',
+    })),
+  } : null;
   return {
     target_product_ref: normalized.target_product_ref,
     target_article_ref: Number(normalized.target_article_ref),
@@ -253,12 +261,20 @@ export const serializeRoutePackagingStepData = (data = {}) => {
       ...(route.revision_ref ? { revision_ref: Number(route.revision_ref) } : {}),
       ...(route.expected_version != null ? { expected_version: Number(route.expected_version) } : {}),
       accion: route.accion,
-      ...(route.payload ? { payload: route.payload } : {}),
+      ...(routePayload ? { payload: routePayload } : {}),
     },
     empaques: normalized.empaques.map((assignment) => {
       const profile = assignment.perfil_empacable;
       const rule = assignment.regla_empaque;
-      const rulePayload = rule.payload ? { ...rule.payload } : null;
+      const profilePayload = profile.payload ? {
+        ...profile.payload,
+        nombre: profile.payload.nombre?.trim() || '',
+        descripcion_fisica: profile.payload.descripcion_fisica?.trim() || null,
+      } : null;
+      const rulePayload = rule.payload ? {
+        ...rule.payload,
+        notas: rule.payload.notas?.trim() || null,
+      } : null;
       if (profile.modo === 'NUEVO' && rulePayload) delete rulePayload.perfil_empacable_id;
       return {
         client_id: assignment.client_id,
@@ -269,7 +285,7 @@ export const serializeRoutePackagingStepData = (data = {}) => {
           ...(profile.expected_version != null
             ? { expected_version: Number(profile.expected_version) }
             : {}),
-          ...(profile.modo !== 'REUTILIZAR' ? { payload: profile.payload } : {}),
+          ...(profile.modo !== 'REUTILIZAR' ? { payload: profilePayload } : {}),
           asignar_predeterminado: profile.asignar_predeterminado !== false,
         },
         regla_empaque: {
@@ -328,14 +344,29 @@ export const routePackagingStepErrors = (data, targetArticle, articles = []) => 
   return errors;
 };
 
-export const buildRoutePayloadFromEditor = (value, targetArticle, articles) => (
-  buildRoutePayload(value, targetArticle, articles)
-);
+export const buildRoutePayloadFromEditor = (value, targetArticle, articles) => {
+  const payload = buildRoutePayload(value, targetArticle, articles);
+  return {
+    ...payload,
+    notas: value.notas ?? '',
+    operaciones: payload.operaciones.map((operation, index) => ({
+      ...operation,
+      nombre: value.operaciones?.[index]?.nombre ?? '',
+    })),
+  };
+};
 
-export const buildProfilePayloadFromEditor = (value) => buildPackagingProfilePayload(value);
+export const buildProfilePayloadFromEditor = (value) => ({
+  ...buildPackagingProfilePayload(value),
+  nombre: value.nombre ?? '',
+  descripcion_fisica: value.descripcion_fisica ?? '',
+});
 
 export const buildRulePayloadFromEditor = (value, profileMode) => {
-  const payload = buildPackagingRulePayload(value);
+  const payload = {
+    ...buildPackagingRulePayload(value),
+    notas: value.notas ?? '',
+  };
   if (profileMode === 'NUEVO') delete payload.perfil_empacable_id;
   return payload;
 };

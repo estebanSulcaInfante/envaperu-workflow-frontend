@@ -3,6 +3,7 @@ import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 import ExitToAppRoundedIcon from '@mui/icons-material/ExitToAppRounded';
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 
 export default function OnboardingActions({
   canGoBack,
@@ -16,6 +17,7 @@ export default function OnboardingActions({
   continueDisabled = false,
   continueHint = '',
   saveDisabled = false,
+  saveHint = '',
   finalized = false,
 }) {
   return (
@@ -77,10 +79,29 @@ export default function OnboardingActions({
                 : saveState === 'error' ? 'No se pudieron guardar los cambios'
                   : 'Borrador listo para guardar'}
           </Typography>
-          {continueHint && (
-            <Typography variant="caption" color="warning.main" sx={{ display: 'block', mb: 0.5 }}>
-              {continueHint}
-            </Typography>
+          {(continueHint || saveHint) && (
+            <Stack
+              id="onboarding-action-blocker"
+              direction="row"
+              spacing={0.75}
+              alignItems="flex-start"
+              sx={{
+                mb: 0.75,
+                p: 0.75,
+                borderRadius: 1.5,
+                bgcolor: 'warning.50',
+                color: 'warning.dark',
+                border: '1px solid',
+                borderColor: 'warning.light',
+                maxWidth: { sm: 480 },
+              }}
+              role="status"
+            >
+              <LockOutlinedIcon sx={{ fontSize: 17, mt: 0.1, flex: '0 0 auto' }} />
+              <Typography variant="caption" sx={{ fontWeight: 700, lineHeight: 1.35, textAlign: 'left' }}>
+                {continueHint || saveHint}
+              </Typography>
+            </Stack>
           )}
           <Stack
             direction={{ xs: 'column', sm: 'row' }}
@@ -92,6 +113,7 @@ export default function OnboardingActions({
               variant="outlined"
               startIcon={busy && saveState === 'saving' ? <CircularProgress size={16} /> : <SaveOutlinedIcon />}
               disabled={busy || saveDisabled}
+              aria-describedby={saveDisabled && saveHint ? 'onboarding-action-blocker' : undefined}
               onClick={onSave}
               sx={{ width: { xs: '100%', sm: 'auto' } }}
             >
@@ -101,6 +123,7 @@ export default function OnboardingActions({
               variant="contained"
               endIcon={<ArrowForwardRoundedIcon />}
               disabled={busy || continueDisabled}
+              aria-describedby={continueDisabled && continueHint ? 'onboarding-action-blocker' : undefined}
               onClick={onContinue}
               sx={{ width: { xs: '100%', sm: 'auto' } }}
             >

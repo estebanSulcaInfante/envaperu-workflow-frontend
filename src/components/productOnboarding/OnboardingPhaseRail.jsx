@@ -3,6 +3,7 @@ import {
 } from '@mui/material';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import {
   ONBOARDING_STEPS, prerequisiteBlocker, statusColor, statusLabel,
 } from './onboardingModel';
@@ -48,8 +49,8 @@ export default function OnboardingPhaseRail({ session, activeCode, onSelect }) {
               mr: { xs: 0.75, md: 0 },
               scrollSnapAlign: 'start',
               border: '1px solid',
-              borderColor: active ? 'primary.main' : 'divider',
-              bgcolor: active ? 'primary.50' : 'background.paper',
+              borderColor: active ? 'primary.main' : blocker ? 'warning.light' : 'divider',
+              bgcolor: active ? 'primary.50' : blocker ? 'warning.50' : 'background.paper',
               boxShadow: active ? '0 9px 24px rgba(30,58,95,.10)' : 'none',
               transition: 'border-color 180ms ease, background-color 180ms ease, transform 180ms ease',
               '&:hover': { transform: 'translateY(-1px)', borderColor: 'primary.light' },
@@ -69,7 +70,8 @@ export default function OnboardingPhaseRail({ session, activeCode, onSelect }) {
                   borderRadius: '9px',
                   bgcolor: state === 'COMPLETADO' ? 'success.main'
                     : state === 'INVALIDADO' ? 'warning.main'
-                      : active ? 'primary.main' : 'grey.200',
+                      : blocker ? 'warning.main'
+                        : active ? 'primary.main' : 'grey.200',
                   color: state === 'PENDIENTE' && !active ? 'text.secondary' : 'common.white',
                   fontSize: 13,
                   fontWeight: 900,
@@ -77,6 +79,7 @@ export default function OnboardingPhaseRail({ session, activeCode, onSelect }) {
               >
                 {state === 'COMPLETADO' ? <CheckRoundedIcon sx={{ fontSize: 18 }} />
                   : state === 'INVALIDADO' ? <ErrorOutlineRoundedIcon sx={{ fontSize: 17 }} />
+                    : blocker ? <LockOutlinedIcon sx={{ fontSize: 16 }} />
                     : index + 1}
               </Box>
               <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -85,13 +88,23 @@ export default function OnboardingPhaseRail({ session, activeCode, onSelect }) {
                 </Typography>
                 <Chip
                   size="small"
+                  icon={blocker && state !== 'INVALIDADO' ? <LockOutlinedIcon /> : undefined}
                   label={blocker && state !== 'INVALIDADO'
-                    ? `Primero: ${blocker.label}`
+                    ? 'Paso bloqueado'
                     : statusLabel(state)}
-                  color={statusColor(state)}
+                  color={blocker && state !== 'INVALIDADO' ? 'warning' : statusColor(state)}
                   variant={active ? 'filled' : 'outlined'}
                   sx={{ height: 21, mt: 0.75, '& .MuiChip-label': { px: 0.8, fontSize: 10.5 } }}
                 />
+                {blocker && state !== 'INVALIDADO' && (
+                  <Typography
+                    variant="caption"
+                    color="warning.dark"
+                    sx={{ display: 'block', mt: 0.55, lineHeight: 1.25, fontWeight: 700 }}
+                  >
+                    Completa primero: {blocker.label}
+                  </Typography>
+                )}
               </Box>
             </Stack>
           </ButtonBase>

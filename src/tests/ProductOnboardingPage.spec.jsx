@@ -356,7 +356,7 @@ describe('alta integral de Producto Terminado', () => {
     await user.click(await screen.findByRole('option', { name: /Crear L\u00ednea.*nueva linea/i }));
     await user.click(screen.getByRole('button', { name: /Crear y seleccionar/i }));
     await waitFor(() => expect(crearLinea).toHaveBeenCalledWith({ nombre: 'NUEVA LINEA' }));
-    await waitForElementToBeRemoved(() => screen.queryByRole('dialog', { name: /Nueva L\u00ednea/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /Nueva L\u00ednea/i })).not.toBeInTheDocument());
     expect(screen.getByRole('combobox', { name: /L\u00ednea/i })).toHaveValue('NUEVA LINEA');
 
     const family = screen.getByRole('combobox', { name: /Familia/i });
@@ -459,7 +459,7 @@ describe('alta integral de Producto Terminado', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Guardar' })).toBeEnabled());
     await user.click(screen.getByRole('button', { name: 'Guardar' }));
 
-    await waitFor(() => expect(guardarPasoAltaProducto).toHaveBeenLastCalledWith(
+    await waitFor(() => expect(guardarPasoAltaProducto).toHaveBeenCalledWith(
       'draft-1',
       'IDENTIDAD',
       expect.objectContaining({

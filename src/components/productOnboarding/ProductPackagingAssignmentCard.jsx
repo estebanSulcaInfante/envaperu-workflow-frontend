@@ -293,7 +293,8 @@ export default function ProductPackagingAssignmentCard({
                 payload: buildRulePayloadFromEditor(next, profile.modo),
               })}
               readOnly={!canUseRule || rule.modo === 'REUTILIZAR'}
-              lockIdentity={profile.modo === 'NUEVO'}
+              lockProfileIdentity={profile.modo === 'NUEVO' || Boolean(ruleRevision)}
+              lockContainerIdentity={Boolean(ruleRevision)}
             />
           </Stack>
         </Box>
