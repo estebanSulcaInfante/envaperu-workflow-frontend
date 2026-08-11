@@ -126,6 +126,9 @@ export default function RolesCapabilitiesAdmin() {
   const [assignmentWorker, setAssignmentWorker] = useState(null);
   const [assignmentRoleIds, setAssignmentRoleIds] = useState([]);
   const [assignmentPrimaryId, setAssignmentPrimaryId] = useState('');
+  const [assignmentIdentity, setAssignmentIdentity] = useState({
+    nombres: '', apellidos: '', nombre_corto: '',
+  });
   const [assignmentError, setAssignmentError] = useState('');
   const [assignmentSaving, setAssignmentSaving] = useState(false);
 
@@ -284,6 +287,11 @@ export default function RolesCapabilitiesAdmin() {
     setAssignmentWorker(worker);
     setAssignmentRoleIds((worker.roles || []).map((role) => Number(role.id)));
     setAssignmentPrimaryId(worker.rol_principal?.id ? Number(worker.rol_principal.id) : '');
+    setAssignmentIdentity({
+      nombres: worker.nombres || '',
+      apellidos: worker.apellidos || '',
+      nombre_corto: worker.nombre_corto || '',
+    });
     setAssignmentError('');
   };
 
@@ -307,11 +315,20 @@ export default function RolesCapabilitiesAdmin() {
       setAssignmentError('Elige como principal uno de los roles asignados.');
       return;
     }
+    if (!assignmentIdentity.nombres.trim() || !assignmentIdentity.apellidos.trim()) {
+      setAssignmentError('Nombres y apellidos son obligatorios.');
+      return;
+    }
     setAssignmentSaving(true);
     setAssignmentError('');
     setError('');
     try {
-      await actualizarTrabajadorWorkspace(assignmentWorker.id, { roles_ids: assignmentRoleIds });
+      await actualizarTrabajadorWorkspace(assignmentWorker.id, {
+        nombres: assignmentIdentity.nombres.trim(),
+        apellidos: assignmentIdentity.apellidos.trim(),
+        nombre_corto: assignmentIdentity.nombre_corto.trim() || null,
+        roles_ids: assignmentRoleIds,
+      });
       if (Number(assignmentWorker.rol_principal?.id) !== Number(assignmentPrimaryId)) {
         await definirRolPrincipalWorkspace(assignmentWorker.id, Number(assignmentPrimaryId));
       }
@@ -626,6 +643,47 @@ export default function RolesCapabilitiesAdmin() {
               Marca todos los roles que esta persona debe conservar. Las capacidades de los roles activos se combinan.
             </Alert>
             {assignmentError && <Alert severity="error">{assignmentError}</Alert>}
+            <Box>
+              <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
+                Identidad visible en el sistema
+              </Typography>
+              <Grid container spacing={1.5}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Nombres"
+                    value={assignmentIdentity.nombres}
+                    onChange={(event) => setAssignmentIdentity((current) => ({
+                      ...current, nombres: event.target.value,
+                    }))}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Apellidos"
+                    value={assignmentIdentity.apellidos}
+                    onChange={(event) => setAssignmentIdentity((current) => ({
+                      ...current, apellidos: event.target.value,
+                    }))}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <TextField
+                    fullWidth
+                    label="Nombre visible"
+                    value={assignmentIdentity.nombre_corto}
+                    onChange={(event) => setAssignmentIdentity((current) => ({
+                      ...current, nombre_corto: event.target.value,
+                    }))}
+                    helperText="Este nombre aparece dentro del sistema. No cambia el correo usado para iniciar sesi\u00f3n."
+                  />
+                </Grid>
+              </Grid>
+            </Box>
+            <Divider />
             <Box role="group" aria-label="Roles asignados">
               {roles.filter((role) => role.activo !== false).map((role) => (
                 <FormControlLabel

@@ -69,6 +69,9 @@ const setupResponses = () => {
     },
     {
       id: 16,
+      nombres: 'Persona',
+      apellidos: 'Operativa',
+      nombre_corto: 'Persona con un rol',
       nombre_completo: 'Persona con un rol',
       activo: true,
       roles: [{ id: 7, nombre: 'Auditor de inventario', activo: true }],
@@ -160,12 +163,17 @@ describe('TS-010N2: administración de roles y capacidades', () => {
 
     await user.click(screen.getByRole('button', { name: 'Administrar roles de Persona con un rol' }));
     const dialog = screen.getByRole('dialog', { name: 'Roles de Persona con un rol' });
+    await user.clear(within(dialog).getByLabelText('Nombre visible'));
+    await user.type(within(dialog).getByLabelText('Nombre visible'), 'Asistente de producci\u00f3n');
     await user.click(within(dialog).getByRole('checkbox', { name: 'Jefe de producci\u00f3n' }));
     await user.click(within(dialog).getByRole('combobox', { name: /Rol principal/ }));
     await user.click(await screen.findByRole('option', { name: 'Jefe de producci\u00f3n' }));
     await user.click(within(dialog).getByRole('button', { name: 'Guardar asignaci\u00f3n' }));
 
     await waitFor(() => expect(actualizarTrabajadorWorkspace).toHaveBeenCalledWith(16, {
+      nombres: 'Persona',
+      apellidos: 'Operativa',
+      nombre_corto: 'Asistente de producci\u00f3n',
       roles_ids: [7, 8],
     }));
     expect(definirRolPrincipalWorkspace).toHaveBeenCalledWith(16, 8);
