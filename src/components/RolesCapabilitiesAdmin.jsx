@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Divider, FormControlLabel,
-  Grid, List, ListItemButton, ListItemText, MenuItem, Paper, Stack, Switch,
+  Dialog, DialogActions, DialogContent, DialogTitle, Grid, List, ListItemButton,
+  ListItemText, MenuItem, Paper, Stack, Switch,
   TextField, Typography,
 } from '@mui/material';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
 import {
   actualizarRolWorkspace,
+  actualizarTrabajadorWorkspace,
   crearRolWorkspace,
   definirRolPrincipalWorkspace,
   listarCapacidadesWorkspace,
@@ -120,6 +122,12 @@ export default function RolesCapabilitiesAdmin() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [workerSearch, setWorkerSearch] = useState('');
+  const [assignmentWorker, setAssignmentWorker] = useState(null);
+  const [assignmentRoleIds, setAssignmentRoleIds] = useState([]);
+  const [assignmentPrimaryId, setAssignmentPrimaryId] = useState('');
+  const [assignmentError, setAssignmentError] = useState('');
+  const [assignmentSaving, setAssignmentSaving] = useState(false);
 
   const load = async (preferredId = null) => {
     setLoading(true);
@@ -193,6 +201,16 @@ export default function RolesCapabilitiesAdmin() {
     && (item.roles || []).length > 0
     && !item.rol_principal
   ));
+  const visibleWorkers = workers.filter((worker) => {
+    const term = workerSearch.trim().toLocaleLowerCase('es');
+    if (!term) return true;
+    return [
+      worker.codigo,
+      worker.nombre_completo,
+      worker.nombre_corto,
+      ...(worker.roles || []).flatMap((role) => [role.nombre, role.codigo]),
+    ].filter(Boolean).some((value) => String(value).toLocaleLowerCase('es').includes(term));
+  });
 
   const toggleCapability = (code) => setForm((current) => ({
     ...current,
@@ -259,6 +277,52 @@ export default function RolesCapabilitiesAdmin() {
       await load(form.id);
     } catch (requestError) {
       setError(apiMessage(requestError, 'No pudimos definir el rol principal.'));
+    }
+  };
+
+  const openAssignment = (worker) => {
+    setAssignmentWorker(worker);
+    setAssignmentRoleIds((worker.roles || []).map((role) => Number(role.id)));
+    setAssignmentPrimaryId(worker.rol_principal?.id ? Number(worker.rol_principal.id) : '');
+    setAssignmentError('');
+  };
+
+  const toggleAssignmentRole = (roleId) => {
+    const numericRoleId = Number(roleId);
+    setAssignmentRoleIds((current) => (
+      current.includes(numericRoleId)
+        ? current.filter((item) => item !== numericRoleId)
+        : [...current, numericRoleId]
+    ));
+    if (Number(assignmentPrimaryId) === numericRoleId) setAssignmentPrimaryId('');
+  };
+
+  const saveAssignment = async () => {
+    if (!assignmentWorker) return;
+    if (assignmentRoleIds.length === 0) {
+      setAssignmentError('Selecciona al menos un rol activo.');
+      return;
+    }
+    if (!assignmentPrimaryId || !assignmentRoleIds.includes(Number(assignmentPrimaryId))) {
+      setAssignmentError('Elige como principal uno de los roles asignados.');
+      return;
+    }
+    setAssignmentSaving(true);
+    setAssignmentError('');
+    setError('');
+    try {
+      await actualizarTrabajadorWorkspace(assignmentWorker.id, { roles_ids: assignmentRoleIds });
+      if (Number(assignmentWorker.rol_principal?.id) !== Number(assignmentPrimaryId)) {
+        await definirRolPrincipalWorkspace(assignmentWorker.id, Number(assignmentPrimaryId));
+      }
+      const workerName = assignmentWorker.nombre_completo || assignmentWorker.nombre_corto;
+      setNotice(`Roles y rol principal actualizados para ${workerName}. Se aplicar\u00e1n al refrescar su sesi\u00f3n.`);
+      setAssignmentWorker(null);
+      await load(form.id);
+    } catch (requestError) {
+      setAssignmentError(apiMessage(requestError, 'No pudimos guardar la asignaci\u00f3n de roles.'));
+    } finally {
+      setAssignmentSaving(false);
     }
   };
 
@@ -452,6 +516,56 @@ export default function RolesCapabilitiesAdmin() {
         </Grid>
       </Grid>
 
+      <Paper component="section" aria-labelledby="worker-roles-title" variant="outlined" sx={{ p: 2 }}>
+        <Typography id="worker-roles-title" variant="h6" component="h2" fontWeight={850}>
+          Personas y roles asignados
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Los roles se suman para conceder capacidades. El principal solo define el foco y el acceso inicial.
+        </Typography>
+        <TextField
+          fullWidth
+          size="small"
+          label="Buscar persona o rol"
+          value={workerSearch}
+          onChange={(event) => setWorkerSearch(event.target.value)}
+          sx={{ my: 1.5 }}
+        />
+        <Stack spacing={1}>
+          {visibleWorkers.map((worker) => {
+            const workerName = worker.nombre_completo || worker.nombre_corto || worker.codigo;
+            return (
+              <Paper key={worker.id} variant="outlined" sx={{ p: 1.5 }}>
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} alignItems={{ md: 'center' }}>
+                  <Box sx={{ flexGrow: 1 }}>
+                    <Typography fontWeight={800}>{workerName}</Typography>
+                    <Typography variant="caption" color="text.secondary">{worker.codigo}</Typography>
+                    <Stack direction="row" useFlexGap flexWrap="wrap" spacing={0.75} sx={{ mt: 0.75 }}>
+                      {(worker.roles || []).map((role) => (
+                        <Chip
+                          key={role.id}
+                          size="small"
+                          color={Number(worker.rol_principal?.id) === Number(role.id) ? 'primary' : 'default'}
+                          variant={Number(worker.rol_principal?.id) === Number(role.id) ? 'filled' : 'outlined'}
+                          label={`${role.nombre}${Number(worker.rol_principal?.id) === Number(role.id) ? ' - Principal' : ''}`}
+                        />
+                      ))}
+                    </Stack>
+                  </Box>
+                  <Button
+                    variant="outlined"
+                    onClick={() => openAssignment(worker)}
+                    aria-label={`Administrar roles de ${workerName}`}
+                  >
+                    Administrar roles
+                  </Button>
+                </Stack>
+              </Paper>
+            );
+          })}
+        </Stack>
+      </Paper>
+
       <Paper component="section" aria-labelledby="principal-pending-title" variant="outlined" sx={{ p: 2 }}>
         <Typography id="principal-pending-title" variant="h6" component="h2" fontWeight={850}>
           Personas sin rol principal
@@ -495,6 +609,61 @@ export default function RolesCapabilitiesAdmin() {
           </Stack>
         )}
       </Paper>
+
+      <Dialog
+        open={Boolean(assignmentWorker)}
+        onClose={assignmentSaving ? undefined : () => setAssignmentWorker(null)}
+        fullWidth
+        maxWidth="sm"
+        aria-labelledby="worker-role-dialog-title"
+      >
+        <DialogTitle id="worker-role-dialog-title">
+          Roles de {assignmentWorker?.nombre_completo || assignmentWorker?.nombre_corto || assignmentWorker?.codigo}
+        </DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Alert severity="info">
+              Marca todos los roles que esta persona debe conservar. Las capacidades de los roles activos se combinan.
+            </Alert>
+            {assignmentError && <Alert severity="error">{assignmentError}</Alert>}
+            <Box role="group" aria-label="Roles asignados">
+              {roles.filter((role) => role.activo !== false).map((role) => (
+                <FormControlLabel
+                  key={role.id}
+                  control={(
+                    <Checkbox
+                      checked={assignmentRoleIds.includes(Number(role.id))}
+                      onChange={() => toggleAssignmentRole(role.id)}
+                    />
+                  )}
+                  label={role.nombre}
+                />
+              ))}
+            </Box>
+            <TextField
+              select
+              fullWidth
+              required
+              label="Rol principal"
+              value={assignmentPrimaryId}
+              onChange={(event) => setAssignmentPrimaryId(Number(event.target.value))}
+              helperText="Ordena la experiencia inicial; no elimina los permisos aportados por los otros roles."
+            >
+              {roles.filter((role) => (
+                role.activo !== false && assignmentRoleIds.includes(Number(role.id))
+              )).map((role) => (
+                <MenuItem key={role.id} value={role.id}>{role.nombre}</MenuItem>
+              ))}
+            </TextField>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAssignmentWorker(null)} disabled={assignmentSaving}>Cancelar</Button>
+          <Button variant="contained" onClick={saveAssignment} disabled={assignmentSaving}>
+            {assignmentSaving ? 'Guardando...' : 'Guardar asignaci\u00f3n'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }

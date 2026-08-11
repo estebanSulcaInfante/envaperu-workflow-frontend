@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RolesCapabilitiesAdmin from '../components/RolesCapabilitiesAdmin';
 import {
   actualizarRolWorkspace,
+  actualizarTrabajadorWorkspace,
   definirRolPrincipalWorkspace,
   listarCapacidadesWorkspace,
   listarRolesWorkspace,
@@ -15,6 +16,7 @@ import {
 
 vi.mock('../services/workspaceAdminApi', () => ({
   actualizarRolWorkspace: vi.fn(),
+  actualizarTrabajadorWorkspace: vi.fn(),
   crearRolWorkspace: vi.fn(),
   definirRolPrincipalWorkspace: vi.fn(),
   listarCapacidadesWorkspace: vi.fn(),
@@ -38,7 +40,18 @@ const auditorRole = {
 };
 
 const setupResponses = () => {
-  listarRolesWorkspace.mockResolvedValue([auditorRole]);
+  listarRolesWorkspace.mockResolvedValue([
+    auditorRole,
+    {
+      id: 8,
+      codigo: 'JEFE_PRODUCCION',
+      nombre: 'Jefe de producci\u00f3n',
+      activo: true,
+      capacidad_codigos: ['OF_VER'],
+      workspace_preferencias: [],
+      version: 1,
+    },
+  ]);
   listarCapacidadesWorkspace.mockResolvedValue([
     { id: 1, codigo: 'INVENTARIO_VER', nombre: 'Consultar inventario', activo: true },
     { id: 2, codigo: 'OF_VER', nombre: 'Consultar fabricación', activo: true },
@@ -83,8 +96,8 @@ describe('TS-010N2: administración de roles y capacidades', () => {
     expect(screen.getByRole('region', { name: 'Así verá este rol' })).toBeVisible();
     expect(screen.getByText(/Acceso principal:/)).toHaveTextContent('Kardex y existencias');
     expect(screen.getAllByText(/Fabricación · OF.*no está disponible/i).length).toBeGreaterThan(0);
-    expect(screen.getByText('Persona multirrol')).toBeVisible();
-    expect(screen.getByText('Persona con un rol')).toBeVisible();
+    expect(screen.getAllByText('Persona multirrol').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Persona con un rol').length).toBeGreaterThan(0);
     expect(screen.getByRole('spinbutton', { name: 'Prioridad de Kardex y existencias' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Cambiar perfil' })).not.toBeInTheDocument();
   });
@@ -129,13 +142,33 @@ describe('TS-010N2: administración de roles y capacidades', () => {
     definirRolPrincipalWorkspace.mockResolvedValue({ id: 15, rol_principal: { id: 7 } });
     const user = userEvent.setup();
     renderAdmin();
-    await screen.findByText('Persona multirrol');
+    await screen.findAllByText('Persona multirrol');
 
     await user.click(screen.getByLabelText('Rol principal de Persona multirrol'));
     await user.click(await screen.findByRole('option', { name: 'Auditor de inventario' }));
     await user.click(screen.getByRole('button', { name: 'Definir principal de Persona multirrol' }));
 
     await waitFor(() => expect(definirRolPrincipalWorkspace).toHaveBeenCalledWith(15, 7));
+  });
+
+  it('administra todos los roles de una persona desde Administraci\u00f3n', async () => {
+    actualizarTrabajadorWorkspace.mockResolvedValue({ id: 16 });
+    definirRolPrincipalWorkspace.mockResolvedValue({ id: 16, rol_principal: { id: 8 } });
+    const user = userEvent.setup();
+    renderAdmin();
+    await screen.findAllByText('Persona con un rol');
+
+    await user.click(screen.getByRole('button', { name: 'Administrar roles de Persona con un rol' }));
+    const dialog = screen.getByRole('dialog', { name: 'Roles de Persona con un rol' });
+    await user.click(within(dialog).getByRole('checkbox', { name: 'Jefe de producci\u00f3n' }));
+    await user.click(within(dialog).getByRole('combobox', { name: /Rol principal/ }));
+    await user.click(await screen.findByRole('option', { name: 'Jefe de producci\u00f3n' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar asignaci\u00f3n' }));
+
+    await waitFor(() => expect(actualizarTrabajadorWorkspace).toHaveBeenCalledWith(16, {
+      roles_ids: [7, 8],
+    }));
+    expect(definirRolPrincipalWorkspace).toHaveBeenCalledWith(16, 8);
   });
 
   it('conserva visible un acceso inicial inelegible hasta que el administrador lo corrija', async () => {
