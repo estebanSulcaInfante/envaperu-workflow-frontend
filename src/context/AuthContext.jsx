@@ -7,6 +7,7 @@ import {
   SUPABASE_URL,
 } from '../config/runtime';
 import { getSupabaseClient } from '../auth/supabaseClient';
+import { sessionRequiresPasswordSetup } from '../auth/authFlowModel';
 
 const INITIAL_AUTH_ERROR = SCM_AUTH_MODE === 'supabase'
   && (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY)
@@ -15,7 +16,9 @@ const INITIAL_AUTH_ERROR = SCM_AUTH_MODE === 'supabase'
 
 const initialLinkType = () => {
   if (typeof window === 'undefined') return '';
-  return new URLSearchParams(window.location.hash.replace(/^#/, '')).get('type') || '';
+  const hashType = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('type');
+  const queryType = new URLSearchParams(window.location.search).get('type');
+  return hashType || queryType || '';
 };
 
 const AuthContext = createContext({
@@ -45,16 +48,28 @@ export function AuthProvider({ children }) {
     let mounted = true;
     const supabase = getSupabaseClient();
 
-    supabase.auth.getSession().then(({ data, error: sessionError }) => {
+    supabase.auth.getSession().then(async ({ data, error: sessionError }) => {
       if (!mounted) return;
       if (sessionError) setError('No pudimos recuperar la sesión guardada.');
-      setSession(data.session || null);
+      let nextSession = data.session || null;
+      if (nextSession) {
+        const { data: currentUser } = await supabase.auth.getUser();
+        if (!mounted) return;
+        if (currentUser?.user) nextSession = { ...nextSession, user: currentUser.user };
+      }
+      setSession(nextSession);
+      setPasswordSetupRequired((current) => (
+        current || sessionRequiresPasswordSetup(nextSession)
+      ));
       setLoading(false);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) return;
+      if (event === 'INITIAL_SESSION') return;
       setSession(nextSession);
-      if (event === 'PASSWORD_RECOVERY') setPasswordSetupRequired(true);
+      if (event === 'PASSWORD_RECOVERY' || sessionRequiresPasswordSetup(nextSession)) {
+        setPasswordSetupRequired(true);
+      }
       setLoading(false);
       setError('');
     });
@@ -88,7 +103,13 @@ export function AuthProvider({ children }) {
   const updatePassword = useCallback(async (password) => {
     setError('');
     const supabase = getSupabaseClient();
-    const { error: updateError } = await supabase.auth.updateUser({ password });
+    const { error: updateError } = await supabase.auth.updateUser({
+      password,
+      data: {
+        password_setup_required: false,
+        password_setup_completed_at: new Date().toISOString(),
+      },
+    });
     if (updateError) {
       setError('No pudimos guardar la contraseña. Inténtalo nuevamente.');
       return false;
