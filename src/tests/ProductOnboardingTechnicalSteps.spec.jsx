@@ -26,6 +26,7 @@ vi.mock('../services/scmProductOnboardingApi', () => ({
   obtenerResultadosDeAplicacion: vi.fn((payload) => payload?.application_results || null),
   obtenerSesionActualDeAplicacion: vi.fn(() => null),
   obtenerSesionActualDeConflicto: vi.fn(() => null),
+  restaurarColoresDesdeEstructura: vi.fn(),
   subirImagenAltaProducto: vi.fn(),
   finalizarAltaProducto: vi.fn(),
   validarAltaProducto: vi.fn(),
@@ -72,6 +73,7 @@ import {
   obtenerAltaProducto,
   obtenerResultadosDeAplicacion,
   obtenerSesionActualDeAplicacion,
+  restaurarColoresDesdeEstructura,
   subirImagenAltaProducto,
   validarAltaProducto,
 } from '../services/scmProductOnboardingApi';
@@ -298,6 +300,93 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     }
     expect(screen.getByText(/No se inventan ingredientes/i)).toBeVisible();
     expect(screen.queryByText(/Fase representada/i)).not.toBeInTheDocument();
+  });
+
+  it('nombra piezas y colores rehidratados y restaura una fase invalidada desde la BOM', async () => {
+    const session = makeSession('COLORES');
+    const colorsData = {
+      colores: [{
+        client_id: 'color-aplicado', modo: 'REUTILIZAR', color_ref: 12,
+      }],
+      matriz: [
+        { pieza_ref: 41, color_ref: 12, seleccionada: true, pieza_color_ref: 'PC-000011' },
+        { pieza_ref: 42, color_ref: 12, seleccionada: false },
+      ],
+      formulaciones: [{
+        color_ref: 12, color_client_id: 'color-aplicado', tipo: 'EXISTENTE', receta_ref: 5,
+      }],
+    };
+    const colorRefs = {
+      colores: [{ client_id: 'color-aplicado', color_ref: 12 }],
+      matriz: [{ pieza_ref: 41, color_ref: 12, pieza_color_ref: 'PC-000011' }],
+      formulaciones: [{ color_ref: 12, receta_ref: 5, estado: 'RESUELTA' }],
+    };
+    session.invalidated_steps = ['COLORES', 'ESTRUCTURA'];
+    session.referencias = {
+      IDENTIDAD: { producto_terminado_id: 'PT-000123' },
+      COMPONENTES: {
+        moldes: [{
+          client_id: 'molde-uno', molde_ref: 'ML-000008', piezas: [
+            { client_id: 'pieza-uno', pieza_ref: 41, molde_pieza_ref: 71 },
+            { client_id: 'pieza-dos', pieza_ref: 42, molde_pieza_ref: 72 },
+          ],
+        }],
+        piezas: [
+          { client_id: 'pieza-uno', pieza_ref: 41, molde_pieza_ref: 71 },
+          { client_id: 'pieza-dos', pieza_ref: 42, molde_pieza_ref: 72 },
+        ],
+      },
+      COLORES: colorRefs,
+      ESTRUCTURA: { estructura_revision_ref: 44 },
+    };
+    session.pasos = session.pasos.map((step) => step.codigo === 'COMPONENTES' ? {
+      ...step,
+      estado: 'COMPLETADO',
+      data: {
+        moldes: [{
+          client_id: 'molde-uno', molde: { modo: 'REUTILIZAR', ref: 'ML-000008' },
+          piezas: [
+            { client_id: 'pieza-uno', modo: 'REUTILIZAR', ref: 41, cavidades: 1, peso_unitario_gr: 80 },
+            { client_id: 'pieza-dos', modo: 'REUTILIZAR', ref: 42, cavidades: 1, peso_unitario_gr: 20 },
+          ],
+        }],
+      },
+      application_status: {
+        status: 'APPLIED', application_key: 'components-applied',
+        resolved_references: session.referencias.COMPONENTES,
+      },
+    } : step.codigo === 'COLORES' ? {
+      ...step,
+      estado: 'INVALIDADO',
+      data: colorsData,
+      application_status: {
+        status: 'APPLIED', application_key: 'colors-applied',
+        resolved_references: colorRefs,
+      },
+    } : step.codigo === 'ESTRUCTURA' ? { ...step, estado: 'INVALIDADO' } : step);
+    buscarPiezasGlobales.mockResolvedValue([
+      { id: 41, codigo: 'PZ-000041', nombre: 'CUERPO COLADOR' },
+      { id: 42, codigo: 'PZ-000042', nombre: 'TAPA COLADOR' },
+    ]);
+    obtenerAltaProducto.mockResolvedValue(session);
+    restaurarColoresDesdeEstructura.mockResolvedValue({
+      ...session,
+      version: 8,
+      color_recovery: { piezas_color: 2 },
+      pasos: session.pasos.map((step) => step.codigo === 'COLORES'
+        ? { ...step, estado: 'EN_PROGRESO', data: colorsData }
+        : step),
+    });
+    const user = userEvent.setup();
+    renderStep('colores');
+
+    expect(await screen.findByRole('columnheader', { name: /PZ-000041.*CUERPO COLADOR/i })).toBeVisible();
+    expect(screen.getByRole('columnheader', { name: /PZ-000042.*TAPA COLADOR/i })).toBeVisible();
+    expect(screen.getByText('AZUL SOLIDO')).toBeVisible();
+    expect(screen.queryByText('Color sin nombre')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Restaurar desde la BOM/i }));
+    await waitFor(() => expect(restaurarColoresDesdeEstructura)
+      .toHaveBeenCalledWith('draft-b', 7));
   });
 
   it('crea un tipo de color contextual y sincroniza la paleta con el HEX', async () => {

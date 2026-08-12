@@ -30,6 +30,7 @@ import {
   obtenerResultadosDeAplicacion,
   obtenerSesionActualDeAplicacion,
   obtenerSesionActualDeConflicto,
+  restaurarColoresDesdeEstructura,
   subirImagenAltaProducto,
   validarAltaProducto,
 } from '../../services/scmProductOnboardingApi';
@@ -429,6 +430,7 @@ function OnboardingDraft({ draftId, stepId }) {
   });
   const [completionMessage, setCompletionMessage] = useState('');
   const [superseding, setSuperseding] = useState({});
+  const [restoringColors, setRestoringColors] = useState(false);
   const [imageEntries, setImageEntries] = useState({});
   const handleProductsChange = useCallback((items) => setProducts(items), []);
   const handleEngineeringValidity = useCallback((code, valid) => {
@@ -1001,6 +1003,39 @@ function OnboardingDraft({ draftId, stepId }) {
     if (saved) navigate('/datos-maestros');
   };
 
+  const restoreColorsFromStructure = async () => {
+    setRestoringColors(true);
+    setError('');
+    try {
+      const recovered = await restaurarColoresDesdeEstructura(
+        draftId,
+        sessionRef.current.version,
+      );
+      replaceSession(recovered);
+      const record = currentStepRecord(recovered, 'COLORES');
+      replaceLocalStep(normalizeStepData('COLORES', record.data, recovered));
+      if (record.application_status?.application_key) {
+        setSuperseding((current) => ({
+          ...current,
+          COLORES: record.application_status.application_key,
+        }));
+      }
+      loadedStepCodeRef.current = 'COLORES';
+      setSaveState('saved');
+      setShowValidation(false);
+      setCompletionMessage(
+        `Matriz recuperada: ${recovered.color_recovery?.piezas_color || 0} asociaciones PiezaColor de la BOM vigente. Revísala antes de aplicar.`,
+      );
+    } catch (requestError) {
+      setError(getApiMessage(
+        requestError,
+        'No se pudo reconstruir la matriz desde la BOM vigente.',
+      ));
+    } finally {
+      setRestoringColors(false);
+    }
+  };
+
   const retryConflict = async () => {
     const pending = conflict;
     setConflict(null);
@@ -1026,6 +1061,9 @@ function OnboardingDraft({ draftId, stepId }) {
   }
 
   const invalidated = new Set(session.invalidated_steps || []);
+  const canRestoreColorsFromStructure = activeStep.code === 'COLORES'
+    && activeRecord.estado === 'INVALIDADO'
+    && Boolean(stepReferences(session, 'ESTRUCTURA').estructura_revision_ref);
   const completed = (session.pasos || []).filter((step) => step.estado === 'COMPLETADO').length;
   const activeEngineeringInvalid = ['ESTRUCTURA', 'RUTA_EMPAQUE'].includes(activeStep.code)
     && !activeMaterialized
@@ -1169,6 +1207,29 @@ function OnboardingDraft({ draftId, stepId }) {
                 </Typography>
                 <Typography variant="body2">
                   {activeBlocker.message} Puedes revisar el contenido, pero no aplicarlo todavía.
+                </Typography>
+              </Alert>
+            )}
+            {canRestoreColorsFromStructure && (
+              <Alert
+                severity="info"
+                sx={{ mb: 2, alignItems: 'center' }}
+                action={(
+                  <Button
+                    variant="contained"
+                    size="small"
+                    disabled={restoringColors}
+                    onClick={restoreColorsFromStructure}
+                  >
+                    {restoringColors ? 'Restaurando…' : 'Restaurar desde la BOM'}
+                  </Button>
+                )}
+              >
+                <Typography variant="subtitle2" sx={{ fontWeight: 850 }}>
+                  La BOM vigente conserva las asociaciones anteriores
+                </Typography>
+                <Typography variant="body2">
+                  Recupera sus PiezaColor existentes como borrador revisable. No crea colores ni duplica SKU.
                 </Typography>
               </Alert>
             )}

@@ -58,6 +58,14 @@ export const aplicarPasoAltaProducto = (draftId, stepCode, payload) => data(
   ),
 );
 
+export const restaurarColoresDesdeEstructura = (draftId, expectedVersion) => data(
+  () => api.post(
+    `/scm/v1/altas-producto/${encodeURIComponent(draftId)}/pasos/COLORES/restaurar-desde-estructura`,
+    { expected_version: expectedVersion },
+    headers(true),
+  ),
+);
+
 export const subirImagenAltaProducto = (
   draftId,
   entityType,

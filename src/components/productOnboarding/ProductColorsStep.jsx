@@ -31,6 +31,7 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import PaletteOutlinedIcon from '@mui/icons-material/PaletteOutlined';
 import {
+  buscarPiezasGlobales,
   crearFamiliaColor,
   obtenerColores,
   obtenerFamiliasColor,
@@ -81,7 +82,7 @@ export default function ProductColorsStep({
     color_molde_ref: value?.color_molde_ref || moldReference || null,
   }, resolvedReferences);
   const [catalogs, setCatalogs] = useState({
-    colors: [], finishes: [], ingredients: [], recipes: [], materialCategories: [],
+    colors: [], pieces: [], finishes: [], ingredients: [], recipes: [], materialCategories: [],
   });
   const [loading, setLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
@@ -93,6 +94,24 @@ export default function ProductColorsStep({
   const resolvedColors = resolvedReferences?.colores || [];
   const resolvedMatrix = resolvedReferences?.matriz || [];
   const resolvedFormulations = resolvedReferences?.formulaciones || [];
+  const colorCatalogById = useMemo(() => new Map(
+    catalogs.colors.map((item) => [String(item.id), item]),
+  ), [catalogs.colors]);
+  const pieceCatalogById = useMemo(() => new Map(
+    catalogs.pieces.map((item) => [String(item.id), item]),
+  ), [catalogs.pieces]);
+  const displayColor = (color) => (
+    color.nombre
+    || colorCatalogById.get(String(color.color_ref))?.nombre
+    || `Color ${color.color_ref || color.client_id}`
+  );
+  const displayPiece = (piece) => {
+    const catalogPiece = pieceCatalogById.get(String(pieceKey(piece)));
+    const code = piece.codigo || piece.pieza_ref?.codigo || catalogPiece?.codigo;
+    const name = piece.nombre || piece.pieza_ref?.nombre || catalogPiece?.nombre;
+    if (code && name) return `${code} · ${name}`;
+    return name || code || `Pieza ${pieceKey(piece)}`;
+  };
   const colorIsResolved = (color) => resolvedColors.some((item) => (
     String(item.client_id || '') === String(color.client_id)
     || (item.color_ref && String(item.color_ref) === String(color.color_ref))
@@ -122,15 +141,17 @@ export default function ProductColorsStep({
     let active = true;
     Promise.all([
       obtenerColores(),
+      buscarPiezasGlobales('', 300),
       obtenerFamiliasColor(),
       obtenerIngredientesRecetaColor(),
       obtenerRecetasColorMaestras({ include_inactive: true }),
       listarCategoriasRecepcionScm(),
     ])
-      .then(([colors, finishes, ingredients, recipes, materialCategories]) => {
+      .then(([colors, piecesCatalog, finishes, ingredients, recipes, materialCategories]) => {
         if (!active) return;
         setCatalogs({
           colors: asItems(colors).filter((item) => item.activo !== false),
+          pieces: asItems(piecesCatalog).filter((item) => item.activo !== false),
           finishes: asItems(finishes).filter((item) => item.activo !== false),
           ingredients: asItems(ingredients).filter((item) => item.activo !== false),
           recipes: asItems(recipes),
@@ -466,7 +487,7 @@ export default function ProductColorsStep({
               <TableCell sx={{ fontWeight: 850, minWidth: 210 }}>Color</TableCell>
               {pieces.map((piece) => (
                 <TableCell key={pieceKey(piece)} align="center" sx={{ fontWeight: 800, minWidth: 150 }}>
-                  {piece.nombre || piece.pieza_ref?.nombre || `Pieza ${pieceKey(piece)}`}
+                  {displayPiece(piece)}
                 </TableCell>
               ))}
             </TableRow>
@@ -477,7 +498,7 @@ export default function ProductColorsStep({
                 <TableCell>
                   <Stack direction="row" spacing={0.75} alignItems="center">
                     <Box sx={{ width: 16, height: 16, borderRadius: '50%', bgcolor: color.hex || 'grey.300', border: '1px solid', borderColor: 'divider' }} />
-                    <Typography variant="body2" sx={{ fontWeight: 750 }}>{color.nombre || 'Color sin nombre'}</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 750 }}>{displayColor(color)}</Typography>
                   </Stack>
                 </TableCell>
                 {pieces.map((piece) => {
@@ -508,13 +529,13 @@ export default function ProductColorsStep({
                         checked={checked}
                         disabled={matrixIsResolved(piece, color)}
                         onChange={(event) => toggleCell(piece, color, event.target.checked)}
-                        inputProps={{ 'aria-label': `${color.nombre || 'Color'} en ${piece.nombre || pieceKey(piece)}` }}
+                        inputProps={{ 'aria-label': `${displayColor(color)} en ${displayPiece(piece)}` }}
                       />
                       {cell?.pieza_color_ref && <Chip size="small" color="success" variant="outlined" label={cell.pieza_color_ref} />}
                       <Stack
                         spacing={0.5}
                         sx={{ mt: 0.75, alignItems: 'center' }}
-                        aria-label={`Estado ${color.nombre || 'Color'} en ${piece.nombre || pieceKey(piece)}`}
+                        aria-label={`Estado ${displayColor(color)} en ${displayPiece(piece)}`}
                       >
                         <Chip
                           size="small"
