@@ -20,6 +20,7 @@ import {
   registrarMovimientoInventarioScm,
 } from '../services/scmInventoryApi';
 import { listarMaterialesScm } from '../services/scmCatalogApi';
+import { obtenerAlcanceAlmacenScm } from '../services/scmWarehouseOperationsApi';
 
 const initialForm = {
   articulo_scm_id: '',
@@ -46,22 +47,25 @@ export default function InventoryScm() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [query, setQuery] = useState('');
+  const [warehouseScope, setWarehouseScope] = useState(null);
 
   const load = useCallback(async () => {
     setBusy(true);
     setError('');
     try {
-      const [balancePayload, movementPayload, articleItems, materialItems] = await Promise.all([
+      const [balancePayload, movementPayload, articleItems, materialItems, scopePayload] = await Promise.all([
         listarSaldosInventarioScm(),
         listarMovimientosInventarioScm(),
         listarArticulosScm(),
         listarMaterialesScm(),
+        obtenerAlcanceAlmacenScm(),
       ]);
       setBalances(balancePayload.items || []);
       setMaterialBalances(balancePayload.materiales || []);
       setMovements(movementPayload.items || []);
       setArticles((articleItems || []).filter((item) => item.activo !== false));
       setMaterials((materialItems || []).filter((item) => item.activo !== false));
+      setWarehouseScope(scopePayload);
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo cargar el Kardex.'));
     } finally {
@@ -123,8 +127,8 @@ export default function InventoryScm() {
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        title="Existencias para planificación"
-        description="Consulta existencia física, reservas de planes confirmados y saldo realmente disponible."
+        title="Kardex de mi almacén"
+        description="Consulta existencias, reservas y movimientos dentro de los almacenes y clases asignados a tu trabajo."
         actions={(
           <Stack direction="row" spacing={1}>
             <Button startIcon={<RefreshIcon />} variant="outlined" onClick={load}>
@@ -150,6 +154,17 @@ export default function InventoryScm() {
       />
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {warehouseScope?.configurado && warehouseScope.control_transversal && (
+        <Alert severity="info"><strong>Control transversal:</strong> puedes consultar todos los almacenes. Las operaciones físicas conservan sus permisos propios.</Alert>
+      )}
+      {warehouseScope?.configurado && !warehouseScope.control_transversal && (warehouseScope.almacenes || []).length > 0 && (
+        <Alert severity="success">
+          <strong>Alcance activo:</strong> {(warehouseScope.almacenes || []).map((item) => `${item.codigo} (${(item.clases_articulo || []).map((value) => value.replaceAll('_', ' ')).join(', ')})`).join(' · ')}
+        </Alert>
+      )}
+      {warehouseScope?.configurado && !warehouseScope.control_transversal && (warehouseScope.almacenes || []).length === 0 && (
+        <Alert severity="warning">No tienes un almacén asignado. Administración debe asignarte almacén y clases antes de mostrar saldos.</Alert>
+      )}
       <Alert severity="info">
         El saldo inicial no crea mangas ficticias. Las mangas nuevas ingresarán al Kardex
         cuando Almacén confirme su recepción; una reserva no equivale todavía a consumo.
