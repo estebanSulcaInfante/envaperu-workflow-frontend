@@ -450,6 +450,8 @@ function OnboardingDraft({ draftId, stepId }) {
     && activeRecord.estado === 'EN_PROGRESO'
     && (activeRecord.application_status?.pending || []).length > 0;
   const activeCanReopen = (
+    activeStep.code === 'COMPONENTES'
+  ) || (
     ['ESTRUCTURA', 'RUTA_EMPAQUE'].includes(activeStep.code)
       && engineeringStepCanReopen(activeStep.code, activeReferences)
   ) || activeColorsPending;
@@ -865,9 +867,14 @@ function OnboardingDraft({ draftId, stepId }) {
         stepDataRef.current,
         stepReferences(sessionRef.current, 'COLORES'),
       );
+      const singleMoldReference = componentsData.moldes.length === 1
+        ? componentsData.moldes[0].molde.ref
+        : null;
       const withMatrix = {
         ...colors,
-        color_molde_ref: colors.color_molde_ref || componentsData.molde.ref,
+        color_molde_ref: singleMoldReference
+          ? colors.color_molde_ref || singleMoldReference
+          : null,
         matriz: createMatrix(componentsData.piezas, colors.colores, colors.matriz),
       };
       complete = colorsAreComplete(withMatrix, componentsData.piezas);
@@ -1207,7 +1214,11 @@ function OnboardingDraft({ draftId, stepId }) {
                     }}
                     sx={{ minWidth: { md: 210 }, width: { xs: '100%', md: 'auto' }, flex: '0 0 auto' }}
                   >
-                    {activeColorsPending ? 'Completar fase' : 'Reabrir borrador'}
+                    {activeColorsPending
+                      ? 'Completar fase'
+                      : activeStep.code === 'COMPONENTES'
+                        ? 'Añadir o vincular moldes'
+                        : 'Reabrir borrador'}
                   </Button>
                 ) : (
                   <Button
@@ -1308,7 +1319,9 @@ function OnboardingDraft({ draftId, stepId }) {
                   value={stepData}
                   onChange={changeStepData}
                   pieces={componentsData.piezas}
-                  moldReference={componentsData.molde.ref}
+                  moldReference={componentsData.moldes.length === 1
+                    ? componentsData.moldes[0].molde.ref
+                    : null}
                   resolvedReferences={stepReferences(session, 'COLORES')}
                   applicationResult={applicationResults.COLORES}
                   images={sessionImages(session)}

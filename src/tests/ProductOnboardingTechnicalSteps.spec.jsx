@@ -258,15 +258,19 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     ]);
   });
 
-  it('convierte Componentes en una fase real para molde y varias piezas', async () => {
+  it('permite varios grupos Molde-Piezas dentro del mismo PT', async () => {
     obtenerAltaProducto.mockResolvedValue(makeSession('COMPONENTES'));
+    const user = userEvent.setup();
     renderStep('componentes');
 
-    expect(await screen.findByRole('heading', { name: /Configurar molde y piezas/i }))
+    expect(await screen.findByRole('heading', { name: /Configurar moldes y piezas/i }))
       .toBeVisible();
     expect(screen.getByRole('button', { name: /Crear molde/i })).toBeVisible();
     expect(screen.getByRole('button', { name: /Reutilizar molde/i })).toBeVisible();
     expect(screen.getByRole('button', { name: /A\u00f1adir pieza/i })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /A\u00f1adir otro molde/i }));
+    expect(screen.getAllByText(/Grupo de fabricaci\u00f3n/i)).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /Crear molde/i })).toHaveLength(2);
     expect(screen.queryByText(/carga temporal segura|pendiente explícito/i))
       .not.toBeInTheDocument();
     expect(screen.queryByText(/Fase representada/i)).not.toBeInTheDocument();
@@ -285,7 +289,7 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     obtenerAltaProducto.mockResolvedValue(session);
     renderStep('colores');
 
-    expect(await screen.findByRole('heading', { name: /Colores por molde/i })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: /Colores de todas las piezas/i })).toBeVisible();
     expect(screen.getByText('Acabado')).toBeVisible();
     expect(screen.queryByText('FamiliaColor')).not.toBeInTheDocument();
     expect(screen.getByText(/Matriz Pieza.*Color/i)).toBeVisible();
@@ -696,7 +700,7 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     obtenerAltaProducto.mockResolvedValue(blocked);
     renderStep('componentes');
 
-    expect(await screen.findByRole('heading', { name: /Configurar molde y piezas/i })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: /Configurar moldes y piezas/i })).toBeVisible();
     expect(screen.getAllByText(/Completa primero Identidad y fuente/i).length).toBeGreaterThan(0);
     expect(screen.getByText('Esta fase todavía está bloqueada')).toBeVisible();
     expect(screen.getByRole('button', { name: /Ir a Identidad y fuente/i })).toBeEnabled();
@@ -712,13 +716,13 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     obtenerAltaProducto.mockResolvedValue(blocked);
     renderStep('colores');
 
-    expect(await screen.findByRole('heading', { name: /Colores por molde/i })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: /Colores de todas las piezas/i })).toBeVisible();
     expect(screen.getAllByText(/Completa primero Componentes y moldes/i).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /Aplicar y continuar/i })).toBeDisabled();
     expect(aplicarPasoAltaProducto).not.toHaveBeenCalled();
   });
 
-  it('rehidrata una aplicacion previa en consulta y nunca crea reemplazos ni autosalva', async () => {
+  it('rehidrata Componentes y exige correccion explicita para añadir otro molde', async () => {
     const applied = makeSession('COMPONENTES');
     applied.pasos = applied.pasos.map((step) => step.codigo === 'COMPONENTES' ? {
       ...step,
@@ -753,11 +757,10 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     expect(createMode).toBeDisabled();
     expect(screen.getByRole('button', { name: /Reutilizar molde/i })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText(/Fase aplicada a maestros/i)).toBeVisible();
-    expect(screen.getByRole('link', { name: /Editar maestro/i })).toHaveAttribute(
-      'href', '/datos-maestros/moldes',
-    );
     expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Continuar' }));
+    await user.click(screen.getByRole('button', { name: /Añadir o vincular moldes/i }));
+    await user.click(screen.getByRole('button', { name: /Añadir otro molde/i }));
+    expect(screen.getAllByText(/Grupo de fabricación/i)).toHaveLength(2);
     expect(aplicarPasoAltaProducto).not.toHaveBeenCalled();
   });
 
@@ -1026,7 +1029,9 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     await user.click(await screen.findByRole('button', { name: /Reabrir borrador/i }));
     const notes = screen.getByLabelText(/Notas de revisión/i);
     expect(notes).toBeEnabled();
-    fireEvent.change(notes, { target: { value: 'Corrección controlada' } });
+    await user.clear(notes);
+    await user.type(notes, 'Corrección controlada con espacios');
+    expect(notes).toHaveValue('Corrección controlada con espacios');
     await user.click(screen.getByRole('button', { name: /Aplicar corrección/i }));
 
     await waitFor(() => expect(aplicarPasoAltaProducto).toHaveBeenCalled());
@@ -1036,7 +1041,7 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     expect(command.data.estructura).toMatchObject({
       modo: 'EDITAR', revision_ref: 44, expected_version: 2,
     });
-    expect(command.data.estructura.payload.notas).toBe('Corrección controlada');
+    expect(command.data.estructura.payload.notas).toBe('Corrección controlada con espacios');
   });
 
   it('monta ruta, perfil y regla compartidos sin salida terminal editable', async () => {

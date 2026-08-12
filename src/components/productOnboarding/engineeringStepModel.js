@@ -375,6 +375,9 @@ export const buildStructurePayloadFromEditor = (value) => {
   const payload = buildStructurePayload(value);
   return {
     ...payload,
+    // El editor se controla pulsación a pulsación. Conserva el texto crudo
+    // mientras se escribe; serializeStructureStepData lo normaliza al guardar.
+    notas: value.notas ?? '',
     componentes: payload.componentes.map((item, index) => {
       const editorRef = String(value.componentes?.[index]?.articulo_id || '');
       if (!editorRef.startsWith('wip:')) return item;

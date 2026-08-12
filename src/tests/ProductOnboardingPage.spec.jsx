@@ -243,7 +243,7 @@ describe('alta integral de Producto Terminado', () => {
       'IDENTIDAD',
       expect.objectContaining({ expected_version: 2 }),
     ));
-    expect(await screen.findByRole('heading', { name: /Configurar molde y piezas/i })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: /Configurar moldes y piezas/i })).toBeVisible();
   });
 
   it('guarda antes de aceptar Back del navegador dentro de la SPA', async () => {
@@ -263,7 +263,7 @@ describe('alta integral de Producto Terminado', () => {
         }),
       }),
     ));
-    expect(await screen.findByRole('heading', { name: /Configurar molde y piezas/i })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: /Configurar moldes y piezas/i })).toBeVisible();
   });
 
   it('materializa un PT sin duplicar el SKU al completar Identidad', async () => {
@@ -296,7 +296,7 @@ describe('alta integral de Producto Terminado', () => {
         }),
       }),
     ));
-    expect(await screen.findByRole('heading', { name: /Configurar molde y piezas/i })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: /Configurar moldes y piezas/i })).toBeVisible();
   });
 
   it('conserva la imagen local y la sube al SKU PT después de aplicar Identidad', async () => {
@@ -327,7 +327,7 @@ describe('alta integral de Producto Terminado', () => {
         applicationKey: expect.stringMatching(/^imagen-.+/),
       }),
     ));
-    expect(await screen.findByRole('heading', { name: /Configurar molde y piezas/i }))
+    expect(await screen.findByRole('heading', { name: /Configurar moldes y piezas/i }))
       .toBeVisible();
   });
 

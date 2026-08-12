@@ -234,11 +234,12 @@ export default function ProductColorsStep({
         <Stack direction="row" spacing={1} alignItems="center">
           <PaletteOutlinedIcon color="primary" />
           <Typography component="h2" variant="h5" sx={{ fontWeight: 900 }}>
-            Colores por molde
+            Colores de todas las piezas
           </Typography>
         </Stack>
         <Typography color="text.secondary" sx={{ mt: 0.5, maxWidth: 920 }}>
-          Un color habilitado en el molde cubre todas sus piezas activas. Luego se define, por separado, qué formulación lo hace producible.
+          La matriz reúne las piezas de todos los moldes del PT. Marca únicamente
+          las combinaciones que se fabrican y define su formulación por separado.
         </Typography>
       </Box>
 

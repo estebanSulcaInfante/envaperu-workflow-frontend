@@ -16,14 +16,25 @@ const unwrapId = (value, keys = ['id']) => {
 
 const positiveNumber = (value) => Number.isFinite(Number(value)) && Number(value) > 0;
 
-export const emptyComponentsData = {
-  molde: {
+const emptyMoldValue = {
     modo: 'NUEVO',
     ref: null,
     nombre: '',
     peso_tiro_gr: '',
     tiempo_ciclo_std: '30',
-  },
+};
+
+export const newMoldGroupDraft = (clientId = makeClientId('molde')) => ({
+  client_id: clientId,
+  molde: { ...emptyMoldValue },
+  piezas: [],
+});
+
+export const emptyComponentsData = {
+  moldes: [newMoldGroupDraft('molde-inicial')],
+  // Alias de lectura para consumidores antiguos; normalizeComponentsData los
+  // deriva siempre del primer grupo.
+  molde: { ...emptyMoldValue },
   piezas: [],
 };
 
@@ -39,24 +50,43 @@ export const newPieceDraft = () => ({
 
 export const normalizeComponentsData = (data = {}, references = {}) => {
   const resolved = references?.COMPONENTES || references || {};
-  const moldReference = data.molde?.ref
-    || unwrapId(data.molde_ref, ['codigo', 'ref'])
-    || unwrapId(resolved.molde_ref, ['codigo', 'ref']);
-  const resolvedPieces = new Map((resolved.piezas || []).map((piece) => [
-    String(piece.client_id), piece,
+  const sourceGroups = Array.isArray(data.moldes) && data.moldes.length
+    ? data.moldes
+    : [{
+      client_id: data.molde_client_id || 'molde-inicial',
+      molde: data.molde || {},
+      piezas: Array.isArray(data.piezas) ? data.piezas : [],
+    }];
+  const referenceGroups = Array.isArray(resolved.moldes) && resolved.moldes.length
+    ? resolved.moldes
+    : [{
+      client_id: sourceGroups[0]?.client_id || 'molde-inicial',
+      molde_ref: resolved.molde_ref,
+      piezas: resolved.piezas || [],
+    }];
+  const referenceByGroup = new Map(referenceGroups.map((group) => [
+    String(group.client_id), group,
   ]));
-  const sourcePieces = Array.isArray(data.piezas) ? data.piezas : [];
-
-  return {
-    ...emptyComponentsData,
-    ...data,
-    molde: {
-      ...emptyComponentsData.molde,
-      ...(data.molde || {}),
-      ref: moldReference || null,
-      ...(moldReference ? { modo: 'REUTILIZAR' } : {}),
-    },
-    piezas: sourcePieces.map((piece, index) => {
+  const normalizedGroups = sourceGroups.map((group, groupIndex) => {
+    const clientId = group.client_id || `molde-importado-${groupIndex + 1}`;
+    const groupReference = referenceByGroup.get(String(clientId))
+      || (sourceGroups.length === 1 ? referenceGroups[0] : {});
+    const moldReference = group.molde?.ref
+      || unwrapId(group.molde_ref, ['codigo', 'ref'])
+      || unwrapId(groupReference?.molde_ref, ['codigo', 'ref']);
+    const resolvedPieces = new Map((groupReference?.piezas || resolved.piezas || []).map((piece) => [
+      String(piece.client_id), piece,
+    ]));
+    const sourcePieces = Array.isArray(group.piezas) ? group.piezas : [];
+    return {
+      client_id: clientId,
+      molde: {
+        ...emptyMoldValue,
+        ...(group.molde || {}),
+        ref: moldReference || null,
+        ...(moldReference ? { modo: 'REUTILIZAR' } : {}),
+      },
+      piezas: sourcePieces.map((piece, index) => {
       const clientId = piece.client_id || `pieza-importada-${index + 1}`;
       const checkpoint = resolvedPieces.get(String(clientId)) || {};
       const pieceRef = piece.ref
@@ -75,22 +105,31 @@ export const normalizeComponentsData = (data = {}, references = {}) => {
           || unwrapId(checkpoint.molde_pieza_ref, ['id', 'molde_pieza_id', 'ref'])
           || null,
       };
-    }),
+      }),
+    };
+  });
+  const flatPieces = normalizedGroups.flatMap((group) => group.piezas);
+  return {
+    ...data,
+    moldes: normalizedGroups,
+    molde: normalizedGroups[0]?.molde || { ...emptyMoldValue },
+    piezas: flatPieces,
   };
 };
 
 export const serializeComponentsData = (value) => {
   const normalized = normalizeComponentsData(value);
-  return {
-    molde: normalized.molde.modo === 'REUTILIZAR'
-      ? { modo: 'REUTILIZAR', ref: normalized.molde.ref }
+  const serializeGroup = (group) => ({
+    client_id: group.client_id,
+    molde: group.molde.modo === 'REUTILIZAR'
+      ? { modo: 'REUTILIZAR', ref: group.molde.ref }
       : {
         modo: 'NUEVO',
-        nombre: normalized.molde.nombre.trim(),
-        peso_tiro_gr: Number(normalized.molde.peso_tiro_gr),
-        tiempo_ciclo_std: Number(normalized.molde.tiempo_ciclo_std || 30),
+        nombre: group.molde.nombre.trim(),
+        peso_tiro_gr: Number(group.molde.peso_tiro_gr),
+        tiempo_ciclo_std: Number(group.molde.tiempo_ciclo_std || 30),
       },
-    piezas: normalized.piezas.map((piece) => ({
+    piezas: group.piezas.map((piece) => ({
       client_id: piece.client_id,
       modo: piece.modo,
       ...(piece.modo === 'REUTILIZAR'
@@ -101,26 +140,41 @@ export const serializeComponentsData = (value) => {
       cavidades: Number(piece.cavidades),
       peso_unitario_gr: Number(piece.peso_unitario_gr),
     })),
+  });
+  const groups = normalized.moldes.map(serializeGroup);
+  // Conserva el contrato histórico para sesiones de un solo molde.
+  if (groups.length === 1) {
+    return { molde: groups[0].molde, piezas: groups[0].piezas };
+  }
+  return {
+    moldes: groups,
   };
 };
 
 export const validateComponents = (value) => {
   const data = normalizeComponentsData(value);
-  const errors = { molde: {}, piezas: {} };
-  if (data.molde.modo === 'REUTILIZAR') {
-    if (!data.molde.ref) errors.molde.ref = 'Selecciona un molde existente.';
-  } else {
-    if (!data.molde.nombre.trim()) errors.molde.nombre = 'Ingresa el nombre del molde.';
-    if (!positiveNumber(data.molde.peso_tiro_gr)) {
-      errors.molde.peso_tiro_gr = 'El peso de tiro debe ser mayor que cero.';
-    }
-    if (!positiveNumber(data.molde.tiempo_ciclo_std)) {
-      errors.molde.tiempo_ciclo_std = 'El ciclo debe ser mayor que cero.';
-    }
-  }
-  if (!data.piezas.length) errors.piezas.general = 'Añade al menos una pieza.';
+  const errors = { molde: {}, piezas: {}, moldes: {} };
   const seenReferences = new Set();
-  data.piezas.forEach((piece) => {
+  const seenMolds = new Set();
+  data.moldes.forEach((group) => {
+    const groupErrors = { molde: {}, piezas: {} };
+    if (group.molde.modo === 'REUTILIZAR') {
+      if (!group.molde.ref) groupErrors.molde.ref = 'Selecciona un molde existente.';
+      if (group.molde.ref && seenMolds.has(String(group.molde.ref))) {
+        groupErrors.molde.ref = 'El molde está repetido.';
+      }
+      if (group.molde.ref) seenMolds.add(String(group.molde.ref));
+    } else {
+      if (!group.molde.nombre.trim()) groupErrors.molde.nombre = 'Ingresa el nombre del molde.';
+      if (!positiveNumber(group.molde.peso_tiro_gr)) {
+        groupErrors.molde.peso_tiro_gr = 'El peso de tiro debe ser mayor que cero.';
+      }
+      if (!positiveNumber(group.molde.tiempo_ciclo_std)) {
+        groupErrors.molde.tiempo_ciclo_std = 'El ciclo debe ser mayor que cero.';
+      }
+    }
+    if (!group.piezas.length) groupErrors.piezas.general = 'Añade al menos una pieza.';
+    group.piezas.forEach((piece) => {
     const item = {};
     if (piece.modo === 'REUTILIZAR') {
       if (!piece.ref) item.ref = 'Selecciona una pieza existente.';
@@ -135,14 +189,21 @@ export const validateComponents = (value) => {
     if (!positiveNumber(piece.peso_unitario_gr)) {
       item.peso_unitario_gr = 'El peso debe ser mayor que cero.';
     }
-    if (Object.keys(item).length) errors.piezas[piece.client_id] = item;
+      if (Object.keys(item).length) groupErrors.piezas[piece.client_id] = item;
+    });
+    if (Object.keys(groupErrors.molde).length || Object.keys(groupErrors.piezas).length) {
+      errors.moldes[group.client_id] = groupErrors;
+    }
   });
+  const firstErrors = errors.moldes[data.moldes[0]?.client_id] || {};
+  errors.molde = firstErrors.molde || {};
+  errors.piezas = firstErrors.piezas || {};
   return errors;
 };
 
 export const componentsAreComplete = (value) => {
   const errors = validateComponents(value);
-  return !Object.keys(errors.molde).length && !Object.keys(errors.piezas).length;
+  return !Object.keys(errors.moldes).length;
 };
 
 export const emptyColorsData = {
