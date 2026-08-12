@@ -5,6 +5,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductionSupervisionScm from '../components/ProductionSupervisionScm';
 import {
+  listarDocumentosPendientesSupervisionScm,
   listarSupervisionMangasScm,
   listarSupervisionOtsScm,
   obtenerDetalleSupervisionOtScm,
@@ -21,6 +22,7 @@ vi.mock('../context/ScmActorContext', () => ({
 }));
 
 vi.mock('../services/scmProductionObservabilityApi', () => ({
+  listarDocumentosPendientesSupervisionScm: vi.fn(),
   listarSupervisionMangasScm: vi.fn(),
   listarSupervisionOtsScm: vi.fn(),
   obtenerDetalleSupervisionOtScm: vi.fn(),
@@ -91,6 +93,10 @@ const listResponse = {
   items: [fabricationItem, assemblyItem],
   page: { next_cursor: 'next-2', limit: 25, has_more: true },
   as_of: '2026-08-10T14:30:00Z',
+};
+
+const pendingDocumentsResponse = {
+  items: [], count: 0, as_of: '2026-08-10T14:30:00Z',
 };
 
 const mangaListResponse = {
@@ -204,9 +210,41 @@ describe('Control > Supervisión de producción', () => {
     ]);
     setViewportWidth(1440);
     listarSupervisionOtsScm.mockResolvedValue(listResponse);
+    listarDocumentosPendientesSupervisionScm.mockResolvedValue(pendingDocumentsResponse);
     listarSupervisionMangasScm.mockResolvedValue(mangaListResponse);
     obtenerResumenSupervisionOtsScm.mockResolvedValue(summaryResponse);
     obtenerDetalleSupervisionOtScm.mockResolvedValue(detailResponse);
+  });
+
+  it('muestra OF liberadas sin OT y no las oculta bajo el estado vacio', async () => {
+    listarSupervisionOtsScm.mockResolvedValue({
+      items: [], page: { next_cursor: null, limit: 25, has_more: false }, as_of: '2026-08-10T14:30:00Z',
+    });
+    obtenerResumenSupervisionOtsScm.mockResolvedValue({
+      ...summaryResponse, totales: { ...summaryResponse.totales, ots: 0 },
+    });
+    listarDocumentosPendientesSupervisionScm.mockResolvedValue({
+      items: [{
+        id: 'of-pending-1', codigo: 'OF-000002', tipo: 'FABRICACION', estado: 'LIBERADA',
+        origen: 'EXCEPCIONAL', motivo: 'Reposición autorizada de asas', op: null,
+        released_at: '2026-08-10T14:30:00Z',
+        salidas: [{ articulo: { id: 91, codigo: 'PC-ASA-ROJO' }, cantidad_objetivo: 10, unidad: 'UN' }],
+        recurso: { molde_codigo: 'ML-ASA', maquina_codigo: 'INY-01' },
+      }],
+      count: 1,
+      as_of: '2026-08-10T14:30:00Z',
+    });
+
+    renderPage('/control/supervision-produccion?rango=MES&q=OF-000002');
+
+    expect(await screen.findByRole('heading', { name: 'Documentos pendientes de jornada' })).toBeVisible();
+    expect(screen.getByText('OF-000002')).toBeVisible();
+    expect(screen.getByText('Reposición excepcional')).toBeVisible();
+    expect(screen.getByText('PC-ASA-ROJO · 10 UN')).toBeVisible();
+    expect(screen.getByText(/Siguiente acción: programar una OT/i)).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Abrir documento' }))
+      .toHaveAttribute('href', '/produccion/ordenes-fabricacion?of=of-pending-1');
+    expect(screen.queryByRole('heading', { name: 'No hay OT para estos filtros' })).not.toBeInTheDocument();
   });
 
   it('presenta KPIs y estados documental, operativo y logístico sin acciones de operación', async () => {

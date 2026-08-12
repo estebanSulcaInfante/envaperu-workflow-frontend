@@ -51,6 +51,11 @@ export const listarSupervisionOtsScm = (filters = {}) => get(
   { params: filterParams(filters), signal: filters.signal },
 );
 
+export const listarDocumentosPendientesSupervisionScm = (filters = {}) => get(
+  '/scm/v1/observabilidad/documentos-pendientes',
+  { params: filterParams(filters), signal: filters.signal },
+);
+
 export const listarSupervisionMangasScm = (filters = {}) => get(
   '/scm/v1/observabilidad/mangas',
   { params: filterParams(filters), signal: filters.signal },

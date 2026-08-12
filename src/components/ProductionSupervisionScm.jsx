@@ -49,6 +49,7 @@ import {
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { useScmActor } from '../context/ScmActorContext';
 import {
+  listarDocumentosPendientesSupervisionScm,
   listarSupervisionOtsScm,
   listarSupervisionMangasScm,
   obtenerDetalleSupervisionOtScm,
@@ -937,6 +938,85 @@ function DetailDrawer({
   );
 }
 
+function PendingDocumentsPanel({ items }) {
+  if (!items.length) return null;
+  return (
+    <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, borderColor: 'warning.light' }}>
+      <Stack spacing={1.5}>
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+            <Typography component="h2" variant="h6" fontWeight={900}>
+              Documentos pendientes de jornada
+            </Typography>
+            <Chip size="small" color="warning" label={`${items.length} sin OT`} />
+          </Stack>
+          <Typography variant="body2" color="text.secondary">
+            OF u OA liberadas que todavía no tienen una orden de trabajo ni fecha operativa.
+          </Typography>
+        </Box>
+        {items.map((item) => (
+          <Card key={item.id} variant="outlined">
+            <CardContent>
+              <Stack spacing={1}>
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  justifyContent="space-between"
+                  spacing={1}
+                  alignItems={{ sm: 'flex-start' }}
+                >
+                  <Box>
+                    <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" alignItems="center">
+                      <Typography fontWeight={900}>{item.codigo}</Typography>
+                      <Chip size="small" label={stateLabel(item.tipo)} variant="outlined" />
+                      <Chip size="small" color="success" label={stateLabel(item.estado)} />
+                      <Chip size="small" color="warning" variant="outlined" label="Sin OT" />
+                      {item.origen === 'EXCEPCIONAL' && (
+                        <Chip size="small" color="secondary" variant="outlined" label="Reposición excepcional" />
+                      )}
+                    </Stack>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                      {item.op?.codigo ? `Origen ${item.op.codigo}` : 'Sin OP asociada'}
+                      {' · '}{item.released_at ? `Liberada ${localDateTime(item.released_at)}` : 'Fecha de liberación no informada'}
+                    </Typography>
+                  </Box>
+                  <Button
+                    component={RouterLink}
+                    to={item.tipo === 'ARMADO'
+                      ? `/produccion/ordenes-armado?oa=${encodeURIComponent(item.id)}`
+                      : `/produccion/ordenes-fabricacion?of=${encodeURIComponent(item.id)}`}
+                    endIcon={<ArrowForwardOutlinedIcon />}
+                  >
+                    Abrir documento
+                  </Button>
+                </Stack>
+                {item.motivo && <Typography variant="body2">{item.motivo}</Typography>}
+                <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+                  {(item.salidas || []).map((output) => (
+                    <Chip
+                      key={`${item.id}-${output.articulo.id}`}
+                      size="small"
+                      label={`${output.articulo.codigo} · ${quantity(output.cantidad_objetivo)} ${output.unidad || 'un'}`}
+                    />
+                  ))}
+                  {item.recurso?.molde_codigo && (
+                    <Chip size="small" variant="outlined" label={`Molde ${item.recurso.molde_codigo}`} />
+                  )}
+                  {item.recurso?.maquina_codigo && (
+                    <Chip size="small" variant="outlined" label={`Máquina ${item.recurso.maquina_codigo}`} />
+                  )}
+                </Stack>
+                <Alert severity="warning" icon={false}>
+                  Siguiente acción: programar una OT para asignar fecha, turno, responsable y mangas.
+                </Alert>
+              </Stack>
+            </CardContent>
+          </Card>
+        ))}
+      </Stack>
+    </Paper>
+  );
+}
+
 export default function ProductionSupervisionScm() {
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down('lg'));
@@ -954,6 +1034,7 @@ export default function ProductionSupervisionScm() {
   const canQuality = can('CALIDAD_MANGA_VER');
   const canOpenAssembly = can('OA_VER');
   const [items, setItems] = useState([]);
+  const [pendingDocuments, setPendingDocuments] = useState([]);
   const [page, setPage] = useState({ next_cursor: null, limit: PAGE_LIMIT, has_more: false });
   const [summary, setSummary] = useState(null);
   const [asOf, setAsOf] = useState(null);
@@ -1021,9 +1102,10 @@ export default function ProductionSupervisionScm() {
       const listRequest = filters.vista === 'MANGAS'
         ? listarSupervisionMangasScm(requestFilters)
         : listarSupervisionOtsScm(requestFilters);
-      const [listResult, summaryResult] = await Promise.allSettled([
+      const [listResult, summaryResult, pendingResult] = await Promise.allSettled([
         listRequest,
         obtenerResumenSupervisionOtsScm(requestFilters),
+        listarDocumentosPendientesSupervisionScm(requestFilters),
       ]);
       if (!active) return;
       if (listResult.status === 'fulfilled') {
@@ -1040,6 +1122,11 @@ export default function ProductionSupervisionScm() {
       } else {
         setSummary(null);
         setSummaryError('El resumen no está disponible; la lista conserva los datos que sí pudieron consultarse.');
+      }
+      if (pendingResult.status === 'fulfilled') {
+        setPendingDocuments(pendingResult.value.items || []);
+      } else {
+        setPendingDocuments([]);
       }
       setBusy(false);
     };
@@ -1201,8 +1288,10 @@ export default function ProductionSupervisionScm() {
         searchValue={searchDraft}
         onSearchChange={setSearchDraft}
         searchPlaceholder={filters.vista === 'MANGAS' ? 'Buscar codigo de manga, articulo, color, OT, OP u OF/OA' : 'Buscar OT, OP, OF/OA, color, recurso o responsable'}
-        resultCount={items.length}
-        totalCount={filters.vista === 'MANGAS' ? undefined : summary?.totales?.ots}
+        resultCount={items.length + (filters.vista === 'MANGAS' ? 0 : pendingDocuments.length)}
+        totalCount={filters.vista === 'MANGAS'
+          ? undefined
+          : numberValue(summary?.totales?.ots) + (filters.vista === 'MANGAS' ? 0 : pendingDocuments.length)}
         filters={[
           {
             id: 'tipo', label: 'Tipo de OT', value: filters.tipo, allValue: '',
@@ -1293,6 +1382,8 @@ export default function ProductionSupervisionScm() {
 
       <KpiGrid summary={summary} fallbackItems={filters.vista === 'MANGAS' ? [] : items} canWeighing={canWeighing} />
 
+      <PendingDocumentsPanel items={filters.vista === 'MANGAS' ? [] : pendingDocuments} />
+
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} alignItems={{ sm: 'center' }}>
         {filters.vista === 'MANGAS' && (
           <Box>
@@ -1327,7 +1418,8 @@ export default function ProductionSupervisionScm() {
         </Box>
       ) : null}
 
-      {!busy && !error && items.length === 0 && (
+      {!busy && !error && items.length === 0
+        && (filters.vista === 'MANGAS' || pendingDocuments.length === 0) && (
         <Paper variant="outlined" sx={{ minHeight: 240, display: 'grid', placeItems: 'center', p: 3 }}>
           <Stack spacing={1} alignItems="center" textAlign="center">
             <FactoryOutlinedIcon color="disabled" sx={{ fontSize: 42 }} />
@@ -1335,6 +1427,13 @@ export default function ProductionSupervisionScm() {
             <Typography variant="body2" color="text.secondary">Amplía el rango o limpia los filtros de consulta.</Typography>
           </Stack>
         </Paper>
+      )}
+
+      {!busy && !error && filters.vista !== 'MANGAS'
+        && items.length === 0 && pendingDocuments.length > 0 && (
+        <Alert severity="info">
+          No hay OT para esta búsqueda todavía; los documentos liberados aparecen arriba para programar su jornada.
+        </Alert>
       )}
 
       {items.length > 0 && filters.vista === 'RECURSOS' && (

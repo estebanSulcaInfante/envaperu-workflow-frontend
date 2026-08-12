@@ -15,6 +15,7 @@ vi.mock('../services/scmEngineeringApi', () => ({
 
 import {
   cambiarEstadoTrabajoColorScm,
+  crearOrdenFabricacionExcepcionalScm,
   crearOtFabricacionScm,
   crearTrabajoColorScm,
   listarOtScm,
@@ -33,6 +34,16 @@ describe('contratos OT de máquina y Trabajo de color', () => {
     vi.clearAllMocks();
     getMock.mockResolvedValue({ data: { items: [] } });
     postMock.mockResolvedValue({ data: { ok: true } });
+  });
+
+  it('crea una OF excepcional normalizada con idempotencia', async () => {
+    const payload = { motivo: 'Reposici\u00f3n de asas', corridas: [] };
+
+    await crearOrdenFabricacionExcepcionalScm(payload);
+
+    expect(postMock).toHaveBeenCalledWith(
+      '/scm/v1/ordenes-fabricacion/excepcionales', payload, idempotentHeaders,
+    );
   });
 
   it('envía fecha, turno y máquina al consultar el tablero de OT', async () => {

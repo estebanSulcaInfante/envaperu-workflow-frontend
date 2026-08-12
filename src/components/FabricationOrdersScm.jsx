@@ -8,7 +8,8 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
 import ArrowForwardOutlinedIcon from '@mui/icons-material/ArrowForwardOutlined';
 import FactoryOutlinedIcon from '@mui/icons-material/FactoryOutlined';
-import { Link as RouterLink } from 'react-router-dom';
+import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { obtenerColores, obtenerMaquinas, obtenerMoldes } from '../services/api';
 import {
   configurarOrdenFabricacionScm,
@@ -23,6 +24,7 @@ import ProcessJourney from './ui/ProcessJourney';
 import EmptyState from './ui/EmptyState';
 import OrderScheduleStrip from './ui/OrderScheduleStrip';
 import { useScmActor } from '../context/ScmActorContext';
+import ExceptionalFabricationOrderDialog from './ExceptionalFabricationOrderDialog';
 
 const statusColor = {
   BORRADOR: 'warning',
@@ -105,9 +107,12 @@ const suggestedForm = (order, molds, machines) => {
 };
 
 export default function FabricationOrdersScm() {
+  const [searchParams] = useSearchParams();
+  const requestedOrderId = searchParams.get('of') || '';
   const { can, experience } = useScmActor();
   const canEdit = can('OF_EDITAR_BORRADOR');
   const canRelease = can('OF_LIBERAR');
+  const canCreateExceptional = can('OF_EXCEPCIONAL_CREAR');
   const [orders, setOrders] = useState([]);
   const [molds, setMolds] = useState([]);
   const [machines, setMachines] = useState([]);
@@ -117,6 +122,7 @@ export default function FabricationOrdersScm() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [exceptionalOpen, setExceptionalOpen] = useState(false);
 
   const selected = useMemo(
     () => orders.find((item) => item.id === orderId) || orders[0] || null,
@@ -157,7 +163,7 @@ export default function FabricationOrdersScm() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(requestedOrderId); }, [load, requestedOrderId]);
 
   const chooseOrder = (nextId) => {
     const nextOrder = orders.find((item) => item.id === nextId);
@@ -264,6 +270,15 @@ export default function FabricationOrdersScm() {
         description="Completa molde, máquina y parámetros físicos de las OF planificadas antes de liberarlas hacia OT y mangas."
         actions={(
           <Stack direction="row" spacing={1}>
+            {canCreateExceptional && (
+              <Button
+                startIcon={<AddOutlinedIcon />}
+                variant="contained"
+                onClick={() => setExceptionalOpen(true)}
+              >
+              Nueva OF de reposición
+              </Button>
+            )}
             <Button startIcon={<RefreshIcon />} variant="outlined" onClick={() => load(selected?.id)}>
               Actualizar
             </Button>
@@ -539,6 +554,19 @@ export default function FabricationOrdersScm() {
           )}
         </>
       )}
+
+      <ExceptionalFabricationOrderDialog
+        open={exceptionalOpen}
+        molds={molds}
+        machines={machines.filter((machine) => machine.estado === 'OPERATIVA')}
+        colors={colors}
+        onClose={() => setExceptionalOpen(false)}
+        onCreated={async (created) => {
+          setExceptionalOpen(false);
+            setNotice(`${created.codigo} creada como reposición en borrador. Revísala y libérala para continuar con OT y mangas.`);
+          await load(created.id);
+        }}
+      />
     </Stack>
   );
 }

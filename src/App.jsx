@@ -49,6 +49,8 @@ import { AuthProvider } from './context/AuthContext';
 import AuthGate from './components/auth/AuthGate';
 import RolesCapabilitiesAdmin from './components/RolesCapabilitiesAdmin';
 import ProductOnboardingPage from './components/productOnboarding/ProductOnboardingPage';
+import WarehouseOperationsScm from './components/WarehouseOperationsScm';
+import WarehouseSetupScm from './components/WarehouseSetupScm';
 
 const workspace = (featureKey, element) => (
   <WorkspaceFeatureRoute featureKey={featureKey}>{element}</WorkspaceFeatureRoute>
@@ -160,6 +162,7 @@ function App() {
                 <Route path="/produccion/talonarios" element={workspace('control.talonarios', <TalonariosAdmin />)} />
                 <Route path="/control" element={<WorkspaceAreaRedirect areaKey="control" />} />
                 <Route path="/control/supervision-produccion" element={workspace('control.productionSupervision', <ProductionSupervisionScm />)} />
+                <Route path="/control/inventario" element={workspace('control.inventory', <WarehouseOperationsScm control />)} />
                 <Route path="/control/impresion-etiquetas" element={workspace('control.printJobs', <PrintJobsControlScm />)} />
                 <Route path="/produccion/supervision" element={<Navigate to="/control/supervision-produccion" replace />} />
                 <Route path="/produccion/avance" element={workspace('control.progress', <ProductionProgressDashboard />)} />
@@ -172,6 +175,9 @@ function App() {
                 <Route path="/produccion/ordenes-ensamble" element={<Navigate to="/produccion/ordenes-armado" replace />} />
                 <Route path="/produccion/abastecimiento" element={workspace('materials.internalSupply', <InternalSupplyScm />)} />
                 <Route path="/produccion/kardex" element={workspace('warehouse.kardex', <InventoryScm />)} />
+                <Route path="/almacen/kardex" element={workspace('warehouse.kardex', <InventoryScm />)} />
+                <Route path="/almacen/operaciones" element={workspace('warehouse.operations', <WarehouseOperationsScm />)} />
+                <Route path="/almacen/transferencias" element={workspace('warehouse.transfers', <WarehouseOperationsScm transfersOnly />)} />
                 <Route path="/produccion/recepcion-mangas" element={workspace('warehouse.receiving', <WarehouseReceivingScm />)} />
                 <Route path="/produccion/reproceso" element={workspace('materials.reprocessing', <ReprocessingScm />)} />
                 <Route path="/produccion/alertas" element={workspace('control.alerts', <OperationalAlertsScm />)} />
@@ -209,6 +215,7 @@ function App() {
                 <Route path="/catalogo/revision" element={workspace('masters.review', <RevisionProductos />)} />
                 <Route path="/configuracion" element={workspace('admin.settings', <RecepcionMateriales forcedSection="configuracion" />)} />
                 <Route path="/administracion/roles-capacidades" element={workspace('admin.roles', <RolesCapabilitiesAdmin />)} />
+                <Route path="/administracion/almacenes" element={workspace('admin.warehouses', <WarehouseSetupScm />)} />
 
                 <Route path="/ordenes" element={<Navigate to="/produccion/ordenes" replace />} />
                 <Route path="/ordenes/nueva" element={<Navigate to="/produccion/ordenes/nueva-excepcional" replace />} />

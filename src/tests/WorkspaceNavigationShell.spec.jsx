@@ -30,8 +30,8 @@ describe('US-010N1: shell de navegación', () => {
 
     expect(screen.getByRole('button', { name: /Almacén e inventario/i }))
       .toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('link', { name: /Kardex y existencias/i })).toBeVisible();
-    expect(screen.getByRole('link', { name: /Kardex y existencias/i }))
+    expect(screen.getByRole('link', { name: /Kardex de mi almacén/i })).toBeVisible();
+    expect(screen.getByRole('link', { name: /Kardex de mi almacén/i }))
       .toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: /Recepción y Calidad/i })).toBeVisible();
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();

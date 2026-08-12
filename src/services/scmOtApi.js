@@ -11,6 +11,13 @@ export const listarOrdenesFabricacionScm = () => body(() => api.get(
   '/scm/v1/ordenes-fabricacion',
   { headers: headers() },
 ));
+export const crearOrdenFabricacionExcepcionalScm = (payload) => body(
+  () => api.post(
+    '/scm/v1/ordenes-fabricacion/excepcionales',
+    payload,
+    { headers: headers(true) },
+  ),
+);
 export const configurarOrdenFabricacionScm = (ofId, payload) => body(
   () => api.patch(
     `/scm/v1/ordenes-fabricacion/${encodeURIComponent(ofId)}`,

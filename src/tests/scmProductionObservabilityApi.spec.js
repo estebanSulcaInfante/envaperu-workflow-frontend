@@ -7,6 +7,7 @@ vi.mock('../services/api', () => ({
 }));
 
 import {
+  listarDocumentosPendientesSupervisionScm,
   listarSupervisionMangasScm,
   listarSupervisionOtsScm,
   obtenerDetalleSupervisionOtScm,
@@ -77,6 +78,24 @@ describe('contrato frontend de observabilidad de OT', () => {
     expect(getMock).toHaveBeenCalledWith(
       '/scm/v1/observabilidad/ots',
       expect.objectContaining({ params: { quick } }),
+    );
+  });
+
+  it('consulta documentos liberados que todavia no tienen OT', async () => {
+    await listarDocumentosPendientesSupervisionScm({
+      desde: '2026-08-01', hasta: '2026-08-31', q: 'OF-000002', limit: 25,
+    });
+
+    expect(getMock).toHaveBeenCalledWith(
+      '/scm/v1/observabilidad/documentos-pendientes',
+      expect.objectContaining({
+        params: expect.objectContaining({
+          fecha_desde: '2026-08-01',
+          fecha_hasta: '2026-08-31',
+          q: 'OF-000002',
+          limit: 25,
+        }),
+      }),
     );
   });
 

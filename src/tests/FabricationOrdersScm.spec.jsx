@@ -10,13 +10,20 @@ import FabricationOrdersScm from '../components/FabricationOrdersScm';
 vi.mock('../services/api', () => ({
   obtenerColores: vi.fn().mockResolvedValue([]),
   obtenerMaquinas: vi.fn().mockResolvedValue([]),
+  obtenerMolde: vi.fn(),
   obtenerMoldes: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('../services/scmOtApi', () => ({
   configurarOrdenFabricacionScm: vi.fn(),
+  crearOrdenFabricacionExcepcionalScm: vi.fn(),
   liberarOrdenFabricacionScm: vi.fn(),
   listarOrdenesFabricacionScm: vi.fn().mockResolvedValue({ items: [] }),
+}));
+
+vi.mock('../services/scmEngineeringApi', () => ({
+  listarArticulosScm: vi.fn().mockResolvedValue([]),
+  mensajeErrorScm: (error, fallback) => error?.message || fallback,
 }));
 
 vi.mock('../context/ScmActorContext', () => ({
@@ -27,8 +34,13 @@ vi.mock('../context/ScmActorContext', () => ({
   }),
 }));
 
-import { obtenerColores, obtenerMaquinas, obtenerMoldes } from '../services/api';
-import { listarOrdenesFabricacionScm } from '../services/scmOtApi';
+import {
+  obtenerColores, obtenerMaquinas, obtenerMolde, obtenerMoldes,
+} from '../services/api';
+import { listarArticulosScm } from '../services/scmEngineeringApi';
+import {
+  crearOrdenFabricacionExcepcionalScm, listarOrdenesFabricacionScm,
+} from '../services/scmOtApi';
 
 describe('Órdenes de fabricación', () => {
   beforeEach(() => {
@@ -36,6 +48,80 @@ describe('Órdenes de fabricación', () => {
     obtenerColores.mockResolvedValue([]);
     obtenerMaquinas.mockResolvedValue([]);
     obtenerMoldes.mockResolvedValue([]);
+    obtenerMolde.mockReset();
+    listarArticulosScm.mockResolvedValue([]);
+    crearOrdenFabricacionExcepcionalScm.mockReset();
+  });
+
+  it('crea una OF normalizada de reposicion para una PiezaColor del molde', async () => {
+    const user = userEvent.setup();
+    obtenerMoldes.mockResolvedValue([{
+      codigo: 'ML-ASA', nombre: 'Molde Asa', activo: true,
+    }]);
+    obtenerMolde.mockResolvedValue({
+      codigo: 'ML-ASA', nombre: 'Molde Asa', activo: true,
+      tiempo_ciclo_std: 20, peso_colada_gr: 2,
+      formas: [{
+        pieza_id: 31, pieza_codigo: 'PZ-ASA', nombre: 'Asa de balde',
+        activo: true, cavidades: 4, peso_unitario_gr: 12,
+        variantes: [{ sku: 'PC-ASA-ROJO', color_produccion_id: 5 }],
+      }],
+    });
+    obtenerMaquinas.mockResolvedValue([{
+      id: 8, codigo: 'INY-01', nombre: 'Inyectora 1', activo: true, estado: 'OPERATIVA',
+    }]);
+    obtenerColores.mockResolvedValue([{ id: 5, nombre: 'ROJO', activo: true }]);
+    listarArticulosScm.mockResolvedValue([{
+      id: 91, codigo: 'PC-ASA-ROJO', nombre: 'Asa ROJO', clase: 'PIEZA_COLOR',
+      subtipo: { pieza_color_sku: 'PC-ASA-ROJO' },
+    }]);
+    crearOrdenFabricacionExcepcionalScm.mockResolvedValue({
+      id: 'of-ex-1', codigo: 'OF-000010', estado: 'BORRADOR', corridas: [],
+    });
+    listarOrdenesFabricacionScm
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({ items: [{
+        id: 'of-ex-1', codigo: 'OF-000010', estado: 'BORRADOR', version: 1, corridas: [],
+      }] });
+
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter><FabricationOrdersScm /></MemoryRouter>
+      </ThemeProvider>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Nueva OF de reposición' }));
+    await user.type(screen.getByLabelText(/Motivo de reposición/), 'Stock de asas para prearmado');
+    await user.click(screen.getByLabelText(/^Molde/));
+    await user.click(await screen.findByRole('option', { name: /ML-ASA/ }));
+    await screen.findByDisplayValue('20');
+    await user.click(screen.getByLabelText(/Máquina prevista/));
+    await user.click(await screen.findByRole('option', { name: /INY-01/ }));
+    await user.click(screen.getByLabelText(/Color corrida 1/));
+    await user.click(await screen.findByRole('option', { name: 'ROJO' }));
+    await user.type(screen.getByLabelText(/Ciclos objetivo corrida 1/), '250');
+
+    expect(screen.getByText(/PC-ASA-ROJO - 4 un\/ciclo - 12 g/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Crear OF en borrador' }));
+
+    expect(crearOrdenFabricacionExcepcionalScm).toHaveBeenCalledWith({
+      motivo: 'Stock de asas para prearmado',
+      molde_id: 'ML-ASA',
+      maquina_prevista_id: 8,
+      snapshot_tiempo_ciclo_seg: 20,
+      snapshot_horas_turno: 8,
+      snapshot_peso_colada_gr: 2,
+      corridas: [{
+        color_produccion_id: 5,
+        ciclos_objetivo: 250,
+        salidas: [{
+          articulo_scm_id: 91,
+          cantidad_por_ciclo: 4,
+          peso_unitario_g: 12,
+        }],
+      }],
+    });
+    expect(await screen.findByText(/OF-000010 creada como reposición/)).toBeVisible();
   });
 
   it('explica el siguiente paso cuando Planificación todavía no generó OF', async () => {
