@@ -82,6 +82,24 @@ describe('guía oficial de OT de máquina y Trabajo de color', () => {
     expect(corrections).toContain('devuelve su cupo al Trabajo de color');
   });
 
+  it('documenta el Kardex multi-almacén, custodia, QR, pickup y diferencias', () => {
+    const warehouse = textOf(stage('almacen'));
+
+    expect(warehouse).toContain('Kardex único');
+    expect(warehouse).toContain('Cantidad física');
+    expect(warehouse).toContain('Cantidad libre');
+    expect(warehouse).toContain('Cantidad reservada');
+    expect(warehouse).toContain('Cantidad no disponible');
+    expect(warehouse).toContain('sesión multi-QR');
+    expect(warehouse).toContain('Escanear, reservar o preparar picking no mueve el Kardex');
+    expect(warehouse).toContain('Pickup habitual de Armado');
+    expect(warehouse).toContain('Mesa de Armado');
+    expect(warehouse).toContain('TRANSFERENCIA_DIFERENCIA');
+    expect(warehouse).toContain('MANGA_PESADA_SIN_RECEPCION');
+    expect(warehouse).toContain('/almacen/operaciones');
+    expect(warehouse).toContain('Control > Control de inventario');
+  });
+
   it('elimina la nomenclatura operativa obsoleta del contenido visible', () => {
     const visibleGuide = textOf({ scmGuideStages, scmGlossary });
 
