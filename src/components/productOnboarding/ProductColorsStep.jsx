@@ -105,6 +105,24 @@ export default function ProductColorsStep({
     || colorCatalogById.get(String(color.color_ref))?.nombre
     || `Color ${color.color_ref || color.client_id}`
   );
+  const displayColorHex = (color) => (
+    color.hex
+    || colorCatalogById.get(String(color.color_ref))?.hex_referencia
+    || ''
+  );
+  const applicationItemLabel = (item, index) => {
+    if (item?.type === 'COLOR_PRODUCCION') {
+      return colorCatalogById.get(String(item.id))?.nombre || `Color ${item.id}`;
+    }
+    if (item?.type === 'PIEZA_COLOR') return `PiezaColor ${item.id}`;
+    if (item?.type === 'RECETA_COLOR') {
+      const recipe = catalogs.recipes.find((candidate) => String(candidate.id) === String(item.id));
+      return recipe?.color_nombre
+        ? `${recipe.color_nombre} · receta ${item.id}`
+        : `Receta ${item.id}`;
+    }
+    return item?.nombre || item?.codigo || item?.sku || item?.id || `Registro ${index + 1}`;
+  };
   const displayPiece = (piece) => {
     const catalogPiece = pieceCatalogById.get(String(pieceKey(piece)));
     const code = piece.codigo || piece.pieza_ref?.codigo || catalogPiece?.codigo;
@@ -274,6 +292,7 @@ export default function ProductColorsStep({
         result={applicationResult}
         references={resolvedReferences}
         title="Colores y formulaciones aplicados"
+        resolveItemLabel={applicationItemLabel}
       />
 
       <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, borderRadius: 2.5 }}>
@@ -497,7 +516,22 @@ export default function ProductColorsStep({
               <TableRow key={color.client_id}>
                 <TableCell>
                   <Stack direction="row" spacing={0.75} alignItems="center">
-                    <Box sx={{ width: 16, height: 16, borderRadius: '50%', bgcolor: color.hex || 'grey.300', border: '1px solid', borderColor: 'divider' }} />
+                    <Box
+                      aria-label={displayColorHex(color)
+                        ? `Referencia visual ${displayColorHex(color)}`
+                        : 'Sin HEX de referencia'}
+                      title={displayColorHex(color)
+                        ? `HEX de referencia ${displayColorHex(color)}`
+                        : 'Sin HEX de referencia'}
+                      sx={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: '50%',
+                        bgcolor: displayColorHex(color) || 'grey.300',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                      }}
+                    />
                     <Typography variant="body2" sx={{ fontWeight: 750 }}>{displayColor(color)}</Typography>
                   </Stack>
                 </TableCell>
@@ -594,7 +628,11 @@ export default function ProductColorsStep({
           return (
             <ColorFormulationEditor
               key={color.client_id}
-              color={color}
+              color={{
+                ...color,
+                nombre: displayColor(color),
+                hex: displayColorHex(color),
+              }}
               formulation={formulation}
               recipes={catalogs.recipes}
               ingredients={catalogs.ingredients}

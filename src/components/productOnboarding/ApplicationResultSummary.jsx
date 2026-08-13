@@ -12,12 +12,18 @@ const itemLabel = (item, index) => (
   || `Registro ${index + 1}`
 );
 
-export default function ApplicationResultSummary({ result, references, title = 'Resultado aplicado' }) {
+export default function ApplicationResultSummary({
+  result,
+  references,
+  title = 'Resultado aplicado',
+  resolveItemLabel = null,
+}) {
   const created = result?.created || [];
   const reused = result?.reused || [];
   const pending = result?.pending || [];
   const hasReferences = references && Object.keys(references).length > 0;
   if (!result && !hasReferences) return null;
+  const labelFor = (item, index) => resolveItemLabel?.(item, index) || itemLabel(item, index);
 
   return (
     <Paper
@@ -38,10 +44,10 @@ export default function ApplicationResultSummary({ result, references, title = '
         </Stack>
         <Stack direction="row" gap={0.75} flexWrap="wrap">
           {created.map((item, index) => (
-            <Chip key={`created-${itemLabel(item, index)}`} size="small" color="success" label={`Creado · ${itemLabel(item, index)}`} />
+            <Chip key={`created-${itemLabel(item, index)}`} size="small" color="success" label={`Creado · ${labelFor(item, index)}`} />
           ))}
           {reused.map((item, index) => (
-            <Chip key={`reused-${itemLabel(item, index)}`} size="small" color="info" variant="outlined" label={`Reutilizado · ${itemLabel(item, index)}`} />
+            <Chip key={`reused-${itemLabel(item, index)}`} size="small" color="info" variant="outlined" label={`Reutilizado · ${labelFor(item, index)}`} />
           ))}
           {!created.length && !reused.length && hasReferences && (
             <Chip size="small" color="success" variant="outlined" label="Referencias canónicas enlazadas" />

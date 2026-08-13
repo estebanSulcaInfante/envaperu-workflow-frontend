@@ -302,6 +302,125 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     expect(screen.queryByText(/Fase representada/i)).not.toBeInTheDocument();
   });
 
+  it('rehidrata nombres, HEX y detalle de receta sin mostrar identificadores tecnicos', async () => {
+    const session = makeSession('COLORES');
+    const clientId = 'color-67522946-958a-4f61-a507-6df77dbc4a55';
+    const componentRefs = {
+      molde_ref: 'ML-000008',
+      piezas: [{ client_id: 'pieza-1', pieza_ref: 41, molde_pieza_ref: 71 }],
+    };
+    const colorRefs = {
+      colores: [{ client_id: clientId, color_ref: 12 }],
+      matriz: [{
+        pieza_ref: 41,
+        pieza_client_id: 'pieza-1',
+        color_ref: 12,
+        color_client_id: clientId,
+        pieza_color_ref: 'PC-000011',
+      }],
+      formulaciones: [{
+        color_ref: 12,
+        color_client_id: clientId,
+        receta_ref: 5,
+        estado: 'RESUELTA',
+      }],
+    };
+    session.referencias = {
+      IDENTIDAD: { producto_terminado_id: 'PT-000123' },
+      COMPONENTES: componentRefs,
+      COLORES: colorRefs,
+    };
+    session.pasos = session.pasos.map((step) => {
+      if (step.codigo === 'COMPONENTES') {
+        return {
+          ...step,
+          estado: 'COMPLETADO',
+          data: {
+            molde_ref: { codigo: 'ML-000008', nombre: 'MOLDE COLADOR #3' },
+            piezas: [{ pieza_ref: { id: 41, codigo: 'PZ-000041', nombre: 'CUERPO COLADOR #3' } }],
+          },
+          application_status: {
+            status: 'APPLIED',
+            application_key: 'components-applied',
+            resolved_references: componentRefs,
+          },
+        };
+      }
+      if (step.codigo === 'COLORES') {
+        return {
+          ...step,
+          estado: 'COMPLETADO',
+          data: {
+            color_molde_ref: 'ML-000008',
+            colores: [{ client_id: clientId, modo: 'REUTILIZAR', color_ref: 12 }],
+            matriz: [{ pieza_ref: 41, color_ref: 12, seleccionada: true }],
+            formulaciones: [{
+              color_ref: 12,
+              tipo: 'NUEVA',
+              base_virgen_kg: 25,
+              componentes: [{
+                material_id: 91,
+                tipo_componente: 'MATERIA_PRIMA',
+                cantidad: 1,
+              }],
+            }],
+          },
+          application_status: {
+            status: 'APPLIED',
+            application_key: 'colors-applied',
+            created: [
+              { type: 'PIEZA_COLOR', id: 'PC-000011' },
+              { type: 'RECETA_COLOR', id: 5 },
+            ],
+            reused: [{ type: 'COLOR_PRODUCCION', id: 12, client_id: clientId }],
+            pending: [],
+            resolved_references: colorRefs,
+          },
+        };
+      }
+      return step;
+    });
+    obtenerColores.mockResolvedValue([{
+      id: 12,
+      nombre: 'AZUL SÓLIDO',
+      familia_color_id: 3,
+      familia_color_nombre: 'SÓLIDO',
+      hex_referencia: '#303F9F',
+    }]);
+    obtenerRecetasColorMaestras.mockResolvedValue({
+      items: [{
+        id: 5,
+        color_produccion_id: 12,
+        color_nombre: 'AZUL SÓLIDO',
+        nombre_variante: 'Alta guiada AZUL SÓLIDO',
+        revision: 1,
+        estado: 'BORRADOR',
+        base_virgen_kg: 25,
+        lineas: [{
+          id: 501,
+          material_id: 91,
+          material_codigo: 'MP-000003',
+          material_nombre: 'PP Clarificado',
+          tipo_componente: 'MATERIA_PRIMA',
+          cantidad: 1,
+          unidad: 'FRACCION',
+          orden: 1,
+        }],
+      }],
+    });
+    obtenerAltaProducto.mockResolvedValue(session);
+
+    renderStep('colores');
+
+    expect(await screen.findByText('Reutilizado · AZUL SÓLIDO')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Formulación · AZUL SÓLIDO' })).toBeVisible();
+    expect(screen.getByText('Detalle de la receta seleccionada')).toBeVisible();
+    expect(screen.getByText(/MP-000003/)).toBeVisible();
+    expect(screen.getByText(/PP Clarificado/)).toBeVisible();
+    expect(screen.getAllByLabelText('Referencia visual #303F9F').length).toBeGreaterThan(0);
+    expect(screen.queryByText(clientId)).not.toBeInTheDocument();
+  });
+
   it('nombra piezas y colores rehidratados y restaura una fase invalidada desde la BOM', async () => {
     const session = makeSession('COLORES');
     const colorsData = {

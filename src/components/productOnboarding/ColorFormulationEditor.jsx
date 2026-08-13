@@ -52,6 +52,9 @@ export default function ColorFormulationEditor({
   const availableRecipes = recipes.filter(
     (recipe) => String(recipe.color_produccion_id) === String(color.color_ref),
   );
+  const selectedRecipe = availableRecipes.find(
+    (recipe) => String(recipe.id) === String(formulation.receta_ref),
+  );
   const isEditableRecipe = ['NUEVA', 'SIN_PIGMENTO'].includes(formulation.tipo);
   const filteredIngredients = formulation.tipo === 'SIN_PIGMENTO'
     ? ingredients.filter((item) => item.clase === 'MATERIA_PRIMA')
@@ -167,6 +170,22 @@ export default function ColorFormulationEditor({
               <Typography variant="subtitle1" sx={{ fontWeight: 850 }}>
                 Formulación · {color.nombre || `Color ${color.client_id}`}
               </Typography>
+              {color.hex && (
+                <Box
+                  aria-label={`Referencia visual ${color.hex}`}
+                  title={`HEX de referencia ${color.hex}`}
+                  sx={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: '50%',
+                    bgcolor: color.hex,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.65)',
+                    flex: '0 0 auto',
+                  }}
+                />
+              )}
             </Stack>
             <Typography variant="caption" color="text.secondary">
               Elige una fuente verificable; cada ingrediente queda declarado por una persona.
@@ -190,24 +209,70 @@ export default function ColorFormulationEditor({
         </Stack>
 
         {formulation.tipo === 'EXISTENTE' && (
-          <TextField
-            select
-            fullWidth
-            required
-            label="Receta existente"
-            value={formulation.receta_ref || ''}
-            onChange={(event) => onChange({ ...formulation, receta_ref: event.target.value })}
-            error={Boolean(error('receta_ref'))}
-            helperText={error('receta_ref') || (color.color_ref
-              ? 'Solo se muestran recetas del ColorProducción seleccionado.'
-              : 'Primero aplica el color nuevo o usa Nueva/Pendiente.')}
-          >
-            {availableRecipes.map((recipe) => (
-              <MenuItem key={recipe.id} value={recipe.id}>
-                {recipe.nombre_variante} · revisión {recipe.revision} · {recipe.estado}
-              </MenuItem>
-            ))}
-          </TextField>
+          <Stack spacing={1.25}>
+            <TextField
+              select
+              fullWidth
+              required
+              label="Receta existente"
+              value={formulation.receta_ref || ''}
+              onChange={(event) => onChange({ ...formulation, receta_ref: event.target.value })}
+              error={Boolean(error('receta_ref'))}
+              helperText={error('receta_ref') || (color.color_ref
+                ? 'Solo se muestran recetas del ColorProducción seleccionado.'
+                : 'Primero aplica el color nuevo o usa Nueva/Pendiente.')}
+            >
+              {availableRecipes.map((recipe) => (
+                <MenuItem key={recipe.id} value={recipe.id}>
+                  {recipe.nombre_variante} · revisión {recipe.revision} · {recipe.estado}
+                </MenuItem>
+              ))}
+            </TextField>
+            {selectedRecipe && (
+              <Paper variant="outlined" sx={{ p: 1.25, bgcolor: 'grey.50' }}>
+                <Stack spacing={0.75}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} gap={0.75} alignItems={{ sm: 'center' }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 850 }}>
+                      Detalle de la receta seleccionada
+                    </Typography>
+                    <Chip size="small" label={`Base ${selectedRecipe.base_virgen_kg} kg`} />
+                    <Chip
+                      size="small"
+                      color={selectedRecipe.estado === 'APROBADA' ? 'success' : 'warning'}
+                      variant="outlined"
+                      label={selectedRecipe.estado}
+                    />
+                  </Stack>
+                  {(selectedRecipe.lineas || []).map((line) => (
+                    <Typography key={line.id || `${line.material_id}-${line.orden}`} variant="body2">
+                      <strong>{line.material_codigo || `Material ${line.material_id}`}</strong>
+                      {' · '}{line.material_nombre || 'Sin nombre'}{' · '}
+                      {line.tipo_componente === 'MATERIA_PRIMA'
+                        ? `${line.cantidad} fracción`
+                        : `${line.cantidad} g por ${line.base_kg || selectedRecipe.base_virgen_kg} kg`}
+                    </Typography>
+                  ))}
+                  {!selectedRecipe.lineas?.length && (
+                    <Alert severity="warning">La receta no contiene ingredientes declarados.</Alert>
+                  )}
+                  {selectedRecipe.notas && (
+                    <Typography variant="caption" color="text.secondary">
+                      Notas: {selectedRecipe.notas}
+                    </Typography>
+                  )}
+                </Stack>
+              </Paper>
+            )}
+          </Stack>
+        )}
+
+        {formulation.tipo === 'SIN_PIGMENTO' && (
+          <Alert severity="info">
+            <strong>Sin pigmento solo cambia la fórmula.</strong>
+            {' '}El color seguirá siendo {color.nombre || 'el ColorProducción seleccionado'}.
+            No se convertirá automáticamente en transparente; para eso debes seleccionar
+            primero el color Transparente con acabado Transparente.
+          </Alert>
         )}
 
         {isEditableRecipe && (
