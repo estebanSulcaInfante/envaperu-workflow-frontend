@@ -382,7 +382,13 @@ export const serializeColorsData = (value) => {
 
 const validHex = (value) => !value || /^#[0-9A-F]{6}$/i.test(value.trim());
 
-export const validateColors = (value, pieces = []) => {
+const matrixPieceKey = (value) => String(
+  unwrapId(value?.ref || value?.pieza_ref, ['id', 'pieza_ref'])
+  || value?.client_id
+  || value?.pieza_client_id,
+);
+
+export const validateColors = (value, pieces = [], moldGroups = []) => {
   const data = normalizeColorsData(value);
   const errors = { colores: {}, matriz: [], formulaciones: {} };
   if (!data.colores.length) errors.colores.general = 'Añade al menos un color.';
@@ -398,11 +404,40 @@ export const validateColors = (value, pieces = []) => {
   });
 
   const expectedMatrix = createMatrix(pieces, data.colores, data.matriz);
-  expectedMatrix.forEach((cell) => {
-    if (cell.seleccionada === false) {
-      errors.matriz.push('Cada color del molde debe cubrir todas sus piezas activas.');
-    }
+  const selectedCells = expectedMatrix.filter((cell) => cell.seleccionada !== false);
+  const selectedPieceKeys = new Set(selectedCells.map((cell) => String(
+    cell.pieza_ref || cell.pieza_client_id,
+  )));
+  const selectedColorKeys = new Set(selectedCells.map((cell) => String(
+    cell.color_ref || cell.color_client_id,
+  )));
+  const groups = moldGroups.length
+    ? moldGroups.map((group) => group.piezas || []).filter((groupPieces) => groupPieces.length)
+    : (pieces.length ? [pieces] : []);
+
+  if (pieces.some((piece) => !selectedPieceKeys.has(matrixPieceKey(piece)))) {
+    errors.matriz.push('Cada pieza debe tener al menos un color de producción.');
+  }
+  if (data.colores.some((color) => (
+    !selectedColorKeys.has(String(color.color_ref || color.client_id))
+  ))) {
+    errors.matriz.push('Cada color declarado debe asociarse al menos a una pieza.');
+  }
+  const hasIncompleteMoldCoverage = groups.some((groupPieces) => {
+    const groupPieceKeys = new Set(groupPieces.map(matrixPieceKey));
+    const groupColorKeys = new Set(selectedCells
+      .filter((cell) => groupPieceKeys.has(String(cell.pieza_ref || cell.pieza_client_id)))
+      .map((cell) => String(cell.color_ref || cell.color_client_id)));
+    return [...groupColorKeys].some((colorKey) => groupPieces.some((piece) => (
+      !selectedCells.some((cell) => (
+        String(cell.pieza_ref || cell.pieza_client_id) === matrixPieceKey(piece)
+        && String(cell.color_ref || cell.color_client_id) === colorKey
+      ))
+    )));
   });
+  if (hasIncompleteMoldCoverage) {
+    errors.matriz.push('Cada color del molde debe cubrir todas sus piezas activas.');
+  }
   if (pieces.length && data.colores.length && expectedMatrix.length !== data.matriz.length) {
     errors.matriz.push('Confirma la matriz completa de Pieza × Color.');
   }
@@ -440,8 +475,8 @@ export const validateColors = (value, pieces = []) => {
   return errors;
 };
 
-export const colorsAreComplete = (value, pieces) => {
-  const errors = validateColors(value, pieces);
+export const colorsAreComplete = (value, pieces, moldGroups = []) => {
+  const errors = validateColors(value, pieces, moldGroups);
   return !Object.keys(errors.colores).length
     && !errors.matriz.length
     && !Object.keys(errors.formulaciones).length;
