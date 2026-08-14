@@ -15,6 +15,7 @@ vi.mock('../services/scmEngineeringApi', () => ({
 
 import {
   cambiarEstadoTrabajoColorScm,
+  cerrarOrdenFabricacionScm,
   crearOrdenFabricacionExcepcionalScm,
   crearOtFabricacionScm,
   crearTrabajoColorScm,
@@ -43,6 +44,16 @@ describe('contratos OT de máquina y Trabajo de color', () => {
 
     expect(postMock).toHaveBeenCalledWith(
       '/scm/v1/ordenes-fabricacion/excepcionales', payload, idempotentHeaders,
+    );
+  });
+
+  it('cierra una OF con versión y motivo idempotentes', async () => {
+    const payload = { version: 7, motivo: 'Saldo pendiente conciliado' };
+
+    await cerrarOrdenFabricacionScm('of-1', payload);
+
+    expect(postMock).toHaveBeenCalledWith(
+      '/scm/v1/ordenes-fabricacion/of-1/cerrar', payload, idempotentHeaders,
     );
   });
 

@@ -21,7 +21,11 @@ import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
 import SwapHorizOutlinedIcon from '@mui/icons-material/SwapHorizOutlined';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import { useScmActor } from '../../context/ScmActorContext';
-import { SCM_AUTH_MODE, SCM_PROFILE_SWITCH_ENABLED } from '../../config/runtime';
+import {
+  PORTFOLIO_DEMO_ENABLED,
+  SCM_AUTH_MODE,
+  SCM_PROFILE_SWITCH_ENABLED,
+} from '../../config/runtime';
 import { useAuth } from '../../context/AuthContext';
 
 const initials = (name = '') => name
@@ -78,7 +82,12 @@ export default function ActorWorkspaceBar() {
                 <Typography variant="body2" fontWeight={800} noWrap>
                   {actor?.nombre_completo || `Actor #${actorId}`}
                 </Typography>
-                <Chip label="Operación SCM" size="small" variant="outlined" color="info" />
+                <Chip
+                  label={PORTFOLIO_DEMO_ENABLED ? 'Perfil de demo' : 'Operación SCM'}
+                  size="small"
+                  variant="outlined"
+                  color="info"
+                />
               </Stack>
               <Typography
                 variant="caption"
@@ -126,7 +135,9 @@ export default function ActorWorkspaceBar() {
         <DialogTitle>¿Quién está realizando esta tarea?</DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            En el piloto este selector simula la identidad. En producción vendrá de la sesión iniciada.
+            {PORTFOLIO_DEMO_ENABLED
+              ? 'Los perfiles reproducen permisos y espacios de trabajo distintos sobre datos sintéticos.'
+              : 'En el piloto este selector simula la identidad. En producción vendrá de la sesión iniciada.'}
           </Typography>
           <List disablePadding>
             {actors.map((item) => (

@@ -70,7 +70,7 @@ export const workspaceAreas = [
 ];
 
 export const workspaceFeatures = [
-  feature({ key: 'home.workspace', areaKey: 'home', sectionKey: 'home', label: 'Inicio', description: 'Trabajo disponible para el perfil.', path: '/', icon: 'dashboard', defaultPriority: 0, exact: true }),
+  feature({ key: 'home.workspace', areaKey: 'home', sectionKey: 'home', label: 'Inicio', description: 'Trabajo disponible para el perfil.', path: '/', matches: ['/inicio'], icon: 'dashboard', defaultPriority: 0, exact: true }),
 
   feature({ key: 'planning.demand', areaKey: 'planning', sectionKey: 'demand', label: 'Demanda, OP y plan', description: 'Demanda, cobertura, metas y OF/OA generadas.', path: '/planificacion', matches: ['/planificacion/:solicitudId'], requiredAny: ['OP_VER', 'OP_CREAR', 'OP_APROBAR', 'PLANIFICACION_CALCULAR'], icon: 'planning', defaultPriority: 10, task: true }),
   feature({ key: 'planning.exceptionalOp', areaKey: 'planning', sectionKey: 'demand', label: 'OP excepcional', description: 'Alta excepcional y justificada.', path: '/produccion/ordenes/nueva-excepcional', aliases: ['/ordenes/nueva'], requiredAny: ['OP_CREAR'], maturity: 'LEGACY_MARCHA_BLANCA', task: false, icon: 'orders' }),

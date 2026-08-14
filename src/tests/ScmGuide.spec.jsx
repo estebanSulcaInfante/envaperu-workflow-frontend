@@ -153,11 +153,13 @@ describe('Guía operativa SCM', () => {
     })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Tres niveles de la ejecución' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Cambio y retorno de color: A → B → A' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Casuística: prearmado en línea durante Fabricación' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Asignación de mangas y relevo supervisado' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Frontera del piloto' })).toBeInTheDocument();
     expect(screen.getByText(/no digita OF, color, cantidad, fecha ni su nombre/i)).toBeInTheDocument();
-    expect(screen.getByText(/manga abierta o incompleta se transfiere individualmente/i)).toBeInTheDocument();
-    expect(screen.getByText(/conteo de frontera documenta el traspaso físico: no es un pesaje intermedio/i)).toBeInTheDocument();
+    expect(screen.getByText(/existe relevo sin transferencia de stickers/i)).toBeInTheDocument();
+    expect(screen.getByText(/peso aceptado es la autoridad productiva/i)).toBeInTheDocument();
+    expect(screen.getByText(/solo las mangas realmente vacías o los stickers no utilizados pasan al entrante/i)).toBeInTheDocument();
     expect(screen.getByText(/manga ya cerrada del Trabajo A puede pesarse mientras A está pausado/i)).toBeInTheDocument();
     expect(screen.getByText(/No se transfiere una manga de una OT diaria/i)).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/Fabricación mediante OP\s*\/\s*OT/i);

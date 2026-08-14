@@ -32,6 +32,13 @@ export const liberarOrdenFabricacionScm = (ofId, version) => body(
     { headers: headers(true) },
   ),
 );
+export const cerrarOrdenFabricacionScm = (ofId, payload) => body(
+  () => api.post(
+    `/scm/v1/ordenes-fabricacion/${encodeURIComponent(ofId)}/cerrar`,
+    payload,
+    { headers: headers(true) },
+  ),
+);
 export const obtenerPlanMangas = (ofId) => body(() => api.get(
   `/scm/v1/ordenes-fabricacion/${encodeURIComponent(ofId)}/plan-mangas`,
   { headers: headers() },

@@ -51,6 +51,8 @@ import RolesCapabilitiesAdmin from './components/RolesCapabilitiesAdmin';
 import ProductOnboardingPage from './components/productOnboarding/ProductOnboardingPage';
 import WarehouseOperationsScm from './components/WarehouseOperationsScm';
 import WarehouseSetupScm from './components/WarehouseSetupScm';
+import PortfolioDemoHub from './components/portfolioDemo/PortfolioDemoHub';
+import { PORTFOLIO_DEMO_ENABLED } from './config/runtime';
 
 const workspace = (featureKey, element) => (
   <WorkspaceFeatureRoute featureKey={featureKey}>{element}</WorkspaceFeatureRoute>
@@ -151,7 +153,13 @@ function App() {
               <AppShell>
                 <ErrorBoundary>
               <Routes>
-                <Route path="/" element={workspace('home.workspace', <RoleHome />)} />
+                <Route
+                  path="/"
+                  element={PORTFOLIO_DEMO_ENABLED
+                    ? <PortfolioDemoHub />
+                    : workspace('home.workspace', <RoleHome />)}
+                />
+                <Route path="/inicio" element={workspace('home.workspace', <RoleHome />)} />
                 <Route path="/guia/scm" element={<ScmGuide />} />
                 <Route path="/planificacion" element={workspace('planning.demand', <ProductionPlanningScm />)} />
                 <Route path="/planificacion/:solicitudId" element={workspace('planning.demand', <PlanificacionProduccion />)} />

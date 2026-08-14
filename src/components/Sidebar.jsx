@@ -36,6 +36,7 @@ import {
   featureMatches,
 } from '../config/workspaceRegistry';
 import { useActorWorkspace } from '../context/ScmActorContext';
+import { PORTFOLIO_DEMO_ENABLED } from '../config/runtime';
 
 const expandedWidth = 248;
 const collapsedWidth = 76;
@@ -227,15 +228,24 @@ function Sidebar() {
         {!compact && <FactoryOutlinedIcon sx={{ mr: 1.25, fontSize: 28 }} />}
         {!compact && (
           <Box sx={{ minWidth: 0 }}>
-            <Typography component="div" variant="subtitle1" noWrap sx={{ fontWeight: 850, lineHeight: 1.2 }}>EnvaPerú SCM</Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.62)' }}>Workspace operativo</Typography>
+            <Typography
+              component="div"
+              noWrap
+              sx={{ fontSize: 14, fontWeight: 850, lineHeight: 1.2 }}
+            >
+              EnvaPerú SCM
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.62)' }}>
+              {PORTFOLIO_DEMO_ENABLED ? 'Demo pública' : 'Workspace operativo'}
+            </Typography>
           </Box>
         )}
         {!isMobile ? (
           <IconButton
             onClick={() => setCollapsed((current) => !current)}
             aria-label={compact ? 'Expandir navegación' : 'Contraer navegación'}
-            sx={{ color: 'inherit', ml: compact ? 0 : 'auto' }}
+            size="small"
+            sx={{ color: 'inherit', ml: compact ? 0 : 0.5, p: 0.5 }}
           >
             {compact ? <ChevronRightIcon /> : <ChevronLeftIcon />}
           </IconButton>
@@ -276,7 +286,9 @@ function Sidebar() {
       <Box sx={{ flexGrow: 1 }} />
       {!compact && (
         <Box sx={{ px: 2, py: 2 }}>
-          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.62)' }}>Piloto SCM</Typography>
+          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.62)' }}>
+            {PORTFOLIO_DEMO_ENABLED ? 'Datos sintéticos' : 'Piloto SCM'}
+          </Typography>
         </Box>
       )}
     </Box>

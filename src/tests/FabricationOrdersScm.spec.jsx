@@ -15,6 +15,7 @@ vi.mock('../services/api', () => ({
 }));
 
 vi.mock('../services/scmOtApi', () => ({
+  cerrarOrdenFabricacionScm: vi.fn(),
   configurarOrdenFabricacionScm: vi.fn(),
   crearOrdenFabricacionExcepcionalScm: vi.fn(),
   liberarOrdenFabricacionScm: vi.fn(),
@@ -39,6 +40,7 @@ import {
 } from '../services/api';
 import { listarArticulosScm } from '../services/scmEngineeringApi';
 import {
+  cerrarOrdenFabricacionScm,
   crearOrdenFabricacionExcepcionalScm, listarOrdenesFabricacionScm,
 } from '../services/scmOtApi';
 
@@ -51,6 +53,7 @@ describe('Órdenes de fabricación', () => {
     obtenerMolde.mockReset();
     listarArticulosScm.mockResolvedValue([]);
     crearOrdenFabricacionExcepcionalScm.mockReset();
+    cerrarOrdenFabricacionScm.mockReset();
   });
 
   it('crea una OF normalizada de reposicion para una PiezaColor del molde', async () => {
@@ -272,5 +275,40 @@ describe('Órdenes de fabricación', () => {
     expect(within(strip).getByText('En ejecución')).toBeVisible();
     expect(within(strip).getByText('2 OT')).toBeVisible();
     expect(within(strip).queryByRole('textbox')).not.toBeInTheDocument();
+  });
+  it('cierra una OF desde pesajes efectivos y muestra la proyección de la OP', async () => {
+    const user = userEvent.setup();
+    const running = {
+      id: 'of-running', codigo: 'OF-000020', estado: 'EN_EJECUCION', version: 7,
+      corridas: [{ id: 'run-1', codigo: 'C01', salidas: [] }],
+    };
+    listarOrdenesFabricacionScm
+      .mockResolvedValueOnce({ items: [running] })
+      .mockResolvedValueOnce({ items: [{ ...running, estado: 'CERRADA', version: 8 }] });
+    cerrarOrdenFabricacionScm.mockResolvedValue({
+      ...running,
+      estado: 'CERRADA',
+      cierre: {
+        ordenes_produccion: [{ codigo: 'OP-000010', estado: 'COMPLETADA' }],
+      },
+    });
+
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter><FabricationOrdersScm /></MemoryRouter>
+      </ThemeProvider>,
+    );
+
+    await user.type(
+      await screen.findByLabelText(/Motivo de diferencia/),
+      'Cierre conciliado del turno',
+    );
+    await user.click(screen.getByRole('button', { name: 'Cerrar OF' }));
+
+    expect(cerrarOrdenFabricacionScm).toHaveBeenCalledWith('of-running', {
+      version: 7,
+      motivo: 'Cierre conciliado del turno',
+    });
+    expect(await screen.findByText(/OP: OP-000010 COMPLETADA/)).toBeVisible();
   });
 });

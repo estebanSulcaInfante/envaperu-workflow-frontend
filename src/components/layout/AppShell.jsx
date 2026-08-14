@@ -5,6 +5,8 @@ import Sidebar from '../Sidebar';
 import ActorWorkspaceBar from './ActorWorkspaceBar';
 import WorkspaceBreadcrumbs from './WorkspaceBreadcrumbs';
 import { useScmActor } from '../../context/ScmActorContext';
+import { PORTFOLIO_DEMO_ENABLED } from '../../config/runtime';
+import PortfolioDemoBar from '../portfolioDemo/PortfolioDemoBar';
 
 function AppShell({ children }) {
   const location = useLocation();
@@ -55,6 +57,7 @@ function AppShell({ children }) {
           minHeight: '100vh',
         }}
       >
+        {PORTFOLIO_DEMO_ENABLED && <PortfolioDemoBar />}
         <ActorWorkspaceBar />
         <Box key={actorId}>
           <WorkspaceBreadcrumbs location={location} />

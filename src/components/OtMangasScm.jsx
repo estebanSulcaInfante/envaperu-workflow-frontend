@@ -797,7 +797,7 @@ export default function OtMangasScm({ view = 'all' }) {
   const [selectedLabels, setSelectedLabels] = useState([]);
   const [selectedRelief, setSelectedRelief] = useState([]);
   const [reliefForm, setReliefForm] = useState({
-    workerId: '', reason: '', openManga: false, boundaryCount: '',
+    workerId: '', reason: '', confirmEmptyStickers: false,
   });
   const [busy, setBusy] = useState(true);
   const [planBusy, setPlanBusy] = useState(false);
@@ -1416,16 +1416,12 @@ export default function OtMangasScm({ view = 'all' }) {
       setError('El relevo requiere maquinista y motivo.');
       return;
     }
-    if (reliefForm.openManga && selectedRelief.length !== 1) {
-      setError('Una manga abierta se transfiere individualmente. Selecciona exactamente una.');
-      return;
-    }
-    if (
-      reliefForm.openManga
-      && (!Number.isInteger(Number(reliefForm.boundaryCount))
-        || Number(reliefForm.boundaryCount) < 0)
-    ) {
-      setError('Registra el conteo acumulado de frontera de la manga abierta.');
+    const transfersPrintedStickers = (selectedWork.mangas || []).some(
+      (manga) => selectedRelief.includes(manga.public_id)
+        && manga.estado === 'PREETIQUETADA',
+    );
+    if (transfersPrintedStickers && !reliefForm.confirmEmptyStickers) {
+      setError('Confirma que las mangas seleccionadas están vacías y los stickers no fueron utilizados.');
       return;
     }
     setBusy(true);
@@ -1435,11 +1431,8 @@ export default function OtMangasScm({ view = 'all' }) {
         trabajador_id: Number(reliefForm.workerId),
         motivo: reliefForm.reason.trim(),
         version: selectedWork.version,
-        ...(selectedRelief.length ? { manga_ids: selectedRelief } : {}),
-        ...(reliefForm.openManga ? {
-          manga_abierta: true,
-          conteo_frontera: Number(reliefForm.boundaryCount),
-        } : {}),
+        manga_ids: selectedRelief,
+        ...(transfersPrintedStickers ? { confirmacion_stickers_vacios: true } : {}),
       });
       const replacementJobs = result.trabajos_impresion_reemplazo || [];
       setReplacementPrintJobs(replacementJobs);
@@ -1447,14 +1440,17 @@ export default function OtMangasScm({ view = 'all' }) {
         (total, job) => total + (job.labels?.length || 0), 0,
       );
       setNotice(
-        `${result.mangas.length} manga(s) reasignadas a ${result.asignacion.trabajador}.`
+        `${result.asignacion.trabajador} quedó como responsable.`
+        + (result.mangas.length
+          ? ` ${result.mangas.length} sticker(s) pendiente(s) transferidos.`
+          : ' Sin transferencia de stickers.')
         + (replacementLabelCount
           ? ` Reimprime ${replacementLabelCount} preetiqueta(s) de reemplazo.`
           : ''),
       );
       setSelectedRelief([]);
       setReliefForm((current) => ({
-        ...current, reason: '', openManga: false, boundaryCount: '',
+        ...current, reason: '', confirmEmptyStickers: false,
       }));
       await loadOts(selectedOt.public_id, selectedWork.id);
     } catch (requestError) {
@@ -2217,7 +2213,7 @@ export default function OtMangasScm({ view = 'all' }) {
             <Paper variant="outlined" sx={{ p: 1.5, mb: 2, bgcolor: 'grey.50' }}>
               <Typography fontWeight={850}>Asignar o relevar maquinista</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Marca mangas en la columna “Relevo” para transferir solo ese subconjunto. Sin selección se transfieren todas las elegibles.
+                El relevo registra el cambio de responsable. Marca solamente stickers de mangas vacías o no utilizadas si también debes transferirlos. Sin selección se registra el relevo sin stickers.
               </Typography>
               <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1}>
                 <FormControl size="small" sx={{ minWidth: 240 }}>
@@ -2245,50 +2241,44 @@ export default function OtMangasScm({ view = 'all' }) {
                 />
                 <Button
                   variant="outlined"
-                  disabled={busy || !reliefForm.reason.trim()}
+                  disabled={
+                    busy
+                    || !reliefForm.reason.trim()
+                    || (selectedRelief.length === 0 && selectedWork.estado !== 'EN_EJECUCION')
+                  }
                   onClick={relieveWorker}
                 >
                   {selectedRelief.length
-                    ? `Relevar ${selectedRelief.length} manga${selectedRelief.length > 1 ? 's' : ''}`
-                    : 'Relevar mangas elegibles'}
+                    ? `Relevar y transferir ${selectedRelief.length} sticker${selectedRelief.length > 1 ? 's' : ''}`
+                    : 'Registrar relevo sin stickers'}
                 </Button>
               </Stack>
-              <FormControlLabel
-                sx={{ mt: 1 }}
-                control={(
-                  <Checkbox
-                    checked={reliefForm.openManga}
-                    onChange={(event) => setReliefForm({
-                      ...reliefForm,
-                      openManga: event.target.checked,
-                      boundaryCount: event.target.checked ? reliefForm.boundaryCount : '',
-                    })}
-                  />
-                )}
-                label="La manga seleccionada está abierta e incompleta"
-              />
-              {reliefForm.openManga && (
-                <Stack spacing={1}>
-                  <TextField
-                    size="small"
-                    type="number"
-                    label="Conteo acumulado al relevo (un)"
-                    value={reliefForm.boundaryCount}
-                    inputProps={{ min: 0, step: 1 }}
-                    onChange={(event) => setReliefForm({
-                      ...reliefForm, boundaryCount: event.target.value,
-                    })}
-                    helperText="El conteo separa la responsabilidad entre maquinistas; no crea un pesaje intermedio."
-                    sx={{ maxWidth: 420 }}
-                  />
-                  <Alert severity="info">
-                    El conteo de frontera es evidencia declarada por el supervisor, no una medición automática. Sin un conteo verificable o un contador físico, el sistema registra el relevo, pero no atribuye unidades exactas por trabajador.
-                  </Alert>
-                  <Alert severity="warning">
-                    La manga conserva su identidad de manga, color y Trabajo de color; la preetiqueta anterior se invalida y debe reemplazarse. El relevo solo puede ocurrir dentro de esta misma OT.
-                  </Alert>
-                </Stack>
+              {selectedRelief.length === 0 && selectedWork.estado !== 'EN_EJECUCION' && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                  El relevo sin stickers se registra cuando el Trabajo de color está en ejecución. Antes de iniciarlo, selecciona las identidades que deseas asignar.
+                </Typography>
               )}
+              {(selectedWork.mangas || []).some(
+                (manga) => selectedRelief.includes(manga.public_id)
+                  && manga.estado === 'PREETIQUETADA',
+              ) && (
+                <FormControlLabel
+                  sx={{ mt: 1 }}
+                  control={(
+                    <Checkbox
+                      checked={reliefForm.confirmEmptyStickers}
+                      onChange={(event) => setReliefForm({
+                        ...reliefForm,
+                        confirmEmptyStickers: event.target.checked,
+                      })}
+                    />
+                  )}
+                  label="Confirmo que estas mangas están vacías y sus stickers no fueron utilizados"
+                />
+              )}
+              <Alert severity="info" sx={{ mt: 1 }}>
+                Toda manga con contenido permanece con el maquinista saliente y debe pesarse antes del relevo. El conteo verbal no reparte producción ni reemplaza el peso.
+              </Alert>
             </Paper>
           )}
 

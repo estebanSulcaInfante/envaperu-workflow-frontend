@@ -56,15 +56,18 @@ describe('guía oficial de OT de máquina y Trabajo de color', () => {
     expect(production).toContain('reanuda el mismo Trabajo de color');
   });
 
-  it('documenta asignación, relevo por subconjunto y pesaje por QR', () => {
+  it('documenta prearmado, relevo por responsabilidad y pesaje por QR', () => {
     const production = textOf(stage('produccion'));
     const weighing = textOf(stage('pesaje'));
 
-    expect(production).toContain('mangas pendientes');
+    expect(production).toContain('cambio de responsable sin transferir stickers');
+    expect(production).toContain('prearmado en línea durante Fabricación');
+    expect(production).toContain('OA PREARMADO');
     expect(production).toContain('relevo supervisado');
-    expect(production).toContain('conteo acumulado en la frontera del relevo');
-    expect(production).toContain('no es un pesaje intermedio');
-    expect(production).toContain('conserva su identidad, color y Trabajo de color');
+    expect(production).toContain('relevo sin transferencia de stickers');
+    expect(production).toContain('El peso aceptado es la autoridad productiva');
+    expect(production).toContain('Solo las mangas realmente vacías o los stickers no utilizados pasan al entrante');
+    expect(production).toContain('Las mangas ya pesadas conservan su responsable histórico');
     expect(production).toContain('se invalida y se imprime su reemplazo');
     expect(production).toContain('no digita OF, color, cantidad, fecha ni su nombre');
     expect(weighing).toContain('no se digitan manualmente en la estación');

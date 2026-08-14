@@ -6,12 +6,14 @@ import {
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
+import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined';
 import ArrowForwardOutlinedIcon from '@mui/icons-material/ArrowForwardOutlined';
 import FactoryOutlinedIcon from '@mui/icons-material/FactoryOutlined';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { obtenerColores, obtenerMaquinas, obtenerMoldes } from '../services/api';
 import {
+  cerrarOrdenFabricacionScm,
   configurarOrdenFabricacionScm,
   liberarOrdenFabricacionScm,
   listarOrdenesFabricacionScm,
@@ -31,8 +33,8 @@ const statusColor = {
   LIBERADA: 'success',
   PROGRAMADA: 'info',
   EN_EJECUCION: 'primary',
-  COMPLETADA: 'success',
-  CANCELADA: 'error',
+  CERRADA: 'success',
+  ANULADA: 'error',
 };
 
 const normalizeProcess = (value) => String(value || '').trim().toUpperCase();
@@ -112,6 +114,7 @@ export default function FabricationOrdersScm() {
   const { can, experience } = useScmActor();
   const canEdit = can('OF_EDITAR_BORRADOR');
   const canRelease = can('OF_LIBERAR');
+  const canClose = can('OF_CERRAR');
   const canCreateExceptional = can('OF_EXCEPCIONAL_CREAR');
   const [orders, setOrders] = useState([]);
   const [molds, setMolds] = useState([]);
@@ -123,6 +126,7 @@ export default function FabricationOrdersScm() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [exceptionalOpen, setExceptionalOpen] = useState(false);
+  const [closeReason, setCloseReason] = useState('');
 
   const selected = useMemo(
     () => orders.find((item) => item.id === orderId) || orders[0] || null,
@@ -171,6 +175,7 @@ export default function FabricationOrdersScm() {
     setForm(suggestedForm(nextOrder, molds, machines));
     setError('');
     setNotice('');
+    setCloseReason('');
   };
 
   const chooseMold = (moldId) => {
@@ -263,6 +268,32 @@ export default function FabricationOrdersScm() {
     }
   };
 
+  const closeOrder = async () => {
+    if (!selected) return;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await cerrarOrdenFabricacionScm(selected.id, {
+        version: selected.version,
+        ...(closeReason.trim() ? { motivo: closeReason.trim() } : {}),
+      });
+      const projected = result.cierre?.ordenes_produccion || [];
+      const opSummary = projected.length
+        ? ` OP: ${projected.map((item) => `${item.codigo} ${item.estado}`).join(', ')}.`
+        : '';
+      setNotice(`${result.codigo} cerrada y producción acreditada.${opSummary}`);
+      setCloseReason('');
+      await load(selected.id);
+    } catch (requestError) {
+      setError(mensajeErrorScm(
+        requestError,
+        'No se pudo cerrar la OF. Revisa trabajos, mangas y diferencias de cantidad.',
+      ));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Stack spacing={2.5}>
       <PageHeader
@@ -335,8 +366,30 @@ export default function FabricationOrdersScm() {
                   Liberar OF
                 </Button>
               )}
+              {canClose && selected.estado === 'EN_EJECUCION' && (
+                <Button
+                  color="success"
+                  variant="contained"
+                  startIcon={<TaskAltOutlinedIcon />}
+                  disabled={busy}
+                  onClick={closeOrder}
+                >
+                  Cerrar OF
+                </Button>
+              )}
             </>
           </Stack>
+          {canClose && selected.estado === 'EN_EJECUCION' && (
+            <TextField
+              fullWidth
+              sx={{ mt: 2 }}
+              label="Motivo de diferencia (si la cantidad real no coincide)"
+              value={closeReason}
+              onChange={(event) => setCloseReason(event.target.value)}
+              helperText="El cierre usa las unidades confirmadas por pesaje. No crea ni duplica movimientos de Kardex."
+              inputProps={{ maxLength: 500 }}
+            />
+          )}
         </Paper>
         <OrderScheduleStrip order={selected} />
         </Stack>
