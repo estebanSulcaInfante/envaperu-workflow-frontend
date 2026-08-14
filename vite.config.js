@@ -12,6 +12,9 @@ export default defineConfig({
       }
     }
   },
+  preview: {
+    allowedHosts: ['envaperu-portfolio-demo.onrender.com'],
+  },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/setupTests.js'],
