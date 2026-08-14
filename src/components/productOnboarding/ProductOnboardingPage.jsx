@@ -879,7 +879,11 @@ function OnboardingDraft({ draftId, stepId }) {
           : null,
         matriz: createMatrix(componentsData.piezas, colors.colores, colors.matriz),
       };
-      complete = colorsAreComplete(withMatrix, componentsData.piezas);
+      complete = colorsAreComplete(
+        withMatrix,
+        componentsData.piezas,
+        componentsData.moldes,
+      );
       payload = serializeColorsData(withMatrix);
     } else if (activeStep.code === 'ESTRUCTURA') {
       complete = Boolean(engineeringValidity.ESTRUCTURA);
@@ -1380,6 +1384,7 @@ function OnboardingDraft({ draftId, stepId }) {
                   value={stepData}
                   onChange={changeStepData}
                   pieces={componentsData.piezas}
+                  moldGroups={componentsData.moldes}
                   moldReference={componentsData.moldes.length === 1
                     ? componentsData.moldes[0].molde.ref
                     : null}

@@ -70,6 +70,7 @@ export default function ProductColorsStep({
   value,
   onChange,
   pieces,
+  moldGroups = [],
   moldReference,
   resolvedReferences,
   applicationResult,
@@ -90,7 +91,10 @@ export default function ProductColorsStep({
   const [finishName, setFinishName] = useState('');
   const [finishError, setFinishError] = useState('');
   const [savingFinish, setSavingFinish] = useState(false);
-  const errors = useMemo(() => validateColors(data, pieces), [data, pieces]);
+  const errors = useMemo(
+    () => validateColors(data, pieces, moldGroups),
+    [data, pieces, moldGroups],
+  );
   const resolvedColors = resolvedReferences?.colores || [];
   const resolvedMatrix = resolvedReferences?.matriz || [];
   const resolvedFormulations = resolvedReferences?.formulaciones || [];
