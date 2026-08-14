@@ -20,6 +20,7 @@ import CheckCircleOutlineOutlinedIcon from '@mui/icons-material/CheckCircleOutli
 import FactoryOutlinedIcon from '@mui/icons-material/FactoryOutlined';
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
+import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import PrecisionManufacturingOutlinedIcon from '@mui/icons-material/PrecisionManufacturingOutlined';
 import RestartAltOutlinedIcon from '@mui/icons-material/RestartAltOutlined';
 import ScaleOutlinedIcon from '@mui/icons-material/ScaleOutlined';
@@ -27,6 +28,7 @@ import SchemaOutlinedIcon from '@mui/icons-material/SchemaOutlined';
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
 import { useNavigate } from 'react-router-dom';
 import { useScmActor } from '../../context/ScmActorContext';
+import { PORTFOLIO_EDGE_DEMO_URL } from '../../config/runtime';
 import {
   getPortfolioDemoStatus,
   resetPortfolioDemo,
@@ -79,6 +81,7 @@ const stages = [
     actorCode: 'TRB-004',
     actor: 'Supervisión + estación',
     mode: 'Hardware simulado',
+    edgeDemo: true,
     icon: ScaleOutlinedIcon,
     metric: (status) => `${status?.counts?.weighings || 0} pesaje confirmado`,
   },
@@ -178,14 +181,29 @@ function JourneyStage({ stage, status, onOpen }) {
           </Typography>
         </Grid>
         <Grid size={{ xs: 12, md: 2 }}>
-          <Button
-            fullWidth
-            variant="outlined"
-            endIcon={<ArrowForwardOutlinedIcon />}
-            onClick={() => onOpen(stage)}
-          >
-            Abrir evidencia
-          </Button>
+          <Stack spacing={0.75}>
+            {stage.edgeDemo && (
+              <Button
+                fullWidth
+                variant="contained"
+                component="a"
+                href={PORTFOLIO_EDGE_DEMO_URL}
+                target="_blank"
+                rel="noreferrer"
+                endIcon={<OpenInNewOutlinedIcon />}
+              >
+                Abrir estacion edge
+              </Button>
+            )}
+            <Button
+              fullWidth
+              variant="outlined"
+              endIcon={<ArrowForwardOutlinedIcon />}
+              onClick={() => onOpen(stage)}
+            >
+              {stage.edgeDemo ? 'Ver control central' : 'Abrir evidencia'}
+            </Button>
+          </Stack>
         </Grid>
       </Grid>
     </Paper>

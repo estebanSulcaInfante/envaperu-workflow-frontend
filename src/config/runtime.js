@@ -11,6 +11,11 @@ export const SCM_DEMO_MODE = (
 
 export const PORTFOLIO_DEMO_ENABLED = SCM_DEMO_MODE === 'portfolio';
 
+export const PORTFOLIO_EDGE_DEMO_URL = (
+  import.meta.env.VITE_PORTFOLIO_EDGE_DEMO_URL
+  || 'https://envaperu-portfolio-edge-demo.onrender.com/?tab=scm-weighing'
+).trim();
+
 export const SCM_AUTH_MODE = (
   import.meta.env.VITE_SCM_AUTH_MODE || (import.meta.env.DEV ? 'local_actor' : 'supabase')
 ).trim().toLowerCase();

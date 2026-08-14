@@ -67,7 +67,12 @@ describe('recorrido público del piloto', () => {
     expect(screen.getByRole('heading', { name: 'Ingeniería y maestros' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Almacén, Calidad y Kardex' })).toBeVisible();
     expect(screen.getByText('Hardware simulado')).toBeVisible();
-    expect(screen.getAllByRole('button', { name: 'Abrir evidencia' })).toHaveLength(5);
+    expect(screen.getAllByRole('button', { name: 'Abrir evidencia' })).toHaveLength(4);
+    expect(screen.getByRole('button', { name: 'Ver control central' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Abrir estacion edge' })).toHaveAttribute(
+      'href',
+      'https://envaperu-portfolio-edge-demo.onrender.com/?tab=scm-weighing',
+    );
   });
 
   it('restablece los datos solamente después de confirmarlo', async () => {
