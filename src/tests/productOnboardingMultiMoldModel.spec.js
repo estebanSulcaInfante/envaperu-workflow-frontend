@@ -3,6 +3,7 @@ import {
   colorsAreComplete,
   createMatrix,
   normalizeComponentsData,
+  serializeColorsData,
   serializeComponentsData,
   validateColors,
 } from '../components/productOnboarding/technicalStepModel';
@@ -141,5 +142,29 @@ describe('modelo multi-molde del alta integral', () => {
 
     expect(validateColors(value, components.piezas, components.moldes).matriz)
       .toContain('Cada color del molde debe cubrir todas sus piezas activas.');
+  });
+
+  it('conserva tres recetas para el mismo verde militar según la pieza', () => {
+    const payload = serializeColorsData({
+      colores: [{
+        client_id: 'verde-militar', modo: 'REUTILIZAR', color_ref: 10,
+      }],
+      matriz: [
+        { pieza_ref: 1, color_ref: 10, seleccionada: true, receta_ref: 101 },
+        { pieza_ref: 2, color_ref: 10, seleccionada: true, receta_ref: 102 },
+        { pieza_ref: 3, color_ref: 10, seleccionada: true, receta_ref: 103 },
+        { pieza_ref: 4, color_ref: 10, seleccionada: true, receta_ref: 103 },
+      ],
+      formulaciones: [{
+        color_ref: 10,
+        color_client_id: 'verde-militar',
+        tipo: 'EXISTENTE',
+        receta_ref: 101,
+      }],
+    });
+
+    expect(payload.matriz.map((row) => row.receta_ref)).toEqual([
+      101, 102, 103, 103,
+    ]);
   });
 });

@@ -235,6 +235,20 @@ export default function ProductColorsStep({
     });
   };
 
+  const updateCellRecipe = (piece, color, recipeRef) => {
+    const targetPiece = pieceKey(piece);
+    const targetColor = colorKey(color);
+    onChange({
+      ...data,
+      matriz: createMatrix(pieces, data.colores, data.matriz).map((cell) => (
+        String(cell.pieza_ref || cell.pieza_client_id) === targetPiece
+        && String(cell.color_ref || cell.color_client_id) === targetColor
+          ? { ...cell, receta_ref: recipeRef ? Number(recipeRef) : null }
+          : cell
+      )),
+    });
+  };
+
   const openFinishDialog = (colorClientId) => {
     setFinishDialog({ open: true, colorClientId });
     setFinishName('');
@@ -497,7 +511,8 @@ export default function ProductColorsStep({
         <Typography variant="overline" color="primary.main" sx={{ fontWeight: 850 }}>2 · Cobertura física</Typography>
         <Typography variant="h6" sx={{ fontWeight: 850 }}>Matriz Pieza × Color</Typography>
         <Typography variant="body2" color="text.secondary">
-          La cobertura es atómica por molde: una celda desmarcada se mostrará como bloqueo antes de aplicar.
+          La cobertura es atómica por molde. Cada celda puede usar la receta general del color
+          o una receta específica para esa pieza.
         </Typography>
       </Box>
       {showValidation && errors.matriz.length > 0 && (
@@ -547,6 +562,11 @@ export default function ProductColorsStep({
                     && String(item.color_ref || item.color_client_id) === colorKey(color)
                   ));
                   const entityId = cell?.pieza_color_ref || resolvedCell?.pieza_color_ref;
+                  const availableRecipes = catalogs.recipes.filter((recipe) => (
+                    String(recipe.color_produccion_id) === String(color.color_ref)
+                    && recipe.estado !== 'INACTIVA'
+                  ));
+                  const cellRecipeRef = cell?.receta_ref || resolvedCell?.receta_ref || '';
                   const formulation = data.formulaciones.find((item) => (
                     String(item.color_ref || item.color_client_id) === colorKey(color)
                     || item.color_client_id === color.client_id
@@ -555,8 +575,9 @@ export default function ProductColorsStep({
                     String(item.color_ref || item.color_client_id) === colorKey(color)
                     || item.color_client_id === color.client_id
                   ));
-                  const formulaPending = (resolvedFormulation?.estado || formulation?.tipo)
-                    === 'PENDIENTE';
+                  const formulaPending = !cellRecipeRef && (
+                    (resolvedFormulation?.estado || formulation?.tipo) === 'PENDIENTE'
+                  );
                   const imageKey = `PIEZA_COLOR:${piece.client_id || piece.ref}:${color.client_id || color.color_ref}`;
                   const imageEntry = imageEntries[imageKey];
                   const imageSaved = storedImage(entityId) || imageEntry?.status === 'DONE';
@@ -570,6 +591,31 @@ export default function ProductColorsStep({
                         inputProps={{ 'aria-label': `${displayColor(color)} en ${displayPiece(piece)}` }}
                       />
                       {cell?.pieza_color_ref && <Chip size="small" color="success" variant="outlined" label={cell.pieza_color_ref} />}
+                      {checked && color.color_ref && (
+                        <TextField
+                          select
+                          fullWidth
+                          size="small"
+                          label="Receta de la pieza"
+                          value={cellRecipeRef}
+                          onChange={(event) => updateCellRecipe(piece, color, event.target.value)}
+                          sx={{ mt: 0.75, minWidth: 180 }}
+                          slotProps={{
+                            select: {
+                              inputProps: {
+                                'aria-label': `Receta de ${displayColor(color)} en ${displayPiece(piece)}`,
+                              },
+                            },
+                          }}
+                        >
+                          <MenuItem value="">Usar receta general</MenuItem>
+                          {availableRecipes.map((recipe) => (
+                            <MenuItem key={recipe.id} value={recipe.id}>
+                              {recipe.nombre_variante} · revisión {recipe.revision}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                      )}
                       <Stack
                         spacing={0.5}
                         sx={{ mt: 0.75, alignItems: 'center' }}
@@ -608,9 +654,10 @@ export default function ProductColorsStep({
 
       <Box>
         <Typography variant="overline" color="primary.main" sx={{ fontWeight: 850 }}>3 · Fórmula</Typography>
-        <Typography variant="h6" sx={{ fontWeight: 850 }}>Receta por color</Typography>
+        <Typography variant="h6" sx={{ fontWeight: 850 }}>Receta general por color</Typography>
         <Typography variant="body2" color="text.secondary">
-          Existente, Nueva, Sin pigmento o Pendiente son decisiones explícitas y auditables.
+          Esta receta se usa como valor general. Las piezas que necesitan otra fórmula se
+          configuran individualmente en la matriz anterior.
         </Typography>
       </Box>
       <Alert severity="info">

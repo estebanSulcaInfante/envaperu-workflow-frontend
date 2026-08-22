@@ -279,6 +279,9 @@ export const normalizeColorsData = (data = {}, references = {}) => {
         color_client_id: cell.color_client_id || checkpoint.color_client_id || undefined,
         seleccionada: cell.seleccionada !== false,
         pieza_color_ref: cell.pieza_color_ref || checkpoint.pieza_color_ref || null,
+        receta_ref: Object.prototype.hasOwnProperty.call(cell, 'receta_ref')
+          ? cell.receta_ref
+          : checkpoint.receta_ref || null,
       };
     }),
     formulaciones: colors.map((color) => {
@@ -355,6 +358,7 @@ export const serializeColorsData = (value) => {
       ...(cell.pieza_ref ? { pieza_ref: Number(cell.pieza_ref) } : { pieza_client_id: cell.pieza_client_id }),
       ...(cell.color_ref ? { color_ref: Number(cell.color_ref) } : { color_client_id: cell.color_client_id }),
       seleccionada: cell.seleccionada !== false,
+      ...(cell.receta_ref ? { receta_ref: Number(cell.receta_ref) } : {}),
     })),
     formulaciones: data.formulaciones.map((formulation) => ({
       ...(formulation.color_ref
