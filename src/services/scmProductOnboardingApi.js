@@ -28,6 +28,16 @@ const headers = (idempotent = false) => ({
   },
 });
 
+const multipartHeaders = (idempotent = false) => {
+  const config = headers(idempotent);
+  return {
+    headers: {
+      ...config.headers,
+      'Content-Type': 'multipart/form-data',
+    },
+  };
+};
+
 const data = async (request) => (await request()).data;
 
 export const listarAltasProducto = (params = {}) => data(
@@ -79,7 +89,7 @@ export const subirImagenAltaProducto = (
   return data(() => api.post(
     `/scm/v1/altas-producto/${encodeURIComponent(draftId)}/imagenes/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`,
     body,
-    headers(true),
+    multipartHeaders(true),
   ));
 };
 

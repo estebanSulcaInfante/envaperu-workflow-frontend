@@ -451,12 +451,15 @@ function OnboardingDraft({ draftId, stepId }) {
   const activeColorsPending = activeStep.code === 'COLORES'
     && activeRecord.estado === 'EN_PROGRESO'
     && (activeRecord.application_status?.pending || []).length > 0;
+  const activeColorsRevisable = activeStep.code === 'COLORES'
+    && activeRecord.estado === 'EN_PROGRESO'
+    && Boolean(activeRecord.application_status?.application_key);
   const activeCanReopen = (
     activeStep.code === 'COMPONENTES'
   ) || (
     ['ESTRUCTURA', 'RUTA_EMPAQUE'].includes(activeStep.code)
       && engineeringStepCanReopen(activeStep.code, activeReferences)
-  ) || activeColorsPending;
+  ) || activeColorsRevisable;
   const activeMaterialized = !activeSupersedesKey
     && ['IDENTIDAD', 'COMPONENTES', 'COLORES', 'ESTRUCTURA', 'RUTA_EMPAQUE']
     .includes(activeStep.code)
@@ -1392,6 +1395,7 @@ function OnboardingDraft({ draftId, stepId }) {
                   applicationResult={applicationResults.COLORES}
                   images={sessionImages(session)}
                   imageEntries={imageEntries}
+                  disabled={activeMaterialized || sessionFinalized}
                   showValidation={showValidation}
                 />
               ) : activeStep.code === 'ESTRUCTURA' ? (

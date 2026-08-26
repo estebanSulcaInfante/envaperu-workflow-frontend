@@ -130,6 +130,6 @@ describe('API de alta integral de producto', () => {
     expect(body.get('application_key')).toBe('imagen-pt-1');
     expect(config.headers['Idempotency-Key'])
       .toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-    expect(config.headers).not.toHaveProperty('Content-Type');
+    expect(config.headers['Content-Type']).toBe('multipart/form-data');
   });
 });

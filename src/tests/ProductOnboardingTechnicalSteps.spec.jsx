@@ -669,6 +669,107 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     });
   });
 
+  it('reabre Colores aplicado sin pendientes y conserva la receta elegida por pieza', async () => {
+    const session = makeSession('COLORES');
+    const componentsRefs = {
+      molde_ref: 'ML-000008',
+      piezas: [{ client_id: 'pieza-1', pieza_ref: 41, molde_pieza_ref: 71 }],
+    };
+    const colorsData = {
+      color_molde_ref: 'ML-000008',
+      colores: [{
+        client_id: 'color-1', modo: 'REUTILIZAR', color_ref: 12,
+        nombre: 'AZUL SOLIDO', familia_color_id: 3, hex: '#123456',
+      }],
+      matriz: [{ pieza_ref: 41, color_ref: 12, seleccionada: true }],
+      formulaciones: [{
+        color_ref: 12, color_client_id: 'color-1', tipo: 'EXISTENTE', receta_ref: 5,
+      }],
+    };
+    const colorRefs = {
+      colores: [{ client_id: 'color-1', color_ref: 12 }],
+      matriz: [{ pieza_ref: 41, color_ref: 12, pieza_color_ref: 'PC-000012' }],
+      formulaciones: [{ color_ref: 12, receta_ref: 5, estado: 'RESUELTA' }],
+    };
+    session.version = 264;
+    session.referencias = {
+      IDENTIDAD: { producto_terminado_id: 'PT-000123' },
+      COMPONENTES: componentsRefs,
+      COLORES: colorRefs,
+    };
+    session.pasos = session.pasos.map((step) => step.codigo === 'COMPONENTES' ? {
+      ...step,
+      estado: 'COMPLETADO',
+      data: {
+        molde: { modo: 'REUTILIZAR', ref: 'ML-000008' },
+        piezas: [{
+          client_id: 'pieza-1', modo: 'REUTILIZAR', ref: 41,
+          nombre: 'CUERPO COLADOR #3', cavidades: 1, peso_unitario_gr: 80,
+        }],
+      },
+      application_status: {
+        status: 'APPLIED', application_key: 'components-applied',
+        resolved_references: componentsRefs,
+      },
+    } : step.codigo === 'COLORES' ? {
+      ...step,
+      estado: 'EN_PROGRESO',
+      data: colorsData,
+      application_status: {
+        status: 'APPLIED', application_key: 'colors-applied-v1',
+        resolved_references: colorRefs, pending: [],
+      },
+    } : step);
+    obtenerRecetasColorMaestras.mockResolvedValue({
+      items: [
+        {
+          id: 5, color_produccion_id: 12, nombre_variante: 'GENERAL',
+          revision: 1, estado: 'APROBADA',
+        },
+        {
+          id: 6, color_produccion_id: 12, nombre_variante: 'CABINA',
+          revision: 2, estado: 'APROBADA',
+        },
+      ],
+    });
+    aplicarPasoAltaProducto.mockImplementation(async (_draft, _step, command) => ({
+      ...session,
+      version: 265,
+      pasos: session.pasos.map((step) => step.codigo === 'COLORES'
+        ? { ...step, data: command.data }
+        : step),
+      application_results: { status: 'APPLIED', application_key: command.application_key },
+    }));
+    obtenerAltaProducto.mockResolvedValue(session);
+    const user = userEvent.setup();
+    renderStep('colores');
+
+    const recipeSelect = await screen.findByRole('combobox', {
+      name: /Receta de AZUL SOLIDO en.*CUERPO COLADOR/i,
+    });
+    expect(recipeSelect).toHaveAttribute('aria-disabled', 'true');
+    await user.click(screen.getByRole('button', { name: /Reabrir borrador/i }));
+    expect(recipeSelect).not.toHaveAttribute('aria-disabled', 'true');
+
+    await user.click(recipeSelect);
+    await user.click(screen.getByRole('option', { name: /CABINA.*revisi.n 2/i }));
+    expect(recipeSelect).toHaveTextContent(/CABINA.*revisi.n 2/i);
+    await user.click(screen.getByRole('button', { name: /Aplicar correcci.n/i }));
+
+    await waitFor(() => expect(aplicarPasoAltaProducto).toHaveBeenCalled());
+    expect(aplicarPasoAltaProducto.mock.calls.at(-1)[2]).toMatchObject({
+      expected_version: 264,
+      supersedes_application_key: 'colors-applied-v1',
+      data: {
+        matriz: [expect.objectContaining({
+          pieza_ref: 41,
+          color_ref: 12,
+          receta_ref: 6,
+        })],
+      },
+    });
+  });
+
   it('sube la muestra al SKU PiezaColor resuelto después de aplicar la matriz', async () => {
     const initial = makeSession('COLORES');
     const componentsRefs = {

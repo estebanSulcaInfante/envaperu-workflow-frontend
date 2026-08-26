@@ -76,6 +76,7 @@ export default function ProductColorsStep({
   applicationResult,
   images = [],
   imageEntries = {},
+  disabled = false,
   showValidation,
 }) {
   const data = normalizeColorsData({
@@ -598,6 +599,7 @@ export default function ProductColorsStep({
                           size="small"
                           label="Receta de la pieza"
                           value={cellRecipeRef}
+                          disabled={disabled}
                           onChange={(event) => updateCellRecipe(piece, color, event.target.value)}
                           sx={{ mt: 0.75, minWidth: 180 }}
                           slotProps={{
