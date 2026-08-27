@@ -818,6 +818,7 @@ export default function OtMangasScm({ view = 'all' }) {
   const [continuityCandidates, setContinuityCandidates] = useState([]);
   const [selectedContinuities, setSelectedContinuities] = useState([]);
   const [continuityBusy, setContinuityBusy] = useState(false);
+  const [continuityConfirmationOpen, setContinuityConfirmationOpen] = useState(false);
   const [selectedWorkPlan, setSelectedWorkPlan] = useState(null);
   const [extraRequests, setExtraRequests] = useState([]);
   const [mangaAllocation, setMangaAllocation] = useState({
@@ -935,6 +936,12 @@ export default function OtMangasScm({ view = 'all' }) {
       (line) => line.corrida_fabricacion_id === workForm.runId,
     ),
     [draftPlan, workForm.runId],
+  );
+  const selectedContinuityCandidates = useMemo(
+    () => continuityCandidates.filter(
+      (candidate) => selectedContinuities.includes(candidate.manga.public_id),
+    ),
+    [continuityCandidates, selectedContinuities],
   );
   const selectedWorkLines = useMemo(
     () => (selectedWorkPlan?.lineas || []).filter(
@@ -1232,6 +1239,7 @@ export default function OtMangasScm({ view = 'all' }) {
     if (!selectedOt?.public_id || !workForm.runId) {
       setContinuityCandidates([]);
       setSelectedContinuities([]);
+      setContinuityConfirmationOpen(false);
       return undefined;
     }
     let active = true;
@@ -1243,12 +1251,14 @@ export default function OtMangasScm({ view = 'all' }) {
         if (!active) return;
         const items = payload.items || [];
         setContinuityCandidates(items);
-        setSelectedContinuities(items.map((item) => item.manga.public_id));
+        setSelectedContinuities([]);
+        setContinuityConfirmationOpen(false);
       })
       .catch(() => {
         if (!active) return;
         setContinuityCandidates([]);
         setSelectedContinuities([]);
+        setContinuityConfirmationOpen(false);
       })
       .finally(() => { if (active) setContinuityBusy(false); });
     return () => { active = false; };
@@ -1360,18 +1370,38 @@ export default function OtMangasScm({ view = 'all' }) {
     }
   };
 
-  const createWork = async () => {
+  const createWork = async ({ continuityConfirmed = false } = {}) => {
     const assignments = draftRunLines
       .filter((line) => Number(workForm.quantities[line.id]) > 0)
       .map((line) => ({
         plan_linea_id: Number(line.id),
         cantidad_un: Number(workForm.quantities[line.id]),
       }));
-    if (!selectedOt || !selectedRun || !selectedRunHasColor
-      || !workForm.workerId || (!assignments.length && !selectedContinuities.length)) {
+    if (!selectedOt || !selectedRun || !selectedRunHasColor || !workForm.workerId) {
       setError('Selecciona OT, color, maquinista y saldo nuevo o una manga abierta compatible.');
       return;
     }
+    if (continuityCandidates.length > 0 && selectedContinuities.length === 0) {
+      setError('Selecciona explícitamente al menos una manga abierta compatible antes de agregar el color.');
+      return;
+    }
+    if (!assignments.length && !selectedContinuities.length) {
+      setError('Selecciona OT, color, maquinista y saldo nuevo o una manga abierta compatible.');
+      return;
+    }
+    if (selectedContinuityCandidates.length !== selectedContinuities.length) {
+      setError('La selección de continuidad cambió. Revísala antes de continuar.');
+      return;
+    }
+    if (selectedContinuities.length > 0 && !continuityConfirmed) {
+      setError('');
+      setContinuityConfirmationOpen(true);
+      return;
+    }
+    const continuityIds = selectedContinuityCandidates.map(
+      (candidate) => candidate.manga.public_id,
+    );
+    setContinuityConfirmationOpen(false);
     setBusy(true);
     setError('');
     try {
@@ -1379,12 +1409,12 @@ export default function OtMangasScm({ view = 'all' }) {
         corrida_fabricacion_id: selectedRun.id,
         maquinista_id: Number(workForm.workerId),
         asignaciones: assignments,
-        continuidad_manga_ids: selectedContinuities,
+        continuidad_manga_ids: continuityIds,
       });
       setNotice(
         `${result.trabajo_color.color || result.trabajo_color.codigo} agregado a ${selectedOt.codigo_ot}`
-        + (selectedContinuities.length
-          ? ` con ${selectedContinuities.length} manga(s) abierta(s), mismo QR y sin reimpresión.`
+        + (continuityIds.length
+          ? ` con ${continuityIds.length} manga(s) abierta(s), mismo QR y sin reimpresión.`
           : '.'),
       );
       await Promise.all([
@@ -2217,7 +2247,8 @@ export default function OtMangasScm({ view = 'all' }) {
             >
               <Typography fontWeight={900}>Mangas abiertas del turno anterior</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Continúan en esta OT con el mismo sticker y QR. El responsable será el maquinista inicial elegido arriba; no debe aceptar otro paso.
+                Selecciona explícitamente cuáles continuarán en esta OT con el mismo sticker y QR.
+                Nada se vincula hasta que revises y confirmes el resumen.
               </Typography>
               <Stack spacing={1}>
                 {continuityCandidates.map((candidate) => {
@@ -2257,7 +2288,8 @@ export default function OtMangasScm({ view = 'all' }) {
                 })}
               </Stack>
               <Alert severity="info" sx={{ mt: 1 }}>
-                Al agregar el color se programa automáticamente el tramo del nuevo responsable. No se crea otra manga ni se consume nuevamente el plan.
+                Tras confirmar, se programa el tramo del maquinista inicial elegido arriba.
+                No se crea otra manga, no se reimprime el QR ni se consume nuevamente el plan.
               </Alert>
             </Paper>
           )}
@@ -2300,9 +2332,11 @@ export default function OtMangasScm({ view = 'all' }) {
           <Button
             variant="contained"
             disabled={busy || continuityBusy || !selectedRun || !selectedRunHasColor}
-            onClick={createWork}
+            onClick={() => createWork()}
           >
-            Agregar a la cola de esta OT
+            {selectedContinuities.length
+              ? 'Revisar continuidad y agregar'
+              : 'Agregar a la cola de esta OT'}
           </Button>
         </Paper>
       )}
@@ -2671,6 +2705,62 @@ export default function OtMangasScm({ view = 'all' }) {
 
       </>)}
       </Stack>
+
+      <Dialog
+        open={continuityConfirmationOpen}
+        onClose={() => setContinuityConfirmationOpen(false)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Confirmar continuidad K1</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity="warning">
+              Se vincularán {selectedContinuityCandidates.length}{' '}
+              {selectedContinuityCandidates.length === 1 ? 'manga abierta' : 'mangas abiertas'}.
+              Esta acción agrega el nuevo tramo sin cambiar sus QR.
+            </Alert>
+            <Typography variant="body2">
+              Destino <strong>{selectedOt?.codigo_ot}</strong> · responsable{' '}
+              <strong>
+                {catalogs.workers.find(
+                  (worker) => String(worker.id) === String(workForm.workerId),
+                )?.nombre_completo || 'maquinista seleccionado'}
+              </strong>
+            </Typography>
+            <Box component="ul" sx={{ my: 0, pl: 2.5 }}>
+              {selectedContinuityCandidates.map((candidate) => (
+                <Typography
+                  component="li"
+                  key={candidate.manga.public_id}
+                  variant="body2"
+                  sx={{ mb: 0.75 }}
+                >
+                  <strong>{candidate.manga.codigo}</strong> · corte{' '}
+                  {compactQuantity(candidate.conteo_acumulado_un)}/
+                  {compactQuantity(candidate.manga.cantidad_asignada_un)} un · faltan{' '}
+                  {compactQuantity(candidate.cantidad_pendiente_un)} · origen{' '}
+                  {candidate.origen.ot_codigo} · QR conservado
+                </Typography>
+              ))}
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              Solo estas identidades serán enviadas. Las demás mangas compatibles permanecen
+              pendientes y no se modifican.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setContinuityConfirmationOpen(false)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            disabled={busy || selectedContinuityCandidates.length === 0}
+            onClick={() => createWork({ continuityConfirmed: true })}
+          >
+            Confirmar y agregar a la cola
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(workActionDialog)} onClose={() => setWorkActionDialog(null)} fullWidth maxWidth="sm">
         <DialogTitle>

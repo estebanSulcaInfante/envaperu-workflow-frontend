@@ -189,6 +189,22 @@ const machineOt = {
   mangas: [...greenWork.mangas, ...blueWork.mangas],
 };
 
+const openContinuityCandidate = {
+  manga: {
+    public_id: 'manga-open-k1',
+    codigo: 'MNG-ABIERTA-K1',
+    cantidad_asignada_un: '50',
+  },
+  origen: {
+    ot_codigo: 'OT-000000',
+    turno: 'DIA',
+    maquinista: 'José Quispe',
+  },
+  control_frontera: { peso_neto_kg: '2.000' },
+  conteo_acumulado_un: '20',
+  cantidad_pendiente_un: '30',
+};
+
 const weighingDetail = {
   original: {
     public_id: 'weigh-1',
@@ -405,7 +421,28 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     ));
   });
 
-  it('vincula una manga abierta con el mismo QR aunque el saldo nuevo sea cero', async () => {
+  it('no crea el trabajo si existe continuidad compatible sin selección explícita', async () => {
+    const user = userEvent.setup();
+    scmMocks.listarContinuidadesMangaPendientesScm.mockResolvedValueOnce({
+      items: [openContinuityCandidate],
+    });
+    renderSubject();
+
+    const continuity = await screen.findByRole('checkbox', {
+      name: 'Continuar MNG-ABIERTA-K1 en esta OT',
+    });
+    expect(continuity).not.toBeChecked();
+
+    await user.click(screen.getByRole('button', {
+      name: 'Agregar a la cola de esta OT',
+    }));
+
+    expect(screen.getByText(/Selecciona explícitamente al menos una manga abierta/i))
+      .toBeVisible();
+    expect(scmMocks.crearTrabajoColorScm).not.toHaveBeenCalled();
+  });
+
+  it('solo vincula las mangas abiertas elegidas después de revisar el resumen', async () => {
     const user = userEvent.setup();
     scmMocks.obtenerPlanMangas.mockResolvedValueOnce({
       plan: {
@@ -423,21 +460,24 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       },
     });
     scmMocks.listarContinuidadesMangaPendientesScm.mockResolvedValueOnce({
-      items: [{
-        manga: {
-          public_id: 'manga-open-k1',
-          codigo: 'MNG-ABIERTA-K1',
-          cantidad_asignada_un: '50',
+      items: [
+        openContinuityCandidate,
+        {
+          manga: {
+            public_id: 'manga-open-untouched',
+            codigo: 'MNG-NO-ELEGIDA',
+            cantidad_asignada_un: '40',
+          },
+          origen: {
+            ot_codigo: 'OT-000002',
+            turno: 'NOCHE',
+            maquinista: 'Luis Relevo',
+          },
+          control_frontera: { peso_neto_kg: '1.500' },
+          conteo_acumulado_un: '10',
+          cantidad_pendiente_un: '30',
         },
-        origen: {
-          ot_codigo: 'OT-000000',
-          turno: 'DIA',
-          maquinista: 'José Quispe',
-        },
-        control_frontera: { peso_neto_kg: '2.000' },
-        conteo_acumulado_un: '20',
-        cantidad_pendiente_un: '30',
-      }],
+      ],
     });
     renderSubject();
 
@@ -445,7 +485,11 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     const continuity = screen.getByRole('checkbox', {
       name: 'Continuar MNG-ABIERTA-K1 en esta OT',
     });
-    expect(continuity).toBeChecked();
+    const untouchedContinuity = screen.getByRole('checkbox', {
+      name: 'Continuar MNG-NO-ELEGIDA en esta OT',
+    });
+    expect(continuity).not.toBeChecked();
+    expect(untouchedContinuity).not.toBeChecked();
     expect(screen.getByText(/MNG-ABIERTA-K1 · 20\/50 un · faltan 30/)).toBeVisible();
     expect(scmMocks.listarContinuidadesMangaPendientesScm).toHaveBeenCalledWith(
       'ot-machine-1', 'run-1',
@@ -453,6 +497,26 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
 
     await user.click(screen.getByRole('button', {
       name: 'Agregar a la cola de esta OT',
+    }));
+    expect(scmMocks.crearTrabajoColorScm).not.toHaveBeenCalled();
+    expect(screen.getByText(/Selecciona explícitamente al menos una manga abierta/i))
+      .toBeVisible();
+
+    await user.click(continuity);
+    await user.click(screen.getByRole('button', {
+      name: 'Revisar continuidad y agregar',
+    }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Confirmar continuidad K1' });
+    expect(within(dialog).getByText(/Se vincularán 1 manga abierta/i)).toBeVisible();
+    expect(within(dialog).getByRole('listitem')).toHaveTextContent(
+      /MNG-ABIERTA-K1.*corte 20\/50 un.*faltan 30.*OT-000000.*QR conservado/i,
+    );
+    expect(within(dialog).queryByText(/MNG-NO-ELEGIDA/)).not.toBeInTheDocument();
+    expect(scmMocks.crearTrabajoColorScm).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole('button', {
+      name: 'Confirmar y agregar a la cola',
     }));
 
     await waitFor(() => expect(scmMocks.crearTrabajoColorScm).toHaveBeenCalledWith(
