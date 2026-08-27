@@ -320,6 +320,30 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     });
   });
 
+  it('actualiza también el catálogo de OF para mostrar órdenes recién liberadas', async () => {
+    const user = userEvent.setup();
+    renderSubject();
+
+    await waitFor(() => expect(scmMocks.listarOrdenesFabricacionScm).toHaveBeenCalledTimes(1));
+    scmMocks.listarOrdenesFabricacionScm.mockResolvedValueOnce({
+      items: [{
+        id: 'of-2',
+        codigo: 'OF-002',
+        estado: 'LIBERADA',
+        maquina_prevista_id: 4,
+        corridas: [{
+          id: 'run-2', codigo: 'COR-2', color: 'AZUL', estado: 'LIBERADA',
+        }],
+      }],
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Actualizar', exact: true }));
+
+    await waitFor(() => expect(scmMocks.listarOrdenesFabricacionScm).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('combobox', { name: 'Orden de fabricación' }))
+      .toHaveTextContent('OF-002');
+  });
+
   it('explica el estado vacío cuando los filtros no encuentran jornadas', async () => {
     scmMocks.listarOtScm.mockResolvedValueOnce({ items: [] });
     renderSubject();
@@ -622,7 +646,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     await waitFor(() => expect(
       scmMocks.reasignarMangasTrabajoColorScm,
     ).toHaveBeenCalledWith('work-green', {
-      trabajador_id: 8,
+      trabajador_id: 9,
       motivo: 'Cambio de turno',
       version: 1,
       manga_ids: ['manga-green-1'],
@@ -667,7 +691,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     await waitFor(() => expect(
       scmMocks.reasignarMangasTrabajoColorScm,
     ).toHaveBeenCalledWith('work-green', {
-      trabajador_id: 8,
+      trabajador_id: 9,
       motivo: 'Cambio de turno',
       version: 1,
       manga_ids: ['manga-green-1'],
@@ -698,7 +722,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     await waitFor(() => expect(
       scmMocks.reasignarMangasTrabajoColorScm,
     ).toHaveBeenCalledWith('work-green', {
-      trabajador_id: 8,
+      trabajador_id: 9,
       motivo: 'Cambio de turno',
       version: 1,
       manga_ids: [],

@@ -953,6 +953,28 @@ export default function OtMangasScm({ view = 'all' }) {
     || [...(selectedWork?.asignaciones_personal || [])].reverse().find(
       (item) => ['ACTIVA', 'PREVISTA'].includes(item.estado),
     ) || null;
+  const reliefWorkers = useMemo(() => {
+    const excludedWorkerIds = new Set(
+      selectedRelief.length
+        ? (selectedWork?.mangas || [])
+          .filter((manga) => selectedRelief.includes(manga.public_id))
+          .map((manga) => String(
+            manga.maquinista_actual_id
+              ?? manga.maquinista_previsto_id
+              ?? currentWorker?.trabajador_id
+              ?? '',
+          ))
+        : [String(currentWorker?.trabajador_id || '')],
+    );
+    return catalogs.workers.filter(
+      (worker) => !excludedWorkerIds.has(String(worker.id)),
+    );
+  }, [
+    catalogs.workers, currentWorker?.trabajador_id, selectedRelief, selectedWork?.mangas,
+  ]);
+  const reliefWorkerId = reliefWorkers.some(
+    (worker) => String(worker.id) === String(reliefForm.workerId),
+  ) ? reliefForm.workerId : '';
 
   const loadExtraRequests = useCallback(async (orderId, workId) => {
     if (!orderId || !workId) {
@@ -1007,6 +1029,30 @@ export default function OtMangasScm({ view = 'all' }) {
         : '',
     });
   }, [applyOtPayload, listFilters]);
+
+  const reloadFabricationOrders = useCallback(async () => {
+    if (!canViewFabricationOrders) return [];
+    const payload = await listarOrdenesFabricacionScm();
+    const orders = payload.items || [];
+    setCatalogs((current) => ({ ...current, orders }));
+    setWorkForm((current) => {
+      const eligible = orders.filter(
+        (item) => ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION'].includes(item.estado),
+      );
+      const selectedOrder = eligible.find((item) => item.id === current.orderId);
+      const nextOrder = selectedOrder || eligible[0];
+      const selectedRun = nextOrder?.corridas?.find((item) => item.id === current.runId);
+      const nextRun = selectedRun || nextOrder?.corridas?.find(
+        (item) => ['LIBERADA', 'EN_EJECUCION'].includes(item.estado),
+      );
+      return {
+        ...current,
+        orderId: nextOrder?.id || '',
+        runId: nextRun?.id || '',
+      };
+    });
+    return orders;
+  }, [canViewFabricationOrders]);
 
   useEffect(() => {
     setBusy(true);
@@ -1111,6 +1157,16 @@ export default function OtMangasScm({ view = 'all' }) {
     setSelectedRelief([]);
     setReplacementPrintJobs([]);
   }, [selectedWorkId]);
+
+  useEffect(() => {
+    setReliefForm((current) => {
+      const currentStillAvailable = reliefWorkers.some(
+        (worker) => String(worker.id) === String(current.workerId),
+      );
+      if (currentStillAvailable) return current;
+      return { ...current, workerId: reliefWorkers[0]?.id || '' };
+    });
+  }, [reliefWorkers]);
 
   useEffect(() => {
     storeLastPendingPrintJob(printJob);
@@ -1239,7 +1295,10 @@ export default function OtMangasScm({ view = 'all' }) {
     setBusy(true);
     setError('');
     try {
-      await loadOts(selectedOtId, selectedWorkId);
+      await Promise.all([
+        loadOts(selectedOtId, selectedWorkId),
+        reloadFabricationOrders(),
+      ]);
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo actualizar la jornada.'));
     } finally {
@@ -1328,7 +1387,10 @@ export default function OtMangasScm({ view = 'all' }) {
           ? ` con ${selectedContinuities.length} manga(s) abierta(s), mismo QR y sin reimpresión.`
           : '.'),
       );
-      await loadOts(selectedOt.public_id, result.trabajo_color.id);
+      await Promise.all([
+        loadOts(selectedOt.public_id, result.trabajo_color.id),
+        reloadFabricationOrders(),
+      ]);
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo agregar el Trabajo de color.'));
     } finally {
@@ -1481,6 +1543,12 @@ export default function OtMangasScm({ view = 'all' }) {
     );
     if (transfersPrintedStickers && !reliefForm.confirmEmptyStickers) {
       setError('Confirma que las mangas seleccionadas están vacías y los stickers no fueron utilizados.');
+      return;
+    }
+    if (!reliefWorkers.some(
+      (worker) => String(worker.id) === String(reliefForm.workerId),
+    )) {
+      setError('El nuevo maquinista debe ser distinto del responsable actual.');
       return;
     }
     setBusy(true);
@@ -2336,12 +2404,12 @@ export default function OtMangasScm({ view = 'all' }) {
                   <InputLabel>Nuevo maquinista</InputLabel>
                   <Select
                     label="Nuevo maquinista"
-                    value={reliefForm.workerId}
+                    value={reliefWorkerId}
                     onChange={(event) => setReliefForm({
                       ...reliefForm, workerId: event.target.value,
                     })}
                   >
-                    {catalogs.workers.map((item) => (
+                    {reliefWorkers.map((item) => (
                       <MenuItem key={item.id} value={item.id}>{item.nombre_completo}</MenuItem>
                     ))}
                   </Select>
