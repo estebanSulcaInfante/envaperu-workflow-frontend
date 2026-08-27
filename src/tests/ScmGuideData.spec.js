@@ -56,15 +56,15 @@ describe('guía oficial de OT de máquina y Trabajo de color', () => {
     expect(production).toContain('reanuda el mismo Trabajo de color');
   });
 
-  it('documenta asignación, relevo por subconjunto y pesaje por QR', () => {
+  it('documenta relevo por responsabilidad y pesaje por QR', () => {
     const production = textOf(stage('produccion'));
     const weighing = textOf(stage('pesaje'));
 
-    expect(production).toContain('mangas pendientes');
     expect(production).toContain('relevo supervisado');
-    expect(production).toContain('conteo acumulado en la frontera del relevo');
-    expect(production).toContain('no es un pesaje intermedio');
-    expect(production).toContain('conserva su identidad, color y Trabajo de color');
+    expect(production).toContain('relevo sin transferencia de stickers');
+    expect(production).toContain('conteo físico acumulado de frontera es obligatorio');
+    expect(production).toContain('Solo las mangas realmente vacías o los stickers no utilizados pasan al entrante');
+    expect(production).toContain('Las mangas ya pesadas conservan su responsable histórico');
     expect(production).toContain('se invalida y se imprime su reemplazo');
     expect(production).toContain('no digita OF, color, cantidad, fecha ni su nombre');
     expect(weighing).toContain('no se digitan manualmente en la estación');
@@ -75,8 +75,8 @@ describe('guía oficial de OT de máquina y Trabajo de color', () => {
     const production = textOf(stage('produccion'));
     const corrections = textOf(stage('correcciones'));
 
-    expect(production).toContain('No se transfiere una manga de una OT diaria a la OT del día siguiente');
-    expect(production).toContain('No se acumulan varios pesajes parciales o intermedios');
+    expect(production).toContain('La manga puede continuar a una OT posterior');
+    expect(production).toContain('Cada corte es una observación acumulada sin producción, impresión ni Kardex');
     expect(production).toContain('No se modela aquí material preparado');
     expect(corrections).toContain('reversa de recepción');
     expect(corrections).toContain('devuelve su cupo al Trabajo de color');

@@ -14,6 +14,7 @@ const scmMocks = vi.hoisted(() => ({
   listarOrdenesFabricacionScm: vi.fn(),
   obtenerPlanMangas: vi.fn(),
   listarOtScm: vi.fn(),
+  listarContinuidadesMangaPendientesScm: vi.fn(),
   listarSolicitudesMangaExtraScm: vi.fn(),
   crearOtFabricacionScm: vi.fn(),
   crearTrabajoColorScm: vi.fn(),
@@ -38,6 +39,8 @@ vi.mock('../services/scmOtApi', () => ({
   crearTrabajoColorScm: scmMocks.crearTrabajoColorScm,
   generarEtiquetasPrepesaje: vi.fn(),
   listarOtScm: scmMocks.listarOtScm,
+  listarContinuidadesMangaPendientesScm:
+    scmMocks.listarContinuidadesMangaPendientesScm,
   listarSolicitudesMangaExtraScm: scmMocks.listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm: scmMocks.listarOrdenesFabricacionScm,
   obtenerPesajeMangaScm: vi.fn(),
@@ -204,6 +207,7 @@ describe('tablero diario por máquina y selección humana de color', () => {
     scmMocks.obtenerPlanMangas.mockResolvedValue({ plan });
     scmMocks.listarSolicitudesMangaExtraScm.mockResolvedValue({ items: [] });
     scmMocks.listarOtScm.mockResolvedValue({ items: [] });
+    scmMocks.listarContinuidadesMangaPendientesScm.mockResolvedValue({ items: [] });
   });
 
   it('muestra las 13 máquinas aunque ninguna tenga OT para la fecha y turno', async () => {

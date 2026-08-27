@@ -24,6 +24,7 @@ import {
   crearTrabajoColorScm,
   generarEtiquetasPrepesaje,
   listarOtScm,
+  listarContinuidadesMangaPendientesScm,
   listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm,
   obtenerPesajeMangaScm,
@@ -72,6 +73,7 @@ const PRODUCTION_CLOSED_MANGA_STATES = new Set([
 ]);
 const PRODUCTION_OPEN_MANGA_STATES = new Set([
   'ABIERTA', 'INCOMPLETA', 'PESAJE_PARCIAL',
+  'CONTINUIDAD_PENDIENTE', 'EN_LLENADO',
 ]);
 const PRELABELED_MANGA_STATES = new Set(['PREETIQUETADA']);
 const PRINTED_LABEL_STATES = new Set(['IMPRESA']);
@@ -655,15 +657,33 @@ function MangaTable({
                 <TableCell>
                   <Typography fontWeight={800}>{manga.codigo}</Typography>
                   <Typography variant="caption">{manga.tipo_manga || manga.tipo}</Typography>
+                  {manga.heredada_de_ot_anterior && (
+                    <Typography display="block" variant="caption" color="warning.dark">
+                      Heredada de {manga.continuidad?.tramos?.[0]?.ot_codigo || 'OT anterior'} · QR conservado
+                    </Typography>
+                  )}
                 </TableCell>
                 <TableCell>
                   {manga.articulo_nombre}
                   <Typography display="block" variant="caption">{manga.color}</Typography>
                 </TableCell>
-                <TableCell>{manga.maquinista || 'Por asignar'}</TableCell>
+                <TableCell>
+                  {manga.maquinista_actual || manga.maquinista || 'Por asignar'}
+                  {manga.maquinista_actual && manga.maquinista_actual !== manga.maquinista && (
+                    <Typography display="block" variant="caption" color="text.secondary">
+                      Inicial: {manga.maquinista}
+                    </Typography>
+                  )}
+                </TableCell>
                 <TableCell align="right">{compactQuantity(manga.cantidad_asignada_un)}</TableCell>
                 <TableCell>
                   <Chip size="small" label={stateLabel(manga.estado)} />
+                  {manga.continuidad?.ultimo_control && (
+                    <Typography display="block" variant="caption">
+                      Corte {compactQuantity(manga.continuidad.conteo_acumulado_un)} ·
+                      faltan {compactQuantity(manga.continuidad.cantidad_pendiente_un)}
+                    </Typography>
+                  )}
                 </TableCell>
                 <TableCell padding="checkbox">
                   <Checkbox
@@ -688,7 +708,13 @@ function MangaTable({
                     {canReplaceLabel && (
                       <Button
                         size="small"
-                        disabled={!manga.etiqueta_vigente || manga.estado === 'ANULADA'}
+                        disabled={
+                          !manga.etiqueta_vigente || manga.estado === 'ANULADA'
+                          || (
+                            manga.etiqueta_vigente?.tipo === 'PREPESAJE'
+                            && !['PLANIFICADA', 'PREETIQUETADA'].includes(manga.estado)
+                          )
+                        }
                         onClick={() => onReplace(manga)}
                       >
                         Reemplazar etiqueta
@@ -789,6 +815,9 @@ export default function OtMangasScm({ view = 'all' }) {
     orderId: '', runId: '', workerId: '', quantities: {},
   });
   const [draftPlan, setDraftPlan] = useState(null);
+  const [continuityCandidates, setContinuityCandidates] = useState([]);
+  const [selectedContinuities, setSelectedContinuities] = useState([]);
+  const [continuityBusy, setContinuityBusy] = useState(false);
   const [selectedWorkPlan, setSelectedWorkPlan] = useState(null);
   const [extraRequests, setExtraRequests] = useState([]);
   const [mangaAllocation, setMangaAllocation] = useState({
@@ -797,7 +826,7 @@ export default function OtMangasScm({ view = 'all' }) {
   const [selectedLabels, setSelectedLabels] = useState([]);
   const [selectedRelief, setSelectedRelief] = useState([]);
   const [reliefForm, setReliefForm] = useState({
-    workerId: '', reason: '', openManga: false, boundaryCount: '',
+    workerId: '', reason: '', confirmEmptyStickers: false,
   });
   const [busy, setBusy] = useState(true);
   const [planBusy, setPlanBusy] = useState(false);
@@ -915,7 +944,7 @@ export default function OtMangasScm({ view = 'all' }) {
   );
   const runningWork = works.find((item) => item.estado === 'EN_EJECUCION') || null;
   const pendingWorkMangas = (selectedWork?.mangas || []).filter(
-    (item) => ![
+    (item) => !item.resuelta_para_trabajo && ![
       'PESADA', 'ETIQUETADA_FINAL', 'PENDIENTE_RECEPCION_ALMACEN',
       'RECIBIDA', 'ANULADA',
     ].includes(item.estado),
@@ -1143,6 +1172,32 @@ export default function OtMangasScm({ view = 'all' }) {
     return () => { active = false; };
   }, [workForm.orderId]);
 
+  useEffect(() => {
+    if (!selectedOt?.public_id || !workForm.runId) {
+      setContinuityCandidates([]);
+      setSelectedContinuities([]);
+      return undefined;
+    }
+    let active = true;
+    setContinuityBusy(true);
+    listarContinuidadesMangaPendientesScm(
+      selectedOt.public_id, workForm.runId,
+    )
+      .then((payload) => {
+        if (!active) return;
+        const items = payload.items || [];
+        setContinuityCandidates(items);
+        setSelectedContinuities(items.map((item) => item.manga.public_id));
+      })
+      .catch(() => {
+        if (!active) return;
+        setContinuityCandidates([]);
+        setSelectedContinuities([]);
+      })
+      .finally(() => { if (active) setContinuityBusy(false); });
+    return () => { active = false; };
+  }, [selectedOt?.public_id, workForm.runId]);
+
   const selectedWorkOrderId = selectedWork?.orden_fabricacion_id;
   const selectedWorkRunId = selectedWork?.corrida_fabricacion_id;
   const selectedWorkIsLegacy = Boolean(selectedWork?.legacy);
@@ -1254,8 +1309,8 @@ export default function OtMangasScm({ view = 'all' }) {
         cantidad_un: Number(workForm.quantities[line.id]),
       }));
     if (!selectedOt || !selectedRun || !selectedRunHasColor
-      || !workForm.workerId || !assignments.length) {
-      setError('Selecciona OT, color a fabricar, maquinista y una cantidad positiva.');
+      || !workForm.workerId || (!assignments.length && !selectedContinuities.length)) {
+      setError('Selecciona OT, color, maquinista y saldo nuevo o una manga abierta compatible.');
       return;
     }
     setBusy(true);
@@ -1265,9 +1320,13 @@ export default function OtMangasScm({ view = 'all' }) {
         corrida_fabricacion_id: selectedRun.id,
         maquinista_id: Number(workForm.workerId),
         asignaciones: assignments,
+        continuidad_manga_ids: selectedContinuities,
       });
       setNotice(
-        `${result.trabajo_color.color || result.trabajo_color.codigo} agregado a la cola de ${selectedOt.codigo_ot}.`,
+        `${result.trabajo_color.color || result.trabajo_color.codigo} agregado a ${selectedOt.codigo_ot}`
+        + (selectedContinuities.length
+          ? ` con ${selectedContinuities.length} manga(s) abierta(s), mismo QR y sin reimpresión.`
+          : '.'),
       );
       await loadOts(selectedOt.public_id, result.trabajo_color.id);
     } catch (requestError) {
@@ -1416,16 +1475,12 @@ export default function OtMangasScm({ view = 'all' }) {
       setError('El relevo requiere maquinista y motivo.');
       return;
     }
-    if (reliefForm.openManga && selectedRelief.length !== 1) {
-      setError('Una manga abierta se transfiere individualmente. Selecciona exactamente una.');
-      return;
-    }
-    if (
-      reliefForm.openManga
-      && (!Number.isInteger(Number(reliefForm.boundaryCount))
-        || Number(reliefForm.boundaryCount) < 0)
-    ) {
-      setError('Registra el conteo acumulado de frontera de la manga abierta.');
+    const transfersPrintedStickers = (selectedWork.mangas || []).some(
+      (manga) => selectedRelief.includes(manga.public_id)
+        && manga.estado === 'PREETIQUETADA',
+    );
+    if (transfersPrintedStickers && !reliefForm.confirmEmptyStickers) {
+      setError('Confirma que las mangas seleccionadas están vacías y los stickers no fueron utilizados.');
       return;
     }
     setBusy(true);
@@ -1435,11 +1490,8 @@ export default function OtMangasScm({ view = 'all' }) {
         trabajador_id: Number(reliefForm.workerId),
         motivo: reliefForm.reason.trim(),
         version: selectedWork.version,
-        ...(selectedRelief.length ? { manga_ids: selectedRelief } : {}),
-        ...(reliefForm.openManga ? {
-          manga_abierta: true,
-          conteo_frontera: Number(reliefForm.boundaryCount),
-        } : {}),
+        manga_ids: selectedRelief,
+        ...(transfersPrintedStickers ? { confirmacion_stickers_vacios: true } : {}),
       });
       const replacementJobs = result.trabajos_impresion_reemplazo || [];
       setReplacementPrintJobs(replacementJobs);
@@ -1447,14 +1499,17 @@ export default function OtMangasScm({ view = 'all' }) {
         (total, job) => total + (job.labels?.length || 0), 0,
       );
       setNotice(
-        `${result.mangas.length} manga(s) reasignadas a ${result.asignacion.trabajador}.`
+        `${result.asignacion.trabajador} quedó como responsable.`
+        + (result.mangas.length
+          ? ` ${result.mangas.length} sticker(s) pendiente(s) transferidos.`
+          : ' Sin transferencia de stickers.')
         + (replacementLabelCount
           ? ` Reimprime ${replacementLabelCount} preetiqueta(s) de reemplazo.`
           : ''),
       );
       setSelectedRelief([]);
       setReliefForm((current) => ({
-        ...current, reason: '', openManga: false, boundaryCount: '',
+        ...current, reason: '', confirmEmptyStickers: false,
       }));
       await loadOts(selectedOt.public_id, selectedWork.id);
     } catch (requestError) {
@@ -2081,6 +2136,63 @@ export default function OtMangasScm({ view = 'all' }) {
             )}
           </Stack>
           {planBusy && <CircularProgress size={24} />}
+          {continuityBusy && (
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+              <CircularProgress size={20} />
+              <Typography variant="body2">Buscando mangas abiertas compatibles…</Typography>
+            </Stack>
+          )}
+          {!continuityBusy && continuityCandidates.length > 0 && (
+            <Paper
+              variant="outlined"
+              sx={{ p: 1.5, mb: 2, borderColor: 'warning.main', bgcolor: 'warning.50' }}
+            >
+              <Typography fontWeight={900}>Mangas abiertas del turno anterior</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Continúan en esta OT con el mismo sticker y QR. El responsable será el maquinista inicial elegido arriba; no debe aceptar otro paso.
+              </Typography>
+              <Stack spacing={1}>
+                {continuityCandidates.map((candidate) => {
+                  const manga = candidate.manga;
+                  const checked = selectedContinuities.includes(manga.public_id);
+                  return (
+                    <FormControlLabel
+                      key={manga.public_id}
+                      control={(
+                        <Checkbox
+                          checked={checked}
+                          onChange={() => setSelectedContinuities((current) => (
+                            checked
+                              ? current.filter((value) => value !== manga.public_id)
+                              : [...current, manga.public_id]
+                          ))}
+                          inputProps={{
+                            'aria-label': `Continuar ${manga.codigo} en esta OT`,
+                          }}
+                        />
+                      )}
+                      label={(
+                        <Box>
+                          <Typography fontWeight={850}>
+                            {manga.codigo} · {candidate.conteo_acumulado_un}/
+                            {manga.cantidad_asignada_un} un · faltan {candidate.cantidad_pendiente_un}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {candidate.origen.ot_codigo} · turno {stateLabel(candidate.origen.turno)} ·
+                            {' '}{candidate.origen.maquinista || 'responsable de origen'} ·
+                            {' '}último NET {candidate.control_frontera?.peso_neto_kg || '—'} kg
+                          </Typography>
+                        </Box>
+                      )}
+                    />
+                  );
+                })}
+              </Stack>
+              <Alert severity="info" sx={{ mt: 1 }}>
+                Al agregar el color se programa automáticamente el tramo del nuevo responsable. No se crea otra manga ni se consume nuevamente el plan.
+              </Alert>
+            </Paper>
+          )}
           {!planBusy && draftRunLines.length > 0 && (
             <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
               <Table size="small">
@@ -2119,7 +2231,7 @@ export default function OtMangasScm({ view = 'all' }) {
           )}
           <Button
             variant="contained"
-            disabled={busy || !selectedRun || !selectedRunHasColor}
+            disabled={busy || continuityBusy || !selectedRun || !selectedRunHasColor}
             onClick={createWork}
           >
             Agregar a la cola de esta OT
@@ -2217,7 +2329,7 @@ export default function OtMangasScm({ view = 'all' }) {
             <Paper variant="outlined" sx={{ p: 1.5, mb: 2, bgcolor: 'grey.50' }}>
               <Typography fontWeight={850}>Asignar o relevar maquinista</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Marca mangas en la columna “Relevo” para transferir solo ese subconjunto. Sin selección se transfieren todas las elegibles.
+                El relevo registra el cambio de responsable. Marca solamente stickers de mangas vacías o no utilizadas si también debes transferirlos. Sin selección se registra el relevo sin stickers.
               </Typography>
               <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1}>
                 <FormControl size="small" sx={{ minWidth: 240 }}>
@@ -2245,50 +2357,44 @@ export default function OtMangasScm({ view = 'all' }) {
                 />
                 <Button
                   variant="outlined"
-                  disabled={busy || !reliefForm.reason.trim()}
+                  disabled={
+                    busy
+                    || !reliefForm.reason.trim()
+                    || (selectedRelief.length === 0 && selectedWork.estado !== 'EN_EJECUCION')
+                  }
                   onClick={relieveWorker}
                 >
                   {selectedRelief.length
-                    ? `Relevar ${selectedRelief.length} manga${selectedRelief.length > 1 ? 's' : ''}`
-                    : 'Relevar mangas elegibles'}
+                    ? `Relevar y transferir ${selectedRelief.length} sticker${selectedRelief.length > 1 ? 's' : ''}`
+                    : 'Registrar relevo sin stickers'}
                 </Button>
               </Stack>
-              <FormControlLabel
-                sx={{ mt: 1 }}
-                control={(
-                  <Checkbox
-                    checked={reliefForm.openManga}
-                    onChange={(event) => setReliefForm({
-                      ...reliefForm,
-                      openManga: event.target.checked,
-                      boundaryCount: event.target.checked ? reliefForm.boundaryCount : '',
-                    })}
-                  />
-                )}
-                label="La manga seleccionada está abierta e incompleta"
-              />
-              {reliefForm.openManga && (
-                <Stack spacing={1}>
-                  <TextField
-                    size="small"
-                    type="number"
-                    label="Conteo acumulado al relevo (un)"
-                    value={reliefForm.boundaryCount}
-                    inputProps={{ min: 0, step: 1 }}
-                    onChange={(event) => setReliefForm({
-                      ...reliefForm, boundaryCount: event.target.value,
-                    })}
-                    helperText="El conteo separa la responsabilidad entre maquinistas; no crea un pesaje intermedio."
-                    sx={{ maxWidth: 420 }}
-                  />
-                  <Alert severity="info">
-                    El conteo de frontera es evidencia declarada por el supervisor, no una medición automática. Sin un conteo verificable o un contador físico, el sistema registra el relevo, pero no atribuye unidades exactas por trabajador.
-                  </Alert>
-                  <Alert severity="warning">
-                    La manga conserva su identidad de manga, color y Trabajo de color; la preetiqueta anterior se invalida y debe reemplazarse. El relevo solo puede ocurrir dentro de esta misma OT.
-                  </Alert>
-                </Stack>
+              {selectedRelief.length === 0 && selectedWork.estado !== 'EN_EJECUCION' && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                  El relevo sin stickers se registra cuando el Trabajo de color está en ejecución. Antes de iniciarlo, selecciona las identidades que deseas asignar.
+                </Typography>
               )}
+              {(selectedWork.mangas || []).some(
+                (manga) => selectedRelief.includes(manga.public_id)
+                  && manga.estado === 'PREETIQUETADA',
+              ) && (
+                <FormControlLabel
+                  sx={{ mt: 1 }}
+                  control={(
+                    <Checkbox
+                      checked={reliefForm.confirmEmptyStickers}
+                      onChange={(event) => setReliefForm({
+                        ...reliefForm,
+                        confirmEmptyStickers: event.target.checked,
+                      })}
+                    />
+                  )}
+                  label="Confirmo que estas mangas están vacías y sus stickers no fueron utilizados"
+                />
+              )}
+              <Alert severity="info" sx={{ mt: 1 }}>
+                Si una manga tiene contenido al cambiar el turno, escanea su mismo QR en Pesaje y usa “Registrar corte de turno — continúa abierta”. Luego el supervisor la vincula a la OT siguiente; no se reimprime ni se crea otra manga. El cierre final parcial queda solo para terminarla definitivamente.
+              </Alert>
             </Paper>
           )}
 

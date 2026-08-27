@@ -66,6 +66,15 @@ export const crearTrabajoColorScm = (otId, payload) => body(() => api.post(
   payload,
   { headers: headers(true) },
 ));
+export const listarContinuidadesMangaPendientesScm = (
+  otId, corridaFabricacionId,
+) => body(() => api.get(
+  `/scm/v1/ots/${encodeURIComponent(otId)}/continuidades-pendientes`,
+  {
+    params: { corrida_fabricacion_id: corridaFabricacionId },
+    headers: headers(),
+  },
+));
 export const cambiarEstadoTrabajoColorScm = (
   workId, action, version, motivo = null,
 ) => body(() => api.post(

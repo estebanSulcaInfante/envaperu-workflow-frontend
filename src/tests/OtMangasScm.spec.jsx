@@ -12,6 +12,7 @@ const scmMocks = vi.hoisted(() => ({
   obtenerPlanMangas: vi.fn(),
   recalcularPlanMangas: vi.fn(),
   listarOtScm: vi.fn(),
+  listarContinuidadesMangaPendientesScm: vi.fn(),
   crearOtFabricacionScm: vi.fn(),
   crearTrabajoColorScm: vi.fn(),
   cambiarEstadoTrabajoColorScm: vi.fn(),
@@ -63,6 +64,8 @@ vi.mock('../services/scmOtApi', () => ({
   crearTrabajoColorScm: scmMocks.crearTrabajoColorScm,
   generarEtiquetasPrepesaje: scmMocks.generarEtiquetasPrepesaje,
   listarOtScm: scmMocks.listarOtScm,
+  listarContinuidadesMangaPendientesScm:
+    scmMocks.listarContinuidadesMangaPendientesScm,
   listarSolicitudesMangaExtraScm: scmMocks.listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm: scmMocks.listarOrdenesFabricacionScm,
   obtenerPesajeMangaScm: scmMocks.obtenerPesajeMangaScm,
@@ -94,6 +97,8 @@ const greenManga = {
   color: 'VERDE SÓLIDO',
   tipo: 'NORMAL',
   cantidad_asignada_un: '100',
+  maquinista_previsto_id: 8,
+  maquinista: 'Ana Maquinista',
   estado: 'PLANIFICADA',
   etiqueta_vigente: null,
 };
@@ -105,6 +110,8 @@ const blueManga = {
   color: 'AZUL',
   tipo: 'NORMAL',
   cantidad_asignada_un: '100',
+  maquinista_previsto_id: 8,
+  maquinista: 'Ana Maquinista',
   estado: 'PLANIFICADA',
   etiqueta_vigente: null,
 };
@@ -238,6 +245,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       },
     });
     scmMocks.listarOtScm.mockResolvedValue({ items: [machineOt] });
+    scmMocks.listarContinuidadesMangaPendientesScm.mockResolvedValue({ items: [] });
     scmMocks.listarSolicitudesMangaExtraScm.mockResolvedValue({ items: [] });
     scmMocks.solicitarMangaExtraScm.mockResolvedValue({
       solicitud: { id: 'extra-green' },
@@ -368,6 +376,68 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
         corrida_fabricacion_id: 'run-1',
         maquinista_id: 8,
         asignaciones: [{ plan_linea_id: 11, cantidad_un: 100 }],
+        continuidad_manga_ids: [],
+      },
+    ));
+  });
+
+  it('vincula una manga abierta con el mismo QR aunque el saldo nuevo sea cero', async () => {
+    const user = userEvent.setup();
+    scmMocks.obtenerPlanMangas.mockResolvedValueOnce({
+      plan: {
+        revision: 1,
+        lineas: [{
+          id: 11,
+          corrida_fabricacion_id: 'run-1',
+          articulo: { nombre: 'Alcancía Pablo verde' },
+          tipo_manga: { nombre: 'Manga 100' },
+          cantidad_objetivo_un: '100',
+          capacidad_efectiva_un: 100,
+          mangas_propuestas: 1,
+          saldo_un: '0',
+        }],
+      },
+    });
+    scmMocks.listarContinuidadesMangaPendientesScm.mockResolvedValueOnce({
+      items: [{
+        manga: {
+          public_id: 'manga-open-k1',
+          codigo: 'MNG-ABIERTA-K1',
+          cantidad_asignada_un: '50',
+        },
+        origen: {
+          ot_codigo: 'OT-000000',
+          turno: 'DIA',
+          maquinista: 'José Quispe',
+        },
+        control_frontera: { peso_neto_kg: '2.000' },
+        conteo_acumulado_un: '20',
+        cantidad_pendiente_un: '30',
+      }],
+    });
+    renderSubject();
+
+    expect(await screen.findByText('Mangas abiertas del turno anterior')).toBeVisible();
+    const continuity = screen.getByRole('checkbox', {
+      name: 'Continuar MNG-ABIERTA-K1 en esta OT',
+    });
+    expect(continuity).toBeChecked();
+    expect(screen.getByText(/MNG-ABIERTA-K1 · 20\/50 un · faltan 30/)).toBeVisible();
+    expect(scmMocks.listarContinuidadesMangaPendientesScm).toHaveBeenCalledWith(
+      'ot-machine-1', 'run-1',
+    );
+
+    await user.click(screen.getByRole('button', {
+      name: 'Agregar a la cola de esta OT',
+    }));
+
+    await waitFor(() => expect(scmMocks.crearTrabajoColorScm).toHaveBeenCalledWith(
+      'ot-machine-1',
+      {
+        corrida_fabricacion_id: 'run-1',
+        maquinista_id: 8,
+        asignaciones: [],
+        continuidad_manga_ids: ['manga-open-k1'],
       },
     ));
   });
@@ -547,7 +617,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       name: 'Incluir MNG-VERDE-001 en el relevo',
     }));
     await user.type(screen.getByLabelText('Motivo del relevo'), 'Cambio de turno');
-    await user.click(screen.getByRole('button', { name: 'Relevar 1 manga' }));
+    await user.click(screen.getByRole('button', { name: 'Relevar y transferir 1 sticker' }));
 
     await waitFor(() => expect(
       scmMocks.reasignarMangasTrabajoColorScm,
@@ -559,7 +629,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     }));
   });
 
-  it('transfiere una manga abierta con conteo de frontera sin crear un pesaje', async () => {
+  it('transfiere un sticker preimpreso solo tras confirmar que la manga está vacía', async () => {
     const user = userEvent.setup();
     const openManga = {
       ...greenManga,
@@ -588,15 +658,11 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       name: 'Incluir MNG-VERDE-001 en el relevo',
     }));
     await user.click(screen.getByRole('checkbox', {
-      name: 'La manga seleccionada está abierta e incompleta',
+      name: 'Confirmo que estas mangas están vacías y sus stickers no fueron utilizados',
     }));
-    expect(screen.getByText(/conteo de frontera es evidencia declarada/i)).toBeVisible();
-    expect(screen.getByText(
-      /sin un conteo verificable o un contador físico.*no atribuye unidades exactas por trabajador/i,
-    )).toBeVisible();
-    await user.type(screen.getByLabelText('Conteo acumulado al relevo (un)'), '37');
+    expect(screen.getByText(/si una manga tiene contenido al cambiar el turno/i)).toBeVisible();
     await user.type(screen.getByLabelText('Motivo del relevo'), 'Cambio de turno');
-    await user.click(screen.getByRole('button', { name: 'Relevar 1 manga' }));
+    await user.click(screen.getByRole('button', { name: 'Relevar y transferir 1 sticker' }));
 
     await waitFor(() => expect(
       scmMocks.reasignarMangasTrabajoColorScm,
@@ -605,15 +671,38 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       motivo: 'Cambio de turno',
       version: 1,
       manga_ids: ['manga-green-1'],
-      manga_abierta: true,
-      conteo_frontera: 37,
+      confirmacion_stickers_vacios: true,
     }));
     expect(scmMocks.anularPesajeScm).not.toHaveBeenCalled();
     expect(await screen.findByText('print-relevo-1')).toBeVisible();
     expect(screen.getByText('print-relevo-2')).toBeVisible();
     expect(screen.getByText(/1 etiqueta/)).toBeVisible();
     expect(screen.getByText(/2 etiquetas/)).toBeVisible();
-    expect(screen.getByText(/la preetiqueta anterior se invalida/i)).toBeVisible();
+    expect(screen.getByText(/Reimpresión obligatoria por relevo/i)).toBeVisible();
+  });
+
+  it('registra un relevo de responsabilidad sin transferir stickers', async () => {
+    const user = userEvent.setup();
+    scmMocks.listarOtScm.mockResolvedValueOnce({
+      items: [{
+        ...machineOt,
+        estado: 'EN_EJECUCION',
+        trabajos_color: [{ ...greenWork, estado: 'EN_EJECUCION' }, blueWork],
+      }],
+    });
+    renderSubject();
+
+    await user.type(await screen.findByLabelText('Motivo del relevo'), 'Cambio de turno');
+    await user.click(screen.getByRole('button', { name: 'Registrar relevo sin stickers' }));
+
+    await waitFor(() => expect(
+      scmMocks.reasignarMangasTrabajoColorScm,
+    ).toHaveBeenCalledWith('work-green', {
+      trabajador_id: 8,
+      motivo: 'Cambio de turno',
+      version: 1,
+      manga_ids: [],
+    }));
   });
 
   it('muestra por qué un trabajo no puede completarse todavía', async () => {
