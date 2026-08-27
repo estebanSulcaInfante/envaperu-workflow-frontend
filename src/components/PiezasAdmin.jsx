@@ -38,6 +38,7 @@ import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
 import {
   actualizarPiezaGlobal,
   buscarPiezasGlobales,
+  cambiarEstadoPiezaColor,
   crearPiezaGlobal,
   eliminarImagenPiezaColor,
   guardarImagenPiezaColor,
@@ -97,7 +98,7 @@ function PiezasAdmin() {
     try {
       setLoading(true);
       const [pieceData, lineData, familyData, colorData] = await Promise.all([
-        buscarPiezasGlobales(),
+        buscarPiezasGlobales('', 200, { includeInactiveVariants: true }),
         obtenerLineas(),
         obtenerFamilias(),
         obtenerColores(),
@@ -308,6 +309,31 @@ function PiezasAdmin() {
     }
   };
 
+  const toggleVariantActive = async (pieza, variante) => {
+    const nextActive = variante.activo === false;
+    const action = nextActive ? 'reactivar' : 'desactivar';
+    const confirmation = nextActive
+      ? `¿Reactivar PiezaColor ${variante.sku}? Volverá a estar disponible para nuevas selecciones y planificaciones.`
+      : `¿Desactivar PiezaColor ${variante.sku}? Se retirará de nuevas selecciones y planificaciones, pero conservará todo su historial.`;
+    if (!window.confirm(confirmation)) return;
+
+    try {
+      setSaving(true);
+      setError(null);
+      await cambiarEstadoPiezaColor(
+        variante.sku,
+        nextActive,
+        variante.version || 1,
+      );
+      await fetchData();
+      setExpanded((current) => new Set(current).add(pieza.id));
+    } catch (err) {
+      setError(err.response?.data?.error || `No se pudo ${action} la PiezaColor.`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading && piezas.length === 0) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
@@ -485,12 +511,13 @@ function PiezasAdmin() {
                                 <TableCell>Color</TableCell>
                                 <TableCell align="right">Peso (g)</TableCell>
                                 <TableCell>Revisión</TableCell>
-                                {canAdmin && <TableCell align="center">Acción</TableCell>}
+                                <TableCell>Estado</TableCell>
+                                {canAdmin && <TableCell align="center">Acciones</TableCell>}
                               </TableRow>
                             </TableHead>
                             <TableBody>
                               {(pieza.variantes || []).map((variante) => (
-                                <TableRow key={variante.sku}>
+                                <TableRow key={variante.sku} sx={{ opacity: variante.activo === false ? 0.62 : 1 }}>
                                   <TableCell>
                                     {variante.imagen_url ? (
                                       <Box component="img" src={variante.imagen_url} alt={`Imagen ${variante.sku}`} sx={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 1, border: '1px solid', borderColor: 'divider' }} />
@@ -506,10 +533,32 @@ function PiezasAdmin() {
                                   </TableCell>
                                   <TableCell align="right">{Number(variante.peso || pieza.peso_nominal_gr).toFixed(2)}</TableCell>
                                   <TableCell><Chip size="small" variant="outlined" label={variante.estado_revision || 'SIN REVISAR'} /></TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      size="small"
+                                      color={variante.activo === false ? 'default' : 'success'}
+                                      label={variante.activo === false ? 'Inactiva' : 'Activa'}
+                                    />
+                                  </TableCell>
                                   {canAdmin && <TableCell align="center">
-                                    <Button size="small" startIcon={<ImageOutlinedIcon />} onClick={() => openVariantImage(variante)}>
-                                      Imagen
-                                    </Button>
+                                    <Stack direction="row" spacing={0.5} justifyContent="center">
+                                      <Button size="small" startIcon={<ImageOutlinedIcon />} onClick={() => openVariantImage(variante)}>
+                                        Imagen
+                                      </Button>
+                                      <Tooltip title={variante.activo === false ? 'Reactivar PiezaColor' : 'Desactivar PiezaColor'}>
+                                        <span>
+                                          <IconButton
+                                            aria-label={`${variante.activo === false ? 'Reactivar' : 'Desactivar'} PiezaColor ${variante.sku}`}
+                                            size="small"
+                                            color={variante.activo === false ? 'success' : 'warning'}
+                                            disabled={saving}
+                                            onClick={() => toggleVariantActive(pieza, variante)}
+                                          >
+                                            {variante.activo === false ? <RestoreIcon fontSize="small" /> : <LinkOffIcon fontSize="small" />}
+                                          </IconButton>
+                                        </span>
+                                      </Tooltip>
+                                    </Stack>
                                   </TableCell>}
                                 </TableRow>
                               ))}

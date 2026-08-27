@@ -8,6 +8,7 @@ vi.mock('../services/api', () => ({
   asociarFamiliaALinea: vi.fn(),
   actualizarPiezaGlobal: vi.fn(),
   buscarPiezasGlobales: vi.fn(),
+  cambiarEstadoPiezaColor: vi.fn(),
   crearFamiliaEnLinea: vi.fn(),
   crearLinea: vi.fn(),
   crearPiezaGlobal: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock('../context/ScmActorContext', () => ({
 import {
   actualizarPiezaGlobal,
   buscarPiezasGlobales,
+  cambiarEstadoPiezaColor,
   crearFamiliaEnLinea,
   crearLinea,
   crearPiezaGlobal,
@@ -61,6 +63,8 @@ const pieces = [{
     peso: 18.5,
     estado_revision: 'VERIFICADO',
     imagen_url: '/api/piezas-color/PC-000010/imagen',
+    activo: true,
+    version: 4,
   }],
 }];
 
@@ -83,6 +87,7 @@ describe('PiezasAdmin: maestro global Pieza', () => {
       familia: { id: 4, codigo: 40, nombre: 'BOTELLAS' },
     });
     actualizarPiezaGlobal.mockResolvedValue({ id: 10 });
+    cambiarEstadoPiezaColor.mockResolvedValue({ sku: 'PC-000010', activo: false, version: 5 });
     habilitarColorMolde.mockResolvedValue({ variantes_creadas: [] });
   });
 
@@ -176,6 +181,25 @@ describe('PiezasAdmin: maestro global Pieza', () => {
       activo: false,
       version: 3,
     }));
+  });
+
+  it('desactiva una PiezaColor individual y confirma que conserva el historial', async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    await screen.findByText('Tapa universal');
+    await user.click(screen.getByRole('button', { name: 'Mostrar SKU de PZ-000010' }));
+
+    await user.click(screen.getByRole('button', {
+      name: 'Desactivar PiezaColor PC-000010',
+    }));
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('conservará todo su historial'));
+    await waitFor(() => expect(cambiarEstadoPiezaColor).toHaveBeenCalledWith(
+      'PC-000010',
+      false,
+      4,
+    ));
   });
 
   it('filtra familias por línea y limpia una familia al cambiar a otra línea', async () => {

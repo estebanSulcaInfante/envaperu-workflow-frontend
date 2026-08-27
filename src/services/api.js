@@ -88,8 +88,14 @@ export const buscarProductos = async (query = '') => {
 };
 
 // Buscar piezas/moldes para autocomplete
-export const buscarPiezasGlobales = async (query = '', limit = 200) => {
-  const response = await api.get('/piezas', { params: { q: query, limit } });
+export const buscarPiezasGlobales = async (query = '', limit = 200, options = {}) => {
+  const response = await api.get('/piezas', {
+    params: {
+      q: query,
+      limit,
+      ...(options.includeInactiveVariants ? { include_inactive_variants: true } : {}),
+    },
+  });
   return response.data;
 };
 
@@ -398,6 +404,14 @@ export const crearPiezaColor = async (data) => {
 
 export const actualizarPiezaColor = async (sku, data) => {
   const response = await api.put(`/piezas-color/${sku}`, data);
+  return response.data;
+};
+
+export const cambiarEstadoPiezaColor = async (sku, activo, version) => {
+  const response = await api.patch(`/piezas-color/${encodeURIComponent(sku)}/estado`, {
+    activo,
+    version,
+  });
   return response.data;
 };
 
