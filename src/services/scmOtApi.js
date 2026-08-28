@@ -51,6 +51,16 @@ export const listarOtScm = (ofId, tipoOt, filters = {}) => body(() => api.get('/
   },
   headers: headers(),
 }));
+export const listarJornadasPlantaScm = (filters) => body(() => api.get(
+  '/scm/v1/jornadas-planta',
+  {
+    params: {
+      fecha_operativa: filters.fecha_operativa,
+      turno: filters.turno,
+    },
+    headers: headers(),
+  },
+));
 export const crearOtScm = (ofId, payload) => body(() => api.post(
   `/scm/v1/ordenes-fabricacion/${encodeURIComponent(ofId)}/ots`,
   payload,

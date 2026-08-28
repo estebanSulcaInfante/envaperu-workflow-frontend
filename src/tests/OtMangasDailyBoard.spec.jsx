@@ -1,4 +1,6 @@
-import { render, screen, within } from '@testing-library/react';
+import {
+  render, screen, waitFor, within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -13,6 +15,7 @@ const catalogMocks = vi.hoisted(() => ({
 const scmMocks = vi.hoisted(() => ({
   listarOrdenesFabricacionScm: vi.fn(),
   obtenerPlanMangas: vi.fn(),
+  listarJornadasPlantaScm: vi.fn(),
   listarOtScm: vi.fn(),
   listarSolicitudesMangaExtraScm: vi.fn(),
   crearOtFabricacionScm: vi.fn(),
@@ -37,6 +40,7 @@ vi.mock('../services/scmOtApi', () => ({
   crearOtFabricacionScm: scmMocks.crearOtFabricacionScm,
   crearTrabajoColorScm: scmMocks.crearTrabajoColorScm,
   generarEtiquetasPrepesaje: vi.fn(),
+  listarJornadasPlantaScm: scmMocks.listarJornadasPlantaScm,
   listarOtScm: scmMocks.listarOtScm,
   listarSolicitudesMangaExtraScm: scmMocks.listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm: scmMocks.listarOrdenesFabricacionScm,
@@ -204,6 +208,19 @@ describe('tablero diario por máquina y selección humana de color', () => {
     scmMocks.obtenerPlanMangas.mockResolvedValue({ plan });
     scmMocks.listarSolicitudesMangaExtraScm.mockResolvedValue({ items: [] });
     scmMocks.listarOtScm.mockResolvedValue({ items: [] });
+    scmMocks.listarJornadasPlantaScm.mockImplementation(async (filters) => {
+      const [fabrication, assembly, machineCatalog] = await Promise.all([
+        scmMocks.listarOtScm(undefined, 'FABRICACION', filters),
+        scmMocks.listarOtScm(undefined, 'ENSAMBLE', filters),
+        catalogMocks.obtenerMaquinas(),
+      ]);
+      return {
+        maquinas: machineCatalog,
+        centros_trabajo: [],
+        ots_fabricacion: fabrication.items || [],
+        ots_armado: assembly.items || [],
+      };
+    });
   });
 
   it('muestra las 13 máquinas aunque ninguna tenga OT para la fecha y turno', async () => {
@@ -227,6 +244,23 @@ describe('tablero diario por máquina y selección humana de color', () => {
         turno: 'DIA',
       },
     );
+  });
+
+  it('muestra las jornadas sin esperar a que termine el catálogo de OF', async () => {
+    let resolveOrders;
+    scmMocks.listarOrdenesFabricacionScm.mockReturnValue(new Promise((resolve) => {
+      resolveOrders = resolve;
+    }));
+
+    renderSubject();
+
+    const board = await screen.findByTestId('daily-machine-board');
+    expect(within(board).getAllByTestId('machine-day-card')).toHaveLength(13);
+    expect(scmMocks.listarJornadasPlantaScm).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(scmMocks.listarOrdenesFabricacionScm).toHaveBeenCalledTimes(1);
+    });
+    resolveOrders({ items: [] });
   });
 
   it('excluye del tablero las máquinas inactivas o fuera de servicio', async () => {

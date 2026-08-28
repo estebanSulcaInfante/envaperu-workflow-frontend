@@ -12,7 +12,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
-import { getTrabajadores, obtenerMaquinas } from '../services/api';
+import { getTrabajadores } from '../services/api';
 import {
   agregarMangasTrabajoColorScm,
   anularMangaScm,
@@ -23,7 +23,7 @@ import {
   crearOtFabricacionScm,
   crearTrabajoColorScm,
   generarEtiquetasPrepesaje,
-  listarOtScm,
+  listarJornadasPlantaScm,
   listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm,
   obtenerPesajeMangaScm,
@@ -34,10 +34,7 @@ import {
   solicitarMangaExtraScm,
   solicitarCorreccionPesajeScm,
 } from '../services/scmOtApi';
-import {
-  listarCentrosTrabajoScm,
-  mensajeErrorScm,
-} from '../services/scmEngineeringApi';
+import { mensajeErrorScm } from '../services/scmEngineeringApi';
 import PageHeader from './ui/PageHeader';
 import ProcessJourney from './ui/ProcessJourney';
 import PlantJourneysOverview from './PlantJourneysOverview';
@@ -952,78 +949,102 @@ export default function OtMangasScm({ view = 'all' }) {
     setSelectedWorkId(nextWork?.id || '');
   }, []);
 
-  const loadOts = useCallback(async (
-    preferredOtId, preferredWorkId, filters = listFilters,
+  const applyJourneyPayload = useCallback((
+    payload, preferredOtId, preferredWorkId,
+  ) => {
+    const machines = payload.maquinas || [];
+    const operationalMachines = machines.filter(isOperationalMachine);
+    setCatalogs((current) => ({
+      ...current,
+      machines: operationalMachines,
+      allMachines: machines,
+    }));
+    setAssemblyCenters((payload.centros_trabajo || []).filter((center) => (
+      center.activo !== false
+      && ['PREARMADO', 'ENSAMBLE', 'ACABADO', 'EMPAQUE'].includes(center.tipo)
+    )));
+    setCenterCatalogWarning('');
+    setHeaderForm((current) => ({
+      ...current,
+      maquina_id: current.maquina_id || operationalMachines[0]?.id || '',
+    }));
+    applyOtPayload(
+      payload.ots_fabricacion || [],
+      preferredOtId,
+      preferredWorkId,
+    );
+    setAssemblyOts(payload.ots_armado || []);
+    setJourneyWarnings({ FABRICACION: '', ENSAMBLE: '' });
+  }, [applyOtPayload]);
+
+  const fetchJourneys = useCallback(async (
+    preferredOtId, preferredWorkId, filters,
   ) => {
     const query = {
       fecha_operativa: filters.fecha_operativa,
       turno: filters.turno,
     };
-    const [fabricationResult, assemblyResult] = await Promise.allSettled([
-      listarOtScm(undefined, 'FABRICACION', query),
-      listarOtScm(undefined, 'ENSAMBLE', query),
-    ]);
-    if (fabricationResult.status === 'fulfilled') {
-      applyOtPayload(fabricationResult.value.items || [], preferredOtId, preferredWorkId);
+    try {
+      const payload = await listarJornadasPlantaScm(query);
+      applyJourneyPayload(payload, preferredOtId, preferredWorkId);
+    } catch (requestError) {
+      const warning = 'No se pudieron actualizar las jornadas. Se conserva la última información visible.';
+      setJourneyWarnings({ FABRICACION: warning, ENSAMBLE: warning });
+      setCenterCatalogWarning(
+        'No se pudo consultar el catálogo de centros. Las jornadas existentes siguen visibles.',
+      );
+      throw requestError;
     }
-    if (assemblyResult.status === 'fulfilled') {
-      setAssemblyOts(assemblyResult.value.items || []);
-    }
-    setJourneyWarnings({
-      FABRICACION: fabricationResult.status === 'rejected'
-        ? 'No se pudieron actualizar las jornadas de Fabricación. Se conserva la última información visible.'
-        : '',
-      ENSAMBLE: assemblyResult.status === 'rejected'
-        ? 'No se pudieron actualizar las jornadas de Armado. Se conserva la última información visible.'
-        : '',
-    });
-  }, [applyOtPayload, listFilters]);
+  }, [applyJourneyPayload]);
+
+  const loadOts = useCallback((
+    preferredOtId, preferredWorkId, filters = listFilters,
+  ) => fetchJourneys(preferredOtId, preferredWorkId, filters), [
+    fetchJourneys,
+    listFilters,
+  ]);
 
   useEffect(() => {
     setBusy(true);
-    const centersRequest = listarCentrosTrabajoScm()
-      .then((centers) => {
-        setCenterCatalogWarning('');
-        return centers;
-      })
-      .catch(() => {
-        setCenterCatalogWarning(
-          'No se pudo consultar el catálogo de centros. Las jornadas existentes siguen visibles.',
-        );
-        return [];
-      });
+    const initialFilters = {
+      fecha_operativa: initialJourneyContext.fecha_operativa,
+      turno: initialJourneyContext.turno,
+      maquina_id: '',
+    };
+    setListFilters(initialFilters);
+    fetchJourneys(
+      initialJourneyContext.perspective === 'FABRICACION'
+        ? initialJourneyContext.ot : undefined,
+      undefined,
+      initialFilters,
+    )
+      .catch((requestError) => setError(
+        mensajeErrorScm(requestError, 'No se pudieron cargar jornadas y recursos.'),
+      ))
+      .finally(() => setBusy(false));
     Promise.all([
       canViewFabricationOrders
         ? listarOrdenesFabricacionScm()
         : Promise.resolve({ items: [] }),
-      obtenerMaquinas(),
       getTrabajadores({ rol: 'MAQUINISTA', activo: true }),
-      centersRequest,
     ])
-      .then(async ([orderPayload, machines, workers, centers]) => {
+      .then(([orderPayload, workers]) => {
         const orders = orderPayload.items || [];
         const selectableOrders = orders.filter(
           (item) => ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION'].includes(item.estado),
         );
-        const operationalMachines = (machines || []).filter(isOperationalMachine);
         const activeWorkers = (workers || []).filter((item) => item.activo !== false);
-        setCatalogs({
+        setCatalogs((current) => ({
+          ...current,
           orders,
-          machines: operationalMachines,
-          allMachines: machines || [],
           workers: activeWorkers,
-        });
-        setAssemblyCenters((centers || []).filter((center) => (
-          center.activo !== false
-          && ['PREARMADO', 'ENSAMBLE', 'ACABADO', 'EMPAQUE'].includes(center.tipo)
-        )));
+        }));
         const firstOrder = selectableOrders[0];
         const firstRun = firstOrder?.corridas?.find(
           (item) => ['LIBERADA', 'EN_EJECUCION'].includes(item.estado),
         );
         setHeaderForm((current) => ({
           ...current,
-          maquina_id: current.maquina_id || operationalMachines[0]?.id || '',
           maquinista_predeterminado_id:
             current.maquinista_predeterminado_id || activeWorkers[0]?.id || '',
         }));
@@ -1036,42 +1057,11 @@ export default function OtMangasScm({ view = 'all' }) {
         setReliefForm((current) => ({
           ...current, workerId: current.workerId || activeWorkers[0]?.id || '',
         }));
-        const initialFilters = {
-          fecha_operativa: initialJourneyContext.fecha_operativa,
-          turno: initialJourneyContext.turno,
-          maquina_id: '',
-        };
-        setListFilters(initialFilters);
-        const query = {
-          fecha_operativa: initialFilters.fecha_operativa,
-          turno: initialFilters.turno,
-        };
-        const [fabricationResult, assemblyResult] = await Promise.allSettled([
-          listarOtScm(undefined, 'FABRICACION', query),
-          listarOtScm(undefined, 'ENSAMBLE', query),
-        ]);
-        if (fabricationResult.status === 'fulfilled') {
-          applyOtPayload(
-            fabricationResult.value.items || [],
-            initialJourneyContext.perspective === 'FABRICACION'
-              ? initialJourneyContext.ot : undefined,
-          );
-        }
-        if (assemblyResult.status === 'fulfilled') {
-          setAssemblyOts(assemblyResult.value.items || []);
-        }
-        setJourneyWarnings({
-          FABRICACION: fabricationResult.status === 'rejected'
-            ? 'No se pudieron cargar las jornadas de Fabricación.' : '',
-          ENSAMBLE: assemblyResult.status === 'rejected'
-            ? 'No se pudieron cargar las jornadas de Armado.' : '',
-        });
       })
       .catch((requestError) => setError(
-        mensajeErrorScm(requestError, 'No se pudieron cargar OT, OF y recursos.'),
-      ))
-      .finally(() => setBusy(false));
-  }, [applyOtPayload, canViewFabricationOrders, initialJourneyContext]);
+        mensajeErrorScm(requestError, 'No se pudieron cargar OF y maquinistas.'),
+      ));
+  }, [canViewFabricationOrders, fetchJourneys, initialJourneyContext]);
 
   useEffect(() => {
     selectedWorkIdRef.current = selectedWorkId;

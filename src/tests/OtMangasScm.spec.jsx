@@ -11,6 +11,7 @@ import { getTrabajadores } from '../services/api';
 const scmMocks = vi.hoisted(() => ({
   listarOrdenesFabricacionScm: vi.fn(),
   obtenerPlanMangas: vi.fn(),
+  listarJornadasPlantaScm: vi.fn(),
   recalcularPlanMangas: vi.fn(),
   listarOtScm: vi.fn(),
   crearOtFabricacionScm: vi.fn(),
@@ -63,6 +64,7 @@ vi.mock('../services/scmOtApi', () => ({
   crearOtScm: vi.fn(),
   crearTrabajoColorScm: scmMocks.crearTrabajoColorScm,
   generarEtiquetasPrepesaje: scmMocks.generarEtiquetasPrepesaje,
+  listarJornadasPlantaScm: scmMocks.listarJornadasPlantaScm,
   listarOtScm: scmMocks.listarOtScm,
   listarSolicitudesMangaExtraScm: scmMocks.listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm: scmMocks.listarOrdenesFabricacionScm,
@@ -239,6 +241,18 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       },
     });
     scmMocks.listarOtScm.mockResolvedValue({ items: [machineOt] });
+    scmMocks.listarJornadasPlantaScm.mockImplementation(async (filters) => {
+      const [fabrication, assembly] = await Promise.all([
+        scmMocks.listarOtScm(undefined, 'FABRICACION', filters),
+        scmMocks.listarOtScm(undefined, 'ENSAMBLE', filters),
+      ]);
+      return {
+        maquinas: [{ id: 4, codigo: 'SOP-01', nombre: 'Sopladora 1' }],
+        centros_trabajo: [],
+        ots_fabricacion: fabrication.items || [],
+        ots_armado: assembly.items || [],
+      };
+    });
     scmMocks.listarSolicitudesMangaExtraScm.mockResolvedValue({ items: [] });
     scmMocks.solicitarMangaExtraScm.mockResolvedValue({
       solicitud: { id: 'extra-green' },

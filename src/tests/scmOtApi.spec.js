@@ -18,6 +18,7 @@ import {
   crearOrdenFabricacionExcepcionalScm,
   crearOtFabricacionScm,
   crearTrabajoColorScm,
+  listarJornadasPlantaScm,
   listarOtScm,
   reasignarMangasTrabajoColorScm,
 } from '../services/scmOtApi';
@@ -59,6 +60,22 @@ describe('contratos OT de máquina y Trabajo de color', () => {
         fecha_operativa: '2026-08-10',
         turno: 'DIA',
         maquina_id: 4,
+      },
+      headers: { 'X-Actor-Id': '42' },
+    });
+  });
+
+  it('consulta la jornada completa mediante una sola fachada', async () => {
+    await listarJornadasPlantaScm({
+      fecha_operativa: '2026-08-27',
+      turno: 'DIA',
+    });
+
+    expect(getMock).toHaveBeenCalledTimes(1);
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/jornadas-planta', {
+      params: {
+        fecha_operativa: '2026-08-27',
+        turno: 'DIA',
       },
       headers: { 'X-Actor-Id': '42' },
     });
