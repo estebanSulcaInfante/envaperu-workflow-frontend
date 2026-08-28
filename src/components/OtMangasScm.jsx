@@ -997,7 +997,7 @@ export default function OtMangasScm({ view = 'all' }) {
         ? listarOrdenesFabricacionScm()
         : Promise.resolve({ items: [] }),
       obtenerMaquinas(),
-      getTrabajadores(),
+      getTrabajadores({ rol: 'MAQUINISTA', activo: true }),
       centersRequest,
     ])
       .then(async ([orderPayload, machines, workers, centers]) => {
@@ -1006,10 +1006,7 @@ export default function OtMangasScm({ view = 'all' }) {
           (item) => ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION'].includes(item.estado),
         );
         const operationalMachines = (machines || []).filter(isOperationalMachine);
-        const activeWorkers = (workers || []).filter(
-          (item) => item.activo
-            && item.roles?.some((role) => role.codigo === 'MAQUINISTA'),
-        );
+        const activeWorkers = (workers || []).filter((item) => item.activo !== false);
         setCatalogs({
           orders,
           machines: operationalMachines,

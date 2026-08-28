@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 
 import OtMangasScm from '../components/OtMangasScm';
+import { getTrabajadores } from '../services/api';
 
 const scmMocks = vi.hoisted(() => ({
   listarOrdenesFabricacionScm: vi.fn(),
@@ -340,6 +341,23 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     expect(payload).not.toHaveProperty('corrida_fabricacion_id');
     expect(payload).not.toHaveProperty('color');
     expect(payload).not.toHaveProperty('asignaciones');
+  });
+
+  it('ofrece maquinistas activos con la proyección operativa limitada por permisos', async () => {
+    getTrabajadores.mockResolvedValueOnce([{
+      id: 7,
+      codigo: 'TRB-000007',
+      nombre_completo: 'Jair Casa Blanca',
+      activo: true,
+    }]);
+
+    renderSubject();
+
+    await waitFor(() => expect(getTrabajadores).toHaveBeenCalledWith({
+      rol: 'MAQUINISTA',
+      activo: true,
+    }));
+    expect((await screen.findAllByText('Jair Casa Blanca')).length).toBeGreaterThan(0);
   });
 
   it('muestra dos Trabajos de color como cola dentro de una sola OT', async () => {
