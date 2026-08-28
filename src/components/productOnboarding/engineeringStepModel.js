@@ -163,7 +163,9 @@ const defaultPackagingAssignment = (articleRef) => ({
   },
 });
 
-const normalizePackagingAssignment = (assignment = {}, reference = {}) => {
+const normalizePackagingAssignment = (
+  assignment = {}, reference = {}, profileVersionsById = new Map(),
+) => {
   const articleRef = Number(assignment.articulo_ref || reference.articulo_ref);
   const profile = assignment.perfil_empacable || {};
   const rule = assignment.regla_empaque || {};
@@ -181,7 +183,10 @@ const normalizePackagingAssignment = (assignment = {}, reference = {}) => {
         ? profile.modo === 'REUTILIZAR' ? 'REUTILIZAR' : 'EDITAR'
         : profile.modo || 'NUEVO',
       ref: profileRef,
-      expected_version: profile.expected_version || null,
+      expected_version: profile.expected_version
+        || reference.perfil_empacable_version
+        || profileVersionsById.get(Number(profileRef))
+        || null,
       asignar_predeterminado: profile.asignar_predeterminado !== false,
     },
     regla_empaque: {
@@ -200,7 +205,11 @@ const normalizePackagingAssignment = (assignment = {}, reference = {}) => {
 };
 
 export const normalizeRoutePackagingStepData = (
-  data = {}, references = {}, { targetProductRef = null, targetArticleRef = null } = {},
+  data = {}, references = {}, {
+    targetProductRef = null,
+    targetArticleRef = null,
+    profileVersionsById = new Map(),
+  } = {},
 ) => {
   const route = data.ruta || {};
   const routeRef = route.revision_ref || references.ruta_revision_ref || null;
@@ -216,6 +225,7 @@ export const normalizeRoutePackagingStepData = (
     client_id: `empaque-${data.target_article_ref || targetArticleRef}`,
     articulo_ref: data.target_article_ref || targetArticleRef,
     perfil_empacable_ref: references.perfil_empacable_ref,
+    perfil_empacable_version: references.perfil_empacable_version,
     regla_empaque_revision_ref: references.regla_empaque_revision_ref,
     regla_empaque_revision_version: references.regla_empaque_revision_version,
   }] : []);
@@ -238,6 +248,7 @@ export const normalizeRoutePackagingStepData = (
     empaques: outputIds.map((articleRef) => normalizePackagingAssignment(
       assignmentByArticle.get(articleRef) || { articulo_ref: articleRef },
       referenceByArticle.get(articleRef),
+      profileVersionsById,
     )),
   };
 };

@@ -81,6 +81,17 @@ const assignmentSignature = (items = []) => items
   .sort((left, right) => left - right)
   .join(',');
 
+const assignmentVersionSignature = (items = []) => items
+  .map((item) => [
+    Number(item.articulo_ref),
+    Number(item.perfil_empacable?.ref || 0),
+    Number(item.perfil_empacable?.expected_version || 0),
+    Number(item.regla_empaque?.revision_ref || 0),
+    Number(item.regla_empaque?.expected_version || 0),
+  ].join(':'))
+  .sort()
+  .join(',');
+
 const clonePackagingConfiguration = (source, target) => ({
   ...target,
   perfil_empacable: {
@@ -114,9 +125,14 @@ export default function ProductRoutePackagingStep({
   const [error, setError] = useState('');
   const loadedStructureArticles = useRef(new Set());
   const targetArticle = targetProductArticle(catalogs.articles, productRef);
+  const profileVersionsById = useMemo(
+    () => new Map(catalogs.profiles.map((item) => [Number(item.id), item.version])),
+    [catalogs.profiles],
+  );
   const data = normalizeRoutePackagingStepData(value, resolvedReferences, {
     targetProductRef: productRef,
     targetArticleRef: targetArticle?.id,
+    profileVersionsById,
   });
   const routeValue = useMemo(
     () => routeEditorValue(data.ruta.payload, targetArticle),
@@ -214,7 +230,9 @@ export default function ProductRoutePackagingStep({
   useEffect(() => {
     if (!targetArticle) return;
     if (data.target_article_ref && data.target_product_ref
-      && assignmentSignature(value?.empaques) === assignmentSignature(data.empaques)) return;
+      && assignmentSignature(value?.empaques) === assignmentSignature(data.empaques)
+      && assignmentVersionSignature(value?.empaques)
+        === assignmentVersionSignature(data.empaques)) return;
     onChange({
       ...data,
       target_product_ref: productRef,
