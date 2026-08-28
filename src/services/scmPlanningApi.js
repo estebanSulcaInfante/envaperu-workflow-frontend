@@ -30,6 +30,14 @@ export const aprobarOpDemandaScm = (order) => data(
   ),
 );
 
+export const cancelarOpDemandaScm = (order, motivo) => data(
+  () => api.post(
+    `/scm/v1/ordenes-produccion/${order.id}/cancelar`,
+    { version: order.version, motivo },
+    config(true),
+  ),
+);
+
 export const calcularPlanOpScm = (order) => data(
   () => api.post(
     `/scm/v1/ordenes-produccion/${order.id}/calcular-plan`,

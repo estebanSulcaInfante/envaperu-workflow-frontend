@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductionPlanningScm from '../components/ProductionPlanningScm';
 import {
   actualizarRutasOpScm,
+  cancelarOpDemandaScm,
   calcularPlanOpScm,
   listarOpDemandaScm,
   obtenerPlanOpScm,
@@ -30,6 +31,7 @@ vi.mock('../services/scmPlanningApi', () => ({
   aprobarOpDemandaScm: vi.fn(),
   actualizarRutasOpScm: vi.fn(),
   calcularPlanOpScm: vi.fn(),
+  cancelarOpDemandaScm: vi.fn(),
   confirmarPlanOpScm: vi.fn(),
   crearOpDemandaScm: vi.fn(),
   listarOpDemandaScm: vi.fn(),
@@ -77,6 +79,52 @@ describe('Planificación de OP', () => {
       expect(listarOpDemandaScm).toHaveBeenCalledTimes(1);
       expect(buscarProductos).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('confirma con motivo la cancelación de la OP seleccionada', async () => {
+    capabilities.add('OP_CANCELAR');
+    const order = {
+      id: 'op-000001-uuid',
+      codigo: 'OP-000001',
+      estado: 'APROBADA',
+      fecha_necesidad: '2026-08-28',
+      version: 3,
+      referencia_origen: 'OP-0268',
+      lineas: [],
+    };
+    listarOpDemandaScm.mockResolvedValue({ items: [order] });
+    obtenerPlanOpScm.mockResolvedValue({ plan: null });
+    cancelarOpDemandaScm.mockResolvedValue({
+      ...order,
+      estado: 'CANCELADA',
+      version: 4,
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Cancelar OP' }));
+    expect(screen.getByRole('heading', { name: 'Cancelar OP-000001' }))
+      .toBeInTheDocument();
+    expect(screen.getByText(/las demás OP no serán modificadas/i))
+      .toBeInTheDocument();
+    const confirm = screen.getByRole('button', { name: 'Confirmar cancelación' });
+    expect(confirm).toBeDisabled();
+
+    await user.type(
+      screen.getByRole('textbox', { name: /Motivo de cancelación/i }),
+      'Creada por error durante el piloto',
+    );
+    await user.click(confirm);
+
+    await waitFor(() => {
+      expect(cancelarOpDemandaScm).toHaveBeenCalledWith(
+        order,
+        'Creada por error durante el piloto',
+      );
+    });
+    expect(await screen.findByText('OP-000001 cancelada; el historial fue conservado.'))
+      .toBeInTheDocument();
   });
 
   it('mantiene consultable un plan histórico cuyos documentos perdieron relaciones maestras', async () => {

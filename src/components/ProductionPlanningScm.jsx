@@ -8,9 +8,10 @@ import {
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AddIcon from '@mui/icons-material/Add';
+import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import {
   ajustarMetasPlanOpScm, aprobarOpDemandaScm, actualizarRutasOpScm,
-  calcularPlanOpScm, confirmarPlanOpScm, crearOpDemandaScm,
+  calcularPlanOpScm, cancelarOpDemandaScm, confirmarPlanOpScm, crearOpDemandaScm,
   listarOpDemandaScm, obtenerPlanOpScm,
 } from '../services/scmPlanningApi';
 import {
@@ -146,9 +147,10 @@ export default function ProductionPlanningScm() {
   const { can, experience } = useScmActor();
   const canCreate = can('OP_CREAR');
   const canApprove = can('OP_APROBAR');
+  const canCancel = can('OP_CANCELAR');
   const canCalculate = can('PLANIFICACION_CALCULAR');
   const canConfirm = can('PLANIFICACION_CONFIRMAR');
-  const isReadOnly = !canCreate && !canApprove && !canCalculate && !canConfirm;
+  const isReadOnly = !canCreate && !canApprove && !canCancel && !canCalculate && !canConfirm;
   const [orders, setOrders] = useState([]);
   const [orderId, setOrderId] = useState('');
   const [plan, setPlan] = useState(null);
@@ -158,6 +160,8 @@ export default function ProductionPlanningScm() {
   const [products, setProducts] = useState([]);
   const [presentations, setPresentations] = useState([]);
   const [createOpen, setCreateOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
   const [routeRefreshOpen, setRouteRefreshOpen] = useState(false);
   const [routeRefreshResult, setRouteRefreshResult] = useState(null);
   const [targetDraft, setTargetDraft] = useState({});
@@ -319,7 +323,33 @@ export default function ProductionPlanningScm() {
   useEffect(() => {
     setRouteRefreshOpen(false);
     setRouteRefreshResult(null);
+    setCancelOpen(false);
+    setCancelReason('');
   }, [selected?.id]);
+
+  const cancelSelectedOrder = async () => {
+    if (!selected || !cancelReason.trim()) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const cancelled = await cancelarOpDemandaScm(selected, cancelReason.trim());
+      setOrders((current) => current.map((item) => (
+        item.id === cancelled.id ? cancelled : item
+      )));
+      setCancelOpen(false);
+      setCancelReason('');
+      setNotice(`${cancelled.codigo} cancelada; el historial fue conservado.`);
+      await load(cancelled.id);
+    } catch (requestError) {
+      setError(mensajeErrorScm(
+        requestError,
+        'No se canceló la OP. Actualiza la pantalla y revisa su estado antes de reintentar.',
+      ));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const refreshOrderRoutes = async () => {
     if (!selected || selected.estado !== 'APROBADA' || !canCalculate) return;
@@ -514,6 +544,21 @@ export default function ProductionPlanningScm() {
               <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
                 Necesidad {selected.fecha_necesidad} · versión {selected.version}
               </Typography>
+              {canCancel && (
+                <Button
+                  color="error"
+                  variant="outlined"
+                  startIcon={<CancelOutlinedIcon />}
+                  disabled={busy || !['BORRADOR', 'APROBADA'].includes(selected.estado)}
+                  onClick={() => {
+                    setError('');
+                    setCancelReason('');
+                    setCancelOpen(true);
+                  }}
+                >
+                  Cancelar OP
+                </Button>
+              )}
               {canApprove && (
                 <Button
                   variant="outlined"
@@ -837,6 +882,58 @@ export default function ProductionPlanningScm() {
           )}
         </Paper>
       )}
+      <Dialog
+        open={cancelOpen}
+        onClose={() => !busy && setCancelOpen(false)}
+        fullWidth
+        maxWidth="sm"
+        aria-labelledby="cancel-op-title"
+      >
+        <DialogTitle id="cancel-op-title">
+          Cancelar {selected?.codigo || 'OP'}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 0.5 }}>
+            <Alert severity="warning">
+              Esta acción conserva la OP y su historial, pero impide continuar su
+              planificación. No equivale a eliminar el registro.
+            </Alert>
+            <Typography variant="body2">
+              Solo se cancelará <strong>{selected?.codigo || 'la OP seleccionada'}</strong>;
+              {' '}las demás OP no serán modificadas.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Referencia: {selected?.referencia_origen || 'sin referencia'} · estado actual:{' '}
+              {selected?.estado || 'no disponible'}.
+            </Typography>
+            <TextField
+              autoFocus
+              required
+              fullWidth
+              multiline
+              minRows={3}
+              label="Motivo de cancelación"
+              value={cancelReason}
+              onChange={(event) => setCancelReason(event.target.value)}
+              inputProps={{ maxLength: 500 }}
+              helperText="El motivo quedará registrado con tu identidad y la versión de la OP."
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={busy} onClick={() => setCancelOpen(false)}>
+            Volver
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={busy || !cancelReason.trim()}
+            onClick={cancelSelectedOrder}
+          >
+            Confirmar cancelación
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog
         open={routeRefreshOpen}
         onClose={() => !busy && setRouteRefreshOpen(false)}
