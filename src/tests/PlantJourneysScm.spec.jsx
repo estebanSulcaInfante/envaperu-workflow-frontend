@@ -11,6 +11,8 @@ const catalogMocks = vi.hoisted(() => ({
 }));
 const scmMocks = vi.hoisted(() => ({
   listarOtScm: vi.fn(),
+  listarJornadasPlantaScm: vi.fn(),
+  listarContinuidadesMangaPendientesScm: vi.fn(),
   listarOrdenesFabricacionScm: vi.fn(),
   obtenerPlanMangas: vi.fn(),
   listarSolicitudesMangaExtraScm: vi.fn(),
@@ -30,6 +32,9 @@ vi.mock('../services/scmOtApi', () => ({
   crearOtFabricacionScm: vi.fn(),
   crearTrabajoColorScm: vi.fn(),
   generarEtiquetasPrepesaje: vi.fn(),
+  listarJornadasPlantaScm: scmMocks.listarJornadasPlantaScm,
+  listarContinuidadesMangaPendientesScm:
+    scmMocks.listarContinuidadesMangaPendientesScm,
   listarOtScm: scmMocks.listarOtScm,
   listarSolicitudesMangaExtraScm: scmMocks.listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm: scmMocks.listarOrdenesFabricacionScm,
@@ -84,6 +89,16 @@ const assemblyOt = {
   abastecimiento: { codigo: 'SA-000001', estado: 'RECIBIDA' },
 };
 
+const journeyPayload = ({ fabrication = [fabricationOt], assembly = [assemblyOt] } = {}) => ({
+  maquinas: [{ id: 1, codigo: 'SOP-01', nombre: 'Sopladora 1', activo: true }],
+  centros_trabajo: [
+    { id: 7, codigo: 'MESA-01', nombre: 'Mesa de Armado 1', tipo: 'ENSAMBLE', activo: true },
+    { id: 8, codigo: 'MESA-02', nombre: 'Mesa de Armado 2', tipo: 'ENSAMBLE', activo: true },
+  ],
+  ots_fabricacion: fabrication,
+  ots_armado: assembly,
+});
+
 function LocationProbe() {
   const location = useLocation();
   return <output data-testid="location-search">{location.search}</output>;
@@ -112,6 +127,8 @@ describe('OTs de planta', () => {
     scmMocks.listarOrdenesFabricacionScm.mockResolvedValue({ items: [] });
     scmMocks.obtenerPlanMangas.mockResolvedValue({ plan: null });
     scmMocks.listarSolicitudesMangaExtraScm.mockResolvedValue({ items: [] });
+    scmMocks.listarContinuidadesMangaPendientesScm.mockResolvedValue({ items: [] });
+    scmMocks.listarJornadasPlantaScm.mockResolvedValue(journeyPayload());
     scmMocks.listarOtScm.mockImplementation((_order, type) => Promise.resolve({
       items: type === 'ENSAMBLE' ? [assemblyOt] : [fabricationOt],
     }));
@@ -127,14 +144,9 @@ describe('OTs de planta', () => {
     expect(screen.getByRole('tabpanel')).toHaveAttribute(
       'aria-labelledby', 'plant-journeys-tab-fabrication',
     );
-    await waitFor(() => {
-      expect(scmMocks.listarOtScm).toHaveBeenCalledWith(undefined, 'FABRICACION', {
-        fecha_operativa: expect.any(String), turno: 'DIA',
-      });
-      expect(scmMocks.listarOtScm).toHaveBeenCalledWith(undefined, 'ENSAMBLE', {
-        fecha_operativa: expect.any(String), turno: 'DIA',
-      });
-    });
+    await waitFor(() => expect(scmMocks.listarJornadasPlantaScm).toHaveBeenCalledWith({
+      fecha_operativa: expect.any(String), turno: 'DIA',
+    }));
     const summary = screen.getByTestId('plant-journeys-summary');
     expect(within(summary).getByText('Jornadas 2')).toBeVisible();
     expect(within(summary).getByText('En ejecución 1')).toBeVisible();
@@ -197,41 +209,29 @@ describe('OTs de planta', () => {
     await user.type(date, '2026-08-12');
     await user.click(screen.getByRole('button', { name: 'Actualizar jornadas' }));
 
-    await waitFor(() => {
-      expect(scmMocks.listarOtScm).toHaveBeenCalledWith(undefined, 'FABRICACION', {
-        fecha_operativa: '2026-08-12', turno: 'DIA',
-      });
-      expect(scmMocks.listarOtScm).toHaveBeenCalledWith(undefined, 'ENSAMBLE', {
-        fecha_operativa: '2026-08-12', turno: 'DIA',
-      });
-    });
+    await waitFor(() => expect(scmMocks.listarJornadasPlantaScm).toHaveBeenCalledWith({
+      fecha_operativa: '2026-08-12', turno: 'DIA',
+    }));
     expect(screen.getAllByLabelText('Fecha de jornada')).toHaveLength(1);
   });
 
-  it('conserva las jornadas de Armado si falla el catálogo de centros', async () => {
+  it('usa el catálogo de centros incluido en la jornada consolidada', async () => {
     engineeringMocks.listarCentrosTrabajoScm.mockRejectedValueOnce(new Error('sin catálogo'));
     const user = userEvent.setup();
     renderJourneys();
 
     await user.click(await screen.findByRole('tab', { name: /Armado.*Centros/i }));
-    expect(screen.getByText(/Las jornadas existentes siguen visibles/i)).toBeVisible();
     expect(screen.getByText('Mesa de Armado 1')).toBeVisible();
     expect(screen.getByText('OT-000002')).toBeVisible();
   });
 
-  it('muestra Armado aunque la familia de Fabricación no responda', async () => {
-    scmMocks.listarOtScm.mockImplementation((_order, type) => (
-      type === 'FABRICACION'
-        ? Promise.reject(new Error('fabricación no disponible'))
-        : Promise.resolve({ items: [assemblyOt] })
-    ));
+  it('muestra Armado aunque la jornada consolidada no incluya Fabricación', async () => {
+    scmMocks.listarJornadasPlantaScm.mockResolvedValueOnce(journeyPayload({ fabrication: [] }));
     renderJourneys(
       '/produccion/ots-planta?fecha=2026-08-10&turno=DIA&modo=armado',
     );
 
-    expect(await screen.findByText(/No se pudieron cargar las jornadas de Fabricación/i))
-      .toBeVisible();
-    expect(screen.getByText('Mesa de Armado 1')).toBeVisible();
+    expect(await screen.findByText('Mesa de Armado 1')).toBeVisible();
     expect(screen.getByText('OT-000002')).toBeVisible();
   });
 

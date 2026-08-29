@@ -41,6 +41,7 @@ vi.mock('../services/scmEngineeringApi', () => ({
   crearEstructuraScm: vi.fn(),
   crearPerfilEmpacableScm: vi.fn(),
   crearReglaEmpaqueScm: vi.fn(),
+  crearRutaArticuloScm: vi.fn(),
   crearRutaScm: vi.fn(),
   crearTipoContenedorScm: vi.fn(),
   descartarEstructuraScm: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock('../services/scmEngineeringApi', () => ({
   listarEstructurasScm: vi.fn(),
   listarPerfilesEmpacablesScm: vi.fn(),
   listarReglasEmpaqueScm: vi.fn(),
+  listarRutasArticuloScm: vi.fn(),
   listarRutasScm: vi.fn(),
   listarTiposContenedorScm: vi.fn(),
   mensajeErrorScm: vi.fn((error, fallback) => error?.message || fallback),
@@ -69,13 +71,14 @@ import {
   crearArticuloWipScm,
   crearCentroTrabajoScm,
   crearEstructuraScm,
-  crearRutaScm,
+  crearRutaArticuloScm,
   descartarEstructuraScm,
   listarArticulosScm,
   listarCentrosTrabajoScm,
   listarEstructurasScm,
   listarPerfilesEmpacablesScm,
   listarReglasEmpaqueScm,
+  listarRutasArticuloScm,
   listarRutasScm,
   listarTiposContenedorScm,
   obtenerPerfilesArticuloScm,
@@ -132,7 +135,7 @@ const renderPage = () => render(
 describe('Ingeniería SCM R-core', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    window.history.replaceState({}, '', '/');
+    window.history.replaceState({}, '', '/?producto=PT-000001');
     actorState.id = 1;
     listarArticulosScm.mockResolvedValue(articles);
     listarCentrosTrabajoScm.mockResolvedValue([]);
@@ -141,6 +144,7 @@ describe('Ingeniería SCM R-core', () => {
     listarReglasEmpaqueScm.mockResolvedValue([]);
     obtenerPerfilesArticuloScm.mockResolvedValue({ perfiles: [] });
     listarEstructurasScm.mockResolvedValue([]);
+    listarRutasArticuloScm.mockResolvedValue([]);
     listarRutasScm.mockResolvedValue([]);
     crearArticuloWipScm.mockResolvedValue({
       id: 4,
@@ -187,7 +191,7 @@ describe('Ingeniería SCM R-core', () => {
       'true',
     );
     await waitFor(() => expect(
-      screen.getByRole('combobox', { name: 'Producto terminado' }).value,
+      screen.getByRole('combobox', { name: 'Artículo objetivo' }).value,
     ).toMatch(/PT-000002.*Producto del plan bloqueado/));
     expect(screen.getByText(/La planificación de OP-000001 requiere una operación/i))
       .toBeVisible();
@@ -230,8 +234,9 @@ describe('Ingeniería SCM R-core', () => {
     expect(screen.getByRole('tab', { name: /Aprobaciones/ })).toBeVisible();
     expect(screen.getByText('WIP-000001')).toBeVisible();
     expect(listarEstructurasScm).toHaveBeenCalledTimes(4);
-    expect(listarRutasScm).toHaveBeenCalledWith('PT-000001');
-    expect(listarRutasScm).not.toHaveBeenCalledWith('');
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(3));
+    expect(listarRutasArticuloScm).toHaveBeenCalledTimes(1);
+    expect(listarRutasScm).not.toHaveBeenCalled();
   });
 
   it('crea un WIP sin exponer clasificación KIT', async () => {
@@ -401,6 +406,66 @@ describe('Ingeniería SCM R-core', () => {
     expect(screen.getByRole('button', { name: 'Nuevo centro de trabajo' })).toBeVisible();
   });
 
+  it('carga de forma lazy y crea una ruta cuyo artículo objetivo es WIP', async () => {
+    const approvedWipStructure = {
+      id: 43,
+      numero_revision: 2,
+      estado: 'APROBADA',
+      articulo_resultado_id: 2,
+      articulo_resultado: articles[1],
+      componentes: [],
+    };
+    window.history.replaceState({}, '', '/datos-maestros/ingenieria-scm?tab=rutas&articulo=2');
+    listarCentrosTrabajoScm.mockResolvedValue([{
+      id: 7,
+      codigo: 'CT-000007',
+      nombre: 'Mesa de prearmado',
+      tipo: 'ENSAMBLE',
+      activo: true,
+    }]);
+    listarEstructurasScm.mockImplementation((articleId) => Promise.resolve(
+      Number(articleId) === 2 ? [approvedWipStructure] : [],
+    ));
+    crearRutaArticuloScm.mockResolvedValue({ id: 91 });
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await waitFor(() => expect(
+      screen.getByRole('combobox', { name: 'Artículo objetivo' }).value,
+    ).toMatch(/WIP-000001.*Balde prearmado/));
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(2));
+    expect(listarRutasArticuloScm).toHaveBeenCalledTimes(1);
+    expect(listarRutasScm).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Nueva ruta' }));
+    const dialog = screen.getByRole('dialog', { name: /Nueva ruta.*WIP-000001/i });
+    expect(within(dialog).getByText(/Esta ruta siempre termina en el artículo objetivo/i))
+      .toBeVisible();
+    expect(within(dialog).getByLabelText('Salida terminal (bloqueada)'))
+      .toHaveValue('WIP-000001 · Balde prearmado');
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Centro de trabajo' }));
+    await user.click(screen.getByRole('option', { name: /CT-000007.*Mesa de prearmado/ }));
+    await user.click(within(dialog).getByRole('combobox', { name: 'Estructura aprobada' }));
+    await user.click(screen.getByRole('option', { name: /WIP-000001.*rev\. 2/ }));
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Nombre de la operación' }),
+      'Colocar pico en línea',
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Crear borrador' }));
+
+    await waitFor(() => expect(crearRutaArticuloScm).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({
+        operaciones: [expect.objectContaining({
+          articulo_salida_id: 2,
+          estructura_revision_id: 43,
+        })],
+      }),
+    ));
+  });
+
   it('deriva ARMADO y selecciona solamente la BOM aprobada compatible con la salida', async () => {
     const approvedStructure = {
       id: 41,
@@ -427,7 +492,7 @@ describe('Ingeniería SCM R-core', () => {
       2: [incompatibleStructure],
       3: [approvedStructure],
     }[Number(articleId)] || []));
-    crearRutaScm.mockResolvedValue({ id: 90 });
+    crearRutaArticuloScm.mockResolvedValue({ id: 90 });
     const user = userEvent.setup();
     renderPage();
 
@@ -462,8 +527,8 @@ describe('Ingeniería SCM R-core', () => {
     );
     await user.click(within(dialog).getByRole('button', { name: 'Crear borrador' }));
 
-    await waitFor(() => expect(crearRutaScm).toHaveBeenCalledWith(
-      'PT-000001',
+    await waitFor(() => expect(crearRutaArticuloScm).toHaveBeenCalledWith(
+      3,
       expect.objectContaining({
         operaciones: [expect.objectContaining({
           tipo: 'ENSAMBLE',
@@ -643,7 +708,7 @@ describe('Ingeniería SCM R-core', () => {
       ],
       precedencias: [{ anterior_id: 101, siguiente_id: 102 }],
     };
-    listarRutasScm.mockResolvedValue([route]);
+    listarRutasArticuloScm.mockResolvedValue([route]);
     const user = userEvent.setup();
     renderPage();
 
@@ -669,7 +734,7 @@ describe('Ingeniería SCM R-core', () => {
       operaciones: [],
       precedencias: [],
     };
-    listarRutasScm.mockResolvedValue([draft]);
+    listarRutasArticuloScm.mockResolvedValue([draft]);
     publicarRutaScm.mockResolvedValue({ ...draft, estado: 'APROBADA' });
     const user = userEvent.setup();
     renderPage();

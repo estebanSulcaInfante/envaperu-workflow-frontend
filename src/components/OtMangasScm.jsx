@@ -24,6 +24,7 @@ import {
   crearTrabajoColorScm,
   generarEtiquetasPrepesaje,
   listarJornadasPlantaScm,
+  listarContinuidadesMangaPendientesScm,
   listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm,
   obtenerPesajeMangaScm,
@@ -69,6 +70,7 @@ const PRODUCTION_CLOSED_MANGA_STATES = new Set([
 ]);
 const PRODUCTION_OPEN_MANGA_STATES = new Set([
   'ABIERTA', 'INCOMPLETA', 'PESAJE_PARCIAL',
+  'CONTINUIDAD_PENDIENTE', 'EN_LLENADO',
 ]);
 const PRELABELED_MANGA_STATES = new Set(['PREETIQUETADA']);
 const PRINTED_LABEL_STATES = new Set(['IMPRESA']);
@@ -635,7 +637,9 @@ function MangaTable({
             const labelChecked = selectedLabels.includes(manga.public_id);
             const reliefChecked = selectedRelief.includes(manga.public_id);
             const labelEligible = !manga.etiqueta_vigente && manga.estado === 'PLANIFICADA';
-            const reliefEligible = ['PLANIFICADA', 'PREETIQUETADA'].includes(manga.estado);
+            const reliefEligible = [
+              'PLANIFICADA', 'PREETIQUETADA', 'CONTINUIDAD_PENDIENTE',
+            ].includes(manga.estado);
             return (
               <TableRow key={manga.public_id} selected={labelChecked || reliefChecked}>
                 <TableCell padding="checkbox">
@@ -652,15 +656,33 @@ function MangaTable({
                 <TableCell>
                   <Typography fontWeight={800}>{manga.codigo}</Typography>
                   <Typography variant="caption">{manga.tipo_manga || manga.tipo}</Typography>
+                  {manga.heredada_de_ot_anterior && (
+                    <Typography display="block" variant="caption" color="warning.dark">
+                      Heredada de {manga.continuidad?.tramos?.[0]?.ot_codigo || 'OT anterior'} · QR conservado
+                    </Typography>
+                  )}
                 </TableCell>
                 <TableCell>
                   {manga.articulo_nombre}
                   <Typography display="block" variant="caption">{manga.color}</Typography>
                 </TableCell>
-                <TableCell>{manga.maquinista || 'Por asignar'}</TableCell>
+                <TableCell>
+                  {manga.maquinista_actual || manga.maquinista || 'Por asignar'}
+                  {manga.maquinista_actual && manga.maquinista_actual !== manga.maquinista && (
+                    <Typography display="block" variant="caption" color="text.secondary">
+                      Inicial: {manga.maquinista}
+                    </Typography>
+                  )}
+                </TableCell>
                 <TableCell align="right">{compactQuantity(manga.cantidad_asignada_un)}</TableCell>
                 <TableCell>
                   <Chip size="small" label={stateLabel(manga.estado)} />
+                  {manga.continuidad?.ultimo_control && (
+                    <Typography display="block" variant="caption">
+                      Corte {compactQuantity(manga.continuidad.conteo_acumulado_un)} ·
+                      faltan {compactQuantity(manga.continuidad.cantidad_pendiente_un)}
+                    </Typography>
+                  )}
                 </TableCell>
                 <TableCell padding="checkbox">
                   <Checkbox
@@ -685,7 +707,13 @@ function MangaTable({
                     {canReplaceLabel && (
                       <Button
                         size="small"
-                        disabled={!manga.etiqueta_vigente || manga.estado === 'ANULADA'}
+                        disabled={
+                          !manga.etiqueta_vigente || manga.estado === 'ANULADA'
+                          || (
+                            manga.etiqueta_vigente?.tipo === 'PREPESAJE'
+                            && !['PLANIFICADA', 'PREETIQUETADA'].includes(manga.estado)
+                          )
+                        }
                         onClick={() => onReplace(manga)}
                       >
                         Reemplazar etiqueta
@@ -786,6 +814,9 @@ export default function OtMangasScm({ view = 'all' }) {
     orderId: '', runId: '', workerId: '', quantities: {},
   });
   const [draftPlan, setDraftPlan] = useState(null);
+  const [continuityCandidates, setContinuityCandidates] = useState([]);
+  const [selectedContinuities, setSelectedContinuities] = useState([]);
+  const [continuityBusy, setContinuityBusy] = useState(false);
   const [selectedWorkPlan, setSelectedWorkPlan] = useState(null);
   const [extraRequests, setExtraRequests] = useState([]);
   const [mangaAllocation, setMangaAllocation] = useState({
@@ -794,7 +825,7 @@ export default function OtMangasScm({ view = 'all' }) {
   const [selectedLabels, setSelectedLabels] = useState([]);
   const [selectedRelief, setSelectedRelief] = useState([]);
   const [reliefForm, setReliefForm] = useState({
-    workerId: '', reason: '', openManga: false, boundaryCount: '',
+    workerId: '', reason: '', confirmEmptyStickers: false,
   });
   const [busy, setBusy] = useState(true);
   const [planBusy, setPlanBusy] = useState(false);
@@ -912,7 +943,7 @@ export default function OtMangasScm({ view = 'all' }) {
   );
   const runningWork = works.find((item) => item.estado === 'EN_EJECUCION') || null;
   const pendingWorkMangas = (selectedWork?.mangas || []).filter(
-    (item) => ![
+    (item) => !item.resuelta_para_trabajo && ![
       'PESADA', 'ETIQUETADA_FINAL', 'PENDIENTE_RECEPCION_ALMACEN',
       'RECIBIDA', 'ANULADA',
     ].includes(item.estado),
@@ -921,6 +952,30 @@ export default function OtMangasScm({ view = 'all' }) {
     || [...(selectedWork?.asignaciones_personal || [])].reverse().find(
       (item) => ['ACTIVA', 'PREVISTA'].includes(item.estado),
     ) || null;
+  const pendingReliefIds = (selectedWork?.mangas || [])
+    .filter((manga) => ['PLANIFICADA', 'PREETIQUETADA'].includes(manga.estado))
+    .map((manga) => manga.public_id);
+  const openReliefIds = (selectedWork?.mangas || [])
+    .filter((manga) => manga.estado === 'CONTINUIDAD_PENDIENTE')
+    .map((manga) => manga.public_id);
+  const selectedOpenRelief = (selectedWork?.mangas || []).some(
+    (manga) => selectedRelief.includes(manga.public_id)
+      && manga.estado === 'CONTINUIDAD_PENDIENTE',
+  );
+  const reliefWorkers = useMemo(() => {
+    const excludedWorkerIds = new Set(
+      selectedRelief.length
+        ? (selectedWork?.mangas || [])
+          .filter((manga) => selectedRelief.includes(manga.public_id))
+          .map((manga) => String(
+            manga.maquinista_actual_id || manga.maquinista_previsto_id,
+          ))
+        : [String(currentWorker?.trabajador_id || '')],
+    );
+    return catalogs.workers.filter(
+      (worker) => !excludedWorkerIds.has(String(worker.id)),
+    );
+  }, [catalogs.workers, currentWorker?.trabajador_id, selectedRelief, selectedWork?.mangas]);
 
   const loadExtraRequests = useCallback(async (orderId, workId) => {
     if (!orderId || !workId) {
@@ -1004,6 +1059,30 @@ export default function OtMangasScm({ view = 'all' }) {
     listFilters,
   ]);
 
+  const reloadFabricationOrders = useCallback(async () => {
+    if (!canViewFabricationOrders) return [];
+    const payload = await listarOrdenesFabricacionScm();
+    const orders = payload.items || [];
+    setCatalogs((current) => ({ ...current, orders }));
+    setWorkForm((current) => {
+      const eligible = orders.filter(
+        (item) => ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION'].includes(item.estado),
+      );
+      const selectedOrder = eligible.find((item) => item.id === current.orderId);
+      const nextOrder = selectedOrder || eligible[0];
+      const selectedRun = nextOrder?.corridas?.find((item) => item.id === current.runId);
+      const nextRun = selectedRun || nextOrder?.corridas?.find(
+        (item) => ['LIBERADA', 'EN_EJECUCION'].includes(item.estado),
+      );
+      return {
+        ...current,
+        orderId: nextOrder?.id || '',
+        runId: nextRun?.id || '',
+      };
+    });
+    return orders;
+  }, [canViewFabricationOrders]);
+
   useEffect(() => {
     setBusy(true);
     const initialFilters = {
@@ -1071,6 +1150,16 @@ export default function OtMangasScm({ view = 'all' }) {
   }, [selectedWorkId]);
 
   useEffect(() => {
+    setReliefForm((current) => {
+      const currentStillAvailable = reliefWorkers.some(
+        (worker) => String(worker.id) === String(current.workerId),
+      );
+      if (currentStillAvailable) return current;
+      return { ...current, workerId: reliefWorkers[0]?.id || '' };
+    });
+  }, [selectedWorkId, reliefWorkers]);
+
+  useEffect(() => {
     storeLastPendingPrintJob(printJob);
   }, [printJob]);
 
@@ -1130,6 +1219,32 @@ export default function OtMangasScm({ view = 'all' }) {
     return () => { active = false; };
   }, [workForm.orderId]);
 
+  useEffect(() => {
+    if (!selectedOt?.public_id || !workForm.runId) {
+      setContinuityCandidates([]);
+      setSelectedContinuities([]);
+      return undefined;
+    }
+    let active = true;
+    setContinuityBusy(true);
+    listarContinuidadesMangaPendientesScm(
+      selectedOt.public_id, workForm.runId,
+    )
+      .then((payload) => {
+        if (!active) return;
+        const items = payload.items || [];
+        setContinuityCandidates(items);
+        setSelectedContinuities(items.map((item) => item.manga.public_id));
+      })
+      .catch(() => {
+        if (!active) return;
+        setContinuityCandidates([]);
+        setSelectedContinuities([]);
+      })
+      .finally(() => { if (active) setContinuityBusy(false); });
+    return () => { active = false; };
+  }, [selectedOt?.public_id, workForm.runId]);
+
   const selectedWorkOrderId = selectedWork?.orden_fabricacion_id;
   const selectedWorkRunId = selectedWork?.corrida_fabricacion_id;
   const selectedWorkIsLegacy = Boolean(selectedWork?.legacy);
@@ -1171,7 +1286,10 @@ export default function OtMangasScm({ view = 'all' }) {
     setBusy(true);
     setError('');
     try {
-      await loadOts(selectedOtId, selectedWorkId);
+      await Promise.all([
+        loadOts(selectedOtId, selectedWorkId),
+        reloadFabricationOrders(),
+      ]);
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo actualizar la jornada.'));
     } finally {
@@ -1241,8 +1359,8 @@ export default function OtMangasScm({ view = 'all' }) {
         cantidad_un: Number(workForm.quantities[line.id]),
       }));
     if (!selectedOt || !selectedRun || !selectedRunHasColor
-      || !workForm.workerId || !assignments.length) {
-      setError('Selecciona OT, color a fabricar, maquinista y una cantidad positiva.');
+      || !workForm.workerId || (!assignments.length && !selectedContinuities.length)) {
+      setError('Selecciona OT, color, maquinista y saldo nuevo o una manga abierta compatible.');
       return;
     }
     setBusy(true);
@@ -1252,11 +1370,18 @@ export default function OtMangasScm({ view = 'all' }) {
         corrida_fabricacion_id: selectedRun.id,
         maquinista_id: Number(workForm.workerId),
         asignaciones: assignments,
+        continuidad_manga_ids: selectedContinuities,
       });
       setNotice(
-        `${result.trabajo_color.color || result.trabajo_color.codigo} agregado a la cola de ${selectedOt.codigo_ot}.`,
+        `${result.trabajo_color.color || result.trabajo_color.codigo} agregado a ${selectedOt.codigo_ot}`
+        + (selectedContinuities.length
+          ? ` con ${selectedContinuities.length} manga(s) abierta(s), mismo QR y sin reimpresión.`
+          : '.'),
       );
-      await loadOts(selectedOt.public_id, result.trabajo_color.id);
+      await Promise.all([
+        loadOts(selectedOt.public_id, result.trabajo_color.id),
+        reloadFabricationOrders(),
+      ]);
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo agregar el Trabajo de color.'));
     } finally {
@@ -1403,16 +1528,18 @@ export default function OtMangasScm({ view = 'all' }) {
       setError('El relevo requiere maquinista y motivo.');
       return;
     }
-    if (reliefForm.openManga && selectedRelief.length !== 1) {
-      setError('Una manga abierta se transfiere individualmente. Selecciona exactamente una.');
+    const transfersPrintedStickers = (selectedWork.mangas || []).some(
+      (manga) => selectedRelief.includes(manga.public_id)
+        && manga.estado === 'PREETIQUETADA',
+    );
+    if (transfersPrintedStickers && !reliefForm.confirmEmptyStickers) {
+      setError('Confirma que las mangas seleccionadas están vacías y los stickers no fueron utilizados.');
       return;
     }
-    if (
-      reliefForm.openManga
-      && (!Number.isInteger(Number(reliefForm.boundaryCount))
-        || Number(reliefForm.boundaryCount) < 0)
-    ) {
-      setError('Registra el conteo acumulado de frontera de la manga abierta.');
+    if (!reliefWorkers.some(
+      (worker) => String(worker.id) === String(reliefForm.workerId),
+    )) {
+      setError('El nuevo maquinista debe ser distinto del responsable actual.');
       return;
     }
     setBusy(true);
@@ -1422,26 +1549,29 @@ export default function OtMangasScm({ view = 'all' }) {
         trabajador_id: Number(reliefForm.workerId),
         motivo: reliefForm.reason.trim(),
         version: selectedWork.version,
-        ...(selectedRelief.length ? { manga_ids: selectedRelief } : {}),
-        ...(reliefForm.openManga ? {
-          manga_abierta: true,
-          conteo_frontera: Number(reliefForm.boundaryCount),
-        } : {}),
+        manga_ids: selectedRelief,
+        ...(selectedOpenRelief ? { manga_abierta: true } : {}),
+        ...(transfersPrintedStickers ? { confirmacion_stickers_vacios: true } : {}),
       });
       const replacementJobs = result.trabajos_impresion_reemplazo || [];
       setReplacementPrintJobs(replacementJobs);
       const replacementLabelCount = replacementJobs.reduce(
         (total, job) => total + (job.labels?.length || 0), 0,
       );
-      setNotice(
-        `${result.mangas.length} manga(s) reasignadas a ${result.asignacion.trabajador}.`
-        + (replacementLabelCount
-          ? ` Reimprime ${replacementLabelCount} preetiqueta(s) de reemplazo.`
-          : ''),
-      );
+      setNotice(selectedOpenRelief
+        ? `${result.asignacion.trabajador} continúa ${result.mangas.length} manga(s) incompleta(s). Misma manga y QR; no se imprime otra preetiqueta.`
+        : (
+          `${result.asignacion.trabajador} quedó como responsable.`
+          + (result.mangas.length
+            ? ` ${result.mangas.length} sticker(s) pendiente(s) transferidos.`
+            : ' Sin transferencia de stickers.')
+          + (replacementLabelCount
+            ? ` Reimprime ${replacementLabelCount} preetiqueta(s) de reemplazo.`
+            : '')
+        ));
       setSelectedRelief([]);
       setReliefForm((current) => ({
-        ...current, reason: '', openManga: false, boundaryCount: '',
+        ...current, reason: '', confirmEmptyStickers: false,
       }));
       await loadOts(selectedOt.public_id, selectedWork.id);
     } catch (requestError) {
@@ -2068,6 +2198,63 @@ export default function OtMangasScm({ view = 'all' }) {
             )}
           </Stack>
           {planBusy && <CircularProgress size={24} />}
+          {continuityBusy && (
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+              <CircularProgress size={20} />
+              <Typography variant="body2">Buscando mangas abiertas compatibles…</Typography>
+            </Stack>
+          )}
+          {!continuityBusy && continuityCandidates.length > 0 && (
+            <Paper
+              variant="outlined"
+              sx={{ p: 1.5, mb: 2, borderColor: 'warning.main', bgcolor: 'warning.50' }}
+            >
+              <Typography fontWeight={900}>Mangas abiertas del turno anterior</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Continúan en esta OT con el mismo sticker y QR. El responsable será el maquinista inicial elegido arriba; no debe aceptar otro paso.
+              </Typography>
+              <Stack spacing={1}>
+                {continuityCandidates.map((candidate) => {
+                  const manga = candidate.manga;
+                  const checked = selectedContinuities.includes(manga.public_id);
+                  return (
+                    <FormControlLabel
+                      key={manga.public_id}
+                      control={(
+                        <Checkbox
+                          checked={checked}
+                          onChange={() => setSelectedContinuities((current) => (
+                            checked
+                              ? current.filter((value) => value !== manga.public_id)
+                              : [...current, manga.public_id]
+                          ))}
+                          inputProps={{
+                            'aria-label': `Continuar ${manga.codigo} en esta OT`,
+                          }}
+                        />
+                      )}
+                      label={(
+                        <Box>
+                          <Typography fontWeight={850}>
+                            {manga.codigo} · {candidate.conteo_acumulado_un}/
+                            {manga.cantidad_asignada_un} un · faltan {candidate.cantidad_pendiente_un}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {candidate.origen.ot_codigo} · turno {stateLabel(candidate.origen.turno)} ·
+                            {' '}{candidate.origen.maquinista || 'responsable de origen'} ·
+                            {' '}último NET {candidate.control_frontera?.peso_neto_kg || '—'} kg
+                          </Typography>
+                        </Box>
+                      )}
+                    />
+                  );
+                })}
+              </Stack>
+              <Alert severity="info" sx={{ mt: 1 }}>
+                Al agregar el color se programa automáticamente el tramo del nuevo responsable. No se crea otra manga ni se consume nuevamente el plan.
+              </Alert>
+            </Paper>
+          )}
           {!planBusy && draftRunLines.length > 0 && (
             <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
               <Table size="small">
@@ -2106,7 +2293,7 @@ export default function OtMangasScm({ view = 'all' }) {
           )}
           <Button
             variant="contained"
-            disabled={busy || !selectedRun || !selectedRunHasColor}
+            disabled={busy || continuityBusy || !selectedRun || !selectedRunHasColor}
             onClick={createWork}
           >
             Agregar a la cola de esta OT
@@ -2204,8 +2391,27 @@ export default function OtMangasScm({ view = 'all' }) {
             <Paper variant="outlined" sx={{ p: 1.5, mb: 2, bgcolor: 'grey.50' }}>
               <Typography fontWeight={850}>Asignar o relevar maquinista</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Marca mangas en la columna “Relevo” para transferir solo ese subconjunto. Sin selección se transfieren todas las elegibles.
+                Selecciona una manga controlada para conservarla incompleta con el nuevo responsable. Las mangas vacías transfieren su sticker; sin selección solo cambia el responsable del Trabajo.
               </Typography>
+              {openReliefIds.length > 0 && (
+                <Alert severity="warning" sx={{ mb: 1 }}>
+                  {openReliefIds.length} manga(s) tienen un control vigente y esperan relevo. Selecciónalas en la columna “Relevo”; no vuelvas a escribir su peso ni conteo.
+                </Alert>
+              )}
+              {pendingReliefIds.length > 0 && (
+                <Button
+                  size="small"
+                  sx={{ mb: 1 }}
+                  onClick={() => setSelectedRelief(
+                    selectedRelief.length === pendingReliefIds.length
+                      ? [] : pendingReliefIds,
+                  )}
+                >
+                  {selectedRelief.length === pendingReliefIds.length
+                    ? 'Quitar selección de stickers pendientes'
+                    : `Seleccionar los ${pendingReliefIds.length} stickers pendientes`}
+                </Button>
+              )}
               <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1}>
                 <FormControl size="small" sx={{ minWidth: 240 }}>
                   <InputLabel>Nuevo maquinista</InputLabel>
@@ -2216,7 +2422,7 @@ export default function OtMangasScm({ view = 'all' }) {
                       ...reliefForm, workerId: event.target.value,
                     })}
                   >
-                    {catalogs.workers.map((item) => (
+                    {reliefWorkers.map((item) => (
                       <MenuItem key={item.id} value={item.id}>{item.nombre_completo}</MenuItem>
                     ))}
                   </Select>
@@ -2232,50 +2438,46 @@ export default function OtMangasScm({ view = 'all' }) {
                 />
                 <Button
                   variant="outlined"
-                  disabled={busy || !reliefForm.reason.trim()}
+                  disabled={
+                    busy
+                    || !reliefForm.reason.trim()
+                    || (selectedRelief.length === 0 && selectedWork.estado !== 'EN_EJECUCION')
+                  }
                   onClick={relieveWorker}
                 >
                   {selectedRelief.length
-                    ? `Relevar ${selectedRelief.length} manga${selectedRelief.length > 1 ? 's' : ''}`
-                    : 'Relevar mangas elegibles'}
+                    ? (selectedOpenRelief
+                      ? 'Registrar relevo · continúa incompleta'
+                      : `Relevar y transferir ${selectedRelief.length} sticker${selectedRelief.length > 1 ? 's' : ''}`)
+                    : 'Registrar relevo sin stickers'}
                 </Button>
               </Stack>
-              <FormControlLabel
-                sx={{ mt: 1 }}
-                control={(
-                  <Checkbox
-                    checked={reliefForm.openManga}
-                    onChange={(event) => setReliefForm({
-                      ...reliefForm,
-                      openManga: event.target.checked,
-                      boundaryCount: event.target.checked ? reliefForm.boundaryCount : '',
-                    })}
-                  />
-                )}
-                label="La manga seleccionada está abierta e incompleta"
-              />
-              {reliefForm.openManga && (
-                <Stack spacing={1}>
-                  <TextField
-                    size="small"
-                    type="number"
-                    label="Conteo acumulado al relevo (un)"
-                    value={reliefForm.boundaryCount}
-                    inputProps={{ min: 0, step: 1 }}
-                    onChange={(event) => setReliefForm({
-                      ...reliefForm, boundaryCount: event.target.value,
-                    })}
-                    helperText="El conteo separa la responsabilidad entre maquinistas; no crea un pesaje intermedio."
-                    sx={{ maxWidth: 420 }}
-                  />
-                  <Alert severity="info">
-                    El conteo de frontera es evidencia declarada por el supervisor, no una medición automática. Sin un conteo verificable o un contador físico, el sistema registra el relevo, pero no atribuye unidades exactas por trabajador.
-                  </Alert>
-                  <Alert severity="warning">
-                    La manga conserva su identidad de manga, color y Trabajo de color; la preetiqueta anterior se invalida y debe reemplazarse. El relevo solo puede ocurrir dentro de esta misma OT.
-                  </Alert>
-                </Stack>
+              {selectedRelief.length === 0 && selectedWork.estado !== 'EN_EJECUCION' && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                  El relevo sin stickers se registra cuando el Trabajo de color está en ejecución. Antes de iniciarlo, selecciona las identidades que deseas asignar.
+                </Typography>
               )}
+              {(selectedWork.mangas || []).some(
+                (manga) => selectedRelief.includes(manga.public_id)
+                  && manga.estado === 'PREETIQUETADA',
+              ) && (
+                <FormControlLabel
+                  sx={{ mt: 1 }}
+                  control={(
+                    <Checkbox
+                      checked={reliefForm.confirmEmptyStickers}
+                      onChange={(event) => setReliefForm({
+                        ...reliefForm,
+                        confirmEmptyStickers: event.target.checked,
+                      })}
+                    />
+                  )}
+                  label="Confirmo que estas mangas están vacías y sus stickers no fueron utilizados"
+                />
+              )}
+              <Alert severity="info" sx={{ mt: 1 }}>
+                Si la manga ya fue controlada en Pesaje, puedes relevarla aquí dentro de la misma OT. Para pasarla a otra OT usa la continuidad al agregar el Trabajo de color posterior. En ambos casos conserva manga y QR; el cierre final parcial solo sirve para terminarla definitivamente.
+              </Alert>
             </Paper>
           )}
 
@@ -2408,9 +2610,22 @@ export default function OtMangasScm({ view = 'all' }) {
             onToggleLabel={(id) => setSelectedLabels((current) => (
               current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
             ))}
-            onToggleRelief={(id) => setSelectedRelief((current) => (
-              current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
-            ))}
+            onToggleRelief={(id) => setSelectedRelief((current) => {
+              if (current.includes(id)) return current.filter((item) => item !== id);
+              const manga = (selectedWork.mangas || []).find(
+                (item) => item.public_id === id,
+              );
+              const selectsOpen = manga?.estado === 'CONTINUIDAD_PENDIENTE';
+              return [
+                ...current.filter((itemId) => {
+                  const item = (selectedWork.mangas || []).find(
+                    (candidate) => candidate.public_id === itemId,
+                  );
+                  return (item?.estado === 'CONTINUIDAD_PENDIENTE') === selectsOpen;
+                }),
+                id,
+              ];
+            })}
             onAnnul={(manga) => {
               setMangaActionReason('');
               setMangaActionDialog({ type: 'annul', manga });
@@ -2571,11 +2786,11 @@ export default function OtMangasScm({ view = 'all' }) {
                 <Table size="small">
                   <TableHead><TableRow>
                     <TableCell>Versión</TableCell>
-                    <TableCell align="right">Bruto kg</TableCell>
-                    <TableCell align="right">Tara kg</TableCell>
-                    <TableCell align="right">Neto físico kg</TableCell>
-                    <TableCell align="right">Cantidad un</TableCell>
-                    <TableCell align="right">Kg trabajo</TableCell>
+                    <TableCell align="right">Peso bruto (kg)</TableCell>
+                    <TableCell align="right">Tara (kg)</TableCell>
+                    <TableCell align="right">Peso neto real (kg)</TableCell>
+                    <TableCell align="right">Cantidad (un)</TableCell>
+                    <TableCell align="right">Peso estándar según unidades (kg)</TableCell>
                   </TableRow></TableHead>
                   <TableBody>
                     {[
@@ -2602,7 +2817,7 @@ export default function OtMangasScm({ view = 'all' }) {
                   <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
                     <TextField
                       type="number"
-                      label="Bruto kg"
+                      label="Peso bruto (kg)"
                       size="small"
                       value={correctionForm.peso_bruto_kg}
                       onChange={(event) => setCorrectionForm({
@@ -2611,7 +2826,7 @@ export default function OtMangasScm({ view = 'all' }) {
                     />
                     <TextField
                       type="number"
-                      label="Tara kg"
+                      label="Tara (kg)"
                       size="small"
                       value={correctionForm.tara_kg}
                       onChange={(event) => setCorrectionForm({
@@ -2620,7 +2835,7 @@ export default function OtMangasScm({ view = 'all' }) {
                     />
                     <TextField
                       type="number"
-                      label="Cantidad un"
+                      label="Cantidad (un)"
                       size="small"
                       value={correctionForm.cantidad_confirmada}
                       onChange={(event) => setCorrectionForm({

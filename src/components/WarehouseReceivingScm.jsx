@@ -336,7 +336,7 @@ export default function WarehouseReceivingScm() {
                     resolveScan();
                   }
                 }}
-                helperText={canManual ? 'También admite el código visible como contingencia auditada.' : 'Usa el QR de prepesaje o postpesaje.'}
+                helperText={canManual ? 'Usa el QR único de la preetiqueta; el código visible queda como contingencia auditada.' : 'Usa el QR único de la preetiqueta.'}
               />
               <Button
                 size="large"

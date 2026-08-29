@@ -122,7 +122,7 @@ function RouteRevisionEditor({
       {showHeading && (
         <Box>
           <Typography component="h2" variant="h6">
-            Ruta de {targetArticle?.codigo || 'producto por resolver'}
+            Ruta de {targetArticle?.codigo || 'artículo por resolver'}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Ordena las transformaciones, centros de trabajo y salidas intermedias.
@@ -130,8 +130,8 @@ function RouteRevisionEditor({
         </Box>
       )}
       <Alert severity="info">
-        Esta ruta siempre termina en el producto de la sesión:{' '}
-        <strong>{targetArticle?.codigo || 'PT no resuelto'}</strong>. La salida terminal no
+        Esta ruta siempre termina en el artículo objetivo de la sesión:{' '}
+        <strong>{targetArticle?.codigo || 'objetivo no resuelto'}</strong>. La salida terminal no
         se puede sustituir desde este editor.
       </Alert>
       {policy.guidance && <Alert severity="warning">{policy.guidance}</Alert>}
@@ -354,7 +354,7 @@ function RouteRevisionEditor({
                     label="Salida terminal (bloqueada)"
                     value={outputLabel}
                     slotProps={{ htmlInput: { readOnly: true } }}
-                    helperText={`Esta operación termina la ruta y produce ${targetArticle?.codigo || 'el PT seleccionado'}.`}
+                    helperText={`Esta operación termina la ruta y produce ${targetArticle?.codigo || 'el artículo objetivo seleccionado'}.`}
                   />
                 ) : (
                   <ScmArticleAutocomplete

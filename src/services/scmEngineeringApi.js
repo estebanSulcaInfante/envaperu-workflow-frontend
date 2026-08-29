@@ -116,6 +116,16 @@ export const crearRutaScm = (productId, payload) => data(
     config(),
   ),
 );
+export const listarRutasArticuloScm = (articleId) => items(
+  () => api.get(`/scm/v1/articulos/${encodeURIComponent(articleId)}/rutas`, config()),
+);
+export const crearRutaArticuloScm = (articleId, payload) => data(
+  () => api.post(
+    `/scm/v1/articulos/${encodeURIComponent(articleId)}/rutas`,
+    payload,
+    config(),
+  ),
+);
 export const actualizarRutaScm = (routeId, payload) => data(
   () => api.put(`/scm/v1/rutas/${routeId}`, payload, config()),
 );

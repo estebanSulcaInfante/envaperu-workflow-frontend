@@ -43,6 +43,7 @@ import PageHeader from './ui/PageHeader';
 import ProcessJourney from './ui/ProcessJourney';
 import EmptyState from './ui/EmptyState';
 import OrderScheduleStrip from './ui/OrderScheduleStrip';
+import ExceptionalAssemblyOrderDialog from './ExceptionalAssemblyOrderDialog';
 import { useScmActor } from '../context/ScmActorContext';
 import { todayInLima } from '../utils/limaDate';
 
@@ -76,6 +77,7 @@ export default function AssemblyOrdersScm() {
   const canExecute = can('OA_EJECUTAR');
   const canCreateOt = can('OT_CREAR');
   const canViewOt = can('OT_VER');
+  const canCreateExceptionalOrder = can('OA_EXCEPCIONAL_CREAR');
   const [orders, setOrders] = useState([]);
   const [orderId, setOrderId] = useState('');
   const [busy, setBusy] = useState(true);
@@ -83,6 +85,7 @@ export default function AssemblyOrdersScm() {
   const [notice, setNotice] = useState('');
   const [closeOpen, setCloseOpen] = useState(false);
   const [otOpen, setOtOpen] = useState(false);
+  const [exceptionalOrderOpen, setExceptionalOrderOpen] = useState(false);
   const [ots, setOts] = useState([]);
   const [fabricationOts, setFabricationOts] = useState([]);
   const [centers, setCenters] = useState([]);
@@ -306,7 +309,10 @@ export default function AssemblyOrdersScm() {
     setError('');
     try {
       const result = await asignarMangasSalidaArmadoScm(ot);
-      setNotice(`${result.mangas.length} manga(s) de producto terminado asignada(s) a ${ot.codigo_ot}.`);
+      const outputLabel = selected?.salida?.clase === 'SUBENSAMBLE_WIP'
+        ? 'WIP'
+        : 'producto terminado';
+      setNotice(`${result.mangas.length} manga(s) de ${outputLabel} asignada(s) a ${ot.codigo_ot}.`);
       await refreshOts();
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudieron asignar las mangas de salida.'));
@@ -448,6 +454,9 @@ export default function AssemblyOrdersScm() {
     Number(selected?.salida?.cantidad_objetivo || 0) - assignedQuota,
   );
   const outputPlanLine = outputPlan?.lineas?.[0] || null;
+  const outputIsWip = selected?.salida?.clase === 'SUBENSAMBLE_WIP';
+  const outputTypeLabel = outputIsWip ? 'WIP' : 'producto terminado';
+  const outputTypeShortLabel = outputIsWip ? 'WIP' : 'PT';
   const selectedFabricationContext = fabricationOts.find(
     (item) => item.public_id === otForm.ot_fabricacion_contexto_id,
   ) || null;
@@ -465,6 +474,11 @@ export default function AssemblyOrdersScm() {
     setOtOpen(true);
   };
 
+  const handleExceptionalOrderCreated = (created) => {
+    setNotice(`${created.codigo} creada como borrador de reposición WIP, sin OP.`);
+    load(created.id);
+  };
+
   return (
     <Stack spacing={2.5}>
       <PageHeader
@@ -472,6 +486,15 @@ export default function AssemblyOrdersScm() {
         description="Libera y ejecuta operaciones de prearmado, armado, acabado o empaque contra la BOM congelada por planificación."
         actions={(
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            {canCreateExceptionalOrder && (
+              <Button
+                startIcon={<AddTaskOutlinedIcon />}
+                variant="contained"
+                onClick={() => setExceptionalOrderOpen(true)}
+              >
+                Nueva OA de reposición WIP
+              </Button>
+            )}
             <Button component={RouterLink} to={journeysReturnPath} variant="text">
               Volver a Jornadas
             </Button>
@@ -521,6 +544,9 @@ export default function AssemblyOrdersScm() {
             </FormControl>
             <>
               <Chip label={selected.estado} />
+              {selected.origen_demanda === 'REPOSICION_WIP' && (
+                <Chip color="info" variant="outlined" label="Reposición WIP · sin OP" />
+              )}
               <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
                 {OPERATION_TYPE_LABEL[selected.operacion.tipo] || selected.operacion.tipo}
                 {' · '}
@@ -552,7 +578,7 @@ export default function AssemblyOrdersScm() {
         <EmptyState
           icon={<AccountTreeOutlinedIcon />}
           title="Aún no hay órdenes de armado"
-          description="Las OA aparecen cuando la planificación confirma una necesidad de prearmado, armado, acabado o empaque."
+          description="Las OA aparecen cuando la planificación confirma una necesidad o una jefatura crea una reposición WIP gobernada."
           action={can('OP_VER') ? (
             <Button component={RouterLink} to="/planificacion" variant="contained">
               Ir a Planificación
@@ -617,7 +643,7 @@ export default function AssemblyOrdersScm() {
               justifyContent="space-between"
             >
               <Box>
-                <Typography fontWeight={800}>Mangas de producto terminado</Typography>
+                <Typography fontWeight={800}>Mangas de {outputTypeLabel}</Typography>
                 {outputPlanLine ? (
                   <Typography variant="body2" color="text.secondary">
                     Revisión {outputPlan.revision} · {outputPlanLine.mangas_propuestas} manga(s)
@@ -626,7 +652,8 @@ export default function AssemblyOrdersScm() {
                   </Typography>
                 ) : (
                   <Typography variant="body2" color="text.secondary">
-                    Calcula cuántas bolsas PT necesita la OA antes de repartirlas entre las jornadas.
+                    Calcula cuántas bolsas {outputTypeShortLabel} necesita la OA antes de
+                    repartirlas entre las jornadas.
                   </Typography>
                 )}
               </Box>
@@ -656,7 +683,7 @@ export default function AssemblyOrdersScm() {
                 ) : null}
               >
                 Aún no existe un plan activo. Si el cálculo informa que falta un perfil de
-                empaque, configúralo antes de crear o preimprimir mangas PT.
+                empaque, configúralo antes de crear o preimprimir mangas {outputTypeShortLabel}.
               </Alert>
             )}
           </Paper>
@@ -778,7 +805,7 @@ export default function AssemblyOrdersScm() {
                                   disabled={busy}
                                   onClick={() => assignOutputMangas(ot)}
                                 >
-                                  Asignar mangas PT
+                                  Asignar mangas {outputTypeShortLabel}
                                 </Button>
                               )}
                             </Stack>
@@ -1305,6 +1332,11 @@ export default function AssemblyOrdersScm() {
           </Button>
         </DialogActions>
       </Dialog>
+      <ExceptionalAssemblyOrderDialog
+        open={exceptionalOrderOpen}
+        onClose={() => setExceptionalOrderOpen(false)}
+        onCreated={handleExceptionalOrderCreated}
+      />
     </Stack>
   );
 }

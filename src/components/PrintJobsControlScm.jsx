@@ -15,16 +15,22 @@ const statusText = {
 const statusColor = {
   PENDING: 'warning', PARTIAL: 'info', PRINTED: 'success', FAILED: 'error',
 };
+const typeText = {
+  PREPESAJE: 'Preetiqueta con QR',
+  CONTROL_PESO: 'Control de peso sin QR',
+  POSTPESAJE: 'Peso final sin QR',
+};
 const displayDate = (value) => (value
   ? new Intl.DateTimeFormat('es-PE', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value))
   : 'Sin fecha');
-const jobTypes = (job) => [...new Set((job.labels || []).map((label) => label.tipo))];
+const jobTypes = (job) => [...new Set((job.labels || []).map(
+  (label) => typeText[label.tipo] || label.tipo,
+))];
 const mangaCodes = (job) => [...new Set((job.labels || [])
   .map((label) => label.manga_codigo).filter(Boolean))];
 
 function JobCard({ job }) {
-  const canOpen = job.status !== 'PRINTED'
-    && (job.labels || []).some((label) => label.tipo === 'PREPESAJE');
+  const canOpen = job.status !== 'PRINTED' && (job.labels || []).length > 0;
   return (
     <Paper variant="outlined" sx={{ p: 1.5 }}>
       <Stack spacing={1.25}>
@@ -122,7 +128,7 @@ export default function PrintJobsControlScm() {
         )}
       />
       <Alert severity="info">
-        Vista de solo lectura. Abrir un trabajo no lo imprime; la preetiqueta se revisa y confirma físicamente en la estación.
+        Vista de solo lectura. Abrir un trabajo no lo imprime; preetiquetas y comprobantes de peso se revisan y confirman físicamente en la estación.
       </Alert>
       <Paper variant="outlined" sx={{ p: 1.5 }}>
         <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.25}>
@@ -156,6 +162,7 @@ export default function PrintJobsControlScm() {
             >
               <MenuItem value="ALL">Todos</MenuItem>
               <MenuItem value="PREPESAJE">Prepesaje</MenuItem>
+              <MenuItem value="CONTROL_PESO">Control de peso</MenuItem>
               <MenuItem value="POSTPESAJE">Postpesaje</MenuItem>
             </Select>
           </FormControl>

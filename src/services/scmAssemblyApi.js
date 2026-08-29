@@ -13,6 +13,12 @@ export const listarOrdenesArmadoScm = () => body(() => api.get(
   { headers: headers() },
 ));
 
+export const crearOrdenArmadoExcepcionalScm = (payload) => body(() => api.post(
+  '/scm/v1/ordenes-armado/excepcionales',
+  payload,
+  { headers: headers(true) },
+));
+
 export const transicionarOrdenArmadoScm = (
   order, action, extra = {},
 ) => body(() => api.post(

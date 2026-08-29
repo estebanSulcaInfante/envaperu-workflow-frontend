@@ -263,7 +263,7 @@ describe('Control > Supervisión de producción', () => {
     expect(within(row).getByText(/Avance total OT/i)).toBeVisible();
     expect(within(row).getByText(/1,600 \/ 3,000 un/i)).toBeVisible();
     expect(within(row).getByText(/Actual: Carne sólido/i)).toBeVisible();
-    expect(within(row).getByText(/48\.125 kg físicos/i)).toBeVisible();
+    expect(within(row).getByText(/Peso neto real: 48\.125 kg/i)).toBeVisible();
     expect(screen.getByText(/Datos al/i)).toBeVisible();
     expect(screen.queryByRole('button', { name: /crear|iniciar|anular|corregir/i })).not.toBeInTheDocument();
   });
@@ -281,7 +281,7 @@ describe('Control > Supervisión de producción', () => {
     expect(within(row).getByText('MANGA-000001')).toBeVisible();
     expect(within(row).getByText(/PC-001.*Alcancia carne/i)).toBeVisible();
     expect(within(row).getByText(/OT-000001/i)).toBeVisible();
-    expect(within(row).getByText(/1\.825 kg fisicos/i)).toBeVisible();
+    expect(within(row).getByText(/Peso neto real: 1\.825 kg/i)).toBeVisible();
 
     const search = screen.getByRole('textbox', { name: /Omnib/i });
     await user.clear(search);
@@ -358,7 +358,7 @@ describe('Control > Supervisión de producción', () => {
     expect(within(dialog).getByText('OF-000001')).toBeVisible();
     expect(within(dialog).getByText('MANGA-000001')).toBeVisible();
     expect(within(dialog).getByText(/Logístico: PENDIENTE RECEPCION/i)).toBeVisible();
-    expect(within(dialog).getByText(/Neto físico 1.825 kg/i)).toBeVisible();
+    expect(within(dialog).getByText(/Peso neto real 1.825 kg/i)).toBeVisible();
     expect(within(dialog).getByText(/Etiqueta PREPESAJE · v2 · IMPRESA/i)).toBeVisible();
     expect(within(dialog).getByText(/Almacén: PENDIENTE RECEPCION/i)).toBeVisible();
     expect(within(dialog).getByText(/Calidad: PENDIENTE/i)).toBeVisible();

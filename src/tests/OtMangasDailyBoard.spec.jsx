@@ -17,6 +17,7 @@ const scmMocks = vi.hoisted(() => ({
   obtenerPlanMangas: vi.fn(),
   listarJornadasPlantaScm: vi.fn(),
   listarOtScm: vi.fn(),
+  listarContinuidadesMangaPendientesScm: vi.fn(),
   listarSolicitudesMangaExtraScm: vi.fn(),
   crearOtFabricacionScm: vi.fn(),
   crearTrabajoColorScm: vi.fn(),
@@ -42,6 +43,8 @@ vi.mock('../services/scmOtApi', () => ({
   generarEtiquetasPrepesaje: vi.fn(),
   listarJornadasPlantaScm: scmMocks.listarJornadasPlantaScm,
   listarOtScm: scmMocks.listarOtScm,
+  listarContinuidadesMangaPendientesScm:
+    scmMocks.listarContinuidadesMangaPendientesScm,
   listarSolicitudesMangaExtraScm: scmMocks.listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm: scmMocks.listarOrdenesFabricacionScm,
   obtenerPesajeMangaScm: vi.fn(),
@@ -208,6 +211,7 @@ describe('tablero diario por máquina y selección humana de color', () => {
     scmMocks.obtenerPlanMangas.mockResolvedValue({ plan });
     scmMocks.listarSolicitudesMangaExtraScm.mockResolvedValue({ items: [] });
     scmMocks.listarOtScm.mockResolvedValue({ items: [] });
+    scmMocks.listarContinuidadesMangaPendientesScm.mockResolvedValue({ items: [] });
     scmMocks.listarJornadasPlantaScm.mockImplementation(async (filters) => {
       const [fabrication, assembly, machineCatalog] = await Promise.all([
         scmMocks.listarOtScm(undefined, 'FABRICACION', filters),

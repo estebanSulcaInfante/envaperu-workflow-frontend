@@ -297,9 +297,9 @@ function LogisticsSummary({ item, canWeighing, canAlerts }) {
       </Stack>
       {weighingVisible && item?.pesaje_resumen && (
         <Typography variant="caption" color="text.secondary">
-          {weight(item.pesaje_resumen.neto_kg ?? item.pesaje_resumen.peso_fisico_neto_kg)} físicos
+          Peso neto real: {weight(item.pesaje_resumen.neto_kg ?? item.pesaje_resumen.peso_fisico_neto_kg)}
           {item.pesaje_resumen.kg_produccion_estandar != null
-            ? ` · ${weight(item.pesaje_resumen.kg_produccion_estandar)} estándar` : ''}
+            ? ` · Peso estándar según unidades: ${weight(item.pesaje_resumen.kg_produccion_estandar)}` : ''}
         </Typography>
       )}
       {alertsVisible && numberValue(item?.alertas_resumen?.abiertas) > 0 && (
@@ -475,10 +475,10 @@ function MangaSummary({ item }) {
       {manga.pesaje ? (
         <>
           <Typography variant="caption" color="text.secondary">
-            {weight(manga.pesaje.peso_fisico_neto_kg)} fisicos
+            Peso neto real: {weight(manga.pesaje.peso_fisico_neto_kg)}
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            {weight(manga.pesaje.kg_produccion_estandar)} estandar
+            Peso estándar según unidades: {weight(manga.pesaje.kg_produccion_estandar)}
           </Typography>
         </>
       ) : <Typography variant="caption" color="text.secondary">Sin pesaje efectivo</Typography>}
@@ -854,8 +854,8 @@ function DetailHierarchy({
                       )}
                       {weighingVisible && manga.pesaje && (
                         <Alert severity="info" icon={false}>
-                          Neto físico {weight(manga.pesaje.neto_fisico_kg ?? manga.pesaje.peso_fisico_neto_kg)}
-                          {' · '}Kg estándar {weight(manga.pesaje.kg_produccion_estandar ?? manga.pesaje.kg_produccion_ot)}
+                          Peso neto real {weight(manga.pesaje.neto_fisico_kg ?? manga.pesaje.peso_fisico_neto_kg)}
+                          {' · '}Peso estándar según unidades {weight(manga.pesaje.kg_produccion_estandar ?? manga.pesaje.kg_produccion_ot)}
                           {' · '}{stateLabel(manga.pesaje.estado)}
                         </Alert>
                       )}

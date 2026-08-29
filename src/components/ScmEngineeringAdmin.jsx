@@ -58,7 +58,7 @@ import {
   crearEstructuraScm,
   crearPerfilEmpacableScm,
   crearReglaEmpaqueScm,
-  crearRutaScm,
+  crearRutaArticuloScm,
   crearTipoContenedorScm,
   descartarEstructuraScm,
   enviarEstructuraScm,
@@ -67,7 +67,7 @@ import {
   listarEstructurasScm,
   listarPerfilesEmpacablesScm,
   listarReglasEmpaqueScm,
-  listarRutasScm,
+  listarRutasArticuloScm,
   listarTiposContenedorScm,
   mensajeErrorScm,
   obtenerPerfilesArticuloScm,
@@ -141,10 +141,9 @@ const requestedPackagingArticleId = () => (
   new URLSearchParams(globalThis.location?.search || '').get('articulo') || ''
 );
 
-const isRoutableProduct = (item) => (
-  item.clase === 'PRODUCTO_TERMINADO'
-  && typeof item.subtipo?.producto_terminado_id === 'string'
-  && item.subtipo.producto_terminado_id.trim().length > 0
+const isRoutableArticle = (item) => (
+  item.activo !== false
+  && ['SUBENSAMBLE_WIP', 'PRODUCTO_TERMINADO'].includes(item.clase)
 );
 
 const statusChip = (state) => (
@@ -206,13 +205,16 @@ function ScmEngineeringAdmin() {
   const [articles, setArticles] = useState([]);
   const [structures, setStructures] = useState([]);
   const [routes, setRoutes] = useState([]);
+  const [routesLoading, setRoutesLoading] = useState(false);
+  const [routesError, setRoutesError] = useState('');
+  const [routeReloadToken, setRouteReloadToken] = useState(0);
   const [centers, setCenters] = useState([]);
   const [containers, setContainers] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [articleProfilesById, setArticleProfilesById] = useState({});
   const [rules, setRules] = useState([]);
   const [selectedArticleId, setSelectedArticleId] = useState('');
-  const [selectedProductId, setSelectedProductId] = useState('');
+  const [selectedRouteArticleId, setSelectedRouteArticleId] = useState('');
   const [dialog, setDialog] = useState(null);
   const [wipForm, setWipForm] = useState(emptyWip);
   const [bomForm, setBomForm] = useState(emptyStructureValue);
@@ -240,8 +242,8 @@ function ScmEngineeringAdmin() {
   const [packagingProfileId, setPackagingProfileId] = useState('');
   const [planningContext] = useState(initialPlanningContext);
 
-  const productArticles = useMemo(
-    () => articles.filter(isRoutableProduct),
+  const routeTargetArticles = useMemo(
+    () => articles.filter(isRoutableArticle),
     [articles],
   );
   const activeCenters = useMemo(
@@ -249,10 +251,10 @@ function ScmEngineeringAdmin() {
     [centers],
   );
   const routeTargetArticle = useMemo(
-    () => productArticles.find(
-      (item) => item.subtipo?.producto_terminado_id === selectedProductId,
+    () => routeTargetArticles.find(
+      (item) => String(item.id) === String(selectedRouteArticleId),
     ),
-    [productArticles, selectedProductId],
+    [routeTargetArticles, selectedRouteArticleId],
   );
   const structureResultArticles = useMemo(
     () => articles.filter((item) => (
@@ -308,20 +310,14 @@ function ScmEngineeringAdmin() {
       const containerRows = containerResult.status === 'fulfilled' ? containerResult.value : [];
       const profileRows = profileResult.status === 'fulfilled' ? profileResult.value : [];
       const ruleRows = ruleResult.status === 'fulfilled' ? ruleResult.value : [];
-      const products = articleRows.filter(isRoutableProduct);
-      const [structureResults, routeResults, articleProfileResults] = await Promise.all([
+      const routeTargets = articleRows.filter(isRoutableArticle);
+      const [structureResults, articleProfileResults] = await Promise.all([
         Promise.allSettled(articleRows.map((item) => listarEstructurasScm(item.id))),
-        Promise.allSettled(products.map((item) => (
-          listarRutasScm(item.subtipo?.producto_terminado_id)
-        ))),
         profileResult.status === 'fulfilled'
           ? Promise.allSettled(articleRows.map((item) => obtenerPerfilesArticuloScm(item.id)))
           : Promise.resolve([]),
       ]);
       errors.push(...structureResults
-        .filter((result) => result.status === 'rejected')
-        .map((result) => mensajeErrorScm(result.reason)));
-      errors.push(...routeResults
         .filter((result) => result.status === 'rejected')
         .map((result) => mensajeErrorScm(result.reason)));
       errors.push(...articleProfileResults
@@ -339,9 +335,6 @@ function ScmEngineeringAdmin() {
       ])));
       setRules(ruleRows);
       setStructures(structureResults
-        .filter((result) => result.status === 'fulfilled')
-        .flatMap((result) => result.value));
-      setRoutes(routeResults
         .filter((result) => result.status === 'fulfilled')
         .flatMap((result) => result.value));
       const requestedArticleId = requestedPackagingArticleId();
@@ -371,20 +364,22 @@ function ScmEngineeringAdmin() {
           && (item.clase === 'SUBENSAMBLE_WIP' || item.clase === 'PRODUCTO_TERMINADO')
         )) ? current : ''
       ));
-      setSelectedProductId((current) => (
-        products.some((item) => (
-          item.subtipo?.producto_terminado_id === current
-        ))
-          ? current
-          : String(
-            products.find((item) => (
-              item.subtipo?.producto_terminado_id
-                === new URLSearchParams(globalThis.location?.search || '').get('producto')
-            ))?.subtipo?.producto_terminado_id
-            || products[0]?.subtipo?.producto_terminado_id
-            || '',
+      setSelectedRouteArticleId((current) => {
+        if (routeTargets.some((item) => String(item.id) === String(current))) {
+          return current;
+        }
+        const params = new URLSearchParams(globalThis.location?.search || '');
+        const requestedArticle = params.get('articulo');
+        const requestedProduct = params.get('producto');
+        const requestedTarget = routeTargets.find((item) => (
+          String(item.id) === String(requestedArticle)
+          || (
+            requestedProduct
+            && item.subtipo?.producto_terminado_id === requestedProduct
           )
-      ));
+        ));
+        return requestedTarget ? String(requestedTarget.id) : '';
+      });
     } catch (requestError) {
       setError(mensajeErrorScm(
         requestError,
@@ -399,7 +394,36 @@ function ScmEngineeringAdmin() {
     loadData();
   }, [loadData]);
 
-  const runMutation = async (operation, successMessage) => {
+  useEffect(() => {
+    let active = true;
+    if (!selectedRouteArticleId) {
+      setRoutes([]);
+      setRoutesError('');
+      setRoutesLoading(false);
+      return undefined;
+    }
+    setRoutes([]);
+    setRoutesError('');
+    setRoutesLoading(true);
+    listarRutasArticuloScm(Number(selectedRouteArticleId))
+      .then((items) => {
+        if (active) setRoutes(items);
+      })
+      .catch((requestError) => {
+        if (active) {
+          setRoutesError(mensajeErrorScm(
+            requestError,
+            'No se pudieron cargar las rutas del artículo seleccionado.',
+          ));
+        }
+      })
+      .finally(() => {
+        if (active) setRoutesLoading(false);
+      });
+    return () => { active = false; };
+  }, [routeReloadToken, selectedRouteArticleId]);
+
+  const runMutation = async (operation, successMessage, { refreshRoute = false } = {}) => {
     setSaving(true);
     setError('');
     setNotice('');
@@ -408,12 +432,19 @@ function ScmEngineeringAdmin() {
       setDialog(null);
       setNotice(successMessage);
       await loadData();
+      if (refreshRoute) setRouteReloadToken((current) => current + 1);
     } catch (requestError) {
       setError(mensajeErrorScm(requestError));
     } finally {
       setSaving(false);
     }
   };
+
+  const runRouteMutation = (operation, successMessage) => runMutation(
+    operation,
+    successMessage,
+    { refreshRoute: true },
+  );
 
   const structuresForSelection = structures.filter(
     (item) => item.articulo_resultado_id === Number(selectedArticleId),
@@ -430,9 +461,11 @@ function ScmEngineeringAdmin() {
   const hasOpenStructure = structuresForSelection.some(
     (item) => ['BORRADOR', 'PENDIENTE_APROBACION'].includes(item.estado),
   );
-  const routesForSelection = routes.filter((item) => item.producto_id === selectedProductId);
-  const newRouteDisabledReason = !selectedProductId
-    ? 'Selecciona un producto terminado antes de crear una ruta.'
+  const routesForSelection = routes;
+  const newRouteDisabledReason = !selectedRouteArticleId
+    ? 'Selecciona un artículo objetivo WIP o producto terminado antes de crear una ruta.'
+    : routesLoading
+      ? 'Espera mientras se cargan las rutas del artículo seleccionado.'
     : activeCenters.length === 0
       ? 'Crea al menos un centro de trabajo activo antes de crear una ruta.'
       : '';
@@ -524,19 +557,25 @@ function ScmEngineeringAdmin() {
   };
 
   const saveRoute = (payload = buildRoutePayload(routeForm, routeTargetArticle, articles)) => {
-    return runMutation(
+    return runRouteMutation(
       () => editingRoute
         ? actualizarRutaScm(
           editingRoute.id,
           { ...payload, version: editingRoute.version },
         )
-        : crearRutaScm(selectedProductId, payload),
+        : crearRutaArticuloScm(Number(selectedRouteArticleId), payload),
       editingRoute ? 'Borrador de ruta actualizado.' : 'Borrador de ruta creado.',
     );
   };
 
 
-  const approvalButton = (revision, approve, successMessage, allowed) => {
+  const approvalButton = (
+    revision,
+    approve,
+    successMessage,
+    allowed,
+    mutationRunner = runMutation,
+  ) => {
     if (!allowed) return null;
     const isCreator = Number(actorId) === Number(revision.creada_por_id);
     const actorLabel = actor?.nombre_completo || `actor #${actorId}`;
@@ -551,7 +590,7 @@ function ScmEngineeringAdmin() {
             size="small"
             variant="contained"
             disabled={isCreator || saving}
-            onClick={() => runMutation(approve, successMessage)}
+            onClick={() => mutationRunner(approve, successMessage)}
           >
             {isCreator ? 'Requiere otro actor' : 'Aprobar'}
           </Button>
@@ -567,7 +606,7 @@ function ScmEngineeringAdmin() {
           size="small"
           variant="contained"
           disabled={saving}
-          onClick={() => runMutation(
+          onClick={() => runRouteMutation(
             () => publicarRutaScm(revision),
             'Ruta publicada directamente por jefatura.',
           )}
@@ -581,6 +620,7 @@ function ScmEngineeringAdmin() {
       () => aprobarRutaScm(revision),
       'Ruta aprobada.',
       canApproveRoutes,
+      runRouteMutation,
     );
   };
 
@@ -655,10 +695,10 @@ function ScmEngineeringAdmin() {
     }
     if (domain === 'RUTA') {
       if (action === 'approve') {
-        return runMutation(() => aprobarRutaScm(revision), 'Ruta aprobada.');
+        return runRouteMutation(() => aprobarRutaScm(revision), 'Ruta aprobada.');
       }
       if (action === 'publish') {
-        return runMutation(
+        return runRouteMutation(
           () => publicarRutaScm(revision),
           'Ruta publicada directamente por jefatura.',
         );
@@ -1036,7 +1076,7 @@ function ScmEngineeringAdmin() {
                   ) : undefined}
                 >
                   La planificación de {planningContext.orderCode} requiere una operación cuya
-                  salida sea {planningContext.missingArticleCode}. Revisa la ruta del producto
+                  salida sea {planningContext.missingArticleCode}. Revisa la ruta del artículo
                   seleccionado, publica únicamente la definición técnica correcta y vuelve a
                   recalcular el plan.
                 </Alert>
@@ -1044,12 +1084,19 @@ function ScmEngineeringAdmin() {
               <Paper variant="outlined" sx={{ p: 2 }}>
                 <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5}>
                   <ScmArticleAutocomplete
-                    label="Producto terminado"
-                    articles={productArticles}
-                    value={selectedProductId}
-                    getOptionValue={(article) => article.subtipo?.producto_terminado_id}
-                    onChange={setSelectedProductId}
+                    label="Artículo objetivo"
+                    articles={routeTargetArticles}
+                    value={selectedRouteArticleId}
+                    onChange={setSelectedRouteArticleId}
                   />
+                  {routeTargetArticle && (
+                    <Chip
+                      variant="outlined"
+                      color={routeTargetArticle.clase === 'SUBENSAMBLE_WIP' ? 'info' : 'default'}
+                      label={`${ARTICLE_CLASS[routeTargetArticle.clase]} · ${routeTargetArticle.codigo}`}
+                      sx={{ alignSelf: { xs: 'flex-start', lg: 'center' }, flexShrink: 0 }}
+                    />
+                  )}
                   {canAdminRoutes && (
                     <Stack
                       direction={{ xs: 'column', sm: 'row' }}
@@ -1084,6 +1131,30 @@ function ScmEngineeringAdmin() {
               {canAdminRoutes && newRouteDisabledReason && (
                 <Alert severity="info">{newRouteDisabledReason}</Alert>
               )}
+              {routesError && (
+                <Alert
+                  severity="error"
+                  action={selectedRouteArticleId ? (
+                    <Button
+                      color="inherit"
+                      size="small"
+                      onClick={() => setRouteReloadToken((current) => current + 1)}
+                    >
+                      Reintentar
+                    </Button>
+                  ) : undefined}
+                >
+                  {routesError}
+                </Alert>
+              )}
+              {routesLoading && (
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ py: 1 }}>
+                  <CircularProgress size={20} />
+                  <Typography variant="body2" color="text.secondary">
+                    Cargando rutas de {routeTargetArticle?.codigo || 'artículo seleccionado'}…
+                  </Typography>
+                </Stack>
+              )}
               <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                 {centers.map((center) => (
                   <Chip
@@ -1114,7 +1185,11 @@ function ScmEngineeringAdmin() {
                 <Paper key={revision.id} variant="outlined" sx={{ p: 2 }}>
                   <Stack direction="row" justifyContent="space-between" alignItems="center">
                     <Box>
-                      <Typography variant="h6">Ruta · revisión {revision.numero_revision}</Typography>
+                      <Typography variant="h6">
+                        Ruta {ARTICLE_CLASS[revision.articulo_objetivo?.clase] || 'de artículo'}
+                        {' · '}{revision.articulo_objetivo?.codigo || routeTargetArticle?.codigo}
+                        {' · '}revisión {revision.numero_revision}
+                      </Typography>
                       <Typography variant="body2" color="text.secondary">
                         {revision.notas || 'Sin notas'} · creador #{revision.creada_por_id}
                       </Typography>
@@ -1133,7 +1208,7 @@ function ScmEngineeringAdmin() {
                         <Button
                           size="small"
                           color="warning"
-                          onClick={() => runMutation(
+                          onClick={() => runRouteMutation(
                             () => retirarRutaScm(revision),
                             'Ruta retirada.',
                           )}
@@ -1218,8 +1293,11 @@ function ScmEngineeringAdmin() {
                   </Table>
                 </Paper>
               ))}
-              {routesForSelection.length === 0 && (
-                <Alert severity="warning">El producto todavía no tiene una ruta revisionada.</Alert>
+              {selectedRouteArticleId && !routesLoading && !routesError
+                && routesForSelection.length === 0 && (
+                <Alert severity="warning">
+                  El artículo objetivo todavía no tiene una ruta revisionada.
+                </Alert>
               )}
             </Stack>
           )}
@@ -1626,7 +1704,8 @@ function ScmEngineeringAdmin() {
                   {pendingRoutes.map((revision) => (
                     <Stack key={revision.id} direction="row" justifyContent="space-between" alignItems="center">
                       <Typography>
-                        {revision.articulo_objetivo?.codigo} · rev. {revision.numero_revision}
+                        {ARTICLE_CLASS[revision.articulo_objetivo?.clase] || 'Artículo'}
+                        {' · '}{revision.articulo_objetivo?.codigo} · rev. {revision.numero_revision}
                         {' '}· creador #{revision.creada_por_id}
                       </Typography>
                       <ApprovalActionPanel
@@ -1880,7 +1959,7 @@ function ScmEngineeringAdmin() {
         <DialogTitle>
           {editingRoute
             ? `Editar ruta · revisión ${editingRoute.numero_revision}`
-            : `Nueva ruta · ${selectedProductId}`}
+            : `Nueva ruta · ${ARTICLE_CLASS[routeTargetArticle?.clase] || 'Artículo'} ${routeTargetArticle?.codigo || 'objetivo'}`}
         </DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 1 }}>

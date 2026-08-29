@@ -18,6 +18,7 @@ import {
   crearOrdenFabricacionExcepcionalScm,
   crearOtFabricacionScm,
   crearTrabajoColorScm,
+  listarContinuidadesMangaPendientesScm,
   listarJornadasPlantaScm,
   listarOtScm,
   reasignarMangasTrabajoColorScm,
@@ -126,6 +127,15 @@ describe('contratos OT de máquina y Trabajo de color', () => {
       { version: 3, motivo: 'Cambio programado' },
       idempotentHeaders,
     );
+  });
+
+  it('consulta continuidades por OT y corrida sin ampliar el payload', async () => {
+    await listarContinuidadesMangaPendientesScm('ot-1', 'run-1');
+
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/ots/ot-1/continuidades-pendientes', {
+      params: { corrida_fabricacion_id: 'run-1' },
+      headers: { 'X-Actor-Id': '42' },
+    });
   });
 
   it('aísla la reasignación masiva y conserva los ids del subconjunto', async () => {

@@ -168,7 +168,7 @@ export const buildStructurePayload = (value = {}) => ({
 
 export const validateRouteValue = (value = {}, targetArticle = null, articles = []) => {
   const operations = normalizeRouteOutputs(value.operaciones || [], targetArticle, articles);
-  if (!targetArticle?.id) return ['No se resolvió el producto terminado objetivo.'];
+  if (!targetArticle?.id) return ['No se resolvió el artículo objetivo.'];
   if (!operations.length) return ['Agrega al menos una operación.'];
   return operations.flatMap((operation, index) => {
     const step = `Paso ${index + 1}`;

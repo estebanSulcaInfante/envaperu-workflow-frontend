@@ -126,7 +126,8 @@ describe('editores compartidos de Ingenieria SCM', () => {
 
     expect(screen.getByLabelText('Salida terminal (bloqueada)').value)
       .toMatch(/PT-000030.*Colador #3/);
-    expect(screen.getByText(/Esta ruta siempre termina en el producto de la sesión/i)).toBeVisible();
+    expect(screen.getByText(/Esta ruta siempre termina en el artículo objetivo de la sesión/i))
+      .toBeVisible();
     expect(screen.getByText('Tipo de operación', { selector: 'label' }))
       .toHaveAttribute('data-shrink', 'true');
     expect(screen.getByText('Forma de ejecución', { selector: 'label' }))

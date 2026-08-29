@@ -97,11 +97,11 @@ describe('TS-010N2: administración de roles y capacidades', () => {
 
     expect(await screen.findByRole('heading', { name: 'Roles y capacidades' })).toBeVisible();
     expect(screen.getByRole('region', { name: 'Así verá este rol' })).toBeVisible();
-    expect(screen.getByText(/Acceso principal:/)).toHaveTextContent('Kardex y existencias');
+    expect(screen.getByText(/Acceso principal:/)).toHaveTextContent('Kardex de mi almacén');
     expect(screen.getAllByText(/Fabricación · OF.*no está disponible/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Persona multirrol').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Persona con un rol').length).toBeGreaterThan(0);
-    expect(screen.getByRole('spinbutton', { name: 'Prioridad de Kardex y existencias' })).toBeVisible();
+    expect(screen.getByRole('spinbutton', { name: 'Prioridad de Kardex de mi almacén' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Cambiar perfil' })).not.toBeInTheDocument();
   });
 

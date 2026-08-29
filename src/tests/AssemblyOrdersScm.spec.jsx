@@ -23,12 +23,16 @@ vi.mock('../context/ScmActorContext', () => ({
 }));
 
 vi.mock('../services/scmAssemblyApi', () => ({
+  crearOrdenArmadoExcepcionalScm: vi.fn(),
   listarOrdenesArmadoScm: vi.fn(),
   transicionarOrdenArmadoScm: vi.fn(),
 }));
 
 vi.mock('../services/scmEngineeringApi', () => ({
+  listarArticulosScm: vi.fn(),
   listarCentrosTrabajoScm: vi.fn(),
+  listarEstructurasScm: vi.fn(),
+  listarRutasArticuloScm: vi.fn(),
   mensajeErrorScm: vi.fn((error, fallback) => error?.message || fallback),
 }));
 
@@ -52,8 +56,16 @@ vi.mock('../services/scmOtApi', () => ({
   listarOtScm: vi.fn(),
 }));
 
-import { listarOrdenesArmadoScm } from '../services/scmAssemblyApi';
-import { listarCentrosTrabajoScm } from '../services/scmEngineeringApi';
+import {
+  crearOrdenArmadoExcepcionalScm,
+  listarOrdenesArmadoScm,
+} from '../services/scmAssemblyApi';
+import {
+  listarArticulosScm,
+  listarCentrosTrabajoScm,
+  listarEstructurasScm,
+  listarRutasArticuloScm,
+} from '../services/scmEngineeringApi';
 import { getTrabajadores } from '../services/api';
 import {
   asignarMangasSalidaArmadoScm,
@@ -82,6 +94,7 @@ const order = {
   salida: {
     codigo: 'PT-000002',
     nombre: 'Balde armado',
+    clase: 'PRODUCTO_TERMINADO',
     cantidad_objetivo: '10.000',
   },
   entradas_planificadas: [{
@@ -140,6 +153,125 @@ describe('OA y OT diaria de Armado', () => {
     asignarMangasSalidaArmadoScm.mockResolvedValue({
       mangas: [{ public_id: 'manga-1', codigo: 'OA000001-OT001-M001' }],
     });
+    listarArticulosScm.mockResolvedValue([]);
+    listarEstructurasScm.mockResolvedValue([]);
+    listarRutasArticuloScm.mockResolvedValue([]);
+  });
+
+  it('crea un borrador gobernado de reposición WIP sin OP ni selección silenciosa', async () => {
+    actorState.capabilities.add('OA_EXCEPCIONAL_CREAR');
+    const wip = {
+      id: 2,
+      codigo: 'WIP-000001',
+      nombre: 'Tapa con pico armada',
+      clase: 'SUBENSAMBLE_WIP',
+      activo: true,
+    };
+    const structure = {
+      id: 43,
+      numero_revision: 2,
+      version: 3,
+      estado: 'APROBADA',
+      articulo_resultado_id: 2,
+    };
+    const route = {
+      id: 31,
+      numero_revision: 2,
+      version: 4,
+      estado: 'APROBADA',
+      articulo_objetivo: wip,
+      operaciones: [{
+        id: 101,
+        nombre: 'Colocar pico entre ciclos',
+        tipo: 'ENSAMBLE',
+        executor_kind: 'ORDEN_OPERACION',
+        articulo_salida_id: 2,
+        estructura_revision_id: 43,
+        permite_concurrente: true,
+      }],
+      precedencias: [],
+    };
+    listarArticulosScm.mockResolvedValue([wip, {
+      id: 3,
+      codigo: 'PT-000001',
+      nombre: 'Producto terminado',
+      clase: 'PRODUCTO_TERMINADO',
+      activo: true,
+    }]);
+    listarEstructurasScm.mockResolvedValue([structure]);
+    listarRutasArticuloScm.mockResolvedValue([route]);
+    crearOrdenArmadoExcepcionalScm.mockResolvedValue({
+      ...order,
+      id: 'oa-wip-1',
+      codigo: 'OA-000010',
+      estado: 'BORRADOR',
+      origen_demanda: 'REPOSICION_WIP',
+      salida: {
+        ...order.salida,
+        codigo: wip.codigo,
+        nombre: wip.nombre,
+        clase: wip.clase,
+      },
+    });
+    const user = userEvent.setup();
+    renderView();
+
+    await user.click(await screen.findByRole('button', {
+      name: 'Nueva OA de reposición WIP',
+    }));
+    const dialog = screen.getByRole('dialog', { name: 'Nueva OA de reposición WIP' });
+    expect(within(dialog).getByRole('combobox', { name: 'WIP de salida' })).toHaveValue('');
+    expect(listarRutasArticuloScm).not.toHaveBeenCalled();
+
+    await user.type(within(dialog).getByRole('combobox', { name: 'WIP de salida' }), 'WIP-000001');
+    await user.click(screen.getByRole('option', { name: /WIP-000001.*Tapa con pico armada.*WIP/ }));
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(2));
+    expect(listarEstructurasScm).toHaveBeenCalledWith(2);
+    expect(within(dialog).getByText(/Ingeniería aprobada.*Ruta rev\. 2.*BOM rev\. 2/i))
+      .toBeVisible();
+    expect(within(dialog).getByText('Concurrente entre ciclos')).toBeVisible();
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Operación aprobada' }));
+    await user.click(screen.getByRole('option', { name: /Colocar pico entre ciclos/ }));
+    await user.type(within(dialog).getByRole('spinbutton', { name: 'Cantidad objetivo' }), '20');
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Motivo de reposición' }),
+      'Reponer WIP para marcha blanca',
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Crear borrador' }));
+
+    await waitFor(() => expect(crearOrdenArmadoExcepcionalScm).toHaveBeenCalledWith({
+      origen_demanda: 'REPOSICION_WIP',
+      motivo: 'Reponer WIP para marcha blanca',
+      articulo_salida_id: 2,
+      operacion_ruta_revision_id: 101,
+      estructura_revision_id: 43,
+      cantidad_objetivo: '20',
+      versiones: { ruta: 4, estructura: 3 },
+    }));
+    expect(await screen.findByText(/OA-000010 creada como borrador.*sin OP/i)).toBeVisible();
+  });
+
+  it('distingue una OA de reposición WIP de una OA para producto terminado', async () => {
+    listarOrdenesArmadoScm.mockResolvedValue({
+      items: [{
+        ...order,
+        origen_demanda: 'REPOSICION_WIP',
+        salida: {
+          ...order.salida,
+          codigo: 'WIP-000001',
+          nombre: 'Tapa con pico armada',
+          clase: 'SUBENSAMBLE_WIP',
+        },
+      }],
+    });
+
+    renderView();
+
+    expect(await screen.findByText('Reposición WIP · sin OP')).toBeVisible();
+    expect(screen.getByText('Mangas de WIP')).toBeVisible();
+    expect(screen.getByText(/cuántas bolsas WIP necesita la OA/i)).toBeVisible();
+    expect(screen.queryByText('Mangas de producto terminado')).not.toBeInTheDocument();
   });
 
   it('solicita componentes para una OT existente y muestra su cuota diaria', async () => {
