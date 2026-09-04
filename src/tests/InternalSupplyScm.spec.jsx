@@ -71,6 +71,19 @@ const request = {
   }],
 };
 
+const pendingRequest = {
+  ...request,
+  id: 'solicitud-2',
+  codigo: 'SA-000002',
+  orden_armado: { id: 'oa-2', codigo: 'OA-000002' },
+  orden_trabajo: {
+    ...request.orden_trabajo,
+    public_id: 'ot-2',
+    codigo_ot: 'OT-000003',
+    centro_trabajo: { codigo: 'MESA-02', nombre: 'Mesa de Armado 2' },
+  },
+};
+
 const renderView = () => render(
   <MemoryRouter initialEntries={['/produccion/abastecimiento?solicitud=solicitud-1']}>
     <ThemeProvider theme={createTheme()}>
@@ -105,5 +118,25 @@ describe('Abastecimiento interno por QR', () => {
         label_id: '11111111-1111-4111-8111-111111111111',
       },
     ));
+  });
+
+  it('presenta una bandeja por estado y permite elegir una tarea sin mutarla', async () => {
+    const user = userEvent.setup();
+    listarSolicitudesAbastecimientoScm.mockResolvedValue({
+      items: [{ ...request, estado: 'EN_PREPARACION' }, pendingRequest],
+    });
+    renderView();
+
+    expect(await screen.findByRole('heading', { name: 'Bandeja de picking y staging' })).toBeInTheDocument();
+    expect(screen.getByText('Pendiente')).toBeInTheDocument();
+    expect(screen.getByText('En picking')).toBeInTheDocument();
+    expect(screen.getByText('Lista para despacho')).toBeInTheDocument();
+    expect(screen.getByText('En tránsito')).toBeInTheDocument();
+    expect(screen.getByLabelText('1 pendiente')).toBeInTheDocument();
+    expect(screen.getByLabelText('1 en picking')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Abrir tarea SA-000002' }));
+    expect(screen.getByText(/SA-000002 · OA-000002/)).toBeInTheDocument();
+    expect(asignarMangaAbastecimientoScm).not.toHaveBeenCalled();
   });
 });

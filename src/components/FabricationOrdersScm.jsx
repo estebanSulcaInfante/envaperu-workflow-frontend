@@ -136,6 +136,10 @@ export default function FabricationOrdersScm() {
     () => compatibleMachinesForOrder(selected, machines),
     [selected, machines],
   );
+  const selectedMold = useMemo(
+    () => molds.find((item) => item.codigo === form.molde_id) || null,
+    [form.molde_id, molds],
+  );
 
   const load = useCallback(async (preferredId = '') => {
     setBusy(true);
@@ -230,7 +234,7 @@ export default function FabricationOrdersScm() {
             const source = selected.corridas[runIndex].salidas[outputIndex];
             return {
               id: output.id,
-              ...(source.articulo?.clase === 'PIEZA_COLOR' ? {} : {
+              ...(source.articulo?.pieza_id != null ? {} : {
                 cantidad_por_ciclo: Number(output.cantidad_por_ciclo),
                 peso_unitario_g: Number(output.peso_unitario_g),
               }),
@@ -295,8 +299,9 @@ export default function FabricationOrdersScm() {
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       <Alert severity="info">
-        La cantidad requerida viene del plan. Para salidas Pieza-Color, cavidades y peso
-        se derivan de MoldePieza; el sistema calcula los ciclos mínimos y el excedente técnico.
+        La cantidad requerida viene del plan. Para Pieza-Color y PT monopieza, la salida por
+        ciclo y el peso neto se derivan de MoldePieza; el sistema calcula los ciclos mínimos
+        y el excedente técnico.
       </Alert>
 
       {selected && (
@@ -339,6 +344,23 @@ export default function FabricationOrdersScm() {
           </Stack>
         </Paper>
         <OrderScheduleStrip order={selected} />
+        {selected.estado === 'BORRADOR' ? (
+          <Alert severity="warning">
+            La OPM todavía no debe existir. Primero guarda y libera esta OF; luego la corrida
+            aparecerá en Materiales → Preparaciones para generar su necesidad.
+          </Alert>
+        ) : (
+          <Alert
+            severity="info"
+            action={(
+              <Button component={RouterLink} to="/materiales/preparaciones" color="inherit">
+                Abrir preparaciones
+              </Button>
+            )}
+          >
+            OF liberada: continúa en Preparaciones para generar o revisar la necesidad de material.
+          </Alert>
+        )}
         </Stack>
       )}
 
@@ -377,7 +399,11 @@ export default function FabricationOrdersScm() {
             )}
             <Box sx={{
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', md: 'repeat(5, minmax(0, 1fr))' },
+              gridTemplateColumns: {
+                xs: 'minmax(0, 1fr)',
+                sm: 'repeat(2, minmax(0, 1fr))',
+                lg: 'minmax(220px, 2.2fr) minmax(200px, 2fr) minmax(105px, .8fr) minmax(105px, .8fr) minmax(185px, 1.3fr)',
+              },
               gap: 2,
             }}>
               <FormControl>
@@ -387,6 +413,18 @@ export default function FabricationOrdersScm() {
                   value={form.molde_id}
                   disabled={!canEdit || selected.estado !== 'BORRADOR'}
                   onChange={(event) => chooseMold(event.target.value)}
+                  renderValue={(value) => {
+                    const mold = compatibleMolds.find((item) => item.codigo === value);
+                    return mold ? (
+                      <Box title={`${mold.codigo} · ${mold.nombre}`} sx={{ minWidth: 0 }}>
+                        <Typography noWrap fontWeight={750}>{mold.codigo}</Typography>
+                        <Typography noWrap variant="caption" color="text.secondary">
+                          {mold.nombre}
+                        </Typography>
+                      </Box>
+                    ) : value;
+                  }}
+                  sx={{ '& .MuiSelect-select': { py: 1 } }}
                 >
                   {compatibleMolds.map((mold) => (
                     <MenuItem key={mold.codigo} value={mold.codigo}>
@@ -404,6 +442,18 @@ export default function FabricationOrdersScm() {
                   onChange={(event) => setForm({
                     ...form, maquina_prevista_id: event.target.value,
                   })}
+                  renderValue={(value) => {
+                    const machine = compatibleMachines.find((item) => item.id === value);
+                    return machine ? (
+                      <Box title={`${machine.codigo} · ${machine.nombre}`} sx={{ minWidth: 0 }}>
+                        <Typography noWrap fontWeight={750}>{machine.codigo}</Typography>
+                        <Typography noWrap variant="caption" color="text.secondary">
+                          {machine.nombre}
+                        </Typography>
+                      </Box>
+                    ) : value;
+                  }}
+                  sx={{ '& .MuiSelect-select': { py: 1 } }}
                 >
                   {compatibleMachines.map((machine) => (
                     <MenuItem key={machine.id} value={machine.id}>
@@ -414,8 +464,9 @@ export default function FabricationOrdersScm() {
               </FormControl>
               <TextField
                 type="number"
-                label="Ciclo (seg)"
+                label="Ciclo estándar (s)"
                 value={form.snapshot_tiempo_ciclo_seg}
+                slotProps={{ htmlInput: { min: 0.001, max: 9999, step: 0.001 } }}
                 disabled={!canEdit || selected.estado !== 'BORRADOR'}
                 onChange={(event) => setForm({
                   ...form, snapshot_tiempo_ciclo_seg: event.target.value,
@@ -423,8 +474,9 @@ export default function FabricationOrdersScm() {
               />
               <TextField
                 type="number"
-                label="Horas de turno"
+                label="Horas efectivas"
                 value={form.snapshot_horas_turno}
+                slotProps={{ htmlInput: { min: 0.001, max: 24, step: 0.25 } }}
                 disabled={!canEdit || selected.estado !== 'BORRADOR'}
                 onChange={(event) => setForm({
                   ...form, snapshot_horas_turno: event.target.value,
@@ -432,13 +484,26 @@ export default function FabricationOrdersScm() {
               />
               <TextField
                 type="number"
-                label="Colada / runner (g)"
+                label="Material no neto/ciclo (g)"
                 value={form.snapshot_peso_colada_gr}
+                helperText="Canal, bebedero y rebaba; no incluye las piezas."
+                slotProps={{ htmlInput: { min: 0, max: 99999, step: 0.1 } }}
                 disabled={!canEdit || selected.estado !== 'BORRADOR'}
                 onChange={(event) => setForm({
                   ...form, snapshot_peso_colada_gr: event.target.value,
                 })}
               />
+              {selectedMold && (
+                <Alert severity="info" sx={{ gridColumn: '1 / -1' }}>
+                  Maestro {selectedMold.codigo}: {selectedMold.cavidades_totales || 0} cavidad(es),{' '}
+                  {Number(selectedMold.peso_neto_gr || 0).toFixed(1)} g netos/ciclo y{' '}
+                  {Number(selectedMold.peso_tiro_gr || 0).toFixed(1)} g totales/ciclo. La diferencia de{' '}
+                  {Math.max(
+                    Number(selectedMold.peso_tiro_gr || 0)
+                    - Number(selectedMold.peso_neto_gr || 0), 0,
+                  ).toFixed(1)} g es material no neto.
+                </Alert>
+              )}
             </Box>
           </Paper>
 
@@ -448,6 +513,14 @@ export default function FabricationOrdersScm() {
                 <Typography fontWeight={800} sx={{ flex: 1 }}>
                   {run.codigo}
                 </Typography>
+                {run.receta && (
+                  <Chip
+                    size="small"
+                    color={run.receta.estado === 'APROBADA' ? 'success' : 'warning'}
+                    variant="outlined"
+                    label={`Receta · ${run.receta.nombre} · Rev. ${run.receta.revision}`}
+                  />
+                )}
                 <FormControl size="small" sx={{ minWidth: 230 }}>
                   <InputLabel>Color de producción</InputLabel>
                   <Select
@@ -487,12 +560,20 @@ export default function FabricationOrdersScm() {
                     <TableCell>Salida</TableCell>
                     <TableCell>Clase</TableCell>
                     <TableCell align="right">Demanda / objetivo</TableCell>
-                    <TableCell align="right">Unidades por ciclo</TableCell>
-                    <TableCell align="right">Peso unitario (g)</TableCell>
+                    <TableCell align="right">Salida por ciclo</TableCell>
+                    <TableCell align="right">Peso neto por unidad (g)</TableCell>
                     <TableCell align="right">Excedente</TableCell>
                   </TableRow></TableHead>
                   <TableBody>{run.salidas.map((output, outputIndex) => {
-                    const derived = output.articulo?.clase === 'PIEZA_COLOR';
+                    const derived = output.articulo?.pieza_id != null;
+                    const moldShape = (selectedMold?.formas || []).find(
+                      (shape) => shape.activo !== false
+                        && shape.pieza_id === output.articulo?.pieza_id,
+                    );
+                    const derivedPerCycle = output.cantidad_por_ciclo_snapshot
+                      || moldShape?.cavidades;
+                    const derivedUnitWeight = output.peso_unitario_snapshot_g
+                      || moldShape?.peso_unitario_gr;
                     const outputForm = form.corridas[runIndex]?.salidas[outputIndex] || {};
                     return (
                       <TableRow key={output.id}>
@@ -503,13 +584,23 @@ export default function FabricationOrdersScm() {
                         <TableCell>
                           <Chip
                             size="small"
-                            label={derived ? 'Pieza-Color · derivado' : output.articulo?.clase}
+                            label={derived
+                              ? `${output.articulo?.clase === 'PRODUCTO_TERMINADO' ? 'PT monopieza' : 'Pieza-Color'} · derivado`
+                              : output.articulo?.clase}
                             variant="outlined"
                           />
                         </TableCell>
                         <TableCell align="right">{output.cantidad_objetivo} un</TableCell>
                         <TableCell align="right">
-                          {derived ? (output.cantidad_por_ciclo_snapshot || 'Del molde') : (
+                          {derived ? (
+                            <Stack spacing={0} alignItems="flex-end">
+                              <Typography fontWeight={800}>{derivedPerCycle || 'Del molde'}</Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {output.articulo?.derivacion_molde === 'PT_MONOPIEZA'
+                                  ? 'Componente único del PT' : 'Cavidades activas'}
+                              </Typography>
+                            </Stack>
+                          ) : (
                             <TextField
                               size="small"
                               type="number"
@@ -523,7 +614,14 @@ export default function FabricationOrdersScm() {
                           )}
                         </TableCell>
                         <TableCell align="right">
-                          {derived ? (output.peso_unitario_snapshot_g || 'Del molde') : (
+                          {derived ? (
+                            <Stack spacing={0} alignItems="flex-end">
+                              <Typography fontWeight={800}>{derivedUnitWeight || 'Del molde'}</Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Neto de una unidad
+                              </Typography>
+                            </Stack>
+                          ) : (
                             <TextField
                               size="small"
                               type="number"

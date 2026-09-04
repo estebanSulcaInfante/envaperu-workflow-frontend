@@ -1,12 +1,8 @@
 import api from './api';
-
-const configuredActorId = () => {
-  const stored = globalThis.localStorage?.getItem('envaperu_scm_actor_id');
-  return Number(import.meta.env.VITE_SCM_ACTOR_ID || stored || 1);
-};
+import { obtenerActorScm } from './scmEngineeringApi';
 
 const scmConfig = () => ({
-  headers: { 'X-Actor-Id': String(configuredActorId()) },
+  headers: { 'X-Actor-Id': String(obtenerActorScm()) },
 });
 
 const list = async (path) => {
@@ -53,4 +49,4 @@ export const listarCategoriasRecepcionScm = () => list('/scm/v1/config/categoria
 export const crearCategoriaRecepcionScm = (data) => create('/scm/v1/config/categorias-recepcion', data);
 export const actualizarCategoriaRecepcionScm = (id, data) => update('/scm/v1/config/categorias-recepcion', id, data);
 
-export const obtenerActorScmLocal = configuredActorId;
+export const obtenerActorScmLocal = obtenerActorScm;

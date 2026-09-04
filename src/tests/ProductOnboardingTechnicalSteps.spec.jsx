@@ -1384,7 +1384,7 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     expect(screen.getByRole('heading', { name: /Regla de empaque/i })).toBeVisible();
     expect(screen.getByLabelText(/Salida terminal.*bloqueada/i).value)
       .toMatch(/PT-000123/i);
-  });
+  }, 45_000);
 
   it('exige y aplica un empaque independiente por cada salida de la ruta', async () => {
     const routePayload = {

@@ -6,6 +6,10 @@ import { ThemeProvider, createTheme } from '@mui/material';
 import PreparacionMateriales from '../components/PreparacionMateriales';
 import { preparacionMaterialesMock } from '../mocks/preparacionMateriales';
 
+vi.mock('../context/ScmActorContext', () => ({
+  useScmActor: () => ({ can: () => true, loading: false }),
+}));
+
 vi.mock('../services/preparacionMateriales', () => ({
   obtenerPreparacionMateriales: vi.fn(async () => structuredClone(preparacionMaterialesMock)),
   generarRequerimientosMaterial: vi.fn(),
@@ -13,6 +17,30 @@ vi.mock('../services/preparacionMateriales', () => ({
   emitirReservaMaterial: vi.fn(),
   devolverEmisionMaterial: vi.fn(),
   confirmarPremezclaCorrida: vi.fn(),
+}));
+
+vi.mock('../services/opmPreparationApi', () => ({
+  obtenerColaPreparacionMaterial: vi.fn(async () => ({ items: [], nextCursor: null })),
+  generarNecesidadMaterialPreparado: vi.fn(),
+  obtenerDetalleOrdenPreparacionMaterial: vi.fn(),
+  crearOrdenPreparacionMaterial: vi.fn(),
+  conciliarOrdenPreparacionMaterial: vi.fn(),
+  confirmarLecturaPesoPreparacion: vi.fn(),
+  liberarOrdenPreparacionMaterial: vi.fn(),
+  reservarInsumosOrdenPreparacionMaterial: vi.fn(),
+  iniciarOrdenPreparacionMaterial: vi.fn(),
+  incorporarAporteOrdenPreparacionMaterial: vi.fn(),
+  registrarLecturaPesoPreparacion: vi.fn(),
+  recibirBolsaMaterialPreparado: vi.fn(),
+  cerrarOrdenPreparacionMaterial: vi.fn(),
+  decidirCalidadBolsaMaterialPreparado: vi.fn(),
+  listarDestinosMaterialPreparado: vi.fn(async () => ({ items: [] })),
+  emitirInsumoOrdenPreparacionMaterial: vi.fn(),
+}));
+
+vi.mock('../services/scmWarehouseOperationsApi', () => ({
+  listarAlmacenesScm: vi.fn(async () => ({ items: [] })),
+  obtenerAlcanceAlmacenScm: vi.fn(async () => ({ almacenes: [] })),
 }));
 
 const renderPage = (path = '/materiales/preparaciones/OP-B-TEST-001') => render(
@@ -31,6 +59,8 @@ describe('US-010B: Preparación trazable de materiales', () => {
     const user = userEvent.setup();
     renderPage('/materiales/preparaciones');
 
+    expect(await screen.findByRole('heading', { name: 'Preparación almacenable · OPM' })).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Legacy · premezcla por corrida' }));
     expect(await screen.findByRole('heading', { name: 'Reservas y entregas a producción' })).toBeInTheDocument();
     const search = screen.getByLabelText('Omnibúsqueda');
     await user.type(search, 'OP-B-TEST-001');

@@ -1,6 +1,4 @@
-import {
-  render, screen, waitFor, within,
-} from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -15,7 +13,6 @@ const catalogMocks = vi.hoisted(() => ({
 const scmMocks = vi.hoisted(() => ({
   listarOrdenesFabricacionScm: vi.fn(),
   obtenerPlanMangas: vi.fn(),
-  listarJornadasPlantaScm: vi.fn(),
   listarOtScm: vi.fn(),
   listarContinuidadesMangaPendientesScm: vi.fn(),
   listarSolicitudesMangaExtraScm: vi.fn(),
@@ -41,7 +38,6 @@ vi.mock('../services/scmOtApi', () => ({
   crearOtFabricacionScm: scmMocks.crearOtFabricacionScm,
   crearTrabajoColorScm: scmMocks.crearTrabajoColorScm,
   generarEtiquetasPrepesaje: vi.fn(),
-  listarJornadasPlantaScm: scmMocks.listarJornadasPlantaScm,
   listarOtScm: scmMocks.listarOtScm,
   listarContinuidadesMangaPendientesScm:
     scmMocks.listarContinuidadesMangaPendientesScm,
@@ -212,19 +208,6 @@ describe('tablero diario por máquina y selección humana de color', () => {
     scmMocks.listarSolicitudesMangaExtraScm.mockResolvedValue({ items: [] });
     scmMocks.listarOtScm.mockResolvedValue({ items: [] });
     scmMocks.listarContinuidadesMangaPendientesScm.mockResolvedValue({ items: [] });
-    scmMocks.listarJornadasPlantaScm.mockImplementation(async (filters) => {
-      const [fabrication, assembly, machineCatalog] = await Promise.all([
-        scmMocks.listarOtScm(undefined, 'FABRICACION', filters),
-        scmMocks.listarOtScm(undefined, 'ENSAMBLE', filters),
-        catalogMocks.obtenerMaquinas(),
-      ]);
-      return {
-        maquinas: machineCatalog,
-        centros_trabajo: [],
-        ots_fabricacion: fabrication.items || [],
-        ots_armado: assembly.items || [],
-      };
-    });
   });
 
   it('muestra las 13 máquinas aunque ninguna tenga OT para la fecha y turno', async () => {
@@ -248,23 +231,6 @@ describe('tablero diario por máquina y selección humana de color', () => {
         turno: 'DIA',
       },
     );
-  });
-
-  it('muestra las jornadas sin esperar a que termine el catálogo de OF', async () => {
-    let resolveOrders;
-    scmMocks.listarOrdenesFabricacionScm.mockReturnValue(new Promise((resolve) => {
-      resolveOrders = resolve;
-    }));
-
-    renderSubject();
-
-    const board = await screen.findByTestId('daily-machine-board');
-    expect(within(board).getAllByTestId('machine-day-card')).toHaveLength(13);
-    expect(scmMocks.listarJornadasPlantaScm).toHaveBeenCalledTimes(1);
-    await waitFor(() => {
-      expect(scmMocks.listarOrdenesFabricacionScm).toHaveBeenCalledTimes(1);
-    });
-    resolveOrders({ items: [] });
   });
 
   it('excluye del tablero las máquinas inactivas o fuera de servicio', async () => {
@@ -362,6 +328,41 @@ describe('tablero diario por máquina y selección humana de color', () => {
     expect(within(screen.getByTestId('plant-day-summary')).getByText(
       'En ejecución 1',
     )).toBeVisible();
+  });
+
+  it('excluye la OT anulada del aviso sin retirarla de la consulta histórica', async () => {
+    const user = userEvent.setup();
+    scmMocks.listarOtScm.mockResolvedValue({ items: [
+      { ...makeOt({ id: 'ot-replacement', works: [] }), estado: 'PLANIFICADA' },
+      {
+        ...makeOt({ id: 'ot-annulled', works: [] }),
+        codigo_ot: 'OT-ANULADA-001',
+        estado: 'ANULADA',
+      },
+    ] });
+    renderSubject();
+
+    const card = await screen.findByRole('button', { name: /Abrir jornada de SOP-01/i });
+    expect(within(card).getByText('OT-000001')).toBeVisible();
+    expect(within(card).queryByText(/Atención:.*OT coinciden/i)).not.toBeInTheDocument();
+    await user.click(card);
+    await user.click(screen.getByRole('combobox', { name: 'OT de máquina' }));
+    await user.click(screen.getByRole('option', { name: /OT-ANULADA-001/ }));
+    expect(within(card).getByText('OT-ANULADA-001')).toBeVisible();
+    expect(within(card).queryByText(/Atención:.*OT coinciden/i)).not.toBeInTheDocument();
+  });
+
+  it('cuenta dos OT no anuladas aunque exista además una anulada', async () => {
+    scmMocks.listarOtScm.mockResolvedValue({ items: [
+      makeOt({ id: 'ot-current' }),
+      makeOt({ id: 'ot-other' }),
+      { ...makeOt({ id: 'ot-annulled', works: [] }), estado: 'ANULADA' },
+    ] });
+    renderSubject();
+
+    const card = await screen.findByRole('button', { name: /Abrir jornada de SOP-01/i });
+    expect(within(card).getByText(/Atención: 2 OT coinciden/i)).toBeVisible();
+    expect(within(card).queryByText(/Atención: 3 OT coinciden/i)).not.toBeInTheDocument();
   });
 
   it('resume trabajo activo, responsable, mangas y siguiente color en la máquina', async () => {
@@ -479,8 +480,9 @@ describe('tablero diario por máquina y selección humana de color', () => {
     const card = await screen.findByRole('button', { name: /Abrir jornada de SOP-01/i });
     expect(within(card).getByText('Último trabajo')).toBeVisible();
     expect(within(card).getByText(/Alcancía histórica · OF-CLOSED/)).toBeVisible();
-    await user.click(screen.getByRole('combobox', { name: 'Orden de fabricación' }));
-    expect(screen.queryByRole('option', { name: 'OF-CLOSED' })).not.toBeInTheDocument();
+    // A closed journey remains readable, but no longer offers new work.
+    expect(screen.queryByRole('combobox', { name: 'Orden de fabricación' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Agregar a la cola de esta OT' })).not.toBeInTheDocument();
   });
 
   it('selecciona la OT al abrir una tarjeta y lleva al detalle existente', async () => {
@@ -502,6 +504,7 @@ describe('tablero diario por máquina y selección humana de color', () => {
   it('muestra un único color como configuración de solo lectura sin exponer C01', async () => {
     scmMocks.listarOtScm.mockResolvedValue({ items: [makeOt()] });
     renderSubject();
+    await userEvent.click(await screen.findByRole('button', { name: 'Agregar trabajo', exact: true }));
 
     const colorSummary = await screen.findByTestId('single-production-color');
     expect(within(colorSummary).getByText('Color a fabricar')).toBeVisible();
@@ -527,6 +530,7 @@ describe('tablero diario por máquina y selección humana de color', () => {
     scmMocks.listarOtScm.mockResolvedValue({ items: [makeOt()] });
     renderSubject();
 
+    await userEvent.click(await screen.findByRole('button', { name: 'Agregar trabajo', exact: true }));
     const summary = await screen.findByTestId('single-production-color');
     expect(within(summary).getByText('Color no informado en la OF')).toBeVisible();
     expect(within(summary).queryByText(/heredado/i)).not.toBeInTheDocument();
@@ -559,6 +563,7 @@ describe('tablero diario por máquina y selección humana de color', () => {
     scmMocks.listarOtScm.mockResolvedValue({ items: [makeOt()] });
     renderSubject();
 
+    await user.click(await screen.findByRole('button', { name: 'Agregar trabajo', exact: true }));
     const colorSelect = await screen.findByRole('combobox', { name: 'Color a fabricar' });
     await user.click(colorSelect);
     expect(screen.getByRole('option', {

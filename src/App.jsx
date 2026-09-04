@@ -51,6 +51,7 @@ import RolesCapabilitiesAdmin from './components/RolesCapabilitiesAdmin';
 import ProductOnboardingPage from './components/productOnboarding/ProductOnboardingPage';
 import WarehouseOperationsScm from './components/WarehouseOperationsScm';
 import WarehouseSetupScm from './components/WarehouseSetupScm';
+import PreparedMaterialMachineScanner from './components/PreparedMaterialMachineScanner';
 
 const workspace = (featureKey, element) => (
   <WorkspaceFeatureRoute featureKey={featureKey}>{element}</WorkspaceFeatureRoute>
@@ -174,6 +175,8 @@ function App() {
                 <Route path="/produccion/ordenes-armado" element={workspace('production.assembly', <AssemblyOrdersScm />)} />
                 <Route path="/produccion/ordenes-ensamble" element={<Navigate to="/produccion/ordenes-armado" replace />} />
                 <Route path="/produccion/abastecimiento" element={workspace('materials.internalSupply', <InternalSupplyScm />)} />
+                <Route path="/produccion/recepcion-material-preparado" element={workspace('production.preparedMaterialReceipt', <PreparedMaterialMachineScanner />)} />
+                <Route path="/almacen/reservas-staging" element={workspace('warehouse.reservationInbox', <InternalSupplyScm />)} />
                 <Route path="/produccion/kardex" element={workspace('warehouse.kardex', <InventoryScm />)} />
                 <Route path="/almacen/kardex" element={workspace('warehouse.kardex', <InventoryScm />)} />
                 <Route path="/almacen/operaciones" element={workspace('warehouse.operations', <WarehouseOperationsScm />)} />

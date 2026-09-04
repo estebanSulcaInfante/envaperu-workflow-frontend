@@ -2,9 +2,18 @@ import api from './api';
 
 const ACTOR_STORAGE_KEY = 'envaperu_scm_actor_id';
 
+export const resolveActorScmId = ({ storedActorId, configuredActorId } = {}) => (
+  Number(storedActorId || configuredActorId || 1)
+);
+
 export const obtenerActorScm = () => {
   const stored = globalThis.localStorage?.getItem(ACTOR_STORAGE_KEY);
-  return Number(import.meta.env.VITE_SCM_ACTOR_ID || stored || 1);
+  // VITE_SCM_ACTOR_ID es solamente el perfil inicial del entorno local. Una
+  // selección explícita debe prevalecer para que cabecera y API no diverjan.
+  return resolveActorScmId({
+    storedActorId: stored,
+    configuredActorId: import.meta.env.VITE_SCM_ACTOR_ID,
+  });
 };
 
 export const guardarActorScm = (actorId) => {

@@ -43,6 +43,104 @@ const steps = ['Solicitud', 'Picking', 'Lista', 'En tránsito', 'En mesa'];
 const number = (value) => Number(value || 0);
 const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i;
 
+const INBOX_LANES = [
+  { id: 'PENDIENTE', title: 'Pendiente', states: ['SOLICITADA'], color: '#1565C0' },
+  { id: 'PICKING', title: 'En picking', states: ['EN_PREPARACION'], color: '#C46A00' },
+  { id: 'LISTA', title: 'Lista para despacho', states: ['LISTA'], color: '#5E35B1' },
+  { id: 'TRANSITO', title: 'En tránsito', states: ['DESPACHADA'], color: '#2E7D32' },
+];
+
+function SupplyInbox({ requests, selectedId, search, onSearch, onSelect }) {
+  const normalizedSearch = search.trim().toLocaleLowerCase('es');
+  const visible = normalizedSearch
+    ? requests.filter((item) => [
+      item.codigo,
+      item.orden_armado?.codigo,
+      item.orden_trabajo?.codigo_ot,
+      item.orden_trabajo?.responsable,
+      ...item.lineas.map((line) => `${line.articulo?.codigo} ${line.articulo?.nombre}`),
+    ].join(' ').toLocaleLowerCase('es').includes(normalizedSearch))
+    : requests;
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} justifyContent="space-between" alignItems={{ md: 'center' }}>
+        <Box>
+          <Typography variant="h6" sx={{ fontWeight: 850 }}>Bandeja de picking y staging</Typography>
+          <Typography variant="body2" color="text.secondary">Elige una tarea para preparar mangas. Reservar no mueve todavía el inventario físico.</Typography>
+        </Box>
+        <TextField
+          size="small"
+          value={search}
+          onChange={(event) => onSearch(event.target.value)}
+          label="Buscar solicitud, OT o componente"
+          sx={{ minWidth: { md: 340 } }}
+        />
+      </Stack>
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: 'repeat(4, minmax(220px, 1fr))' },
+          gap: 1.25,
+          mt: 2,
+          alignItems: 'start',
+        }}
+      >
+        {INBOX_LANES.map((lane) => {
+          const laneItems = visible.filter((item) => lane.states.includes(item.estado));
+          return (
+            <Box key={lane.id} sx={{ bgcolor: '#F6F8FB', borderRadius: 2, p: 1.25, minHeight: 150 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                <Typography sx={{ fontWeight: 850, color: lane.color }}>{lane.title}</Typography>
+                <Chip size="small" label={laneItems.length} aria-label={`${laneItems.length} ${lane.title.toLowerCase()}`} />
+              </Stack>
+              <Stack spacing={1}>
+                {laneItems.map((item) => {
+                  const required = item.lineas.reduce((sum, line) => sum + number(line.cantidad_requerida), 0);
+                  const assigned = item.lineas.reduce((sum, line) => sum + number(line.cantidad_asignada), 0);
+                  return (
+                    <Paper
+                      key={item.id}
+                      component="button"
+                      type="button"
+                      variant="outlined"
+                      onClick={() => onSelect(item)}
+                      aria-pressed={selectedId === item.id}
+                      aria-label={`Abrir tarea ${item.codigo}`}
+                      sx={{
+                        p: 1.25,
+                        width: '100%',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        bgcolor: selectedId === item.id ? '#EDF4FF' : 'background.paper',
+                        borderColor: selectedId === item.id ? 'primary.main' : 'divider',
+                        font: 'inherit',
+                        '&:focus-visible': { outline: '3px solid #1565C0', outlineOffset: 2 },
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ fontWeight: 900 }}>{item.codigo}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        {item.orden_trabajo.codigo_ot} · {item.orden_trabajo.turno}
+                      </Typography>
+                      <Typography variant="body2" sx={{ mt: 0.75 }}>{item.lineas.length} componente(s) · {assigned.toFixed(0)}/{required.toFixed(0)} UN</Typography>
+                      <LinearProgress sx={{ mt: 0.75 }} variant="determinate" value={required ? Math.min(100, (assigned / required) * 100) : 0} />
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                        Destino: {item.orden_trabajo.centro_trabajo?.nombre || 'Por confirmar'}
+                      </Typography>
+                    </Paper>
+                  );
+                })}
+                {laneItems.length === 0 && <Typography variant="caption" color="text.secondary" sx={{ p: 1 }}>Sin tareas</Typography>}
+              </Stack>
+            </Box>
+          );
+        })}
+      </Box>
+      {visible.length === 0 && <Alert severity="info" sx={{ mt: 1.5 }}>No hay tareas que coincidan con la búsqueda.</Alert>}
+    </Paper>
+  );
+}
+
 const extractMangaIdentity = (rawValue) => {
   const value = rawValue.trim();
   if (!value) return null;
@@ -76,6 +174,7 @@ export default function InternalSupplyScm() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [inboxSearch, setInboxSearch] = useState('');
 
   const selected = useMemo(
     () => requests.find((item) => item.id === requestId) || requests[0] || null,
@@ -183,29 +282,16 @@ export default function InternalSupplyScm() {
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
 
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
-          <FormControl sx={{ minWidth: { md: 480 }, flex: 1 }}>
-            <InputLabel>Solicitud de abastecimiento</InputLabel>
-            <Select
-              label="Solicitud de abastecimiento"
-              value={selected?.id || ''}
-              onChange={(event) => {
-                setRequestId(event.target.value);
-                const request = requests.find((item) => item.id === event.target.value);
-                setLineId(request?.lineas?.[0]?.id || '');
-              }}
-            >
-              {requests.map((request) => (
-                <MenuItem key={request.id} value={request.id}>
-                  {request.codigo} · {request.orden_trabajo.codigo_ot} · {STATE_META[request.estado]?.label || request.estado}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          {selected && <Chip label={state.label} color={state.color} />}
-        </Stack>
-      </Paper>
+      <SupplyInbox
+        requests={requests}
+        selectedId={selected?.id || ''}
+        search={inboxSearch}
+        onSearch={setInboxSearch}
+        onSelect={(item) => {
+          setRequestId(item.id);
+          setLineId(item.lineas?.[0]?.id || '');
+        }}
+      />
 
       {busy && <Box sx={{ display: 'grid', placeItems: 'center', py: 5 }}><CircularProgress /></Box>}
       {!busy && !selected && (

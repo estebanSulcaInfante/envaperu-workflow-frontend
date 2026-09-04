@@ -46,6 +46,8 @@ import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import ArrowForwardOutlinedIcon from '@mui/icons-material/ArrowForwardOutlined';
 import DataTableToolbar from './ui/DataTableToolbar';
 import PageHeader from './ui/PageHeader';
+import OpmPreparationWorkspace from './OpmPreparationWorkspace';
+import { useScmActor } from '../context/ScmActorContext';
 import {
   confirmarPremezclaCorrida,
   devolverEmisionMaterial,
@@ -432,7 +434,7 @@ function TracePanel({ lote }) {
   );
 }
 
-function PreparacionMateriales() {
+function LegacyPreparacionMateriales() {
   const { numeroOp } = useParams();
   const navigate = useNavigate();
   const theme = useTheme();
@@ -792,6 +794,53 @@ function PreparacionMateriales() {
         </DialogActions>
       </Dialog>
     </Box>
+  );
+}
+
+function PreparacionMateriales() {
+  const { numeroOp } = useParams();
+  const { can, loading: actorLoading } = useScmActor();
+  const [requestedFlow, setRequestedFlow] = useState(numeroOp ? 'LEGACY' : 'OPM');
+  const canViewOpm = can('OPM_VER');
+  const flow = canViewOpm ? requestedFlow : 'LEGACY';
+
+  if (actorLoading) return <Box sx={{ minHeight: 240, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>;
+
+  return (
+    <Stack spacing={2}>
+      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+        <Tabs
+          value={flow}
+          onChange={(_, value) => setRequestedFlow(value)}
+          variant="scrollable"
+          scrollButtons="auto"
+          aria-label="Flujos de preparación de materiales"
+        >
+          <Tab
+            value="OPM"
+            icon={<ScienceOutlinedIcon />}
+            iconPosition="start"
+            label="OPM · preparación almacenable"
+            disabled={!canViewOpm}
+          />
+          <Tab
+            value="LEGACY"
+            icon={<WarningAmberOutlinedIcon />}
+            iconPosition="start"
+            label="Legacy · premezcla por corrida"
+          />
+        </Tabs>
+      </Paper>
+      {!canViewOpm && <Alert severity="info">El flujo OPM requiere OPM_VER. La premezcla legacy sigue disponible según tus permisos operativos.</Alert>}
+      {flow === 'OPM' ? <OpmPreparationWorkspace /> : (
+        <Stack spacing={1.5}>
+          <Alert severity="warning">
+            Flujo legacy temporal: queda ligado a una sola corrida y no genera un lote de material preparado reutilizable entre Trabajos de color.
+          </Alert>
+          <LegacyPreparacionMateriales />
+        </Stack>
+      )}
+    </Stack>
   );
 }
 

@@ -1,5 +1,5 @@
 import {
-  fireEvent, render, screen, waitFor, within,
+  act, fireEvent, render, screen, waitFor, within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,11 +9,12 @@ import OtMangasScm from '../components/OtMangasScm';
 import { getTrabajadores } from '../services/api';
 
 const scmMocks = vi.hoisted(() => ({
+  can: vi.fn(() => true),
   listarOrdenesFabricacionScm: vi.fn(),
   obtenerPlanMangas: vi.fn(),
-  listarJornadasPlantaScm: vi.fn(),
   recalcularPlanMangas: vi.fn(),
   listarOtScm: vi.fn(),
+  listarContinuidadesMangaPendientesScm: vi.fn(),
   crearOtFabricacionScm: vi.fn(),
   crearTrabajoColorScm: vi.fn(),
   cambiarEstadoTrabajoColorScm: vi.fn(),
@@ -22,11 +23,11 @@ const scmMocks = vi.hoisted(() => ({
   agregarMangasTrabajoColorScm: vi.fn(),
   generarEtiquetasPrepesaje: vi.fn(),
   listarSolicitudesMangaExtraScm: vi.fn(),
-  listarContinuidadesMangaPendientesScm: vi.fn(),
   solicitarMangaExtraScm: vi.fn(),
   aprobarMangaExtraScm: vi.fn(),
   obtenerPesajeMangaScm: vi.fn(),
   anularPesajeScm: vi.fn(),
+  reabrirMangaScm: vi.fn(),
 }));
 
 vi.mock('../services/api', () => ({
@@ -65,15 +66,15 @@ vi.mock('../services/scmOtApi', () => ({
   crearOtScm: vi.fn(),
   crearTrabajoColorScm: scmMocks.crearTrabajoColorScm,
   generarEtiquetasPrepesaje: scmMocks.generarEtiquetasPrepesaje,
-  listarJornadasPlantaScm: scmMocks.listarJornadasPlantaScm,
+  listarOtScm: scmMocks.listarOtScm,
   listarContinuidadesMangaPendientesScm:
     scmMocks.listarContinuidadesMangaPendientesScm,
-  listarOtScm: scmMocks.listarOtScm,
   listarSolicitudesMangaExtraScm: scmMocks.listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm: scmMocks.listarOrdenesFabricacionScm,
   obtenerPesajeMangaScm: scmMocks.obtenerPesajeMangaScm,
   obtenerPlanMangas: scmMocks.obtenerPlanMangas,
   recalcularPlanMangas: scmMocks.recalcularPlanMangas,
+  reabrirMangaScm: scmMocks.reabrirMangaScm,
   reasignarMangasTrabajoColorScm: scmMocks.reasignarMangasTrabajoColorScm,
   reemplazarEtiquetaScm: vi.fn(),
   solicitarCorreccionPesajeScm: vi.fn(),
@@ -87,7 +88,7 @@ vi.mock('../services/scmEngineeringApi', () => ({
 
 vi.mock('../context/ScmActorContext', () => ({
   useScmActor: () => ({
-    can: () => true,
+    can: scmMocks.can,
     canAny: () => true,
     experience: { label: 'Jefe de Producción' },
   }),
@@ -187,12 +188,14 @@ const machineOt = {
   estado: 'PLANIFICADA',
   version: 1,
   orden_operacion_id: null,
+  maquinista_previsto_id: 8,
   corrida_fabricacion_id: null,
   trabajos_color: [greenWork, blueWork],
   mangas: [...greenWork.mangas, ...blueWork.mangas],
 };
 
 const weighingDetail = {
+  manga_version: 7,
   original: {
     public_id: 'weigh-1',
     peso_bruto_kg: '10.100',
@@ -200,6 +203,7 @@ const weighingDetail = {
     peso_fisico_neto_kg: '10.000',
     cantidad_confirmada: '100',
     kg_produccion_ot: '10.000',
+    estado: 'VIGENTE',
   },
   vigente: {
     peso_bruto_kg: '10.100',
@@ -215,6 +219,7 @@ const weighingDetail = {
 describe('OT de máquina, Trabajos de color y mangas', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    scmMocks.can.mockReturnValue(true);
     sessionStorage.clear();
     scmMocks.listarOrdenesFabricacionScm.mockResolvedValue({
       items: [{
@@ -229,6 +234,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
           color_nombre: 'VERDE SÓLIDO',
           estado: 'LIBERADA',
           ciclos_objetivo: 100,
+          salidas: [{ id: 'out-1', peso_unitario_snapshot_g: '1000' }],
         }],
       }],
     });
@@ -239,6 +245,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
           id: 11,
           corrida_fabricacion_id: 'run-1',
           articulo: { nombre: 'Alcancía Pablo verde' },
+          orden_operacion_salida_id: 'out-1',
           tipo_manga: { nombre: 'Manga 100' },
           cantidad_objetivo_un: '100',
           capacidad_efectiva_un: 100,
@@ -249,18 +256,6 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     });
     scmMocks.listarOtScm.mockResolvedValue({ items: [machineOt] });
     scmMocks.listarContinuidadesMangaPendientesScm.mockResolvedValue({ items: [] });
-    scmMocks.listarJornadasPlantaScm.mockImplementation(async (filters) => {
-      const [fabrication, assembly] = await Promise.all([
-        scmMocks.listarOtScm(undefined, 'FABRICACION', filters),
-        scmMocks.listarOtScm(undefined, 'ENSAMBLE', filters),
-      ]);
-      return {
-        maquinas: [{ id: 4, codigo: 'SOP-01', nombre: 'Sopladora 1' }],
-        centros_trabajo: [],
-        ots_fabricacion: fabrication.items || [],
-        ots_armado: assembly.items || [],
-      };
-    });
     scmMocks.listarSolicitudesMangaExtraScm.mockResolvedValue({ items: [] });
     scmMocks.solicitarMangaExtraScm.mockResolvedValue({
       solicitud: { id: 'extra-green' },
@@ -270,6 +265,10 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     scmMocks.anularPesajeScm.mockResolvedValue({
       manga: { estado: 'ANULADA' },
       plan: { cantidad_devuelta_un: '100' },
+    });
+    scmMocks.reabrirMangaScm.mockResolvedValue({
+      manga: { ...weighedManga, estado: 'EN_LLENADO', version: 8 },
+      pesaje_invalidado: { ...weighingDetail.original, estado: 'REABIERTO' },
     });
     scmMocks.crearOtFabricacionScm.mockResolvedValue({
       ot: { ...machineOt, public_id: 'ot-machine-2', codigo_ot: 'OT-000002' },
@@ -302,6 +301,88 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       <OtMangasScm />
     </MemoryRouter>,
   );
+
+  const openWorkCreator = async () => {
+    await userEvent.click(await screen.findByRole('button', { name: 'Agregar trabajo', exact: true }));
+    return screen.findByRole('dialog', { name: 'Agregar Trabajo de color' });
+  };
+
+  it('jerarquía: separa consultar mangas del formulario para agregar trabajo', async () => {
+    const user = userEvent.setup();
+    renderSubject();
+    await screen.findByTestId('color-work-queue');
+    expect(screen.queryByRole('combobox', { name: 'Orden de fabricación' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Trabajo consultado' })).toHaveTextContent('OT-000001-TC01');
+    await user.click(screen.getByRole('button', { name: 'Agregar trabajo', exact: true }));
+    const dialog = screen.getByRole('dialog', { name: 'Agregar Trabajo de color' });
+    expect(within(dialog).getByText(/Destino: OT-000001/)).toBeVisible();
+    const kg = await within(dialog).findByRole('textbox', { name: 'Kg teóricos a asignar' });
+    fireEvent.change(kg, { target: { value: '13' } });
+    await user.click(within(dialog).getByRole('button', { name: 'Volver sin agregar' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(scmMocks.crearTrabajoColorScm).not.toHaveBeenCalled();
+    expect(screen.getByRole('region', { name: 'Trabajo consultado' })).toHaveTextContent('OT-000001-TC01');
+    await user.click(screen.getByRole('button', { name: 'Agregar trabajo', exact: true }));
+    expect(screen.getByRole('textbox', { name: 'Kg teóricos a asignar' })).toHaveValue('13');
+  });
+
+  it('jerarquía: cambiar de trabajo consulta solo sus mangas sin iniciar ni crear', async () => {
+    const user = userEvent.setup();
+    renderSubject();
+    const blue = await screen.findByRole('button', { name: 'Ver mangas de AZUL' });
+    await user.click(blue);
+    expect(blue).toHaveAttribute('aria-pressed', 'true');
+    const detail = screen.getByRole('region', { name: 'Trabajo consultado' });
+    expect(detail).toHaveTextContent('OT-000001-TC02');
+    expect(within(detail).getByText('MNG-AZUL-001')).toBeVisible();
+    expect(within(detail).queryByText('MNG-VERDE-001')).not.toBeInTheDocument();
+    expect(scmMocks.cambiarEstadoTrabajoColorScm).not.toHaveBeenCalled();
+    expect(scmMocks.crearTrabajoColorScm).not.toHaveBeenCalled();
+  });
+
+  it('jerarquía: elegir el color del alta no cambia el trabajo consultado', async () => {
+    const user = userEvent.setup();
+    const orders = await scmMocks.listarOrdenesFabricacionScm();
+    orders.items[0].corridas.push({
+      ...orders.items[0].corridas[0], id: 'run-new-blue', color: 'AZUL NUEVO',
+      color_nombre: 'AZUL NUEVO', secuencia: 2,
+    });
+    scmMocks.listarOrdenesFabricacionScm.mockResolvedValue(orders);
+    renderSubject();
+    await openWorkCreator();
+    await user.click(screen.getByRole('combobox', { name: 'Color a fabricar' }));
+    await user.click(screen.getByRole('option', { name: /AZUL NUEVO/ }));
+    await user.click(screen.getByRole('button', { name: 'Volver sin agregar' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('region', { name: 'Trabajo consultado' })).toHaveTextContent('OT-000001-TC01');
+    expect(screen.getByRole('button', { name: 'Ver mangas de VERDE SÓLIDO' })).toHaveAttribute('aria-pressed', 'true');
+    expect(scmMocks.crearTrabajoColorScm).not.toHaveBeenCalled();
+  });
+
+  it('jerarquía: protege el envío y al confirmar consulta el trabajo devuelto', async () => {
+    const user = userEvent.setup();
+    let finishCreate;
+    scmMocks.crearTrabajoColorScm.mockImplementationOnce(() => new Promise((resolve) => { finishCreate = resolve; }));
+    renderSubject();
+    await openWorkCreator();
+    await user.click(await screen.findByRole('button', { name: 'Agregar a la cola de esta OT' }));
+    expect(screen.getByRole('button', { name: 'Agregando trabajo…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Volver sin agregar' })).toBeDisabled();
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog', { name: 'Agregar Trabajo de color' })).toBeVisible();
+    await act(async () => { finishCreate({ trabajo_color: blueWork, mangas: blueWork.mangas }); });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('region', { name: 'Trabajo consultado' })).toHaveTextContent('OT-000001-TC02');
+    expect(scmMocks.crearTrabajoColorScm).toHaveBeenCalledTimes(1);
+  });
+
+  it('jerarquía: sin permiso permite consultar sin ofrecer el alta', async () => {
+    scmMocks.can.mockImplementation((code) => code !== 'OT_CREAR');
+    renderSubject();
+    await screen.findByRole('region', { name: 'Trabajo consultado' });
+    expect(screen.queryByRole('button', { name: 'Agregar trabajo', exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
 
   it('consulta el tablero por fecha y turno sin ocultar máquinas', async () => {
     const user = userEvent.setup();
@@ -355,6 +436,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     await user.click(screen.getByRole('button', { name: 'Actualizar', exact: true }));
 
     await waitFor(() => expect(scmMocks.listarOrdenesFabricacionScm).toHaveBeenCalledTimes(2));
+    await openWorkCreator();
     expect(await screen.findByRole('combobox', { name: 'Orden de fabricación' }))
       .toHaveTextContent('OF-002');
   });
@@ -377,6 +459,13 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       name: 'Crear OT de máquina',
     }));
 
+    expect(scmMocks.crearOtFabricacionScm).not.toHaveBeenCalled();
+    const review = await screen.findByRole('dialog', { name: 'Revisar nueva OT' });
+    expect(within(review).getByText(/SOP-01/)).toBeVisible();
+    await user.click(within(review).getByRole('button', { name: 'Volver' }));
+    expect(scmMocks.crearOtFabricacionScm).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole('button', { name: 'Crear OT de máquina' }));
+    await user.click(screen.getByRole('button', { name: 'Confirmar creación' }));
     await waitFor(() => expect(scmMocks.crearOtFabricacionScm).toHaveBeenCalledTimes(1));
     const payload = scmMocks.crearOtFabricacionScm.mock.calls[0][0];
     expect(payload).toEqual(expect.objectContaining({
@@ -420,6 +509,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
   it('agrega un Trabajo de color a la OT seleccionada usando el plan de su OF', async () => {
     const user = userEvent.setup();
     renderSubject();
+    await openWorkCreator();
 
     await screen.findByText('Manga 100');
     await user.click(screen.getByRole('button', {
@@ -437,6 +527,97 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     ));
   });
 
+  it('hereda el maquinista de la OT aunque no sea el primero del catálogo', async () => {
+    const user = userEvent.setup();
+    scmMocks.listarOtScm.mockResolvedValue({ items: [{ ...machineOt, maquinista_previsto_id: 9 }] });
+    renderSubject();
+    await openWorkCreator();
+    await screen.findByText('Manga 100');
+    const summary = screen.getByTestId('work-initial-worker');
+    expect(within(summary).getByText('Maquinista: Luis Relevo')).toBeVisible();
+    expect(within(summary).getByText('Tomado de la OT')).toBeVisible();
+    expect(screen.queryByRole('combobox', { name: 'Maquinista inicial' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Agregar a la cola de esta OT' }));
+    await waitFor(() => expect(scmMocks.crearTrabajoColorScm).toHaveBeenCalledWith(
+      machineOt.public_id, expect.objectContaining({ maquinista_id: 9 }),
+    ));
+  });
+
+  it('cambia el maquinista solo para este trabajo y permite volver al de la OT', async () => {
+    const user = userEvent.setup();
+    renderSubject();
+    await openWorkCreator();
+    await user.click(await screen.findByRole('button', { name: 'Cambiar para este trabajo' }));
+    await user.click(screen.getByRole('combobox', { name: 'Maquinista inicial' }));
+    await user.click(screen.getByRole('option', { name: 'Luis Relevo' }));
+    await user.click(screen.getByRole('button', { name: 'Usar maquinista de la OT' }));
+    expect(within(screen.getByTestId('work-initial-worker')).getByText('Maquinista: Ana Maquinista')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Cambiar para este trabajo' }));
+    await user.click(screen.getByRole('combobox', { name: 'Maquinista inicial' }));
+    await user.click(screen.getByRole('option', { name: 'Luis Relevo' }));
+    await user.click(screen.getByRole('button', { name: 'Agregar a la cola de esta OT' }));
+    await waitFor(() => expect(scmMocks.crearTrabajoColorScm).toHaveBeenCalledWith(
+      machineOt.public_id, expect.objectContaining({ maquinista_id: 9 }),
+    ));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await openWorkCreator();
+    expect(within(screen.getByTestId('work-initial-worker')).getByText('Maquinista: Ana Maquinista')).toBeVisible();
+    expect(machineOt.maquinista_previsto_id).toBe(8);
+  });
+
+  it.each([null, 999])('exige elegir maquinista cuando el predeterminado %s no está disponible', async (workerId) => {
+    const user = userEvent.setup();
+    scmMocks.listarOtScm.mockResolvedValue({ items: [{ ...machineOt, maquinista_previsto_id: workerId }] });
+    renderSubject();
+    await openWorkCreator();
+    const select = await screen.findByRole('combobox', { name: 'Maquinista inicial' });
+    expect(select).not.toHaveTextContent('Ana Maquinista');
+    expect(screen.getByRole('button', { name: 'Agregar a la cola de esta OT' })).toBeDisabled();
+    await user.click(select);
+    await user.click(screen.getByRole('option', { name: 'Luis Relevo' }));
+    await screen.findByText('Manga 100');
+    await user.click(screen.getByRole('button', { name: 'Agregar a la cola de esta OT' }));
+    await waitFor(() => expect(scmMocks.crearTrabajoColorScm).toHaveBeenCalledWith(
+      machineOt.public_id, expect.objectContaining({ maquinista_id: 9 }),
+    ));
+  });
+
+  it('descarta la elección manual al cambiar de OT', async () => {
+    const user = userEvent.setup();
+    scmMocks.listarOtScm.mockResolvedValue({ items: [machineOt, {
+      ...machineOt, public_id: 'ot-other', codigo_ot: 'OT-000002', maquinista_previsto_id: 9,
+    }] });
+    renderSubject();
+    await openWorkCreator();
+    await user.click(await screen.findByRole('button', { name: 'Cambiar para este trabajo' }));
+    await user.click(screen.getByRole('button', { name: 'Volver sin agregar' }));
+    await user.click(await screen.findByRole('combobox', { name: 'OT de máquina' }));
+    await user.click(screen.getByRole('option', { name: /OT-000002/ }));
+    await openWorkCreator();
+    expect(within(screen.getByTestId('work-initial-worker')).getByText('Maquinista: Luis Relevo')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Volver sin agregar' }));
+    await user.click(await screen.findByRole('combobox', { name: 'OT de máquina' }));
+    await user.click(screen.getByRole('option', { name: /OT-000001/ }));
+    await openWorkCreator();
+    expect(within(screen.getByTestId('work-initial-worker')).getByText('Maquinista: Ana Maquinista')).toBeVisible();
+    expect(screen.queryByRole('combobox', { name: 'Maquinista inicial' })).not.toBeInTheDocument();
+  });
+
+  it('conserva el maquinista elegido si falla el alta del trabajo', async () => {
+    const user = userEvent.setup();
+    scmMocks.crearTrabajoColorScm.mockRejectedValueOnce(new Error('Sin conexión'));
+    renderSubject();
+    await openWorkCreator();
+    await user.click(await screen.findByRole('button', { name: 'Cambiar para este trabajo' }));
+    await user.click(screen.getByRole('combobox', { name: 'Maquinista inicial' }));
+    await user.click(screen.getByRole('option', { name: 'Luis Relevo' }));
+    await user.click(screen.getByRole('button', { name: 'Agregar a la cola de esta OT' }));
+    await screen.findByText('No se pudo agregar el Trabajo de color.');
+    expect(within(screen.getByRole('dialog', { name: 'Agregar Trabajo de color' }))
+      .getByRole('alert')).toHaveTextContent('No se pudo agregar el Trabajo de color.');
+    expect(screen.getByRole('combobox', { name: 'Maquinista inicial' })).toHaveTextContent('Luis Relevo');
+  });
+
   it('vincula una manga abierta con el mismo QR aunque el saldo nuevo sea cero', async () => {
     const user = userEvent.setup();
     scmMocks.obtenerPlanMangas.mockResolvedValueOnce({
@@ -446,6 +627,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
           id: 11,
           corrida_fabricacion_id: 'run-1',
           articulo: { nombre: 'Alcancía Pablo verde' },
+          orden_operacion_salida_id: 'out-1',
           tipo_manga: { nombre: 'Manga 100' },
           cantidad_objetivo_un: '100',
           capacidad_efectiva_un: 100,
@@ -473,6 +655,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     });
     renderSubject();
 
+    await openWorkCreator();
     expect(await screen.findByText('Mangas abiertas del turno anterior')).toBeVisible();
     const continuity = screen.getByRole('checkbox', {
       name: 'Continuar MNG-ABIERTA-K1 en esta OT',
@@ -495,6 +678,118 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
         asignaciones: [],
         continuidad_manga_ids: ['manga-open-k1'],
       },
+    ));
+  });
+
+  it('explica la ausencia de plan y calcula la primera propuesta antes de agregar', async () => {
+    const user = userEvent.setup();
+    const readyPlan = await scmMocks.obtenerPlanMangas();
+    scmMocks.obtenerPlanMangas.mockResolvedValue({ plan: null });
+    scmMocks.recalcularPlanMangas.mockResolvedValueOnce(readyPlan);
+    renderSubject();
+    await openWorkCreator();
+    expect(await screen.findByText('Esta OF aún no tiene un plan de mangas.')).toBeVisible();
+    const add = screen.getByRole('button', { name: 'Agregar a la cola de esta OT' });
+    expect(add).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Recalcular propuesta' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Ver OF' })).toHaveAttribute('href', '/produccion/ordenes-fabricacion?of=of-1');
+    await user.click(screen.getByRole('button', { name: 'Calcular propuesta de mangas' }));
+    expect(await screen.findByText('Mangas propuestas para la OF')).toBeVisible();
+    expect(screen.getByText('Capacidad por manga')).toBeVisible();
+    expect(screen.getByText('Pendiente de asignar')).toBeVisible();
+    expect(screen.getByText(/Son unidades de planificación/)).toBeVisible();
+    expect(add).toBeEnabled();
+    expect(scmMocks.recalcularPlanMangas).toHaveBeenCalledWith('of-1');
+    expect(scmMocks.crearTrabajoColorScm).not.toHaveBeenCalled();
+  });
+
+  it('distingue un error de consulta de la ausencia de plan y permite reintentar', async () => {
+    const user = userEvent.setup();
+    scmMocks.obtenerPlanMangas.mockRejectedValueOnce(new Error('Sin conexión'));
+    renderSubject();
+    await openWorkCreator();
+    expect(await screen.findByText('No se pudo consultar la propuesta de mangas.')).toBeVisible();
+    expect(screen.queryByText('Esta OF aún no tiene un plan de mangas.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Calcular propuesta de mangas' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Agregar a la cola de esta OT' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Reintentar consulta' }));
+    expect(await screen.findByText('Mangas propuestas para la OF')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Agregar a la cola de esta OT' })).toBeEnabled();
+  });
+
+  it.each(['0', '-1', '101', '1.5'])('no agrega un trabajo con cantidad inválida %s', async (value) => {
+    renderSubject();
+    await openWorkCreator();
+    const quantity = await screen.findByRole('textbox', { name: 'Kg teóricos a asignar' });
+    fireEvent.change(quantity, { target: { value } });
+    expect(screen.getByRole('button', { name: 'Agregar a la cola de esta OT' })).toBeDisabled();
+    expect(scmMocks.crearTrabajoColorScm).not.toHaveBeenCalled();
+  });
+
+  it('sin permiso de cálculo explica cómo preparar la propuesta', async () => {
+    scmMocks.can.mockImplementation((code) => code !== 'PLAN_MANGA_ADMINISTRAR');
+    scmMocks.obtenerPlanMangas.mockResolvedValue({ plan: null });
+    renderSubject();
+    await openWorkCreator();
+    expect(await screen.findByText('Esta OF aún no tiene un plan de mangas.')).toBeVisible();
+    expect(screen.getByText(/solicita apoyo a una persona autorizada/)).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Calcular propuesta de mangas' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Agregar a la cola de esta OT' })).toBeDisabled();
+  });
+
+  it('bloquea durante carga e ignora la propuesta tardía de otra OF', async () => {
+    const user = userEvent.setup();
+    const readyPlan = await scmMocks.obtenerPlanMangas();
+    const orders = await scmMocks.listarOrdenesFabricacionScm();
+    scmMocks.listarOrdenesFabricacionScm.mockResolvedValue({ items: [
+      ...orders.items,
+      { ...orders.items[0], id: 'of-2', codigo: 'OF-002', corridas: [{
+        ...orders.items[0].corridas[0], id: 'run-2',
+      }] },
+    ] });
+    let finishOld;
+    const oldRequest = new Promise((resolve) => { finishOld = resolve; });
+    scmMocks.obtenerPlanMangas.mockImplementation((id) => (
+      id === 'of-1' ? oldRequest : Promise.resolve({ plan: null })
+    ));
+    renderSubject();
+    await openWorkCreator();
+    expect(await screen.findByText('Preparando propuesta de mangas…')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Agregar a la cola de esta OT' })).toBeDisabled();
+    await user.click(screen.getByRole('combobox', { name: 'Orden de fabricación' }));
+    await user.click(screen.getByRole('option', { name: 'OF-002', exact: true }));
+    expect(await screen.findByText('Esta OF aún no tiene un plan de mangas.')).toBeVisible();
+    await act(async () => { finishOld(readyPlan); await oldRequest; });
+    expect(screen.queryByText('Manga 100')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Agregar a la cola de esta OT' })).toBeDisabled();
+    expect(screen.getByRole('link', { name: 'Ver OF' })).toHaveAttribute('href', '/produccion/ordenes-fabricacion?of=of-2');
+  });
+
+  it('asigna kg con elección discreta explícita y aviso parcial no bloqueante', async () => {
+    const user = userEvent.setup();
+    const orders = await scmMocks.listarOrdenesFabricacionScm();
+    orders.items[0].corridas[0].salidas = [{ id: 'out-kg', peso_unitario_snapshot_g: '240.0000' }];
+    scmMocks.listarOrdenesFabricacionScm.mockResolvedValue(orders);
+    const plan = await scmMocks.obtenerPlanMangas();
+    plan.plan.lineas[0] = { ...plan.plan.lineas[0], orden_operacion_salida_id: 'out-kg', capacidad_efectiva_un: 50, mangas_propuestas: 2 };
+    scmMocks.obtenerPlanMangas.mockResolvedValue(plan);
+    renderSubject();
+    await openWorkCreator();
+    const input = await screen.findByRole('textbox', { name: 'Kg teóricos a asignar' });
+    await user.clear(input);
+    await user.type(input, '13');
+    const add = screen.getByRole('button', { name: 'Agregar a la cola de esta OT' });
+    expect(add).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Usar 12,96 kg · 54 un' }));
+    expect(screen.getByText(/Última manga parcial: 0,96 kg/)).toBeVisible();
+    expect(add).toBeEnabled();
+    fireEvent.change(input, { target: { value: '13.01' } });
+    expect(add).toBeDisabled();
+    fireEvent.change(input, { target: { value: '13' } });
+    await user.click(screen.getByRole('button', { name: 'Usar 12,96 kg · 54 un' }));
+    await user.click(add);
+    await waitFor(() => expect(scmMocks.crearTrabajoColorScm).toHaveBeenCalledWith(
+      'ot-machine-1', expect.objectContaining({ asignaciones: [{ plan_linea_id: 11, cantidad_un: 54 }] }),
     ));
   });
 
@@ -534,8 +829,9 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     });
     renderSubject();
 
+    await openWorkCreator();
     await user.click(await screen.findByRole('button', {
-      name: 'Recalcular plan de la OF',
+      name: 'Recalcular propuesta',
     }));
 
     expect(await screen.findByRole('heading', {
@@ -693,7 +989,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     const openManga = {
       ...greenManga,
       estado: 'PREETIQUETADA',
-      etiqueta_vigente: { public_id: 'label-open', estado: 'IMPRESA', tipo: 'PREPESAJE' },
+      etiqueta_vigente: { public_id: 'label-open', estado: 'IMPRESA' },
     };
     const workWithOpenManga = { ...greenWork, mangas: [openManga, weighedManga] };
     scmMocks.listarOtScm.mockResolvedValueOnce({
@@ -747,29 +1043,58 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       estado: 'CONTINUIDAD_PENDIENTE',
       maquinista_actual_id: 8,
       maquinista_actual: 'Ana Maquinista',
-      etiqueta_vigente: { public_id: 'label-open', estado: 'IMPRESA', tipo: 'PREPESAJE' },
+      etiqueta_vigente: {
+        public_id: 'prelabel-stable-1', tipo: 'PREPESAJE', estado: 'IMPRESA',
+      },
       continuidad: {
-        ultimo_control: { id: 'control-1' },
         conteo_acumulado_un: '37',
         cantidad_pendiente_un: '63',
+        ultimo_control: {
+          peso_neto_kg: '3.700',
+          aporte_desde_control_anterior_kg: '1.500',
+        },
       },
     };
-    const workWithControl = { ...greenWork, mangas: [controlledManga, weighedManga] };
+    const pausedWork = {
+      ...greenWork,
+      estado: 'PAUSADO',
+      version: 4,
+      mangas: [controlledManga, weighedManga],
+      asignacion_activa: null,
+      asignaciones_personal: [{
+        id: 'assignment-work-green',
+        trabajador_id: 8,
+        trabajador: 'Ana Maquinista',
+        estado: 'CERRADA',
+      }],
+    };
     scmMocks.listarOtScm.mockResolvedValueOnce({
-      items: [{ ...machineOt, trabajos_color: [workWithControl, blueWork] }],
+      items: [{ ...machineOt, trabajos_color: [pausedWork, blueWork] }],
     });
     scmMocks.reasignarMangasTrabajoColorScm.mockResolvedValueOnce({
-      trabajo_color: workWithControl,
-      asignacion: { trabajador: 'Luis Relevo' },
-      mangas: [controlledManga],
+      trabajo_color: { ...pausedWork, estado: 'EN_EJECUCION', version: 5 },
+      asignacion: { trabajador_id: 9, trabajador: 'Luis Relevo' },
+      mangas: [{
+        ...controlledManga,
+        estado: 'EN_LLENADO',
+        maquinista_actual_id: 9,
+        maquinista_actual: 'Luis Relevo',
+      }],
       trabajos_impresion_reemplazo: [],
+      transferencia_manga_abierta: {
+        continua_incompleta: true,
+        qr_preservado: true,
+        tramos_abiertos: [{ secuencia: 2, cantidad_inicio_un: '37' }],
+      },
+      stickers_transferidos: 0,
     });
     renderSubject();
 
     await user.click(await screen.findByRole('checkbox', {
       name: 'Incluir MNG-VERDE-001 en el relevo',
     }));
-    await user.type(screen.getByLabelText('Motivo del relevo'), 'Cambio de turno');
+    expect(screen.getByText(/1 manga\(s\) tienen un control vigente/i)).toBeVisible();
+    await user.type(screen.getByLabelText('Motivo del relevo'), 'Salida anticipada');
     await user.click(screen.getByRole('button', {
       name: 'Registrar relevo · continúa incompleta',
     }));
@@ -778,12 +1103,14 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       scmMocks.reasignarMangasTrabajoColorScm,
     ).toHaveBeenCalledWith('work-green', {
       trabajador_id: 9,
-      motivo: 'Cambio de turno',
-      version: 1,
+      motivo: 'Salida anticipada',
+      version: 4,
       manga_ids: ['manga-green-1'],
       manga_abierta: true,
     }));
-    expect(screen.queryByText(/Reimpresión obligatoria por relevo/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(
+      /Misma manga y QR; no se imprime otra preetiqueta/i,
+    )).toBeVisible();
   });
 
   it('registra un relevo de responsabilidad sin transferir stickers', async () => {
@@ -905,5 +1232,89 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       },
     ));
     expect(await screen.findByText(/los QR quedaron invalidados/i)).toBeVisible();
+  });
+
+  it('reabre para continuar llenado conservando identidad, historial y línea base', async () => {
+    const user = userEvent.setup();
+    renderSubject();
+
+    await user.click(await screen.findByRole('button', {
+      name: 'Ver pesaje de MNG-PESADA-001',
+    }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Pesaje de MNG-PESADA-001',
+    });
+    const reopeningPanel = within(dialog).getByText('Reabrir manga').closest('.MuiPaper-root');
+    expect(reopeningPanel).toHaveTextContent(/Conserva su ID, QR, controles/);
+    expect(reopeningPanel).toHaveTextContent(/cierre anterior en el historial/);
+    expect(within(dialog).getByRole('button', {
+      name: 'Anular pesaje definitivamente',
+    })).toBeVisible();
+
+    const reopenButton = within(dialog).getByRole('button', {
+      name: 'Reabrir manga y continuar con el mismo QR',
+    });
+    expect(reopenButton).toBeDisabled();
+    await user.click(within(dialog).getByLabelText('Tipo de reapertura'));
+    await user.click(screen.getByRole('option', { name: 'Continuar llenado' }));
+    await user.type(
+      within(dialog).getByLabelText('Motivo de reapertura'),
+      'Se agregaron más piezas antes de recepción',
+    );
+    await user.type(
+      within(dialog).getByLabelText('Evidencia opcional de reapertura'),
+      'UAT-M001',
+    );
+    await user.click(reopenButton);
+
+    await waitFor(() => expect(scmMocks.reabrirMangaScm).toHaveBeenCalledWith(
+      'manga-weighed-1',
+      {
+        version: 7,
+        tipo_reapertura: 'CONTINUAR_LLENADO',
+        motivo: 'Se agregaron más piezas antes de recepción',
+        evidencia: 'UAT-M001',
+      },
+    ));
+    expect(await screen.findByText(/reabierta para continuar llenado.*línea base/i)).toBeVisible();
+    expect(screen.queryByRole('dialog', {
+      name: 'Pesaje de MNG-PESADA-001',
+    })).not.toBeInTheDocument();
+    expect(scmMocks.anularPesajeScm).not.toHaveBeenCalled();
+  });
+
+  it('reabre un cierre accidental sin convertir su NET en línea base', async () => {
+    const user = userEvent.setup();
+    renderSubject();
+
+    await user.click(await screen.findByRole('button', {
+      name: 'Ver pesaje de MNG-PESADA-001',
+    }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Pesaje de MNG-PESADA-001',
+    });
+    await user.click(within(dialog).getByLabelText('Tipo de reapertura'));
+    await user.click(screen.getByRole('option', { name: 'Cierre accidental' }));
+    expect(within(dialog).getByText(/NET anterior quedará solo en el historial/i))
+      .toBeVisible();
+    await user.type(
+      within(dialog).getByLabelText('Motivo de reapertura'),
+      'La lectura final correspondía a otra manga',
+    );
+    await user.click(within(dialog).getByRole('button', {
+      name: 'Reabrir manga y continuar con el mismo QR',
+    }));
+
+    await waitFor(() => expect(scmMocks.reabrirMangaScm).toHaveBeenCalledWith(
+      'manga-weighed-1',
+      {
+        version: 7,
+        tipo_reapertura: 'CIERRE_ACCIDENTAL',
+        motivo: 'La lectura final correspondía a otra manga',
+        evidencia: null,
+      },
+    ));
+    expect(await screen.findByText(/reabierta por cierre accidental.*solo en el historial/i))
+      .toBeVisible();
   });
 });

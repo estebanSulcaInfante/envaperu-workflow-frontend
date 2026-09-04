@@ -10,8 +10,10 @@ vi.mock('../services/api', () => ({
 
 import {
   aprobarReglaEmpaqueScm,
+  obtenerActorScm,
   publicarEstructuraScm,
   publicarReglaEmpaqueScm,
+  resolveActorScmId,
 } from '../services/scmEngineeringApi';
 
 describe('aprobarReglaEmpaqueScm', () => {
@@ -19,6 +21,14 @@ describe('aprobarReglaEmpaqueScm', () => {
     vi.clearAllMocks();
     globalThis.localStorage?.setItem('envaperu_scm_actor_id', '2');
     postMock.mockResolvedValue({ data: { estado: 'APROBADA' } });
+  });
+
+  it('prioriza el perfil elegido sobre el actor inicial del lanzador', () => {
+    expect(resolveActorScmId({
+      storedActorId: '3',
+      configuredActorId: '1',
+    })).toBe(3);
+    expect(obtenerActorScm()).toBe(2);
   });
 
   it('usa revision_id, que es el identificador expuesto por la API de empaque', async () => {

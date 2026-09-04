@@ -242,6 +242,77 @@ describe('Órdenes de fabricación', () => {
     expect(screen.queryByRole('option', { name: /MAQ-INY/ })).not.toBeInTheDocument();
   });
 
+  it('deriva cavidades y peso neto para un PT monopieza sin pedir datos manuales', async () => {
+    listarOrdenesFabricacionScm.mockResolvedValue({
+      items: [{
+        id: 'of-jarra',
+        codigo: 'OF-000001',
+        estado: 'BORRADOR',
+        version: 1,
+        proceso_requerido: 'INYECCION',
+        corridas: [{
+          id: 'run-jarra',
+          codigo: 'OF-000001-C01',
+          color_produccion_id: 1,
+          salidas: [{
+            id: 'out-jarra',
+            articulo: {
+              codigo: 'PT-JARRA-REAL-6L-TRANSPARENTE',
+              nombre: 'Jarra Real 6 L Transparente',
+              clase: 'PRODUCTO_TERMINADO',
+              pieza_id: 5,
+              derivacion_molde: 'PT_MONOPIEZA',
+            },
+            cantidad_objetivo: '100.000',
+            excedente_objetivo: '0.000',
+          }],
+        }],
+      }],
+    });
+    obtenerMoldes.mockResolvedValue([{
+      codigo: 'ML-JARRA-REAL-6L',
+      nombre: 'Molde Jarra Real 6 L',
+      activo: true,
+      tiempo_ciclo_std: 30,
+      peso_colada_gr: 10,
+      peso_tiro_gr: 250,
+      peso_neto_gr: 240,
+      cavidades_totales: 1,
+      formas: [{
+        pieza_id: 5,
+        activo: true,
+        cavidades: 1,
+        peso_unitario_gr: 240,
+      }],
+    }]);
+    obtenerMaquinas.mockResolvedValue([{
+      id: 10,
+      codigo: 'INY-01',
+      nombre: 'Inyectora 1',
+      activo: true,
+      estado: 'OPERATIVA',
+      tipo_maquina: { proceso: 'INYECCION' },
+    }]);
+    obtenerColores.mockResolvedValue([{ id: 1, nombre: 'TRANSPARENTE', activo: true }]);
+
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter><FabricationOrdersScm /></MemoryRouter>
+      </ThemeProvider>,
+    );
+
+    const row = await screen.findByRole('row', { name: /Jarra Real 6 L Transparente/ });
+    expect(within(row).getByText('PT monopieza · derivado')).toBeVisible();
+    expect(within(row).getByText('Componente único del PT')).toBeVisible();
+    expect(within(row).getByText('Neto de una unidad')).toBeVisible();
+    expect(within(row).getByText('1')).toBeVisible();
+    expect(within(row).getByText('240')).toBeVisible();
+    expect(within(row).queryByRole('spinbutton')).not.toBeInTheDocument();
+    expect(screen.getByText(/240\.0 g netos\/ciclo y 250\.0 g totales\/ciclo/)).toBeVisible();
+    expect(screen.getByText(/10\.0 g es material no neto/)).toBeVisible();
+    expect(screen.getByText(/La OPM todavía no debe existir/)).toBeVisible();
+  });
+
   it('prefiere el contexto temporal canónico y muestra un rango de necesidad', async () => {
     listarOrdenesFabricacionScm.mockResolvedValue({ items: [{
       id: 'of-date', codigo: 'OF-000010', estado: 'LIBERADA', version: 1,

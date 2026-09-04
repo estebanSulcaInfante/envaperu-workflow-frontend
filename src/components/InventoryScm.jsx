@@ -1,11 +1,13 @@
 import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent,
-  DialogTitle, FormControl, InputLabel, MenuItem, Paper, Select,
-  Stack, Table, TableBody, TableCell, TableContainer, TableHead,
-  TableRow, TextField, Typography,
+  DialogTitle, Divider, FormControl, InputAdornment, InputLabel, MenuItem,
+  Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer,
+  TableHead, TablePagination, TableRow, Tabs, TextField, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import SearchIcon from '@mui/icons-material/Search';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import PageHeader from './ui/PageHeader';
 import InventoryOpeningScm from './InventoryOpeningScm';
@@ -15,12 +17,15 @@ import {
   mensajeErrorScm,
 } from '../services/scmEngineeringApi';
 import {
+  explorarSaldosInventarioScm,
   listarMovimientosInventarioScm,
-  listarSaldosInventarioScm,
   registrarMovimientoInventarioScm,
 } from '../services/scmInventoryApi';
 import { listarMaterialesScm } from '../services/scmCatalogApi';
-import { obtenerAlcanceAlmacenScm } from '../services/scmWarehouseOperationsApi';
+import {
+  obtenerAlcanceAlmacenScm,
+  obtenerResumenInventarioScm,
+} from '../services/scmWarehouseOperationsApi';
 
 const initialForm = {
   articulo_scm_id: '',
@@ -33,71 +38,322 @@ const initialForm = {
 
 const number = (value) => Number(value || 0);
 
+const LEDGER_API_NAMES = {
+  materials: 'MATERIALES',
+  pieces: 'PIEZAS_WIP',
+  finished: 'PRODUCTO_TERMINADO',
+};
+
+function BalanceGrid({ items, busy, emptyMessage }) {
+  return (
+    <TableContainer sx={{ maxHeight: 560 }}>
+      <Table
+        size="small"
+        stickyHeader
+        aria-label="Saldos del Kardex"
+        sx={{
+          minWidth: 1050,
+          '& th': { fontWeight: 800, whiteSpace: 'nowrap' },
+          '& tbody tr:nth-of-type(even)': { bgcolor: 'action.hover' },
+          '& tbody tr:hover': { bgcolor: 'primary.50' },
+          '& td': { borderColor: 'divider' },
+        }}
+      >
+          <TableHead><TableRow>
+            <TableCell>Código</TableCell>
+            <TableCell>Artículo</TableCell>
+            <TableCell>Clase</TableCell>
+            <TableCell>Ubicación</TableCell>
+            <TableCell align="right">Físico</TableCell>
+            <TableCell align="right">Reservado</TableCell>
+            <TableCell align="right">No disponible</TableCell>
+            <TableCell align="right">Libre</TableCell>
+            <TableCell>Actualizado</TableCell>
+          </TableRow></TableHead>
+          <TableBody>
+            {items.map((item) => (
+              <TableRow key={item.id}>
+                <TableCell sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>
+                  {item.articulo.codigo}
+                </TableCell>
+                <TableCell>
+                  <Typography fontWeight={700}>{item.articulo.nombre}</Typography>
+                </TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={item.articulo.clase.replaceAll('_', ' ')}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" fontWeight={650}>{item.ubicacion.nombre}</Typography>
+                  <Typography variant="caption" color="text.secondary">{item.ubicacion.codigo}</Typography>
+                </TableCell>
+                {[item.cantidad_fisica, item.cantidad_reservada, item.cantidad_no_disponible].map((value, index) => (
+                  <TableCell
+                    key={`${item.id}-${index}`}
+                    align="right"
+                    sx={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+                  >
+                    {value} {item.articulo.unidad}
+                  </TableCell>
+                ))}
+                <TableCell align="right">
+                  <Chip
+                    size="small"
+                    color={number(item.cantidad_libre) > 0 ? 'success' : 'default'}
+                    label={`${item.cantidad_libre} ${item.articulo.unidad}`}
+                    sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 800 }}
+                  />
+                </TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                  {item.updated_at ? new Date(item.updated_at).toLocaleString('es-PE') : '—'}
+                </TableCell>
+              </TableRow>
+            ))}
+            {!busy && items.length === 0 && (
+              <TableRow><TableCell colSpan={9}>
+                <Alert severity="info">{emptyMessage}</Alert>
+              </TableCell></TableRow>
+            )}
+          </TableBody>
+      </Table>
+    </TableContainer>
+  );
+}
+
+function MovementGrid({ items, busy }) {
+  return (
+    <TableContainer sx={{ maxHeight: 560 }}>
+      <Table
+        size="small"
+        stickyHeader
+        aria-label="Movimientos del Kardex"
+        sx={{
+          minWidth: 980,
+          '& th': { fontWeight: 800, whiteSpace: 'nowrap' },
+          '& tbody tr:nth-of-type(even)': { bgcolor: 'action.hover' },
+          '& tbody tr:hover': { bgcolor: 'primary.50' },
+        }}
+      >
+        <TableHead><TableRow>
+          <TableCell>Fecha</TableCell>
+          <TableCell>Código</TableCell>
+          <TableCell>Artículo</TableCell>
+          <TableCell>Ubicación</TableCell>
+          <TableCell>Tipo</TableCell>
+          <TableCell align="right">Variación</TableCell>
+          <TableCell align="right">Saldo resultante</TableCell>
+          <TableCell>Motivo</TableCell>
+        </TableRow></TableHead>
+        <TableBody>
+          {items.map((item) => (
+            <TableRow key={item.id}>
+              <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                {item.created_at ? new Date(item.created_at).toLocaleString('es-PE') : '—'}
+              </TableCell>
+              <TableCell sx={{ fontWeight: 800 }}>{item.articulo_codigo}</TableCell>
+              <TableCell>{item.articulo_nombre}</TableCell>
+              <TableCell>{item.ubicacion_codigo || '—'}</TableCell>
+              <TableCell><Chip size="small" label={item.tipo.replaceAll('_', ' ')} /></TableCell>
+              <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                {item.cantidad_delta} {item.unidad || 'UN'}
+              </TableCell>
+              <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                {item.saldo_fisico_resultante} {item.unidad || 'UN'}
+              </TableCell>
+              <TableCell>{item.motivo}</TableCell>
+            </TableRow>
+          ))}
+          {!busy && items.length === 0 && (
+            <TableRow><TableCell colSpan={8}>
+              <Alert severity="info">No hay movimientos que coincidan con los filtros.</Alert>
+            </TableCell></TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+}
+
 export default function InventoryScm() {
   const { can } = useScmActor();
   const canAdjust = can('INVENTARIO_AJUSTAR');
-  const [balances, setBalances] = useState([]);
-  const [materialBalances, setMaterialBalances] = useState([]);
-  const [movements, setMovements] = useState([]);
+  const [rows, setRows] = useState([]);
+  const [pageMeta, setPageMeta] = useState({ total: 0, has_more: false, next_cursor: null });
+  const [summary, setSummary] = useState({ items: [], materiales: [] });
   const [articles, setArticles] = useState([]);
   const [materials, setMaterials] = useState([]);
+  const [catalogsLoaded, setCatalogsLoaded] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [warehouseScope, setWarehouseScope] = useState(null);
+  const [activeLedger, setActiveLedger] = useState('materials');
+  const [locationFilter, setLocationFilter] = useState('TODAS');
+  const [stockFilter, setStockFilter] = useState('TODOS');
+  const [sortBy, setSortBy] = useState('CODIGO');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [pageCursors, setPageCursors] = useState({ 0: null });
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
-  const load = useCallback(async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const [balancePayload, movementPayload, articleItems, materialItems, scopePayload] = await Promise.all([
-        listarSaldosInventarioScm(),
-        listarMovimientosInventarioScm(),
-        listarArticulosScm(),
-        listarMaterialesScm(),
-        obtenerAlcanceAlmacenScm(),
-      ]);
-      setBalances(balancePayload.items || []);
-      setMaterialBalances(balancePayload.materiales || []);
-      setMovements(movementPayload.items || []);
-      setArticles((articleItems || []).filter((item) => item.activo !== false));
-      setMaterials((materialItems || []).filter((item) => item.activo !== false));
-      setWarehouseScope(scopePayload);
-    } catch (requestError) {
-      setError(mensajeErrorScm(requestError, 'No se pudo cargar el Kardex.'));
-    } finally {
-      setBusy(false);
-    }
+  const refresh = useCallback(() => {
+    setPage(0);
+    setPageCursors({ 0: null });
+    setRefreshVersion((value) => value + 1);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadCatalogs = useCallback(async () => {
+    if (catalogsLoaded) return;
+    const [articleItems, materialItems] = await Promise.all([
+      listarArticulosScm(), listarMaterialesScm(),
+    ]);
+    setArticles((articleItems || []).filter((item) => item.activo !== false));
+    setMaterials((materialItems || []).filter((item) => item.activo !== false));
+    setCatalogsLoaded(true);
+  }, [catalogsLoaded]);
 
-  const totals = useMemo(() => balances.reduce((accumulator, item) => ({
-    physical: accumulator.physical + number(item.cantidad_fisica),
-    reserved: accumulator.reserved + number(item.cantidad_reservada),
-    unavailable: accumulator.unavailable + number(item.cantidad_no_disponible),
-    free: accumulator.free + number(item.cantidad_libre),
-  }), {
-    physical: 0, reserved: 0, unavailable: 0, free: 0,
-  }), [balances]);
-  const materialTotals = useMemo(() => materialBalances.reduce((accumulator, item) => ({
-    physical: accumulator.physical + number(item.cantidad_fisica),
-    reserved: accumulator.reserved + number(item.cantidad_reservada),
-    unavailable: accumulator.unavailable + number(item.cantidad_no_disponible),
-    free: accumulator.free + number(item.cantidad_libre),
-  }), { physical: 0, reserved: 0, unavailable: 0, free: 0 }), [materialBalances]);
+  useEffect(() => {
+    let alive = true;
+    Promise.all([obtenerAlcanceAlmacenScm(), obtenerResumenInventarioScm()])
+      .then(([scopePayload, summaryPayload]) => {
+        if (!alive) return;
+        setWarehouseScope(scopePayload);
+        setSummary(summaryPayload || { items: [], materiales: [] });
+      })
+      .catch((requestError) => {
+        if (alive) setError(mensajeErrorScm(requestError, 'No se cargó el resumen del Kardex.'));
+      });
+    return () => { alive = false; };
+  }, [refreshVersion]);
 
-  const filtered = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return balances;
-    return balances.filter((item) => (
-      `${item.articulo.codigo} ${item.articulo.nombre} ${item.ubicacion.nombre}`
-        .toLowerCase().includes(normalized)
-    ));
-  }, [balances, query]);
+  useEffect(() => {
+    const timer = globalThis.setTimeout(() => {
+      setDebouncedQuery(query.trim());
+      setPage(0);
+      setPageCursors({ 0: null });
+    }, 300);
+    return () => globalThis.clearTimeout(timer);
+  }, [query]);
+
+  const totals = useMemo(() => (summary.items || []).reduce((accumulator, item) => ({
+    physical: accumulator.physical + number(item.fisico),
+    reserved: accumulator.reserved + number(item.reservado),
+    unavailable: accumulator.unavailable + number(item.no_disponible),
+    free: accumulator.free + number(item.fisico) - number(item.reservado) - number(item.no_disponible),
+  }), { physical: 0, reserved: 0, unavailable: 0, free: 0 }), [summary]);
+  const materialTotals = useMemo(() => (summary.materiales || []).reduce((accumulator, item) => ({
+    physical: accumulator.physical + number(item.fisico),
+    reserved: accumulator.reserved + number(item.reservado),
+    unavailable: accumulator.unavailable + number(item.no_disponible),
+    free: accumulator.free + number(item.fisico) - number(item.reservado) - number(item.no_disponible),
+  }), { physical: 0, reserved: 0, unavailable: 0, free: 0 }), [summary]);
+
+  const visibleClasses = useMemo(() => new Set(
+    (warehouseScope?.almacenes || []).flatMap((item) => item.clases_articulo || []),
+  ), [warehouseScope]);
+  const scopeAllows = useCallback((classes) => (
+    warehouseScope?.control_transversal
+    || !warehouseScope?.configurado
+    || classes.some((articleClass) => visibleClasses.has(articleClass))
+  ), [visibleClasses, warehouseScope]);
+  const showPiecesAndWip = scopeAllows(['PIEZA_COLOR', 'SUBENSAMBLE_WIP']);
+  const showFinishedProducts = scopeAllows(['PRODUCTO_TERMINADO']);
+  const showMaterials = scopeAllows(['MATERIA_PRIMA', 'COLORANTE']);
+  const ledgers = useMemo(() => [
+    ...(showMaterials ? [{
+      id: 'materials', label: 'Materias primas',
+      emptyMessage: 'Todavía no hay saldos de materias primas o colorantes en tus ubicaciones.',
+    }] : []),
+    ...(showPiecesAndWip ? [{
+      id: 'pieces', label: 'Piezas y WIP',
+      emptyMessage: 'Tienes acceso a Piezas y WIP, pero todavía no hay saldo. Aparecerá con una apertura aprobada o al recibir producción.',
+    }] : []),
+    ...(showFinishedProducts ? [{
+      id: 'finished', label: 'Producto terminado',
+      emptyMessage: 'Tienes acceso a Producto terminado, pero todavía no hay saldo. Aparecerá al recibir y liberar producción terminada.',
+    }] : []),
+    { id: 'movements', label: 'Movimientos' },
+  ], [showFinishedProducts, showMaterials, showPiecesAndWip]);
+  const effectiveLedger = ledgers.some((item) => item.id === activeLedger)
+    ? activeLedger
+    : ledgers[0]?.id;
+  const ledger = ledgers.find((item) => item.id === effectiveLedger) || ledgers[0];
+  const isMovements = effectiveLedger === 'movements';
+  const balanceSorts = ['CODIGO', 'NOMBRE', 'FISICO_DESC', 'LIBRE_DESC', 'ACTUALIZADO'];
+  const effectiveSort = isMovements
+    ? (['RECIENTES', 'ANTIGUOS'].includes(sortBy) ? sortBy : 'RECIENTES')
+    : (balanceSorts.includes(sortBy) ? sortBy : 'CODIGO');
+  const locationOptions = useMemo(() => {
+    const values = new Set(rows.map((item) => (
+      isMovements ? item.ubicacion_codigo : item.ubicacion?.codigo
+    )).filter(Boolean));
+    if (locationFilter !== 'TODAS') values.add(locationFilter);
+    return [...values].sort((left, right) => left.localeCompare(right, 'es'));
+  }, [isMovements, locationFilter, rows]);
+
+  useEffect(() => {
+    let alive = true;
+    setBusy(true);
+    setError('');
+    const request = isMovements
+      ? listarMovimientosInventarioScm()
+      : explorarSaldosInventarioScm({
+        kardex: LEDGER_API_NAMES[effectiveLedger],
+        q: debouncedQuery || undefined,
+        ubicacion: locationFilter === 'TODAS' ? undefined : locationFilter,
+        disponibilidad: stockFilter,
+        ordenar: effectiveSort,
+        limite: rowsPerPage,
+        cursor: pageCursors[page] || undefined,
+      });
+    request.then((payload) => {
+      if (!alive) return;
+      if (isMovements) {
+        const normalized = debouncedQuery.toLocaleLowerCase('es');
+        const filtered = (payload.items || []).filter((item) => {
+          const haystack = `${item.articulo_codigo} ${item.articulo_nombre} ${item.ubicacion_codigo || ''} ${item.tipo} ${item.motivo || ''}`;
+          return (!normalized || haystack.toLocaleLowerCase('es').includes(normalized))
+            && (locationFilter === 'TODAS' || item.ubicacion_codigo === locationFilter);
+        }).sort((left, right) => {
+          const direction = effectiveSort === 'ANTIGUOS' ? 1 : -1;
+          return direction * String(left.created_at || '').localeCompare(String(right.created_at || ''));
+        });
+        setRows(filtered.slice(page * rowsPerPage, (page + 1) * rowsPerPage));
+        setPageMeta({ total: filtered.length, has_more: false, next_cursor: null });
+      } else {
+        const nextRows = payload.items || [];
+        setRows(nextRows);
+        setPageMeta(payload.page || {
+          total: nextRows.length, has_more: false, next_cursor: null,
+        });
+      }
+    }).catch((requestError) => {
+      if (alive) setError(mensajeErrorScm(requestError, 'No se pudo cargar esta página del Kardex.'));
+    }).finally(() => {
+      if (alive) setBusy(false);
+    });
+    return () => { alive = false; };
+  }, [
+    debouncedQuery, effectiveLedger, effectiveSort, isMovements,
+    locationFilter, page, pageCursors, refreshVersion, rowsPerPage, stockFilter,
+  ]);
+
+  const changeLedger = (_event, value) => {
+    setActiveLedger(value);
+    setQuery('');
+    setLocationFilter('TODAS');
+    setStockFilter('TODOS');
+    setSortBy(value === 'movements' ? 'RECIENTES' : 'CODIGO');
+    setPage(0);
+    setPageCursors({ 0: null });
+  };
 
   const submit = async () => {
     if (!form.articulo_scm_id || number(form.cantidad) <= 0 || !form.motivo.trim()) {
@@ -116,7 +372,7 @@ export default function InventoryScm() {
       setOpen(false);
       setForm(initialForm);
       setNotice('Movimiento registrado. El saldo libre ya participa en nuevos cálculos.');
-      await load();
+      refresh();
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se registró el movimiento.'));
     } finally {
@@ -131,7 +387,7 @@ export default function InventoryScm() {
         description="Consulta existencias, reservas y movimientos dentro de los almacenes y clases asignados a tu trabajo."
         actions={(
           <Stack direction="row" spacing={1}>
-            <Button startIcon={<RefreshIcon />} variant="outlined" onClick={load}>
+            <Button startIcon={<RefreshIcon />} variant="outlined" onClick={refresh}>
               Actualizar
             </Button>
             {canAdjust && (
@@ -173,7 +429,9 @@ export default function InventoryScm() {
       <InventoryOpeningScm
         articles={articles}
         materials={materials}
-        onApplied={load}
+        onRequestCatalog={loadCatalogs}
+        onApplied={refresh}
+        refreshVersion={refreshVersion}
       />
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
@@ -192,90 +450,169 @@ export default function InventoryScm() {
         ))}
       </Stack>
 
-      <Paper variant="outlined">
-        <Box sx={{ p: 2 }}>
+      <Paper
+        variant="outlined"
+        sx={{ overflow: 'hidden', borderRadius: 3, boxShadow: '0 14px 42px rgba(15, 39, 71, 0.08)' }}
+      >
+        <Box
+          sx={{
+            px: { xs: 2, md: 2.5 }, py: 2,
+            background: 'linear-gradient(135deg, rgba(18, 61, 99, 0.08), rgba(42, 130, 91, 0.06))',
+          }}
+        >
+          <Typography component="h2" variant="h5" fontWeight={900}>
+            Explorador de Kardex
+          </Typography>
+          <Typography color="text.secondary" variant="body2">
+            Trabaja como en una hoja de cálculo: elige un Kardex, filtra y revisa una sola tabla a la vez.
+          </Typography>
+        </Box>
+        <Tabs
+          value={effectiveLedger}
+          onChange={changeLedger}
+          variant="scrollable"
+          scrollButtons="auto"
+          aria-label="Kardex disponibles"
+          sx={{
+            px: 1,
+            '& .MuiTab-root': { minHeight: 58, fontWeight: 800, textTransform: 'none' },
+          }}
+        >
+          {ledgers.map((item) => (
+            <Tab
+              key={item.id}
+              value={item.id}
+              label={item.id === effectiveLedger ? `${item.label} · ${pageMeta.total}` : item.label}
+            />
+          ))}
+        </Tabs>
+        <Divider />
+        <Stack
+          direction={{ xs: 'column', lg: 'row' }}
+          spacing={1.5}
+          alignItems={{ lg: 'center' }}
+          sx={{ p: 2, bgcolor: 'background.default' }}
+        >
           <TextField
             fullWidth
             size="small"
-            label="Buscar artículo o ubicación"
+            label={`Buscar en ${ledger?.label || 'Kardex'}`}
+            placeholder="Código, nombre, ubicación o referencia"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => { setQuery(event.target.value); setPage(0); }}
+            slotProps={{
+              input: {
+                startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
+              },
+            }}
+            sx={{ flex: 2, minWidth: { lg: 330 } }}
           />
+          <FormControl size="small" sx={{ minWidth: { lg: 220 } }}>
+            <InputLabel>Ubicación</InputLabel>
+            <Select
+              label="Ubicación"
+              value={locationFilter}
+              onChange={(event) => {
+                setLocationFilter(event.target.value);
+                setPage(0);
+                setPageCursors({ 0: null });
+              }}
+              startAdornment={<InputAdornment position="start"><FilterAltOutlinedIcon fontSize="small" /></InputAdornment>}
+            >
+              <MenuItem value="TODAS">Todas las ubicaciones</MenuItem>
+              {locationOptions.map((code) => <MenuItem key={code} value={code}>{code}</MenuItem>)}
+            </Select>
+          </FormControl>
+          {!isMovements && (
+            <FormControl size="small" sx={{ minWidth: { lg: 190 } }}>
+              <InputLabel>Disponibilidad</InputLabel>
+              <Select
+                label="Disponibilidad"
+                value={stockFilter}
+                onChange={(event) => {
+                  setStockFilter(event.target.value);
+                  setPage(0);
+                  setPageCursors({ 0: null });
+                }}
+              >
+                <MenuItem value="TODOS">Todos los saldos</MenuItem>
+                <MenuItem value="CON_EXISTENCIA">Con existencia</MenuItem>
+                <MenuItem value="LIBRE">Con saldo libre</MenuItem>
+                <MenuItem value="RESERVADO">Con reserva</MenuItem>
+                <MenuItem value="NO_DISPONIBLE">No disponible</MenuItem>
+              </Select>
+            </FormControl>
+          )}
+          <FormControl size="small" sx={{ minWidth: { lg: 190 } }}>
+            <InputLabel>Ordenar</InputLabel>
+            <Select
+              label="Ordenar"
+              value={effectiveSort}
+              onChange={(event) => {
+                setSortBy(event.target.value);
+                setPage(0);
+                setPageCursors({ 0: null });
+              }}
+            >
+              {isMovements ? [
+                <MenuItem key="RECIENTES" value="RECIENTES">Más recientes</MenuItem>,
+                <MenuItem key="ANTIGUOS" value="ANTIGUOS">Más antiguos</MenuItem>,
+              ] : [
+                <MenuItem key="CODIGO" value="CODIGO">Código A–Z</MenuItem>,
+                <MenuItem key="NOMBRE" value="NOMBRE">Nombre A–Z</MenuItem>,
+                <MenuItem key="FISICO_DESC" value="FISICO_DESC">Mayor existencia</MenuItem>,
+                <MenuItem key="LIBRE_DESC" value="LIBRE_DESC">Mayor saldo libre</MenuItem>,
+                <MenuItem key="ACTUALIZADO" value="ACTUALIZADO">Actualización reciente</MenuItem>,
+              ]}
+            </Select>
+          </FormControl>
+        </Stack>
+        <Box sx={{ px: 2, pb: 1 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={1}>
+            <Typography variant="body2" color="text.secondary">
+              <strong>{rows.length}</strong> de {pageMeta.total} registro(s) visible(s)
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Encabezado fijo · filas compactas · números alineados
+            </Typography>
+          </Stack>
         </Box>
-        <TableContainer>
-          <Table size="small">
-            <TableHead><TableRow>
-              <TableCell>Artículo SCM</TableCell>
-              <TableCell>Ubicación</TableCell>
-              <TableCell align="right">Físico</TableCell>
-              <TableCell align="right">Reservado</TableCell>
-              <TableCell align="right">No disponible</TableCell>
-              <TableCell align="right">Libre</TableCell>
-            </TableRow></TableHead>
-            <TableBody>
-              {filtered.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>
-                    <Typography fontWeight={700}>{item.articulo.nombre}</Typography>
-                    <Typography variant="caption">
-                      {item.articulo.codigo} · {item.articulo.clase}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>{item.ubicacion.nombre}</TableCell>
-                  <TableCell align="right">{item.cantidad_fisica} {item.articulo.unidad}</TableCell>
-                  <TableCell align="right">{item.cantidad_reservada}</TableCell>
-                  <TableCell align="right">{item.cantidad_no_disponible}</TableCell>
-                  <TableCell align="right">
-                    <Chip size="small" color="success" label={item.cantidad_libre} />
-                  </TableCell>
-                </TableRow>
-              ))}
-              {!busy && filtered.length === 0 && (
-                <TableRow><TableCell colSpan={6}>
-                  <Alert severity="info">
-                    Aún no hay saldos. Almacén puede registrar el inventario inicial sin
-                    crear lotes o mangas artificiales.
-                  </Alert>
-                </TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
-
-      <Paper variant="outlined">
-        <Typography fontWeight={800} sx={{ p: 2 }}>Materia prima y colorantes</Typography>
-        <TableContainer><Table size="small">
-          <TableHead><TableRow><TableCell>Material</TableCell><TableCell>Ubicación</TableCell><TableCell align="right">Físico</TableCell><TableCell align="right">Reservado</TableCell><TableCell align="right">No disponible</TableCell><TableCell align="right">Libre</TableCell></TableRow></TableHead>
-          <TableBody>
-            {materialBalances.map((item) => <TableRow key={item.id}><TableCell><Typography fontWeight={700}>{item.articulo.nombre}</Typography><Typography variant="caption">{item.articulo.codigo} · {item.articulo.clase}</Typography></TableCell><TableCell>{item.ubicacion.nombre}</TableCell><TableCell align="right">{item.cantidad_fisica} KG</TableCell><TableCell align="right">{item.cantidad_reservada}</TableCell><TableCell align="right">{item.cantidad_no_disponible}</TableCell><TableCell align="right"><Chip size="small" color="success" label={`${item.cantidad_libre} KG`} /></TableCell></TableRow>)}
-            {!busy && materialBalances.length === 0 && <TableRow><TableCell colSpan={6}><Alert severity="info">Sin saldos de materiales. Se incorporan mediante un lote de apertura aprobado.</Alert></TableCell></TableRow>}
-          </TableBody>
-        </Table></TableContainer>
-      </Paper>
-
-      <Paper variant="outlined">
-        <Typography fontWeight={800} sx={{ p: 2 }}>Últimos movimientos</Typography>
-        <TableContainer>
-          <Table size="small">
-            <TableHead><TableRow>
-              <TableCell>Fecha</TableCell>
-              <TableCell>Artículo</TableCell>
-              <TableCell>Tipo</TableCell>
-              <TableCell align="right">Variación</TableCell>
-              <TableCell>Motivo</TableCell>
-            </TableRow></TableHead>
-            <TableBody>{movements.map((item) => (
-              <TableRow key={item.id}>
-                <TableCell>{item.created_at ? new Date(item.created_at).toLocaleString('es-PE') : '—'}</TableCell>
-                <TableCell>{item.articulo_codigo} · {item.articulo_nombre}</TableCell>
-                <TableCell><Chip size="small" label={item.tipo.replaceAll('_', ' ')} /></TableCell>
-                <TableCell align="right">{item.cantidad_delta}</TableCell>
-                <TableCell>{item.motivo}</TableCell>
-              </TableRow>
-            ))}</TableBody>
-          </Table>
-        </TableContainer>
+        <Divider />
+        {isMovements ? (
+          <MovementGrid items={rows} busy={busy} />
+        ) : (
+          <BalanceGrid
+            items={rows}
+            busy={busy}
+            emptyMessage={debouncedQuery || locationFilter !== 'TODAS' || stockFilter !== 'TODOS'
+              ? 'No hay saldos que coincidan con los filtros seleccionados.'
+              : ledger?.emptyMessage}
+          />
+        )}
+        <Divider />
+        <TablePagination
+          component="div"
+          count={pageMeta.total}
+          page={page}
+          onPageChange={(_event, value) => {
+            if (value > page) {
+              if (!pageMeta.next_cursor && !isMovements) return;
+              setPageCursors((current) => ({
+                ...current, [value]: pageMeta.next_cursor,
+              }));
+            }
+            setPage(value);
+          }}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(event) => {
+            setRowsPerPage(Number(event.target.value));
+            setPage(0);
+            setPageCursors({ 0: null });
+          }}
+          rowsPerPageOptions={[25, 50, 100]}
+          labelRowsPerPage="Filas por página"
+          labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
+        />
       </Paper>
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">

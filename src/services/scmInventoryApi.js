@@ -10,6 +10,12 @@ const config = (idempotent = false) => ({
 
 const data = async (request) => (await request()).data;
 
+export const explorarSaldosInventarioScm = (params = {}) => data(
+  () => api.get('/scm/v1/inventario/explorador', { ...config(), params }),
+);
+
+// Compatibilidad para consumidores ajenos al explorador. La vista principal
+// usa exclusivamente el contrato paginado anterior.
 export const listarSaldosInventarioScm = () => data(
   () => api.get('/scm/v1/inventario/saldos', config()),
 );

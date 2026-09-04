@@ -38,13 +38,14 @@ const pending = {
   estado: 'PENDIENTE_APROBACION',
   version: 2,
   creado_por_id: 1,
+  creado_por: { id: 1, codigo: 'TRB-008', nombre: 'Luis Pinedo' },
   total_lineas: 2,
   lineas: [],
 };
 
-const renderView = () => render(
+const renderView = (props = {}) => render(
   <ThemeProvider theme={createTheme()}>
-    <InventoryOpeningScm articles={[]} materials={[]} />
+    <InventoryOpeningScm articles={[]} materials={[]} {...props} />
   </ThemeProvider>,
 );
 
@@ -68,6 +69,72 @@ describe('Apertura inicial controlada', () => {
     expect(await screen.findByText(pending.codigo)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Nuevo lote de conteo' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Revisar' })).not.toBeInTheDocument();
+    expect(screen.getByText('Luis Pinedo')).toBeInTheDocument();
+  });
+
+  it('recarga el contenido cuando Actualizar cambia la versión de refresco', async () => {
+    actorState.capabilities = new Set(['INVENTARIO_APERTURA_PREPARAR']);
+    listarAperturasInventarioScm
+      .mockResolvedValueOnce({ items: [{ ...pending, total_unidades_logisticas: 0 }] })
+      .mockResolvedValueOnce({ items: [{ ...pending, total_unidades_logisticas: 2, version: 3 }] });
+
+    const view = renderView({ refreshVersion: 0 });
+    expect(await screen.findByText(/2 líneas · 0 bultos QR/)).toBeInTheDocument();
+
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <InventoryOpeningScm articles={[]} materials={[]} refreshVersion={1} />
+      </ThemeProvider>,
+    );
+
+    expect(await screen.findByText(/2 líneas · 2 bultos QR/)).toBeInTheDocument();
+    expect(listarAperturasInventarioScm).toHaveBeenCalledTimes(2);
+  });
+
+  it('carga el catálogo solo cuando se abre un lote', async () => {
+    actorState.capabilities = new Set(['INVENTARIO_APERTURA_PREPARAR']);
+    const onRequestCatalog = vi.fn().mockResolvedValue();
+    const user = userEvent.setup();
+    renderView({ onRequestCatalog });
+
+    expect(await screen.findByText(pending.codigo)).toBeInTheDocument();
+    expect(onRequestCatalog).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Nuevo lote de conteo' }));
+    expect(await screen.findByRole('dialog', { name: 'Nuevo lote de apertura' })).toBeVisible();
+    expect(onRequestCatalog).toHaveBeenCalledTimes(1);
+  });
+
+  it('muestra la unidad junto a la cantidad y conserva visible el estado de Calidad', async () => {
+    actorState.capabilities = new Set([
+      'INVENTARIO_APERTURA_PREPARAR',
+      'INVENTARIO_APERTURA_CONTINGENCIA',
+    ]);
+    const user = userEvent.setup();
+    renderView({
+      materials: [{ id: 7, codigo: 'MP-PP-CLARIFICADO', nombre: 'PP clarificado', unidad_base: 'KG' }],
+      onRequestCatalog: vi.fn().mockResolvedValue(),
+    });
+
+    await user.click(await screen.findByRole('button', { name: 'Nuevo lote de conteo' }));
+    await user.click(screen.getByRole('combobox', { name: 'Método de apertura' }));
+    await user.click(screen.getByRole('option', { name: 'Carga tabular · solo Gerencia General' }));
+    await user.click(screen.getByRole('combobox', { name: 'Artículo o material' }));
+    await user.click(screen.getByRole('option', { name: 'MP-PP-CLARIFICADO · PP clarificado · KG' }));
+
+    expect(screen.getByRole('spinbutton', { name: 'Cantidad (KG)' })).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Calidad' })).toHaveTextContent('Liberado');
+  });
+
+  it('oculta la carga tabular al almacenero', async () => {
+    actorState.capabilities = new Set(['INVENTARIO_APERTURA_PREPARAR']);
+    const user = userEvent.setup();
+    renderView({ onRequestCatalog: vi.fn().mockResolvedValue() });
+
+    await user.click(await screen.findByRole('button', { name: 'Nuevo lote de conteo' }));
+    await user.click(screen.getByRole('combobox', { name: 'Método de apertura' }));
+
+    expect(screen.queryByRole('option', { name: /Carga tabular/ })).not.toBeInTheDocument();
   });
 
   it('permite al segundo actor aprobar el lote completo con evidencia', async () => {

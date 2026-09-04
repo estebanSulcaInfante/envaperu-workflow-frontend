@@ -12,7 +12,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
-import { getTrabajadores } from '../services/api';
+import { getTrabajadores, obtenerMaquinas } from '../services/api';
 import {
   agregarMangasTrabajoColorScm,
   anularMangaScm,
@@ -24,21 +24,29 @@ import {
   crearTrabajoColorScm,
   generarEtiquetasPrepesaje,
   listarJornadasPlantaScm,
+  listarOtScm,
   listarContinuidadesMangaPendientesScm,
   listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm,
   obtenerPesajeMangaScm,
   obtenerPlanMangas,
   recalcularPlanMangas,
+  reabrirMangaScm,
   reasignarMangasTrabajoColorScm,
   reemplazarEtiquetaScm,
   solicitarMangaExtraScm,
   solicitarCorreccionPesajeScm,
 } from '../services/scmOtApi';
-import { mensajeErrorScm } from '../services/scmEngineeringApi';
+import {
+  listarCentrosTrabajoScm,
+  mensajeErrorScm,
+} from '../services/scmEngineeringApi';
 import PageHeader from './ui/PageHeader';
 import ProcessJourney from './ui/ProcessJourney';
 import PlantJourneysOverview from './PlantJourneysOverview';
+import { OtCreationReview, OtAnnulmentAction } from './OtHeaderSafety';
+import WorkKgAllocation from './WorkKgAllocation';
+import { buildKgAssignment } from '../utils/workKgAssignment';
 import { useScmActor } from '../context/ScmActorContext';
 import { todayInLima } from '../utils/limaDate';
 import {
@@ -277,7 +285,8 @@ const machineBoardModel = (machine, allOts, workers, orders, selectedOtId) => {
     articleName,
     workerName: currentWorkerName(activeWork, ot, workers),
     mangaCounts,
-    concurrentOtCount: machineOts.length,
+    // Annulled headers remain selectable history, not coincident journeys.
+    concurrentOtCount: machineOts.filter((item) => item.estado !== 'ANULADA').length,
     otIds: machineOts.map((item) => item.public_id),
     machineRunning,
   };
@@ -547,7 +556,8 @@ function ColorWorkQueue({ works, selectedWorkId, onSelect }) {
     );
   }
   return (
-    <Stack spacing={1} data-testid="color-work-queue">
+    <Stack direction="row" spacing={1} data-testid="color-work-queue"
+      sx={{ overflowX: 'auto', pb: 0.5, '& > *': { flex: '0 0 260px' } }}>
       {works.map((work) => {
         const selected = work.id === selectedWorkId;
         const running = work.estado === 'EN_EJECUCION';
@@ -562,17 +572,18 @@ function ColorWorkQueue({ works, selectedWorkId, onSelect }) {
           >
             <CardActionArea
               aria-label={`Ver mangas de ${work.color || work.codigo}`}
+              aria-pressed={selected}
               onClick={() => onSelect(work.id)}
-              sx={{ p: 1.5 }}
+              sx={{ p: 1.25, height: '100%' }}
             >
               <Stack
-                direction={{ xs: 'column', sm: 'row' }}
+                direction="column"
                 spacing={1}
-                alignItems={{ sm: 'center' }}
+                alignItems="stretch"
               >
                 <Box sx={{ minWidth: 38 }}>
                   <Typography variant="caption" color="text.secondary">
-                    #{work.secuencia}
+                    {work.codigo || `Trabajo ${work.secuencia}`} {selected ? '· Consultando' : ''}
                   </Typography>
                 </Box>
                 <Box sx={{ flex: 1 }}>
@@ -581,7 +592,7 @@ function ColorWorkQueue({ works, selectedWorkId, onSelect }) {
                     {work.orden_fabricacion_codigo || 'Sin OF'}
                   </Typography>
                 </Box>
-                <Box sx={{ textAlign: { sm: 'right' } }}>
+                <Box>
                   <Chip
                     size="small"
                     label={stateLabel(work.estado)}
@@ -771,12 +782,13 @@ export default function OtMangasScm({ view = 'all' }) {
   const canRequestCorrection = can('PESAJE_CORRECCION_SOLICITAR');
   const canApproveCorrection = can('PESAJE_CORRECCION_APROBAR');
   const canAnnulWeighing = can('ANULAR_PESAJE');
+  const canReopenManga = can('MANGA_REABRIR');
   const hasOperationalActions = canAny([
     'PLAN_MANGA_ADMINISTRAR', 'OT_CREAR', 'OT_INICIAR', 'OT_CERRAR',
     'MANGA_PLANIFICAR', 'MANGA_EXTRA_SOLICITAR', 'MANGA_EXTRA_APROBAR',
     'MANGA_ETIQUETA_PRE_GENERAR', 'MANGA_ANULAR',
     'MANGA_ETIQUETA_REEMPLAZAR_APROBAR', 'PESAJE_CORRECCION_SOLICITAR',
-    'PESAJE_CORRECCION_APROBAR', 'ANULAR_PESAJE',
+    'PESAJE_CORRECCION_APROBAR', 'ANULAR_PESAJE', 'MANGA_REABRIR',
   ]);
 
   const [catalogs, setCatalogs] = useState({
@@ -797,6 +809,8 @@ export default function OtMangasScm({ view = 'all' }) {
     initialJourneyContext.perspective === 'ENSAMBLE' ? initialJourneyContext.ot : '',
   );
   const [selectedWorkId, setSelectedWorkId] = useState('');
+  const [workCreateOpen, setWorkCreateOpen] = useState(false);
+  const workDetailRef = useRef(null);
   const selectedWorkIdRef = useRef('');
   const creationRef = useRef(null);
   const detailRef = useRef(null);
@@ -811,9 +825,18 @@ export default function OtMangasScm({ view = 'all' }) {
     maquinista_predeterminado_id: '',
   });
   const [workForm, setWorkForm] = useState({
-    orderId: '', runId: '', workerId: '', quantities: {},
+    orderId: '', runId: '', quantities: {}, kgEdits: {},
   });
+  const [workWorkerOverride, setWorkWorkerOverride] = useState(null);
+  useEffect(() => {
+    setWorkCreateOpen(false);
+    setWorkForm((current) => ({ ...current, kgEdits: {} }));
+  }, [selectedOtId]);
   const [draftPlan, setDraftPlan] = useState(null);
+  const [planLoadedFor, setPlanLoadedFor] = useState('');
+  const [planLoadError, setPlanLoadError] = useState('');
+  const [planReload, setPlanReload] = useState(0);
+  const planRequestRef = useRef(0);
   const [continuityCandidates, setContinuityCandidates] = useState([]);
   const [selectedContinuities, setSelectedContinuities] = useState([]);
   const [continuityBusy, setContinuityBusy] = useState(false);
@@ -844,6 +867,9 @@ export default function OtMangasScm({ view = 'all' }) {
     peso_bruto_kg: '', tara_kg: '', cantidad_confirmada: '', motivo: '',
   });
   const [annulmentForm, setAnnulmentForm] = useState({ motivo: '', evidencia: '' });
+  const [reopeningForm, setReopeningForm] = useState({
+    tipo_reapertura: '', motivo: '', evidencia: '',
+  });
 
   const selectedOt = useMemo(
     () => {
@@ -857,6 +883,16 @@ export default function OtMangasScm({ view = 'all' }) {
     [listFilters.maquina_id, ots, selectedOtId],
   );
   const works = useMemo(() => selectedOt?.trabajos_color || [], [selectedOt]);
+  const defaultWorkWorker = catalogs.workers.find((worker) => String(worker.id) === String(
+    selectedOt?.maquinista_predeterminado_id ?? selectedOt?.maquinista_previsto_id,
+  ));
+  const editingWorkWorker = Boolean(selectedOt && workWorkerOverride?.otId === selectedOt.public_id);
+  const initialWorkWorker = editingWorkWorker
+    ? catalogs.workers.find((worker) => String(worker.id) === String(workWorkerOverride.workerId))
+    : defaultWorkWorker;
+  useEffect(() => {
+    setWorkWorkerOverride(null);
+  }, [selectedOtId]);
   const selectedWork = useMemo(
     () => works.find((item) => item.id === selectedWorkId) || null,
     [works, selectedWorkId],
@@ -930,11 +966,23 @@ export default function OtMangasScm({ view = 'all' }) {
     (item) => item.estado === 'EN_EJECUCION',
   ).length;
   const draftRunLines = useMemo(
-    () => (draftPlan?.lineas || []).filter(
+    () => (planLoadedFor === workForm.orderId ? (draftPlan?.lineas || []) : []).filter(
       (line) => line.corrida_fabricacion_id === workForm.runId,
     ),
-    [draftPlan, workForm.runId],
+    [draftPlan, planLoadedFor, workForm.orderId, workForm.runId],
   );
+  const planConsulted = Boolean(workForm.orderId && planLoadedFor === workForm.orderId);
+  const planReady = planConsulted && Boolean(draftPlan) && !planLoadError && !planBusy;
+  const kgAssignments = draftRunLines.map((line) => ({
+    line,
+    model: buildKgAssignment({ line, run: selectedRun,
+      initialUnits: workForm.quantities[line.id], edit: workForm.kgEdits[line.id] }),
+  }));
+  const validWorkQuantities = kgAssignments.every(({ model }) => model.valid);
+  const hasWorkAllocation = kgAssignments.some(({ model }) => model.valid && model.units > 0)
+    || selectedContinuities.length > 0;
+  const canAddColorWork = planReady && validWorkQuantities && hasWorkAllocation
+    && !busy && !continuityBusy && selectedRun && selectedRunHasColor && initialWorkWorker;
   const selectedWorkLines = useMemo(
     () => (selectedWorkPlan?.lineas || []).filter(
       (line) => line.corrida_fabricacion_id === selectedWork?.corrida_fabricacion_id,
@@ -962,20 +1010,18 @@ export default function OtMangasScm({ view = 'all' }) {
     (manga) => selectedRelief.includes(manga.public_id)
       && manga.estado === 'CONTINUIDAD_PENDIENTE',
   );
-  const reliefWorkers = useMemo(() => {
-    const excludedWorkerIds = new Set(
-      selectedRelief.length
-        ? (selectedWork?.mangas || [])
-          .filter((manga) => selectedRelief.includes(manga.public_id))
-          .map((manga) => String(
-            manga.maquinista_actual_id || manga.maquinista_previsto_id,
-          ))
-        : [String(currentWorker?.trabajador_id || '')],
-    );
-    return catalogs.workers.filter(
-      (worker) => !excludedWorkerIds.has(String(worker.id)),
-    );
-  }, [catalogs.workers, currentWorker?.trabajador_id, selectedRelief, selectedWork?.mangas]);
+  const excludedReliefWorkerIds = new Set(
+    selectedRelief.length
+      ? (selectedWork?.mangas || [])
+        .filter((manga) => selectedRelief.includes(manga.public_id))
+        .map((manga) => String(
+          manga.maquinista_actual_id || manga.maquinista_previsto_id,
+        ))
+      : [String(currentWorker?.trabajador_id || '')],
+  );
+  const reliefWorkers = catalogs.workers.filter(
+    (worker) => !excludedReliefWorkerIds.has(String(worker.id)),
+  );
 
   const loadExtraRequests = useCallback(async (orderId, workId) => {
     if (!orderId || !workId) {
@@ -1040,7 +1086,36 @@ export default function OtMangasScm({ view = 'all' }) {
       turno: filters.turno,
     };
     try {
-      const payload = await listarJornadasPlantaScm(query);
+      let payload;
+      let consolidatedError;
+      try {
+        payload = await listarJornadasPlantaScm(query);
+      } catch (requestError) {
+        consolidatedError = requestError;
+      }
+      if (!payload) {
+        if (
+          typeof listarOtScm !== 'function'
+          || typeof obtenerMaquinas !== 'function'
+          || typeof listarCentrosTrabajoScm !== 'function'
+        ) {
+          throw consolidatedError;
+        }
+        const [fabrication, assembly, machines, centers] = await Promise.all([
+          listarOtScm(undefined, 'FABRICACION', query),
+          listarOtScm(undefined, 'ENSAMBLE', query),
+          obtenerMaquinas(),
+          listarCentrosTrabajoScm(),
+        ]);
+        payload = {
+          fecha_operativa: query.fecha_operativa,
+          turno: query.turno,
+          maquinas: machines || [],
+          centros_trabajo: centers || [],
+          ots_fabricacion: fabrication.items || [],
+          ots_armado: assembly.items || [],
+        };
+      }
       applyJourneyPayload(payload, preferredOtId, preferredWorkId);
     } catch (requestError) {
       const warning = 'No se pudieron actualizar las jornadas. Se conserva la última información visible.';
@@ -1131,7 +1206,6 @@ export default function OtMangasScm({ view = 'all' }) {
           ...current,
           orderId: current.orderId || firstOrder?.id || '',
           runId: current.runId || firstRun?.id || '',
-          workerId: current.workerId || activeWorkers[0]?.id || '',
         }));
         setReliefForm((current) => ({
           ...current, workerId: current.workerId || activeWorkers[0]?.id || '',
@@ -1157,7 +1231,7 @@ export default function OtMangasScm({ view = 'all' }) {
       if (currentStillAvailable) return current;
       return { ...current, workerId: reliefWorkers[0]?.id || '' };
     });
-  }, [selectedWorkId, reliefWorkers]);
+  }, [selectedWorkId, selectedRelief, catalogs.workers]);
 
   useEffect(() => {
     storeLastPendingPrintJob(printJob);
@@ -1193,31 +1267,37 @@ export default function OtMangasScm({ view = 'all' }) {
   }, [filteredOts, listFilters.maquina_id, selectedFilteredOtId]);
 
   useEffect(() => {
+    const request = ++planRequestRef.current;
+    setDraftPlan(null);
+    setPlanLoadedFor('');
+    setPlanLoadError('');
     if (!workForm.orderId) {
-      setDraftPlan(null);
+      setPlanBusy(false);
       return undefined;
     }
     let active = true;
     setPlanBusy(true);
     obtenerPlanMangas(workForm.orderId)
       .then((payload) => {
-        if (!active) return;
+        if (!active || request !== planRequestRef.current) return;
         setDraftPlan(payload.plan);
+        setPlanLoadedFor(workForm.orderId);
         setWorkForm((current) => ({
           ...current,
+          kgEdits: {},
           quantities: Object.fromEntries(
             (payload.plan?.lineas || []).map((line) => [line.id, line.saldo_un]),
           ),
         }));
       })
       .catch((requestError) => {
-        if (active) setError(mensajeErrorScm(
-          requestError, 'La OF todavía no tiene un plan de mangas disponible.',
+        if (active && request === planRequestRef.current) setPlanLoadError(mensajeErrorScm(
+          requestError, 'No se pudo consultar la propuesta de mangas.',
         ));
       })
-      .finally(() => { if (active) setPlanBusy(false); });
+      .finally(() => { if (active && request === planRequestRef.current) setPlanBusy(false); });
     return () => { active = false; };
-  }, [workForm.orderId]);
+  }, [workForm.orderId, planReload]);
 
   useEffect(() => {
     if (!selectedOt?.public_id || !workForm.runId) {
@@ -1319,47 +1399,48 @@ export default function OtMangasScm({ view = 'all' }) {
     if (nextPerspective === 'ENSAMBLE') setAssemblyContextOtId('');
   };
 
-  const createHeader = async () => {
-    if (!headerForm.maquina_id || !headerForm.fecha_operativa || !headerForm.turno) {
-      setError('Selecciona máquina, fecha y turno.');
-      return;
+  const createHeader = async (reviewedForm, operationId) => {
+    if (!reviewedForm.maquina_id || !reviewedForm.fecha_operativa || !reviewedForm.turno) {
+      throw new Error('Selecciona máquina, fecha y turno.');
     }
     setBusy(true);
     setError('');
     try {
       const payload = {
-        fecha_operativa: headerForm.fecha_operativa,
-        maquina_id: Number(headerForm.maquina_id),
-        turno: headerForm.turno,
-        ...(headerForm.maquinista_predeterminado_id ? {
-          maquinista_predeterminado_id: Number(headerForm.maquinista_predeterminado_id),
+        fecha_operativa: reviewedForm.fecha_operativa,
+        maquina_id: Number(reviewedForm.maquina_id),
+        turno: reviewedForm.turno,
+        ...(reviewedForm.maquinista_predeterminado_id ? {
+          maquinista_predeterminado_id: Number(reviewedForm.maquinista_predeterminado_id),
         } : {}),
       };
-      const result = await crearOtFabricacionScm(payload);
+      const result = await crearOtFabricacionScm(payload, operationId);
       setNotice(`${result.ot.codigo_ot} creada como jornada de máquina, todavía sin color.`);
       const creationFilters = {
-        fecha_operativa: headerForm.fecha_operativa,
-        turno: headerForm.turno,
+        fecha_operativa: reviewedForm.fecha_operativa,
+        turno: reviewedForm.turno,
         maquina_id: '',
       };
       setListFilters(creationFilters);
       await loadOts(result.ot.public_id, undefined, creationFilters);
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo crear la OT de máquina.'));
+      throw requestError;
     } finally {
       setBusy(false);
     }
   };
 
   const createWork = async () => {
-    const assignments = draftRunLines
-      .filter((line) => Number(workForm.quantities[line.id]) > 0)
-      .map((line) => ({
+    if (!canAddColorWork) return;
+    const assignments = kgAssignments
+      .filter(({ model }) => model.valid && model.units > 0)
+      .map(({ line, model }) => ({
         plan_linea_id: Number(line.id),
-        cantidad_un: Number(workForm.quantities[line.id]),
+        cantidad_un: model.units,
       }));
     if (!selectedOt || !selectedRun || !selectedRunHasColor
-      || !workForm.workerId || (!assignments.length && !selectedContinuities.length)) {
+      || !initialWorkWorker || (!assignments.length && !selectedContinuities.length)) {
       setError('Selecciona OT, color, maquinista y saldo nuevo o una manga abierta compatible.');
       return;
     }
@@ -1368,7 +1449,7 @@ export default function OtMangasScm({ view = 'all' }) {
     try {
       const result = await crearTrabajoColorScm(selectedOt.public_id, {
         corrida_fabricacion_id: selectedRun.id,
-        maquinista_id: Number(workForm.workerId),
+        maquinista_id: Number(initialWorkWorker.id),
         asignaciones: assignments,
         continuidad_manga_ids: selectedContinuities,
       });
@@ -1382,6 +1463,9 @@ export default function OtMangasScm({ view = 'all' }) {
         loadOts(selectedOt.public_id, result.trabajo_color.id),
         reloadFabricationOrders(),
       ]);
+      setWorkWorkerOverride(null);
+      setPlanReload((value) => value + 1);
+      setWorkCreateOpen(false);
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo agregar el Trabajo de color.'));
     } finally {
@@ -1390,29 +1474,34 @@ export default function OtMangasScm({ view = 'all' }) {
   };
 
   const recalculateDraftPlan = async () => {
-    if (!workForm.orderId) return;
+    if (!workForm.orderId || planBusy || busy || !planConsulted || planLoadError) return;
+    const request = ++planRequestRef.current;
+    const hadPlan = Boolean(draftPlan);
     setPlanBusy(true);
     setError('');
     setPackagingBlocker(null);
     try {
       const result = await recalcularPlanMangas(workForm.orderId);
+      if (request !== planRequestRef.current) return;
       setDraftPlan(result.plan);
       setWorkForm((current) => ({
         ...current,
+        kgEdits: {},
         quantities: Object.fromEntries(
           result.plan.lineas.map((line) => [line.id, line.saldo_un]),
         ),
       }));
-      setNotice(`Plan de ${selectedOrder?.codigo} recalculado. No se creó ninguna manga.`);
+      setNotice(`Propuesta de mangas de ${selectedOrder?.codigo} ${hadPlan ? 'recalculada' : 'calculada'}. No se creó ninguna manga.`);
     } catch (requestError) {
+      if (request !== planRequestRef.current) return;
       const blocker = packagingBlockerFromError(requestError);
       if (blocker) {
         setPackagingBlocker(blocker);
       } else {
-        setError(mensajeErrorScm(requestError, 'No se pudo recalcular el plan de la OF.'));
+        setError(mensajeErrorScm(requestError, 'No se pudo calcular la propuesta de mangas.'));
       }
     } finally {
-      setPlanBusy(false);
+      if (request === planRequestRef.current) setPlanBusy(false);
     }
   };
 
@@ -1675,6 +1764,7 @@ export default function OtMangasScm({ view = 'all' }) {
         motivo: '',
       });
       setAnnulmentForm({ motivo: '', evidencia: '' });
+      setReopeningForm({ tipo_reapertura: '', motivo: '', evidencia: '' });
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo consultar el pesaje.'));
     } finally {
@@ -1761,13 +1851,59 @@ export default function OtMangasScm({ view = 'all' }) {
     }
   };
 
+  const reopenManga = async () => {
+    if (!weighingDialog?.detail?.vigente
+      || !reopeningForm.tipo_reapertura || !reopeningForm.motivo.trim()) {
+      setError('Seleccione el tipo de reapertura e indique un motivo.');
+      return;
+    }
+    setWeighingBusy(true);
+    setError('');
+    try {
+      await reabrirMangaScm(weighingDialog.manga.public_id, {
+        version: weighingDialog.detail.manga_version,
+        tipo_reapertura: reopeningForm.tipo_reapertura,
+        motivo: reopeningForm.motivo.trim(),
+        evidencia: reopeningForm.evidencia.trim() || null,
+      });
+      const continuedFilling = reopeningForm.tipo_reapertura === 'CONTINUAR_LLENADO';
+      const retainedNet = weighingDialog.detail.vigente.peso_fisico_neto_kg;
+      setWeighingDialog(null);
+      setReopeningForm({ tipo_reapertura: '', motivo: '', evidencia: '' });
+      setNotice(
+        continuedFilling
+          ? `${weighingDialog.manga.codigo} reabierta para continuar llenado. ${retainedNet} kg quedan como línea base; conserva su QR y cupo. Retire la etiqueta final anterior.`
+          : `${weighingDialog.manga.codigo} reabierta por cierre accidental. El peso anterior queda solo en el historial; conserva su QR y cupo. Retire la etiqueta final anterior.`,
+      );
+      try {
+        await loadOts(selectedOt.public_id, selectedWork.id);
+      } catch (_refreshError) {
+        setError(
+          'La manga sí fue reabierta, pero no se pudo refrescar la OT. Use Actualizar antes de continuar.',
+        );
+      }
+    } catch (requestError) {
+      const code = requestError.response?.data?.error?.code;
+      setError(code === 'RECEIPT_REVERSAL_REQUIRED'
+        ? 'La manga ya ingresó a Almacén. Aprueba primero la reversa de recepción.'
+        : mensajeErrorScm(requestError, 'No se pudo reabrir la manga.'));
+    } finally {
+      setWeighingBusy(false);
+    }
+  };
+
   const selectOrder = (orderId) => {
+    planRequestRef.current += 1;
+    setDraftPlan(null);
+    setPlanLoadedFor('');
+    setPlanLoadError('');
+    setPackagingBlocker(null);
     const order = catalogs.orders.find((item) => item.id === orderId);
     const run = order?.corridas?.find(
       (item) => ['LIBERADA', 'EN_EJECUCION'].includes(item.estado),
     );
     setWorkForm((current) => ({
-      ...current, orderId, runId: run?.id || '', quantities: {},
+      ...current, orderId, runId: run?.id || '', quantities: {}, kgEdits: {},
     }));
   };
 
@@ -1846,13 +1982,13 @@ export default function OtMangasScm({ view = 'all' }) {
           Vista de consulta para {experience.label}. Las acciones se muestran a los responsables de la jornada.
         </Alert>
       )}
-      {packagingBlocker && (
+      {packagingBlocker && !workCreateOpen && (
         <PackagingConfigurationBlocker
           blocker={packagingBlocker}
           onClose={() => setPackagingBlocker(null)}
         />
       )}
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      {error && !workCreateOpen && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
 
       {!isDetail && (
@@ -1951,9 +2087,9 @@ export default function OtMangasScm({ view = 'all' }) {
             </Select>
           </FormControl>
           {canCreateOt && (
-            <Button variant="contained" disabled={busy} onClick={createHeader}>
-              Crear OT de máquina
-            </Button>
+            <OtCreationReview form={headerForm} disabled={busy} onConfirm={createHeader} onRefresh={() => loadOts(selectedOtId)}
+              machine={catalogs.machines.find((item) => String(item.id) === String(headerForm.maquina_id))?.codigo}
+              worker={catalogs.workers.find((item) => String(item.id) === String(headerForm.maquinista_predeterminado_id))?.nombre_completo} />
           )}
         </Stack>
       </Paper>
@@ -2082,30 +2218,66 @@ export default function OtMangasScm({ view = 'all' }) {
             {selectedOt && <Chip label={stateLabel(selectedOt.estado)} />}
           </Stack>
         )}
+        {selectedOt && <OtAnnulmentAction key={selectedOt.public_id} ot={selectedOt} allowed={can('OT_ANULAR')}
+          onRefresh={() => loadOts(selectedOt.public_id)}
+          onSuccess={async (annulled) => {
+            setNotice(`${annulled.codigo_ot} anulada. Su historial se conserva.`);
+            await loadOts(annulled.public_id);
+          }} />}
         {!selectedOt ? (
           <Alert severity="info">
             No hay OT para la fecha y turno seleccionados. Las máquinas siguen visibles para preparar su jornada.
           </Alert>
-        ) : (
-          <ColorWorkQueue
-            works={works}
-            selectedWorkId={selectedWorkId}
-            onSelect={setSelectedWorkId}
-          />
-        )}
+        ) : null}
         </>)}
       </Paper>
 
       {!isLanding && (<>
-      {selectedOt && canCreateOt && (
-        <Paper variant="outlined" sx={{ p: 2 }}>
-          <Typography component="h2" variant="h6" fontWeight={850}>
+      {selectedOt && selectedOt.estado !== 'ANULADA' && (
+        <Paper component="section" aria-labelledby="ot-work-navigation-title" variant="outlined"
+          sx={{ p: 1.5, position: 'sticky', top: 0, zIndex: 3, minWidth: 0 }}>
+          <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+            <Box>
+              <Typography component="h2" id="ot-work-navigation-title" variant="subtitle1" fontWeight={850}>
+                Trabajos de esta OT
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Seleccionar solo cambia la consulta; no inicia producción.
+              </Typography>
+            </Box>
+            {canCreateOt && ['PLANIFICADA', 'EN_EJECUCION'].includes(selectedOt.estado) && (
+              <Button variant={works.length ? 'outlined' : 'contained'} disabled={busy}
+                onClick={() => { setError(''); setWorkCreateOpen(true); }}>
+                Agregar trabajo
+              </Button>
+            )}
+          </Stack>
+          <ColorWorkQueue works={works} selectedWorkId={selectedWorkId} onSelect={(id) => {
+            setSelectedWorkId(id);
+            workDetailRef.current?.scrollIntoView?.({ block: 'start' });
+          }} />
+        </Paper>
+      )}
+      {selectedOt && canCreateOt && ['PLANIFICADA', 'EN_EJECUCION'].includes(selectedOt.estado) && (
+        <Dialog open={workCreateOpen} onClose={() => { if (!busy) setWorkCreateOpen(false); }}
+          fullWidth maxWidth="md" aria-labelledby="add-color-work-title">
+          <DialogTitle id="add-color-work-title">
             Agregar Trabajo de color
+          </DialogTitle>
+          <DialogContent dividers>
+          <Typography fontWeight={800} sx={{ mb: 1 }}>
+            Destino: {selectedOt.codigo_ot} · {selectedOt.maquina_codigo || selectedOt.maquina}
           </Typography>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Este formulario prepara un nuevo trabajo. No modifica el trabajo que estabas consultando.
+          </Typography>
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          {packagingBlocker && <PackagingConfigurationBlocker blocker={packagingBlocker}
+            onClose={() => setPackagingBlocker(null)} />}
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Selecciona la OF. El color y las salidas provienen de su configuración liberada; no se escriben manualmente.
           </Typography>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ mb: 2 }}>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
             <FormControl sx={{ minWidth: 260 }}>
               <InputLabel id="fabrication-order-select-label">
                 Orden de fabricación
@@ -2179,25 +2351,98 @@ export default function OtMangasScm({ view = 'all' }) {
                 Esta OF no tiene colores liberados para fabricar.
               </Alert>
             )}
-            <FormControl sx={{ minWidth: 240 }}>
-              <InputLabel>Maquinista inicial</InputLabel>
-              <Select
-                label="Maquinista inicial"
-                value={workForm.workerId}
-                onChange={(event) => setWorkForm({ ...workForm, workerId: event.target.value })}
-              >
-                {catalogs.workers.map((item) => (
-                  <MenuItem key={item.id} value={item.id}>{item.nombre_completo}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            {canManagePlan && (
-              <Button variant="outlined" disabled={planBusy} onClick={recalculateDraftPlan}>
-                Recalcular plan de la OF
+            <Stack spacing={0.5} sx={{ minWidth: 240 }} data-testid="work-initial-worker">
+              {defaultWorkWorker && !editingWorkWorker ? (
+                <>
+                  <Typography fontWeight={700}>Maquinista: {defaultWorkWorker.nombre_completo}</Typography>
+                  <Typography variant="caption" color="text.secondary">Tomado de la OT</Typography>
+                  <Button
+                    size="small"
+                    disabled={busy}
+                    onClick={() => setWorkWorkerOverride({
+                      otId: selectedOt.public_id, workerId: defaultWorkWorker.id,
+                    })}
+                  >
+                    Cambiar para este trabajo
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <FormControl disabled={busy}>
+                    <InputLabel id="work-initial-worker-label">Maquinista inicial</InputLabel>
+                    <Select
+                      labelId="work-initial-worker-label"
+                      label="Maquinista inicial"
+                      value={initialWorkWorker?.id ?? ''}
+                      onChange={(event) => setWorkWorkerOverride({
+                        otId: selectedOt.public_id, workerId: event.target.value,
+                      })}
+                    >
+                      {catalogs.workers.map((item) => (
+                        <MenuItem key={item.id} value={item.id}>{item.nombre_completo}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Typography variant="caption" color="text.secondary">
+                    {defaultWorkWorker
+                      ? 'Solo para este trabajo; no cambia el maquinista de la OT.'
+                      : 'La OT no tiene un maquinista predeterminado disponible. Selecciona uno para este trabajo.'}
+                  </Typography>
+                  {defaultWorkWorker && (
+                    <Button size="small" disabled={busy} onClick={() => setWorkWorkerOverride(null)}>
+                      Usar maquinista de la OT
+                    </Button>
+                  )}
+                </>
+              )}
+            </Stack>
+            {selectedOrder && canViewFabricationOrders && (
+              <Button component={RouterLink} target="_blank" rel="noopener noreferrer"
+                to={`/produccion/ordenes-fabricacion?of=${encodeURIComponent(selectedOrder.id)}`}
+                sx={{ alignSelf: 'flex-start' }}>
+                Ver OF
               </Button>
             )}
           </Stack>
-          {planBusy && <CircularProgress size={24} />}
+          <Stack spacing={1} sx={{ mb: 2 }}>
+            <Typography component="h3" variant="subtitle1" fontWeight={800}>Propuesta de mangas</Typography>
+            {planBusy && (
+              <Stack direction="row" spacing={1} alignItems="center" role="status">
+                <CircularProgress size={20} />
+                <Typography>Preparando propuesta de mangas…</Typography>
+              </Stack>
+            )}
+            {!planBusy && planLoadError && (
+              <Alert severity="error" action={(
+                <Button onClick={() => setPlanReload((value) => value + 1)}>Reintentar consulta</Button>
+              )}>{planLoadError}</Alert>
+            )}
+            {!planBusy && planConsulted && !draftPlan && (
+              <Alert severity="info">
+                Esta OF aún no tiene un plan de mangas.
+                <Typography variant="body2">Calcula la propuesta para revisar capacidades y cantidades antes de agregar el trabajo. Este cálculo no crea mangas.</Typography>
+              </Alert>
+            )}
+            {planReady && (
+              <>
+                <Typography variant="body2">{selectedOrder?.codigo} · Revisión {draftPlan.revision}. Son unidades de planificación, no un conteo físico confirmado.</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Recalcula solo si necesitas actualizar la propuesta con la configuración liberada de la OF y las reglas de empaque aprobadas. Genera otra revisión; no modifica la OF ni crea mangas.
+                </Typography>
+                {draftRunLines.length === 0 && <Alert severity="warning">La propuesta no tiene salidas para este color.</Alert>}
+              </>
+            )}
+            {planConsulted && !planLoadError && (
+              canManagePlan ? (
+                <Button variant={draftPlan ? 'text' : 'outlined'} sx={{ alignSelf: 'flex-start' }}
+                  disabled={planBusy || busy} onClick={recalculateDraftPlan}>
+                  {draftPlan ? 'Recalcular propuesta' : 'Calcular propuesta de mangas'}
+                </Button>
+              ) : (
+                <Typography variant="body2">Para calcular o recalcular la propuesta, solicita apoyo a una persona autorizada.</Typography>
+              )
+            )}
+          </Stack>
           {continuityBusy && (
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
               <CircularProgress size={20} />
@@ -2255,55 +2500,39 @@ export default function OtMangasScm({ view = 'all' }) {
               </Alert>
             </Paper>
           )}
-          {!planBusy && draftRunLines.length > 0 && (
-            <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
-              <Table size="small">
-                <TableHead><TableRow>
-                  <TableCell>Salida</TableCell>
-                  <TableCell>Tipo de manga</TableCell>
-                  <TableCell align="right">Saldo</TableCell>
-                  <TableCell>Asignar al trabajo</TableCell>
-                </TableRow></TableHead>
-                <TableBody>
-                  {draftRunLines.map((line) => (
-                    <TableRow key={line.id}>
-                      <TableCell>{line.articulo.nombre}</TableCell>
-                      <TableCell>{line.tipo_manga.nombre}</TableCell>
-                      <TableCell align="right">{compactQuantity(line.saldo_un)} un</TableCell>
-                      <TableCell>
-                        <TextField
-                          size="small"
-                          type="number"
-                          label="Cantidad"
-                          value={workForm.quantities[line.id] ?? ''}
-                          inputProps={{ min: 0, max: Number(line.saldo_un), step: 1 }}
-                          onChange={(event) => setWorkForm((current) => ({
-                            ...current,
-                            quantities: {
-                              ...current.quantities, [line.id]: event.target.value,
-                            },
-                          }))}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+          {planReady && draftRunLines.length > 0 && (
+            <Stack spacing={1.5} sx={{ mb: 2 }}>
+              {kgAssignments.map(({ line, model }) => (
+                <WorkKgAllocation key={line.id}
+                  line={{ ...line, color: line.color || productionColorName(selectedRun, draftPlan.lineas) }}
+                  model={model} disabled={busy || planBusy}
+                  onEdit={(edit) => setWorkForm((current) => ({ ...current,
+                    kgEdits: { ...current.kgEdits, [line.id]: edit },
+                  }))} />
+              ))}
+            </Stack>
           )}
-          <Button
-            variant="contained"
-            disabled={busy || continuityBusy || !selectedRun || !selectedRunHasColor}
-            onClick={createWork}
-          >
-            Agregar a la cola de esta OT
-          </Button>
-        </Paper>
+          {planReady && validWorkQuantities && !hasWorkAllocation && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Asigna una cantidad mayor que cero o selecciona una manga abierta compatible para continuar.
+            </Typography>
+          )}
+          </DialogContent>
+          <DialogActions>
+            <Button disabled={busy} onClick={() => setWorkCreateOpen(false)}>Volver sin agregar</Button>
+            <Button variant="contained" disabled={!canAddColorWork} onClick={createWork}>
+              {busy ? 'Agregando trabajo…' : 'Agregar a la cola de esta OT'}
+            </Button>
+          </DialogActions>
+        </Dialog>
       )}
 
       {selectedWork && (
-        <Paper variant="outlined" sx={{ p: 2 }}>
-          <Typography variant="overline" color="primary.main">3 · Ejecución y mangas</Typography>
+        <Paper component="section" aria-label="Trabajo consultado" ref={workDetailRef}
+          variant="outlined" sx={{ p: 2, minWidth: 0, scrollMarginTop: '290px' }}>
+          <Typography variant="overline" color="primary.main">
+            Trabajo consultado · {selectedWork.codigo || `Trabajo ${selectedWork.secuencia}`}
+          </Typography>
           <Stack
             direction={{ xs: 'column', md: 'row' }}
             spacing={1}
@@ -2779,6 +3008,11 @@ export default function OtMangasScm({ view = 'all' }) {
                   Pesaje anulado: {weighingDialog.detail.anulacion.motivo}. Los QR anteriores ya no son válidos.
                 </Alert>
               )}
+              {weighingDialog.detail.reapertura && (
+                <Alert severity="warning">
+                  Cierre reabierto: {weighingDialog.detail.reapertura.motivo}. La manga conserva su QR.
+                </Alert>
+              )}
               <Alert severity="info">
                 El original es inmutable. Una corrección aprobada crea una proyección vigente y otra etiqueta final.
               </Alert>
@@ -2790,7 +3024,7 @@ export default function OtMangasScm({ view = 'all' }) {
                     <TableCell align="right">Tara (kg)</TableCell>
                     <TableCell align="right">Peso neto real (kg)</TableCell>
                     <TableCell align="right">Cantidad (un)</TableCell>
-                    <TableCell align="right">Peso estándar según unidades (kg)</TableCell>
+                    <TableCell align="right">Peso fabricado teórico (kg)</TableCell>
                   </TableRow></TableHead>
                   <TableBody>
                     {[
@@ -2810,8 +3044,9 @@ export default function OtMangasScm({ view = 'all' }) {
                 </Table>
               </TableContainer>
 
-              {canRequestCorrection && !weighingDialog.detail.anulacion && (
-                <>
+              {canRequestCorrection && weighingDialog.detail.vigente
+                && !weighingDialog.detail.anulacion && (
+                <Stack spacing={1} sx={{ order: 2 }}>
                   <Divider />
                   <Typography fontWeight={850}>Solicitar corrección</Typography>
                   <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
@@ -2859,11 +3094,83 @@ export default function OtMangasScm({ view = 'all' }) {
                   >
                     Solicitar corrección
                   </Button>
-                </>
+                </Stack>
               )}
 
-              {canAnnulWeighing && !weighingDialog.detail.anulacion && (
-                <Paper variant="outlined" sx={{ p: 1.5, borderColor: 'error.light' }}>
+              {canReopenManga && weighingDialog.detail.vigente
+                && !weighingDialog.detail.anulacion && (
+                <Paper variant="outlined" sx={{ p: 1.5, borderColor: 'warning.main', order: 1 }}>
+                  <Stack spacing={1}>
+                    <Typography fontWeight={850} color="warning.dark">
+                      Reabrir manga
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Devuelve esta misma manga a llenado. Conserva su ID, QR, controles,
+                      cupo y el cierre anterior en el historial; invalida la etiqueta final.
+                    </Typography>
+                    <FormControl fullWidth size="small">
+                      <InputLabel id="reopening-type-label">Tipo de reapertura</InputLabel>
+                      <Select
+                        labelId="reopening-type-label"
+                        label="Tipo de reapertura"
+                        value={reopeningForm.tipo_reapertura}
+                        onChange={(event) => setReopeningForm({
+                          ...reopeningForm, tipo_reapertura: event.target.value,
+                        })}
+                        inputProps={{ 'aria-label': 'Tipo de reapertura' }}
+                      >
+                        <MenuItem value="CIERRE_ACCIDENTAL">Cierre accidental</MenuItem>
+                        <MenuItem value="CONTINUAR_LLENADO">Continuar llenado</MenuItem>
+                      </Select>
+                    </FormControl>
+                    {reopeningForm.tipo_reapertura === 'CIERRE_ACCIDENTAL' && (
+                      <Alert severity="info">
+                        El NET anterior quedará solo en el historial y no limitará el
+                        siguiente pesaje. Úselo cuando la lectura o el cierre fueron erróneos.
+                      </Alert>
+                    )}
+                    {reopeningForm.tipo_reapertura === 'CONTINUAR_LLENADO' && (
+                      <Alert severity="info">
+                        El NET final de {weighingDialog.detail.vigente.peso_fisico_neto_kg} kg
+                        será la línea base. El siguiente pesaje deberá superarlo y mostrará
+                        únicamente la diferencia agregada.
+                      </Alert>
+                    )}
+                    <Alert severity="warning">
+                      Retire o marque como inválida la etiqueta final anterior antes de continuar.
+                    </Alert>
+                    <TextField
+                      label="Motivo de reapertura"
+                      multiline
+                      minRows={2}
+                      value={reopeningForm.motivo}
+                      onChange={(event) => setReopeningForm({
+                        ...reopeningForm, motivo: event.target.value,
+                      })}
+                    />
+                    <TextField
+                      label="Evidencia opcional de reapertura"
+                      value={reopeningForm.evidencia}
+                      onChange={(event) => setReopeningForm({
+                        ...reopeningForm, evidencia: event.target.value,
+                      })}
+                    />
+                    <Button
+                      color="warning"
+                      variant="contained"
+                      disabled={weighingBusy || !reopeningForm.tipo_reapertura
+                        || !reopeningForm.motivo.trim()}
+                      onClick={reopenManga}
+                    >
+                      Reabrir manga y continuar con el mismo QR
+                    </Button>
+                  </Stack>
+                </Paper>
+              )}
+
+              {canAnnulWeighing && weighingDialog.detail.vigente
+                && !weighingDialog.detail.anulacion && (
+                <Paper variant="outlined" sx={{ p: 1.5, borderColor: 'error.light', order: 3 }}>
                   <Stack spacing={1}>
                     <Typography fontWeight={850} color="error">Anular pesaje</Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -2898,7 +3205,7 @@ export default function OtMangasScm({ view = 'all' }) {
               )}
 
               {weighingDialog.detail.correcciones?.map((correction) => (
-                <Paper key={correction.id} variant="outlined" sx={{ p: 1.5 }}>
+                <Paper key={correction.id} variant="outlined" sx={{ p: 1.5, order: 4 }}>
                   <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ md: 'center' }}>
                     <Box sx={{ flex: 1 }}>
                       <Typography fontWeight={800}>
@@ -2919,6 +3226,31 @@ export default function OtMangasScm({ view = 'all' }) {
                   </Stack>
                 </Paper>
               ))}
+
+              {weighingDialog.detail.historial?.length > 1 && (
+                <Paper variant="outlined" sx={{ p: 1.5, order: 5 }}>
+                  <Stack spacing={1}>
+                    <Typography fontWeight={850}>Historial de cierres</Typography>
+                    {weighingDialog.detail.historial.map((entry) => (
+                      <Box key={entry.pesaje.public_id}>
+                        <Typography variant="body2" fontWeight={750}>
+                          {entry.pesaje.estado} · NET {entry.pesaje.peso_fisico_neto_kg} kg
+                        </Typography>
+                        {entry.reapertura && (
+                          <Typography variant="body2" color="text.secondary">
+                            Reabierto: {entry.reapertura.motivo}
+                          </Typography>
+                        )}
+                        {entry.anulacion && (
+                          <Typography variant="body2" color="text.secondary">
+                            Anulado: {entry.anulacion.motivo}
+                          </Typography>
+                        )}
+                      </Box>
+                    ))}
+                  </Stack>
+                </Paper>
+              )}
             </Stack>
           )}
         </DialogContent>

@@ -194,6 +194,36 @@ body {
     display: block !important;
   }
 
+  body > .prepared-bag-print-dialog {
+    display: block !important;
+    position: static !important;
+  }
+
+  .prepared-bag-print-dialog .MuiBackdrop-root,
+  .prepared-bag-print-dialog .MuiDialogActions-root,
+  .prepared-bag-print-dialog .MuiDialogTitle-root {
+    display: none !important;
+  }
+
+  .prepared-bag-print-dialog .MuiDialog-container,
+  .prepared-bag-print-dialog .MuiDialog-paper,
+  .prepared-bag-print-dialog .MuiDialogContent-root {
+    display: block !important;
+    position: static !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    max-width: none !important;
+  }
+
+  #prepared-bag-print-sheet {
+    width: 109mm;
+    min-height: 50mm;
+    margin: 0 auto;
+    box-sizing: border-box;
+    break-inside: avoid;
+  }
+
   .order-print-sheet {
     display: block !important;
     position: static;

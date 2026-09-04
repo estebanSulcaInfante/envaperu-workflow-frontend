@@ -66,10 +66,14 @@ export const crearOtScm = (ofId, payload) => body(() => api.post(
   payload,
   { headers: headers(true) },
 ));
-export const crearOtFabricacionScm = (payload) => body(() => api.post(
+export const crearOtFabricacionScm = (payload, operationId = crypto.randomUUID()) => body(() => api.post(
   '/scm/v1/ots/fabricacion',
   payload,
-  { headers: headers(true) },
+  { headers: { ...headers(), 'Idempotency-Key': operationId } },
+));
+export const anularOtScm = (otId, payload, operationId) => body(() => api.post(
+  `/scm/v1/ots/${encodeURIComponent(otId)}/anular`, payload,
+  { headers: { ...headers(), 'Idempotency-Key': operationId } },
 ));
 export const crearTrabajoColorScm = (otId, payload) => body(() => api.post(
   `/scm/v1/ots/${encodeURIComponent(otId)}/trabajos-color`,
@@ -169,6 +173,10 @@ export const solicitarCorreccionPesajeScm = (
 ));
 export const anularPesajeScm = (weighingId, payload) => body(() => api.post(
   `/scm/v1/pesajes/${weighingId}/anular`, payload,
+  { headers: headers(true) },
+));
+export const reabrirMangaScm = (mangaId, payload) => body(() => api.post(
+  `/scm/v1/mangas/${mangaId}/reabrir`, payload,
   { headers: headers(true) },
 ));
 
