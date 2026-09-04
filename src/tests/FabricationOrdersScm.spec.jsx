@@ -12,6 +12,7 @@ vi.mock('../services/api', () => ({
   obtenerMaquinas: vi.fn().mockResolvedValue([]),
   obtenerMolde: vi.fn(),
   obtenerMoldes: vi.fn().mockResolvedValue([]),
+  obtenerRecetasColorMaestras: vi.fn().mockResolvedValue({ items: [] }),
 }));
 
 vi.mock('../services/scmOtApi', () => ({
@@ -36,10 +37,13 @@ vi.mock('../context/ScmActorContext', () => ({
 
 import {
   obtenerColores, obtenerMaquinas, obtenerMolde, obtenerMoldes,
+  obtenerRecetasColorMaestras,
 } from '../services/api';
 import { listarArticulosScm } from '../services/scmEngineeringApi';
 import {
-  crearOrdenFabricacionExcepcionalScm, listarOrdenesFabricacionScm,
+  configurarOrdenFabricacionScm,
+  crearOrdenFabricacionExcepcionalScm,
+  listarOrdenesFabricacionScm,
 } from '../services/scmOtApi';
 
 describe('Órdenes de fabricación', () => {
@@ -48,9 +52,125 @@ describe('Órdenes de fabricación', () => {
     obtenerColores.mockResolvedValue([]);
     obtenerMaquinas.mockResolvedValue([]);
     obtenerMoldes.mockResolvedValue([]);
+    obtenerRecetasColorMaestras.mockResolvedValue({ items: [] });
     obtenerMolde.mockReset();
     listarArticulosScm.mockResolvedValue([]);
     crearOrdenFabricacionExcepcionalScm.mockReset();
+    configurarOrdenFabricacionScm.mockReset();
+  });
+
+  it('muestra la formulacion del color y permite elegir otra variante aprobada en borrador', async () => {
+    const user = userEvent.setup();
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [{
+      id: 'of-recipe', codigo: 'OF-000021', estado: 'BORRADOR', version: 3,
+      molde_id: 'ML-RECETA', maquina_prevista_id: 8,
+      snapshot_tiempo_ciclo_seg: '20', snapshot_horas_turno: '8',
+      snapshot_peso_colada_gr: '2',
+      corridas: [{
+        id: 'run-recipe', codigo: 'OF-000021-C01', color_produccion_id: 5,
+        receta_revision_id: 31,
+        salidas: [{
+          id: 'out-recipe', cantidad_objetivo: '100.000', excedente_objetivo: '0.000',
+          cantidad_por_ciclo_snapshot: '4.0000', peso_unitario_snapshot_g: '12.0000',
+          articulo: { codigo: 'PC-ASA-ROJO', nombre: 'Asa ROJO', clase: 'PIEZA_COLOR', pieza_id: 31 },
+        }],
+      }],
+    }] });
+    obtenerMoldes.mockResolvedValue([{
+      codigo: 'ML-RECETA', nombre: 'Molde Asa', activo: true,
+      formas: [{ pieza_id: 31, activo: true, cavidades: 4, peso_unitario_gr: 12 }],
+    }]);
+    obtenerMaquinas.mockResolvedValue([{
+      id: 8, codigo: 'INY-01', nombre: 'Inyectora', activo: true, estado: 'OPERATIVA',
+    }]);
+    obtenerColores.mockResolvedValue([{ id: 5, nombre: 'ROJO', activo: true }]);
+    obtenerRecetasColorMaestras.mockResolvedValue({ items: [
+      {
+        id: 31, color_produccion_id: 5, nombre_variante: 'Rojo estándar', revision: 1,
+        estado: 'APROBADA', es_default: true, producto_sku: null, base_virgen_kg: 25,
+        lineas: [
+          { id: 1, material_nombre: 'PP Virgen', tipo_componente: 'MATERIA_PRIMA', cantidad: 0.8, unidad: 'FRACCION' },
+          { id: 2, material_nombre: 'PP Molido', tipo_componente: 'MATERIA_PRIMA', cantidad: 0.2, unidad: 'FRACCION' },
+          { id: 3, material_nombre: 'Rojo EP', tipo_componente: 'COLORANTE', cantidad: 120, unidad: 'GRAMOS', base_kg: 25 },
+        ],
+      },
+      {
+        id: 32, color_produccion_id: 5, nombre_variante: 'Rojo intenso', revision: 2,
+        estado: 'APROBADA', es_default: false, producto_sku: null, base_virgen_kg: 25,
+        lineas: [
+          { id: 4, material_nombre: 'PP Virgen', tipo_componente: 'MATERIA_PRIMA', cantidad: 1, unidad: 'FRACCION' },
+          { id: 5, material_nombre: 'Rojo EP', tipo_componente: 'COLORANTE', cantidad: 150, unidad: 'GRAMOS', base_kg: 25 },
+        ],
+      },
+      {
+        id: 33, color_produccion_id: 5, nombre_variante: 'Borrador inseguro', revision: 1,
+        estado: 'BORRADOR', es_default: false, producto_sku: null, base_virgen_kg: 25, lineas: [],
+      },
+      {
+        id: 34, color_produccion_id: 5, nombre_variante: 'Solo otro producto', revision: 1,
+        estado: 'APROBADA', es_default: false, producto_sku: 'PT-AJENO', base_virgen_kg: 25, lineas: [],
+      },
+    ] });
+    configurarOrdenFabricacionScm.mockResolvedValue({ codigo: 'OF-000021' });
+
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter><FabricationOrdersScm /></MemoryRouter>
+      </ThemeProvider>,
+    );
+
+    const recipeSelect = await screen.findByRole('combobox', { name: /Formulación de material/ });
+    expect(recipeSelect).toHaveTextContent(/Rojo estándar.*Rev. 1.*Predeterminada/);
+    expect(screen.getByText('PP Virgen')).toBeVisible();
+    expect(screen.getByText('80% de la mezcla')).toBeVisible();
+    expect(screen.getByText('120 g / 25 kg virgen')).toBeVisible();
+
+    await user.click(recipeSelect);
+    expect(screen.getByRole('option', { name: /Rojo intenso.*Rev. 2/ })).toBeVisible();
+    expect(screen.queryByRole('option', { name: /Borrador inseguro/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Solo otro producto/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('option', { name: /Rojo intenso.*Rev. 2/ }));
+    expect(screen.getByText('100% de la mezcla')).toBeVisible();
+    expect(screen.getByText('150 g / 25 kg virgen')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
+    expect(configurarOrdenFabricacionScm).toHaveBeenCalledWith(
+      'of-recipe',
+      expect.objectContaining({
+        corridas: [expect.objectContaining({ receta_revision_id: 32 })],
+      }),
+    );
+  });
+
+  it('mantiene visible y bloqueada la formulacion congelada de una OF liberada', async () => {
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [{
+      id: 'of-frozen', codigo: 'OF-000022', estado: 'LIBERADA', version: 4,
+      corridas: [{
+        id: 'run-frozen', codigo: 'OF-000022-C01', color_produccion_id: 5,
+        receta_revision_id: 41, receta_hash: 'a'.repeat(64),
+        receta: {
+          id: 41, nombre: 'Rojo congelado', nombre_variante: 'Rojo congelado',
+          revision: 3, estado: 'APROBADA', base_virgen_kg: 25,
+          lineas: [{
+            id: 6, material_nombre: 'Rojo EP', tipo_componente: 'COLORANTE',
+            cantidad: 140, unidad: 'GRAMOS', base_kg: 25,
+          }],
+        },
+        salidas: [],
+      }],
+    }] });
+    obtenerColores.mockResolvedValue([{ id: 5, nombre: 'ROJO', activo: true }]);
+
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter><FabricationOrdersScm /></MemoryRouter>
+      </ThemeProvider>,
+    );
+
+    const recipeSelect = await screen.findByRole('combobox', { name: /Formulación de material/ });
+    expect(recipeSelect).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByText('Congelada al liberar')).toBeVisible();
+    expect(screen.getByText('140 g / 25 kg virgen')).toBeVisible();
   });
 
   it('crea una OF normalizada de reposicion para una PiezaColor del molde', async () => {
@@ -71,6 +191,14 @@ describe('Órdenes de fabricación', () => {
       id: 8, codigo: 'INY-01', nombre: 'Inyectora 1', activo: true, estado: 'OPERATIVA',
     }]);
     obtenerColores.mockResolvedValue([{ id: 5, nombre: 'ROJO', activo: true }]);
+    obtenerRecetasColorMaestras.mockResolvedValue({ items: [{
+      id: 51, color_produccion_id: 5, nombre_variante: 'Rojo reposición', revision: 1,
+      estado: 'APROBADA', es_default: true, producto_sku: null, base_virgen_kg: 25,
+      lineas: [{
+        id: 501, material_nombre: 'Rojo EP', tipo_componente: 'COLORANTE',
+        cantidad: 110, unidad: 'GRAMOS', base_kg: 25,
+      }],
+    }] });
     listarArticulosScm.mockResolvedValue([{
       id: 91, codigo: 'PC-ASA-ROJO', nombre: 'Asa ROJO', clase: 'PIEZA_COLOR',
       subtipo: { pieza_color_sku: 'PC-ASA-ROJO' },
@@ -101,6 +229,9 @@ describe('Órdenes de fabricación', () => {
     await user.click(await screen.findByRole('option', { name: 'ROJO' }));
     await user.type(screen.getByLabelText(/Ciclos objetivo corrida 1/), '250');
 
+    expect(screen.getByRole('combobox', { name: /Formulación de material/ }))
+      .toHaveTextContent(/Rojo reposición.*Predeterminada/);
+    expect(screen.getByText('110 g / 25 kg virgen')).toBeVisible();
     expect(screen.getByText(/PC-ASA-ROJO - 4 un\/ciclo - 12 g/)).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Crear OF en borrador' }));
 
@@ -113,6 +244,7 @@ describe('Órdenes de fabricación', () => {
       snapshot_peso_colada_gr: 2,
       corridas: [{
         color_produccion_id: 5,
+        receta_revision_id: 51,
         ciclos_objetivo: 250,
         salidas: [{
           articulo_scm_id: 91,

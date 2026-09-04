@@ -9,10 +9,13 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { obtenerMolde } from '../services/api';
 import { listarArticulosScm, mensajeErrorScm } from '../services/scmEngineeringApi';
 import { crearOrdenFabricacionExcepcionalScm } from '../services/scmOtApi';
+import FabricationRecipeSelector from './FabricationRecipeSelector';
+import { defaultRecipeForRun } from './fabricationRecipeOptions';
 
 const emptyRun = (key = 'run-1') => ({
   key,
   color_produccion_id: '',
+  receta_revision_id: '',
   ciclos_objetivo: '',
 });
 
@@ -48,6 +51,7 @@ export default function ExceptionalFabricationOrderDialog({
   molds,
   machines,
   colors,
+  recipes = [],
   onClose,
   onCreated,
 }) {
@@ -153,6 +157,9 @@ export default function ExceptionalFabricationOrderDialog({
         snapshot_peso_colada_gr: Number(runnerWeight),
         corridas: runs.map((run, runIndex) => ({
           color_produccion_id: Number(run.color_produccion_id),
+          ...(run.receta_revision_id
+            ? { receta_revision_id: Number(run.receta_revision_id) }
+            : {}),
           ciclos_objetivo: Number(run.ciclos_objetivo),
           salidas: outputGroups[runIndex].map((output) => ({
             articulo_scm_id: output.article.id,
@@ -251,7 +258,14 @@ export default function ExceptionalFabricationOrderDialog({
                       labelId={`exceptional-of-run-${run.key}-color-label`}
                       label={`Color corrida ${runIndex + 1}`}
                       value={run.color_produccion_id}
-                      onChange={(event) => updateRun(runIndex, { color_produccion_id: event.target.value })}
+                      onChange={(event) => updateRun(runIndex, {
+                        color_produccion_id: event.target.value,
+                        receta_revision_id: defaultRecipeForRun(
+                          recipes,
+                          { salidas: [] },
+                          event.target.value,
+                        )?.id || '',
+                      })}
                     >
                       {colors.map((color) => (
                         <MenuItem key={color.id} value={color.id}>{colorLabel(color)}</MenuItem>
@@ -275,6 +289,19 @@ export default function ExceptionalFabricationOrderDialog({
                     <DeleteOutlineIcon />
                   </IconButton>
                 </Stack>
+                {run.color_produccion_id && (
+                  <FabricationRecipeSelector
+                    idPrefix={`exceptional-run-${run.key}`}
+                    run={{ salidas: [] }}
+                    colorId={run.color_produccion_id}
+                    recipes={recipes}
+                    value={run.receta_revision_id}
+                    editable
+                    onChange={(recipeId) => updateRun(runIndex, {
+                      receta_revision_id: recipeId,
+                    })}
+                  />
+                )}
                 {run.color_produccion_id && outputGroups[runIndex].map((output) => (
                   <Alert
                     key={output.pieza_id}

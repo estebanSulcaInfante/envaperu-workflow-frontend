@@ -10,7 +10,9 @@ import ArrowForwardOutlinedIcon from '@mui/icons-material/ArrowForwardOutlined';
 import FactoryOutlinedIcon from '@mui/icons-material/FactoryOutlined';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
-import { obtenerColores, obtenerMaquinas, obtenerMoldes } from '../services/api';
+import {
+  obtenerColores, obtenerMaquinas, obtenerMoldes, obtenerRecetasColorMaestras,
+} from '../services/api';
 import {
   configurarOrdenFabricacionScm,
   liberarOrdenFabricacionScm,
@@ -25,6 +27,8 @@ import EmptyState from './ui/EmptyState';
 import OrderScheduleStrip from './ui/OrderScheduleStrip';
 import { useScmActor } from '../context/ScmActorContext';
 import ExceptionalFabricationOrderDialog from './ExceptionalFabricationOrderDialog';
+import FabricationRecipeSelector from './FabricationRecipeSelector';
+import { defaultRecipeForRun } from './fabricationRecipeOptions';
 
 const statusColor = {
   BORRADOR: 'warning',
@@ -70,7 +74,7 @@ const compatibleMachinesForOrder = (order, machines) => {
   });
 };
 
-const formFromOrder = (order) => ({
+const formFromOrder = (order, recipes = []) => ({
   molde_id: order?.molde_id || '',
   maquina_prevista_id: order?.maquina_prevista_id || '',
   snapshot_tiempo_ciclo_seg: order?.snapshot_tiempo_ciclo_seg || '',
@@ -79,7 +83,9 @@ const formFromOrder = (order) => ({
   corridas: (order?.corridas || []).map((run) => ({
     id: run.id,
     color_produccion_id: run.color_produccion_id || '',
-    receta_revision_id: run.receta_revision_id,
+    receta_revision_id: run.receta_revision_id
+      || defaultRecipeForRun(recipes, run, run.color_produccion_id)?.id
+      || '',
     ciclos_objetivo: run.ciclos_objetivo || '',
     salidas: run.salidas.map((output) => ({
       id: output.id,
@@ -89,8 +95,8 @@ const formFromOrder = (order) => ({
   })),
 });
 
-const suggestedForm = (order, molds, machines) => {
-  const next = formFromOrder(order);
+const suggestedForm = (order, molds, machines, recipes = []) => {
+  const next = formFromOrder(order, recipes);
   if (!order || order.estado !== 'BORRADOR') return next;
   const compatibleMolds = compatibleMoldsForOrder(order, molds);
   const compatibleMachines = compatibleMachinesForOrder(order, machines);
@@ -117,6 +123,7 @@ export default function FabricationOrdersScm() {
   const [molds, setMolds] = useState([]);
   const [machines, setMachines] = useState([]);
   const [colors, setColors] = useState([]);
+  const [recipes, setRecipes] = useState([]);
   const [orderId, setOrderId] = useState('');
   const [form, setForm] = useState(formFromOrder(null));
   const [busy, setBusy] = useState(true);
@@ -145,8 +152,11 @@ export default function FabricationOrdersScm() {
     setBusy(true);
     setError('');
     try {
-      const [orderPayload, moldPayload, machinePayload, colorPayload] = await Promise.all([
+      const [
+        orderPayload, moldPayload, machinePayload, colorPayload, recipePayload,
+      ] = await Promise.all([
         listarOrdenesFabricacionScm(), obtenerMoldes(), obtenerMaquinas(), obtenerColores(),
+        obtenerRecetasColorMaestras(),
       ]);
       const nextOrders = orderPayload.items || [];
       const nextId = nextOrders.some((item) => item.id === preferredId)
@@ -158,8 +168,10 @@ export default function FabricationOrdersScm() {
       setMolds(nextMolds);
       setMachines(nextMachines);
       setColors((colorPayload || []).filter((item) => item.activo !== false));
+      const nextRecipes = recipePayload?.items || [];
+      setRecipes(nextRecipes);
       setOrderId(nextId);
-      setForm(suggestedForm(nextOrder, nextMolds, nextMachines));
+      setForm(suggestedForm(nextOrder, nextMolds, nextMachines, nextRecipes));
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudieron cargar las OF.'));
     } finally {
@@ -172,7 +184,7 @@ export default function FabricationOrdersScm() {
   const chooseOrder = (nextId) => {
     const nextOrder = orders.find((item) => item.id === nextId);
     setOrderId(nextId);
-    setForm(suggestedForm(nextOrder, molds, machines));
+    setForm(suggestedForm(nextOrder, molds, machines, recipes));
     setError('');
     setNotice('');
   };
@@ -227,7 +239,8 @@ export default function FabricationOrdersScm() {
           id: run.id,
           color_produccion_id: run.color_produccion_id
             ? Number(run.color_produccion_id) : null,
-          receta_revision_id: run.receta_revision_id,
+          receta_revision_id: run.receta_revision_id
+            ? Number(run.receta_revision_id) : null,
           ...(Number(run.ciclos_objetivo) > 0
             ? { ciclos_objetivo: Number(run.ciclos_objetivo) } : {}),
           salidas: run.salidas.map((output, outputIndex) => {
@@ -509,18 +522,15 @@ export default function FabricationOrdersScm() {
 
           {selected.corridas.map((run, runIndex) => (
             <Paper key={run.id} variant="outlined">
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ p: 2 }}>
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={1}
+                alignItems={{ md: 'center' }}
+                sx={{ p: 2 }}
+              >
                 <Typography fontWeight={800} sx={{ flex: 1 }}>
                   {run.codigo}
                 </Typography>
-                {run.receta && (
-                  <Chip
-                    size="small"
-                    color={run.receta.estado === 'APROBADA' ? 'success' : 'warning'}
-                    variant="outlined"
-                    label={`Receta · ${run.receta.nombre} · Rev. ${run.receta.revision}`}
-                  />
-                )}
                 <FormControl size="small" sx={{ minWidth: 230 }}>
                   <InputLabel>Color de producción</InputLabel>
                   <Select
@@ -533,6 +543,11 @@ export default function FabricationOrdersScm() {
                     }
                     onChange={(event) => changeRun(runIndex, {
                       color_produccion_id: event.target.value,
+                      receta_revision_id: defaultRecipeForRun(
+                        recipes,
+                        run,
+                        event.target.value,
+                      )?.id || '',
                     })}
                   >
                     {colors.map((color) => (
@@ -554,6 +569,18 @@ export default function FabricationOrdersScm() {
                   sx={{ width: 210 }}
                 />
               </Stack>
+              <FabricationRecipeSelector
+                idPrefix={`of-${selected.id}-run-${run.id}`}
+                run={run}
+                colorId={form.corridas[runIndex]?.color_produccion_id}
+                recipes={recipes}
+                value={form.corridas[runIndex]?.receta_revision_id}
+                frozenRecipe={run.receta}
+                editable={canEdit && selected.estado === 'BORRADOR'}
+                onChange={(recipeId) => changeRun(runIndex, {
+                  receta_revision_id: recipeId,
+                })}
+              />
               <TableContainer>
                 <Table size="small">
                   <TableHead><TableRow>
@@ -658,6 +685,7 @@ export default function FabricationOrdersScm() {
         molds={molds}
         machines={machines.filter((machine) => machine.estado === 'OPERATIVA')}
         colors={colors}
+        recipes={recipes}
         onClose={() => setExceptionalOpen(false)}
         onCreated={async (created) => {
           setExceptionalOpen(false);
