@@ -15,6 +15,7 @@ import {
 } from '../services/api';
 import {
   anularOrdenFabricacionScm,
+  reemplazarOrdenFabricacionScm,
   configurarOrdenFabricacionScm,
   liberarOrdenFabricacionScm,
   listarOrdenesFabricacionScm,
@@ -30,6 +31,8 @@ import { useScmActor } from '../context/ScmActorContext';
 import ExceptionalFabricationOrderDialog from './ExceptionalFabricationOrderDialog';
 import FabricationRecipeSelector from './FabricationRecipeSelector';
 import DraftOrderAnnulment from './DraftOrderAnnulment';
+import FabricationOrderReplacement from './FabricationOrderReplacement';
+import { obtenerOrdenFabricacionScm } from '../services/scmOtApi';
 import { defaultRecipeForRun } from './fabricationRecipeOptions';
 
 const statusColor = {
@@ -86,7 +89,9 @@ const formFromOrder = (order, recipes = []) => ({
     id: run.id,
     color_produccion_id: run.color_produccion_id || '',
     receta_revision_id: run.receta_revision_id
-      || defaultRecipeForRun(recipes, run, run.color_produccion_id)?.id
+      || (order?.origen_demanda !== 'REEMPLAZO_OF'
+        ? defaultRecipeForRun(recipes, run, run.color_produccion_id)?.id
+        : '')
       || '',
     ciclos_objetivo: run.ciclos_objetivo || '',
     salidas: run.salidas.map((output) => ({
@@ -231,14 +236,23 @@ export default function FabricationOrdersScm() {
     setBusy(true);
     setError('');
     try {
-      const payload = {
-        version: selected.version,
-        molde_id: form.molde_id,
-        maquina_prevista_id: Number(form.maquina_prevista_id),
-        snapshot_tiempo_ciclo_seg: Number(form.snapshot_tiempo_ciclo_seg),
-        snapshot_horas_turno: Number(form.snapshot_horas_turno),
-        snapshot_peso_colada_gr: Number(form.snapshot_peso_colada_gr),
-        corridas: form.corridas.map((run, runIndex) => ({
+      const payload = selected.origen_demanda === 'REEMPLAZO_OF'
+        ? {
+          version: selected.version,
+          corridas: form.corridas.map((run) => ({
+            id: run.id,
+            receta_revision_id: run.receta_revision_id
+              ? Number(run.receta_revision_id) : null,
+          })),
+        }
+        : {
+          version: selected.version,
+          molde_id: form.molde_id,
+          maquina_prevista_id: Number(form.maquina_prevista_id),
+          snapshot_tiempo_ciclo_seg: Number(form.snapshot_tiempo_ciclo_seg),
+          snapshot_horas_turno: Number(form.snapshot_horas_turno),
+          snapshot_peso_colada_gr: Number(form.snapshot_peso_colada_gr),
+          corridas: form.corridas.map((run, runIndex) => ({
           id: run.id,
           color_produccion_id: run.color_produccion_id
             ? Number(run.color_produccion_id) : null,
@@ -256,10 +270,12 @@ export default function FabricationOrdersScm() {
               }),
             };
           }),
-        })),
-      };
+          })),
+        };
       const result = await configurarOrdenFabricacionScm(selected.id, payload);
-      setNotice(`${result.codigo} configurada. Revisa los ciclos calculados antes de liberarla.`);
+      setNotice(selected.origen_demanda === 'REEMPLAZO_OF'
+        ? `${result.codigo}: receta guardada; cantidades y parámetros originales conservados.`
+        : `${result.codigo} configurada. Revisa los ciclos calculados antes de liberarla.`);
       await load(selected.id);
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo configurar la OF.'));
@@ -316,9 +332,9 @@ export default function FabricationOrdersScm() {
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       <Alert severity="info">
-        La cantidad requerida viene del plan. Para Pieza-Color y PT monopieza, la salida por
-        ciclo y el peso neto se derivan de MoldePieza; el sistema calcula los ciclos mínimos
-        y el excedente técnico.
+        {selected?.origen_demanda === 'REEMPLAZO_OF'
+          ? 'Este reemplazo conserva cantidades, colores y parámetros originales. Solo se modifica la receta; debes guardarla antes de liberar.'
+          : 'La cantidad requerida viene del plan. Para Pieza-Color y PT monopieza, la salida por ciclo y el peso neto se derivan de MoldePieza; el sistema calcula los ciclos mínimos y el excedente técnico.'}
       </Alert>
 
       {selected && (
@@ -347,6 +363,18 @@ export default function FabricationOrdersScm() {
                   setNotice(`${selected.codigo} anulada. Se conserva el historial.`);
                   await load(selected.id, true);
                 }} />
+              <FabricationOrderReplacement
+                key={`replace-${selected.id}`}
+                order={selected}
+                allowed={can('OF_ANULAR') && can('OF_EDITAR_BORRADOR')}
+                disabled={busy}
+                onSubmit={reemplazarOrdenFabricacionScm}
+                onReview={obtenerOrdenFabricacionScm}
+                onSuccess={async (result) => {
+                  setNotice(`${result.sucesora.codigo} preparada en borrador. Selecciona una receta aprobada antes de liberarla.`);
+                  await load(result.sucesora.id, true);
+                }}
+              />
               <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
                 {selected.plan_produccion_id
                   ? `Generada por plan · propuesta ${selected.propuesta_clave}`
@@ -357,7 +385,9 @@ export default function FabricationOrdersScm() {
                   color="success"
                   variant="contained"
                   startIcon={<PlayArrowOutlinedIcon />}
-                  disabled={busy || selected.estado !== 'BORRADOR' || !selected.molde_id}
+                  disabled={busy || selected.estado !== 'BORRADOR' || !selected.molde_id
+                    || (selected.origen_demanda === 'REEMPLAZO_OF'
+                      && selected.corridas.some((run) => !run.receta_revision_id))}
                   onClick={release}
                 >
                   Liberar OF
@@ -434,7 +464,7 @@ export default function FabricationOrdersScm() {
                 <Select
                   label="Molde"
                   value={form.molde_id}
-                  disabled={!canEdit || selected.estado !== 'BORRADOR'}
+                  disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
                   onChange={(event) => chooseMold(event.target.value)}
                   renderValue={(value) => {
                     const mold = compatibleMolds.find((item) => item.codigo === value);
@@ -461,7 +491,7 @@ export default function FabricationOrdersScm() {
                 <Select
                   label="Máquina prevista"
                   value={form.maquina_prevista_id}
-                  disabled={!canEdit || selected.estado !== 'BORRADOR'}
+                  disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
                   onChange={(event) => setForm({
                     ...form, maquina_prevista_id: event.target.value,
                   })}
@@ -490,7 +520,7 @@ export default function FabricationOrdersScm() {
                 label="Ciclo estándar (s)"
                 value={form.snapshot_tiempo_ciclo_seg}
                 slotProps={{ htmlInput: { min: 0.001, max: 9999, step: 0.001 } }}
-                disabled={!canEdit || selected.estado !== 'BORRADOR'}
+                disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
                 onChange={(event) => setForm({
                   ...form, snapshot_tiempo_ciclo_seg: event.target.value,
                 })}
@@ -500,7 +530,7 @@ export default function FabricationOrdersScm() {
                 label="Horas efectivas"
                 value={form.snapshot_horas_turno}
                 slotProps={{ htmlInput: { min: 0.001, max: 24, step: 0.25 } }}
-                disabled={!canEdit || selected.estado !== 'BORRADOR'}
+                disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
                 onChange={(event) => setForm({
                   ...form, snapshot_horas_turno: event.target.value,
                 })}
@@ -511,7 +541,7 @@ export default function FabricationOrdersScm() {
                 value={form.snapshot_peso_colada_gr}
                 helperText="Canal, bebedero y rebaba; no incluye las piezas."
                 slotProps={{ htmlInput: { min: 0, max: 99999, step: 0.1 } }}
-                disabled={!canEdit || selected.estado !== 'BORRADOR'}
+                disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
                 onChange={(event) => setForm({
                   ...form, snapshot_peso_colada_gr: event.target.value,
                 })}
@@ -549,6 +579,7 @@ export default function FabricationOrdersScm() {
                     disabled={
                       !canEdit
                       || selected.estado !== 'BORRADOR'
+                      || selected.origen_demanda === 'REEMPLAZO_OF'
                       || run.salidas.some((output) => output.articulo?.clase === 'PIEZA_COLOR')
                     }
                     onChange={(event) => changeRun(runIndex, {
@@ -572,7 +603,7 @@ export default function FabricationOrdersScm() {
                   type="number"
                   label="Ciclos (vacío = mínimo)"
                   value={form.corridas[runIndex]?.ciclos_objetivo || ''}
-                  disabled={!canEdit || selected.estado !== 'BORRADOR'}
+                disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
                   onChange={(event) => changeRun(runIndex, {
                     ciclos_objetivo: event.target.value,
                   })}
@@ -642,7 +673,7 @@ export default function FabricationOrdersScm() {
                               size="small"
                               type="number"
                               value={outputForm.cantidad_por_ciclo}
-                              disabled={!canEdit || selected.estado !== 'BORRADOR'}
+                              disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
                               onChange={(event) => changeOutput(
                                 runIndex, outputIndex, 'cantidad_por_ciclo', event.target.value,
                               )}
@@ -663,7 +694,7 @@ export default function FabricationOrdersScm() {
                               size="small"
                               type="number"
                               value={outputForm.peso_unitario_g}
-                              disabled={!canEdit || selected.estado !== 'BORRADOR'}
+                              disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
                               onChange={(event) => changeOutput(
                                 runIndex, outputIndex, 'peso_unitario_g', event.target.value,
                               )}

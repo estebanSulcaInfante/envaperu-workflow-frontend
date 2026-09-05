@@ -13,8 +13,18 @@ export const anularOrdenFabricacionScm = (order, motivo) => body(() => api.post(
   { headers: headers(true) },
 ));
 
+export const reemplazarOrdenFabricacionScm = (order, motivo, operationId) => body(() => api.post(
+  `/scm/v1/ordenes-fabricacion/${encodeURIComponent(order.id)}/reemplazar`,
+  { version: order.version, motivo },
+  { headers: { ...headers(true), ...(operationId ? { 'Idempotency-Key': operationId } : {}) } },
+));
+
 export const listarOrdenesFabricacionScm = () => body(() => api.get(
   '/scm/v1/ordenes-fabricacion',
+  { headers: headers() },
+));
+export const obtenerOrdenFabricacionScm = (id) => body(() => api.get(
+  `/scm/v1/ordenes-fabricacion/${encodeURIComponent(id)}`,
   { headers: headers() },
 ));
 export const crearOrdenFabricacionExcepcionalScm = (payload) => body(
