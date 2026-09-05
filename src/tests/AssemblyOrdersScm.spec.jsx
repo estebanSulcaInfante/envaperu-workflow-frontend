@@ -130,6 +130,15 @@ const renderView = (initialEntry = '/') => render(
 );
 
 describe('OA y OT diaria de Armado', () => {
+  it('oculta anuladas hasta activar el filtro y conserva su motivo', async () => {
+    const user = userEvent.setup();
+    listarOrdenesArmadoScm.mockResolvedValue({ items: [{ ...order, estado: 'ANULADA', anulacion: { motivo: 'Error al crear OA' } }] });
+    renderView();
+    expect(await screen.findByText('Aún no hay órdenes de armado')).toBeVisible();
+    await user.click(screen.getByLabelText('Mostrar anuladas'));
+    expect(await screen.findByText(/Anulada · Error al crear OA/)).toBeVisible();
+    expect(screen.queryByText('Anular borrador')).not.toBeInTheDocument();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     actorState.capabilities = new Set([

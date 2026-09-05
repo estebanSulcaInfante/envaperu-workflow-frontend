@@ -16,6 +16,7 @@ vi.mock('../services/api', () => ({
 }));
 
 vi.mock('../services/scmOtApi', () => ({
+  anularOrdenFabricacionScm: vi.fn(),
   configurarOrdenFabricacionScm: vi.fn(),
   crearOrdenFabricacionExcepcionalScm: vi.fn(),
   liberarOrdenFabricacionScm: vi.fn(),
@@ -41,12 +42,32 @@ import {
 } from '../services/api';
 import { listarArticulosScm } from '../services/scmEngineeringApi';
 import {
+  anularOrdenFabricacionScm,
   configurarOrdenFabricacionScm,
   crearOrdenFabricacionExcepcionalScm,
   listarOrdenesFabricacionScm,
 } from '../services/scmOtApi';
 
 describe('Órdenes de fabricación', () => {
+  it('anula el borrador con motivo y permite volver a ocultar las anuladas', async () => {
+    const user = userEvent.setup();
+    const draft = { id: 'of-annul', codigo: 'OF-000099', estado: 'BORRADOR', version: 1, corridas: [] };
+    const annulled = { ...draft, estado: 'ANULADA', version: 2, anulacion: { motivo: 'Duplicada' } };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [draft] });
+    anularOrdenFabricacionScm.mockImplementation(async () => {
+      listarOrdenesFabricacionScm.mockResolvedValue({ items: [annulled] });
+      return annulled;
+    });
+    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+    await user.click(await screen.findByRole('button', { name: 'Anular borrador' }));
+    await user.type(screen.getByLabelText('Motivo de anulación'), 'Duplicada');
+    await user.click(screen.getByText('Confirmar anulación'));
+    expect(await screen.findByText(/Anulada · Duplicada/)).toBeVisible();
+    expect(anularOrdenFabricacionScm).toHaveBeenCalledWith(draft, 'Duplicada');
+    expect(screen.getByLabelText('Mostrar anuladas')).toBeChecked();
+    await user.click(screen.getByLabelText('Mostrar anuladas'));
+    expect(await screen.findByText(/Aún no hay/)).toBeVisible();
+  });
   beforeEach(() => {
     listarOrdenesFabricacionScm.mockResolvedValue({ items: [] });
     obtenerColores.mockResolvedValue([]);

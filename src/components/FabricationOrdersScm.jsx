@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, CircularProgress, FormControl, InputLabel,
+  Alert, Box, Button, Chip, CircularProgress, FormControl, InputLabel, Checkbox, FormControlLabel,
   MenuItem, Paper, Select, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography,
 } from '@mui/material';
@@ -14,6 +14,7 @@ import {
   obtenerColores, obtenerMaquinas, obtenerMoldes, obtenerRecetasColorMaestras,
 } from '../services/api';
 import {
+  anularOrdenFabricacionScm,
   configurarOrdenFabricacionScm,
   liberarOrdenFabricacionScm,
   listarOrdenesFabricacionScm,
@@ -28,6 +29,7 @@ import OrderScheduleStrip from './ui/OrderScheduleStrip';
 import { useScmActor } from '../context/ScmActorContext';
 import ExceptionalFabricationOrderDialog from './ExceptionalFabricationOrderDialog';
 import FabricationRecipeSelector from './FabricationRecipeSelector';
+import DraftOrderAnnulment from './DraftOrderAnnulment';
 import { defaultRecipeForRun } from './fabricationRecipeOptions';
 
 const statusColor = {
@@ -120,6 +122,7 @@ export default function FabricationOrdersScm() {
   const canRelease = can('OF_LIBERAR');
   const canCreateExceptional = can('OF_EXCEPCIONAL_CREAR');
   const [orders, setOrders] = useState([]);
+  const [showAnnulled, setShowAnnulled] = useState(false);
   const [molds, setMolds] = useState([]);
   const [machines, setMachines] = useState([]);
   const [colors, setColors] = useState([]);
@@ -148,7 +151,7 @@ export default function FabricationOrdersScm() {
     [form.molde_id, molds],
   );
 
-  const load = useCallback(async (preferredId = '') => {
+  const load = useCallback(async (preferredId = '', includeAnnulled = showAnnulled) => {
     setBusy(true);
     setError('');
     try {
@@ -158,7 +161,7 @@ export default function FabricationOrdersScm() {
         listarOrdenesFabricacionScm(), obtenerMoldes(), obtenerMaquinas(), obtenerColores(),
         obtenerRecetasColorMaestras(),
       ]);
-      const nextOrders = orderPayload.items || [];
+      const nextOrders = (orderPayload.items || []).filter((item) => includeAnnulled || item.estado !== 'ANULADA');
       const nextId = nextOrders.some((item) => item.id === preferredId)
         ? preferredId : nextOrders[0]?.id || '';
       const nextOrder = nextOrders.find((item) => item.id === nextId) || null;
@@ -177,7 +180,7 @@ export default function FabricationOrdersScm() {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [showAnnulled]);
 
   useEffect(() => { load(requestedOrderId); }, [load, requestedOrderId]);
 
@@ -303,6 +306,7 @@ export default function FabricationOrdersScm() {
         )}
       />
       <ProcessJourney current="fabricacion" />
+      <FormControlLabel control={<Checkbox checked={showAnnulled} disabled={busy} onChange={(event) => setShowAnnulled(event.target.checked)} />} label="Mostrar anuladas" />
       {!canEdit && !canRelease && (
         <Alert severity="info">
           Vista de consulta para {experience.label}. La configuración técnica y la liberación
@@ -337,6 +341,12 @@ export default function FabricationOrdersScm() {
             </FormControl>
             <>
               <Chip label={selected.estado} color={statusColor[selected.estado] || 'default'} />
+              <DraftOrderAnnulment key={selected.id} order={selected} allowed={can('OF_ANULAR')} disabled={busy}
+                onSubmit={anularOrdenFabricacionScm} onSuccess={async () => {
+                  setShowAnnulled(true);
+                  setNotice(`${selected.codigo} anulada. Se conserva el historial.`);
+                  await load(selected.id, true);
+                }} />
               <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
                 {selected.plan_produccion_id
                   ? `Generada por plan · propuesta ${selected.propuesta_clave}`

@@ -3,7 +3,7 @@ import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, FormControl, InputLabel, MenuItem, Paper,
   Select, Stack, Table, TableBody, TableCell, TableContainer, TableHead,
-  TableRow, TextField, Typography,
+  TableRow, TextField, Typography, Checkbox, FormControlLabel,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AddTaskOutlinedIcon from '@mui/icons-material/AddTaskOutlined';
@@ -11,6 +11,7 @@ import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
+import DraftOrderAnnulment from './DraftOrderAnnulment';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import {
   listarOrdenesArmadoScm,
@@ -79,6 +80,7 @@ export default function AssemblyOrdersScm() {
   const canViewOt = can('OT_VER');
   const canCreateExceptionalOrder = can('OA_EXCEPCIONAL_CREAR');
   const [orders, setOrders] = useState([]);
+  const [showAnnulled, setShowAnnulled] = useState(false);
   const [orderId, setOrderId] = useState('');
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
@@ -132,12 +134,12 @@ export default function AssemblyOrdersScm() {
     return `/produccion/ots-planta${query ? `?${query}` : ''}`;
   }, [searchParams]);
 
-  const load = useCallback(async (preferredId = '') => {
+  const load = useCallback(async (preferredId = '', includeAnnulled = showAnnulled) => {
     setBusy(true);
     setError('');
     try {
       const payload = await listarOrdenesArmadoScm();
-      const items = payload.items || [];
+      const items = (payload.items || []).filter((item) => includeAnnulled || item.estado !== 'ANULADA');
       const nextId = items.some((item) => item.id === preferredId)
         ? preferredId : items[0]?.id || '';
       setOrders(items);
@@ -147,7 +149,7 @@ export default function AssemblyOrdersScm() {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [showAnnulled]);
 
   useEffect(() => { load(requestedOrderId); }, [load, requestedOrderId]);
 
@@ -523,6 +525,7 @@ export default function AssemblyOrdersScm() {
         </Alert>
       )}
 
+      <FormControlLabel control={<Checkbox checked={showAnnulled} disabled={busy} onChange={(event) => setShowAnnulled(event.target.checked)} />} label="Mostrar anuladas" />
       {selected && (
         <Stack spacing={1.25}>
         <Paper variant="outlined" sx={{ p: 2 }}>
@@ -544,6 +547,13 @@ export default function AssemblyOrdersScm() {
             </FormControl>
             <>
               <Chip label={selected.estado} />
+              <DraftOrderAnnulment key={selected.id} order={selected} allowed={can('OA_ANULAR')} disabled={busy}
+                onSubmit={(order, motivo) => transicionarOrdenArmadoScm(order, 'anular', { motivo })}
+                onSuccess={async () => {
+                  setShowAnnulled(true);
+                  setNotice(`${selected.codigo} anulada. Se conserva el historial.`);
+                  await load(selected.id, true);
+                }} />
               {selected.origen_demanda === 'REPOSICION_WIP' && (
                 <Chip color="info" variant="outlined" label="Reposición WIP · sin OP" />
               )}

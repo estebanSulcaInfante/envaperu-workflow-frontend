@@ -7,6 +7,12 @@ const headers = (idempotent = false) => ({
 });
 const body = async (request) => (await request()).data;
 
+export const anularOrdenFabricacionScm = (order, motivo) => body(() => api.post(
+  `/scm/v1/ordenes-fabricacion/${encodeURIComponent(order.id)}/anular`,
+  { version: order.version, motivo },
+  { headers: headers(true) },
+));
+
 export const listarOrdenesFabricacionScm = () => body(() => api.get(
   '/scm/v1/ordenes-fabricacion',
   { headers: headers() },
