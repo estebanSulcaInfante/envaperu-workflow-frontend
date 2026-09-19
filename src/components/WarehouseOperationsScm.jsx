@@ -7,6 +7,7 @@ import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PageHeader from './ui/PageHeader';
+import WarehouseKgCustodyScm from './WarehouseKgCustodyScm';
 import { useScmActor } from '../context/ScmActorContext';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
 import {
@@ -24,6 +25,7 @@ import {
 
 export default function WarehouseOperationsScm({ control = false, transfersOnly = false }) {
   const { actor, can } = useScmActor();
+  const [kgView, setKgView] = useState(false);
   const canMove = can('INVENTARIO_MOVILIZAR') && !control;
   const [warehouses, setWarehouses] = useState([]);
   const [transfers, setTransfers] = useState([]);
@@ -168,6 +170,9 @@ export default function WarehouseOperationsScm({ control = false, transfersOnly 
     {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
     {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
 
+    {can('ABASTECIMIENTO_VER') && <Button variant="outlined" onClick={() => setKgView(!kgView)}>{kgView ? 'Ver transferencias generales' : 'Ver custodia de piezas y WIP en kg'}</Button>}
+    {kgView ? <WarehouseKgCustodyScm readOnly={control} /> : <>
+
     <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
       {[...(summary.items || []), ...(summary.materiales || [])].map((item) => <Paper key={`${item.unidad}-${item.almacen_id || 'legacy'}`} variant="outlined" sx={{ p: 2, flex: 1 }}>
         <Typography variant="overline">{item.almacen_id ? 'Almacén configurado' : 'Ubicaciones por clasificar'}</Typography>
@@ -218,5 +223,6 @@ export default function WarehouseOperationsScm({ control = false, transfersOnly 
         {!busy && transfers.length === 0 && <TableRow><TableCell colSpan={6}><Alert severity="info">Aún no hay transferencias dentro de tu alcance.</Alert></TableCell></TableRow>}
       </TableBody></Table></TableContainer>
     </Paper>
+    </>}
   </Stack>;
 }

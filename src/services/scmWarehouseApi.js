@@ -1,9 +1,9 @@
 import api from './api';
 import { obtenerActorScm } from './scmEngineeringApi';
 
-const headers = (idempotent = false) => ({
+const headers = (idempotent = false, idempotencyKey) => ({
   'X-Actor-Id': String(obtenerActorScm()),
-  ...(idempotent ? { 'Idempotency-Key': crypto.randomUUID() } : {}),
+  ...(idempotent ? { 'Idempotency-Key': idempotencyKey || crypto.randomUUID() } : {}),
 });
 
 const body = async (request) => (await request()).data;
@@ -35,10 +35,10 @@ export const cerrarSesionRecepcionScm = (sessionId) => body(() => api.post(
   { headers: headers(true) },
 ));
 
-export const confirmarRecepcionMangaScm = (payload) => body(() => api.post(
+export const confirmarRecepcionMangaScm = (payload, idempotencyKey) => body(() => api.post(
   '/scm/v1/recepcion-mangas/confirmar',
   payload,
-  { headers: headers(true) },
+  { headers: headers(true, idempotencyKey) },
 ));
 
 export const rechazarRecepcionMangaScm = (payload) => body(() => api.post(

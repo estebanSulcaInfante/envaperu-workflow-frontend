@@ -9,7 +9,7 @@ vi.mock('../services/scmEngineeringApi', () => ({
   obtenerActorScm: () => 8,
 }));
 
-import { explorarSaldosInventarioScm } from '../services/scmInventoryApi';
+import { explorarSaldosInventarioScm, listarMovimientosInventarioScm } from '../services/scmInventoryApi';
 
 describe('explorador paginado del Kardex', () => {
   beforeEach(() => {
@@ -29,6 +29,15 @@ describe('explorador paginado del Kardex', () => {
     expect(getMock).toHaveBeenCalledWith('/scm/v1/inventario/explorador', {
       headers: { 'X-Actor-Id': '8' },
       params,
+    });
+  });
+
+  it('envía unidad KG como filtro explícito en los movimientos', async () => {
+    await listarMovimientosInventarioScm({ unidad: 'KG' });
+
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/inventario/movimientos', {
+      headers: { 'X-Actor-Id': '8' },
+      params: { limite: 100, unidad: 'KG' },
     });
   });
 });

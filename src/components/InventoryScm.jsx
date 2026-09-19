@@ -38,9 +38,27 @@ const initialForm = {
 
 const number = (value) => Number(value || 0);
 
+const inventoryUnit = (item) => (
+  item?.unidad
+  || item?.unidad_inventario
+  || item?.articulo?.unidad_inventario
+  || item?.articulo?.unidad
+  || 'UN'
+);
+
+const isKg = (item) => inventoryUnit(item) === 'KG';
+
+const totalsFor = (items = []) => items.reduce((accumulator, item) => ({
+  physical: accumulator.physical + number(item.fisico),
+  reserved: accumulator.reserved + number(item.reservado),
+  unavailable: accumulator.unavailable + number(item.no_disponible),
+  free: accumulator.free + number(item.fisico) - number(item.reservado) - number(item.no_disponible),
+}), { physical: 0, reserved: 0, unavailable: 0, free: 0 });
+
 const LEDGER_API_NAMES = {
   materials: 'MATERIALES',
   pieces: 'PIEZAS_WIP',
+  piecesKg: 'PIEZAS_WIP',
   finished: 'PRODUCTO_TERMINADO',
 };
 
@@ -96,14 +114,14 @@ function BalanceGrid({ items, busy, emptyMessage }) {
                     align="right"
                     sx={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
                   >
-                    {value} {item.articulo.unidad}
+                    {value} {inventoryUnit(item)}
                   </TableCell>
                 ))}
                 <TableCell align="right">
                   <Chip
                     size="small"
                     color={number(item.cantidad_libre) > 0 ? 'success' : 'default'}
-                    label={`${item.cantidad_libre} ${item.articulo.unidad}`}
+                    label={`${item.cantidad_libre} ${inventoryUnit(item)}`}
                     sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 800 }}
                   />
                 </TableCell>
@@ -182,7 +200,7 @@ export default function InventoryScm() {
   const canAdjust = can('INVENTARIO_AJUSTAR');
   const [rows, setRows] = useState([]);
   const [pageMeta, setPageMeta] = useState({ total: 0, has_more: false, next_cursor: null });
-  const [summary, setSummary] = useState({ items: [], materiales: [] });
+  const [summary, setSummary] = useState({ items: [], materiales: [], piezas_kg: [] });
   const [articles, setArticles] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [catalogsLoaded, setCatalogsLoaded] = useState(false);
@@ -225,7 +243,7 @@ export default function InventoryScm() {
       .then(([scopePayload, summaryPayload]) => {
         if (!alive) return;
         setWarehouseScope(scopePayload);
-        setSummary(summaryPayload || { items: [], materiales: [] });
+        setSummary(summaryPayload || { items: [], materiales: [], piezas_kg: [] });
       })
       .catch((requestError) => {
         if (alive) setError(mensajeErrorScm(requestError, 'No se cargó el resumen del Kardex.'));
@@ -242,18 +260,13 @@ export default function InventoryScm() {
     return () => globalThis.clearTimeout(timer);
   }, [query]);
 
-  const totals = useMemo(() => (summary.items || []).reduce((accumulator, item) => ({
-    physical: accumulator.physical + number(item.fisico),
-    reserved: accumulator.reserved + number(item.reservado),
-    unavailable: accumulator.unavailable + number(item.no_disponible),
-    free: accumulator.free + number(item.fisico) - number(item.reservado) - number(item.no_disponible),
-  }), { physical: 0, reserved: 0, unavailable: 0, free: 0 }), [summary]);
-  const materialTotals = useMemo(() => (summary.materiales || []).reduce((accumulator, item) => ({
-    physical: accumulator.physical + number(item.fisico),
-    reserved: accumulator.reserved + number(item.reservado),
-    unavailable: accumulator.unavailable + number(item.no_disponible),
-    free: accumulator.free + number(item.fisico) - number(item.reservado) - number(item.no_disponible),
-  }), { physical: 0, reserved: 0, unavailable: 0, free: 0 }), [summary]);
+  const totals = useMemo(() => totalsFor(
+    (summary.items || []).filter((item) => !isKg(item)),
+  ), [summary]);
+  const materialTotals = useMemo(() => totalsFor(summary.materiales || []), [summary]);
+  const kgTotals = useMemo(() => totalsFor(
+    (summary.piezas_kg || []).map((item) => ({ ...item, unidad: 'KG' })),
+  ), [summary]);
 
   const visibleClasses = useMemo(() => new Set(
     (warehouseScope?.almacenes || []).flatMap((item) => item.clases_articulo || []),
@@ -275,17 +288,23 @@ export default function InventoryScm() {
       id: 'pieces', label: 'Piezas y WIP',
       emptyMessage: 'Tienes acceso a Piezas y WIP, pero todavía no hay saldo. Aparecerá con una apertura aprobada o al recibir producción.',
     }] : []),
+    ...(showPiecesAndWip ? [{
+      id: 'piecesKg', label: 'Piezas y WIP KG',
+      emptyMessage: 'Todavía no hay saldo físico KG de piezas o WIP en tus ubicaciones.',
+    }] : []),
     ...(showFinishedProducts ? [{
       id: 'finished', label: 'Producto terminado',
       emptyMessage: 'Tienes acceso a Producto terminado, pero todavía no hay saldo. Aparecerá al recibir y liberar producción terminada.',
     }] : []),
-    { id: 'movements', label: 'Movimientos' },
+    { id: 'movements', label: 'Movimientos UN' },
+    ...(showPiecesAndWip ? [{ id: 'movementsKg', label: 'Movimientos KG' }] : []),
   ], [showFinishedProducts, showMaterials, showPiecesAndWip]);
   const effectiveLedger = ledgers.some((item) => item.id === activeLedger)
     ? activeLedger
     : ledgers[0]?.id;
   const ledger = ledgers.find((item) => item.id === effectiveLedger) || ledgers[0];
-  const isMovements = effectiveLedger === 'movements';
+  const isMovements = effectiveLedger === 'movements' || effectiveLedger === 'movementsKg';
+  const isKgLedger = effectiveLedger === 'piecesKg' || effectiveLedger === 'movementsKg';
   const balanceSorts = ['CODIGO', 'NOMBRE', 'FISICO_DESC', 'LIBRE_DESC', 'ACTUALIZADO'];
   const effectiveSort = isMovements
     ? (['RECIENTES', 'ANTIGUOS'].includes(sortBy) ? sortBy : 'RECIENTES')
@@ -303,9 +322,10 @@ export default function InventoryScm() {
     setBusy(true);
     setError('');
     const request = isMovements
-      ? listarMovimientosInventarioScm()
+      ? listarMovimientosInventarioScm(isKgLedger ? { unidad: 'KG' } : {})
       : explorarSaldosInventarioScm({
         kardex: LEDGER_API_NAMES[effectiveLedger],
+        ...(isKgLedger ? { unidad: 'KG' } : {}),
         q: debouncedQuery || undefined,
         ubicacion: locationFilter === 'TODAS' ? undefined : locationFilter,
         disponibilidad: stockFilter,
@@ -318,6 +338,8 @@ export default function InventoryScm() {
       if (isMovements) {
         const normalized = debouncedQuery.toLocaleLowerCase('es');
         const filtered = (payload.items || []).filter((item) => {
+          if (isKgLedger && inventoryUnit(item) !== 'KG') return false;
+          if (!isKgLedger && inventoryUnit(item) === 'KG') return false;
           const haystack = `${item.articulo_codigo} ${item.articulo_nombre} ${item.ubicacion_codigo || ''} ${item.tipo} ${item.motivo || ''}`;
           return (!normalized || haystack.toLocaleLowerCase('es').includes(normalized))
             && (locationFilter === 'TODAS' || item.ubicacion_codigo === locationFilter);
@@ -341,16 +363,18 @@ export default function InventoryScm() {
     });
     return () => { alive = false; };
   }, [
-    debouncedQuery, effectiveLedger, effectiveSort, isMovements,
+    debouncedQuery, effectiveLedger, effectiveSort, isKgLedger, isMovements,
     locationFilter, page, pageCursors, refreshVersion, rowsPerPage, stockFilter,
   ]);
 
   const changeLedger = (_event, value) => {
     setActiveLedger(value);
+    setRows([]);
+    setPageMeta({ total: 0, has_more: false, next_cursor: null });
     setQuery('');
     setLocationFilter('TODAS');
     setStockFilter('TODOS');
-    setSortBy(value === 'movements' ? 'RECIENTES' : 'CODIGO');
+    setSortBy(value === 'movements' || value === 'movementsKg' ? 'RECIENTES' : 'CODIGO');
     setPage(0);
     setPageCursors({ 0: null });
   };
@@ -387,10 +411,11 @@ export default function InventoryScm() {
         description="Consulta existencias, reservas y movimientos dentro de los almacenes y clases asignados a tu trabajo."
         actions={(
           <Stack direction="row" spacing={1}>
+            <Button component="a" href="/almacen/kardex/disponibilidad" variant="contained">Disponibilidad y PT manual</Button>
             <Button startIcon={<RefreshIcon />} variant="outlined" onClick={refresh}>
               Actualizar
             </Button>
-            {canAdjust && (
+            {canAdjust && articles.some((item) => !isKg(item)) && (
               <Button
                 startIcon={<AddIcon />}
                 variant="contained"
@@ -427,7 +452,7 @@ export default function InventoryScm() {
       </Alert>
 
       <InventoryOpeningScm
-        articles={articles}
+        articles={articles.filter((item) => !isKg(item))}
         materials={materials}
         onRequestCatalog={loadCatalogs}
         onApplied={refresh}
@@ -443,12 +468,27 @@ export default function InventoryScm() {
         ].map(([label, value, materialValue, help]) => (
           <Paper key={label} variant="outlined" sx={{ p: 2, flex: 1 }}>
             <Typography variant="body2" color="text.secondary">{label}</Typography>
+            <Typography variant="caption" color="text.secondary">Artículos UN</Typography>
             <Typography variant="h5" fontWeight={800}>{value.toLocaleString('es-PE')} UN</Typography>
-            <Typography variant="body2" fontWeight={700}>{materialValue.toLocaleString('es-PE')} KG</Typography>
+            <Typography variant="body2" fontWeight={700}>Materiales KG: {materialValue.toLocaleString('es-PE')}</Typography>
             <Typography variant="caption" color="text.secondary">{help}</Typography>
           </Paper>
         ))}
       </Stack>
+      {showPiecesAndWip && (
+        <Paper variant="outlined" sx={{ p: 2, bgcolor: 'rgba(18, 61, 99, 0.03)' }}>
+          <Typography variant="overline" color="primary" fontWeight={900}>Piezas y WIP · KG</Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 1, sm: 3 }}>
+            <Typography><strong>Físico:</strong> {kgTotals.physical.toLocaleString('es-PE')} KG</Typography>
+            <Typography><strong>No disponible:</strong> {kgTotals.unavailable.toLocaleString('es-PE')} KG</Typography>
+            <Typography><strong>Reservado:</strong> {kgTotals.reserved.toLocaleString('es-PE')} KG</Typography>
+            <Typography><strong>Libre:</strong> {kgTotals.free.toLocaleString('es-PE')} KG</Typography>
+          </Stack>
+          <Typography variant="caption" color="text.secondary">
+            Este resumen es independiente de Artículos UN y Materiales KG.
+          </Typography>
+        </Paper>
+      )}
 
       <Paper
         variant="outlined"
@@ -637,7 +677,7 @@ export default function InventoryScm() {
                 value={form.articulo_scm_id}
                 onChange={(event) => setForm({ ...form, articulo_scm_id: event.target.value })}
               >
-                {articles.map((item) => (
+                {articles.filter((item) => !isKg(item)).map((item) => (
                   <MenuItem key={item.id} value={item.id}>
                     {item.codigo} · {item.nombre} · {item.clase}
                   </MenuItem>

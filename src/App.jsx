@@ -37,6 +37,7 @@ import OtMangasScm from './components/OtMangasScm';
 import FabricationOrdersScm from './components/FabricationOrdersScm';
 import AssemblyOrdersScm from './components/AssemblyOrdersScm';
 import InventoryScm from './components/InventoryScm';
+import KgPtAvailabilityScm from './components/KgPtAvailabilityScm';
 import ReprocessingScm from './components/ReprocessingScm';
 import OperationalAlertsScm from './components/OperationalAlertsScm';
 import WarehouseReceivingScm from './components/WarehouseReceivingScm';
@@ -179,6 +180,7 @@ function App() {
                 <Route path="/almacen/reservas-staging" element={workspace('warehouse.reservationInbox', <InternalSupplyScm />)} />
                 <Route path="/produccion/kardex" element={workspace('warehouse.kardex', <InventoryScm />)} />
                 <Route path="/almacen/kardex" element={workspace('warehouse.kardex', <InventoryScm />)} />
+                <Route path="/almacen/kardex/disponibilidad" element={workspace('warehouse.kardex', <KgPtAvailabilityScm />)} />
                 <Route path="/almacen/operaciones" element={workspace('warehouse.operations', <WarehouseOperationsScm />)} />
                 <Route path="/almacen/transferencias" element={workspace('warehouse.transfers', <WarehouseOperationsScm transfersOnly />)} />
                 <Route path="/produccion/recepcion-mangas" element={workspace('warehouse.receiving', <WarehouseReceivingScm />)} />

@@ -149,4 +149,34 @@ describe('Kardex según alcance de almacén', () => {
     ));
     expect(await screen.findByText('Pieza 26')).toBeVisible();
   });
+
+  it('consulta el sublibro de piezas KG y movimientos KG con unidad explícita', async () => {
+    const user = userEvent.setup();
+    warehouseApi.obtenerAlcanceAlmacenScm.mockResolvedValue({
+      configurado: true,
+      control_transversal: false,
+      almacenes: [{ codigo: 'ALM-PZ', clases_articulo: ['PIEZA_COLOR', 'SUBENSAMBLE_WIP'] }],
+    });
+    inventoryApi.explorarSaldosInventarioScm.mockImplementation(({ unidad }) => Promise.resolve({
+      items: unidad === 'KG' ? [{
+        id: 'kg-1', unidad: 'KG', cantidad_fisica: '12.000', cantidad_reservada: '0.000',
+        cantidad_no_disponible: '12.000', cantidad_libre: '0.000',
+        articulo: { codigo: 'PC-KG', nombre: 'Pieza KG', clase: 'PIEZA_COLOR', unidad: 'UN' },
+        ubicacion: { codigo: 'PZ-A1', nombre: 'Piezas A1' },
+      }] : [],
+      page: { total: unidad === 'KG' ? 1 : 0, has_more: false, next_cursor: null, limit: 25 },
+    }));
+
+    renderView();
+    await user.click(await screen.findByRole('tab', { name: 'Piezas y WIP KG' }));
+    expect(await screen.findByText('Pieza KG')).toBeVisible();
+    expect(inventoryApi.explorarSaldosInventarioScm).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kardex: 'PIEZAS_WIP', unidad: 'KG' }),
+    );
+
+    await user.click(screen.getByRole('tab', { name: 'Movimientos UN' }));
+    await user.click(screen.getByRole('tab', { name: 'Movimientos KG' }));
+    await waitFor(() => expect(inventoryApi.listarMovimientosInventarioScm)
+      .toHaveBeenLastCalledWith({ unidad: 'KG' }));
+  });
 });

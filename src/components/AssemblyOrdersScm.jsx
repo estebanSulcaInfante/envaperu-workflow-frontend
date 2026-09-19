@@ -360,6 +360,18 @@ export default function AssemblyOrdersScm() {
     setMangaCloseOpen(true);
   };
 
+  const closeKgOt = async (ot) => {
+    setBusy(true); setError('');
+    try {
+      await cambiarEstadoOtScm(ot.public_id, 'cerrar', ot.version);
+      setNotice(`${ot.codigo_ot}: cierre documental registrado en kg. No mueve stock.`);
+      try { await refreshOts(); }
+      catch { setError('El cierre está confirmado. Actualice la consulta para ver el estado vigente.'); }
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudo confirmar el cierre; revise mangas y tramos pendientes.'));
+    } finally { setBusy(false); }
+  };
+
   const closeManga = async () => {
     setBusy(true);
     setError('');
@@ -435,7 +447,9 @@ export default function AssemblyOrdersScm() {
     setError('');
     try {
       const result = await transicionarOrdenArmadoScm(selected, action, extra);
-      setNotice(`${result.codigo}: ${result.estado}.`);
+      setNotice(result.un_confirmadas === false
+        ? `${selected.codigo}: cierre registrado con ${result.kg_medido} kg medidos.`
+        : `${result.codigo}: ${result.estado}.`);
       setCloseOpen(false);
       await load(selected.id);
     } catch (requestError) {
@@ -457,6 +471,7 @@ export default function AssemblyOrdersScm() {
   );
   const outputPlanLine = outputPlan?.lineas?.[0] || null;
   const outputIsWip = selected?.salida?.clase === 'SUBENSAMBLE_WIP';
+  const outputIsKg = selected?.salida?.unidad_inventario === 'KG';
   const outputTypeLabel = outputIsWip ? 'WIP' : 'producto terminado';
   const outputTypeShortLabel = outputIsWip ? 'WIP' : 'PT';
   const selectedFabricationContext = fabricationOts.find(
@@ -516,8 +531,9 @@ export default function AssemblyOrdersScm() {
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       <Alert severity="info">
-        La OA define el total. Las OT reparten ese total por fecha, mesa, turno y responsable;
-        cada OT genera su propia solicitud de componentes desde la BOM congelada.
+        {outputIsKg
+          ? 'Las OT organizan las jornadas. El pesaje registra kg de WIP y confirma el armado; la BOM solo estima el aporte de fabricación. Almacén registra retiros y retornos en Custodia KG.'
+          : 'La OA define el total. Las OT reparten ese total por fecha, mesa, turno y responsable; cada OT genera su propia solicitud de componentes desde la BOM congelada.'}
       </Alert>
       {!canViewOt && (
         <Alert severity="info">
@@ -566,7 +582,9 @@ export default function AssemblyOrdersScm() {
                 <Button
                   variant="contained"
                   color={currentAction.color}
-                  disabled={busy || (currentAction.action === 'cerrar' && ots.length > 0)}
+                  disabled={busy || (currentAction.action === 'cerrar' && (outputIsKg
+                    ? ots.some((item) => !['CERRADA', 'ANULADA'].includes(item.estado))
+                    : ots.length > 0))}
                   onClick={() => (
                     currentAction.action === 'cerrar'
                       ? setCloseOpen(true)
@@ -608,16 +626,21 @@ export default function AssemblyOrdersScm() {
               </Box>
               <Box>
                 <Typography variant="overline" color="text.secondary">Plan</Typography>
-                <Typography fontWeight={800}>{selected.salida.cantidad_objetivo} un</Typography>
+                <Typography fontWeight={800}>{selected.salida.cantidad_objetivo} un{outputIsKg ? ' de referencia' : ''}</Typography>
               </Box>
               <Box>
-                <Typography variant="overline" color="text.secondary">Conforme</Typography>
-                <Typography fontWeight={800}>{selected.salida.cantidad_real ?? '—'}</Typography>
+                <Typography variant="overline" color="text.secondary">{outputIsKg ? 'NET medido al cierre' : 'Conforme'}</Typography>
+                <Typography fontWeight={800}>{outputIsKg ? `${selected.cierre_kg?.kg_medido ?? '—'} kg` : selected.salida.cantidad_real ?? '—'}</Typography>
               </Box>
-              <Box>
+              {outputIsKg && selected.cierre_kg && <Box>
+                <Typography variant="overline" color="text.secondary">Estimación BOM de fabricación</Typography>
+                <Typography fontWeight={800}>{selected.cierre_kg.kg_fabricacion_estimado == null ? 'Atribución pendiente' : `${selected.cierre_kg.kg_fabricacion_estimado} kg nuevos estimados`}</Typography>
+                <Typography variant="body2">{selected.cierre_kg.kg_previo_estimado == null ? 'Aporte previo pendiente' : `${selected.cierre_kg.kg_previo_estimado} kg de componentes previos estimados`}</Typography>
+              </Box>}
+              {!outputIsKg && <Box>
                 <Typography variant="overline" color="text.secondary">Rechazado</Typography>
                 <Typography fontWeight={800}>{selected.salida.cantidad_rechazada ?? '—'}</Typography>
-              </Box>
+              </Box>}
             </Stack>
           </Paper>
 
@@ -711,6 +734,7 @@ export default function AssemblyOrdersScm() {
                 <Typography variant="body2" color="text.secondary">
                   {assignedQuota.toFixed(3)} de {selected.salida.cantidad_objetivo} un asignadas
                   {' · '}{pendingQuota.toFixed(3)} un pendientes
+                  {outputIsKg ? ' · referencia de planificación, sin conteo real' : ''}
                 </Typography>
               </Box>
               {canCreateOt && ['LIBERADA', 'EN_EJECUCION'].includes(selected.estado) && (
@@ -776,18 +800,21 @@ export default function AssemblyOrdersScm() {
                             </Typography>
                           </TableCell>
                           <TableCell align="right">
-                            {ot.cantidad_confirmada || 0} / {ot.cantidad_objetivo} un
+                            {outputIsKg ? `Plan: ${ot.cantidad_objetivo} un de referencia` : `${ot.cantidad_confirmada || 0} / ${ot.cantidad_objetivo} un`}
                           </TableCell>
                           <TableCell>
                             <Chip
                               size="small"
                               color={request?.estado === 'RECIBIDA' ? 'success' : 'default'}
-                              label={request ? `${request.codigo} · ${request.estado}` : 'Sin solicitar'}
+                              label={outputIsKg ? 'Retiros por Custodia KG' : request ? `${request.codigo} · ${request.estado}` : 'Sin solicitar'}
                             />
                           </TableCell>
                           <TableCell align="right">
                             <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap" useFlexGap>
-                              {!request && can('ABASTECIMIENTO_SOLICITAR') && (
+                              {outputIsKg && can('OT_CERRAR') && ['EN_EJECUCION', 'PAUSADA'].includes(ot.estado) && (
+                                <Button disabled={busy} size="small" onClick={() => closeKgOt(ot)}>Cerrar OT por kg medidos</Button>
+                              )}
+                              {!outputIsKg && !request && can('ABASTECIMIENTO_SOLICITAR') && (
                                 <Button
                                   size="small"
                                   variant="outlined"
@@ -798,7 +825,7 @@ export default function AssemblyOrdersScm() {
                                   Solicitar componentes
                                 </Button>
                               )}
-                              {request && can('ABASTECIMIENTO_VER') && request.estado !== 'RECIBIDA' && (
+                              {!outputIsKg && request && can('ABASTECIMIENTO_VER') && request.estado !== 'RECIBIDA' && (
                                 <Button
                                   size="small"
                                   component={RouterLink}
@@ -827,7 +854,7 @@ export default function AssemblyOrdersScm() {
                               <Stack spacing={1}>
                                 {mangas.map((manga) => {
                                   const readyToClose = (
-                                    ot.estado === 'EN_EJECUCION'
+                                    !outputIsKg && ot.estado === 'EN_EJECUCION'
                                     && request?.estado === 'RECIBIDA'
                                     && ['PREETIQUETADA', 'EN_ARMADO'].includes(manga.estado)
                                   );
@@ -843,9 +870,10 @@ export default function AssemblyOrdersScm() {
                                       <Box>
                                         <Typography fontWeight={750}>{manga.codigo}</Typography>
                                         <Typography variant="caption" color="text.secondary">
-                                          {manga.cantidad_confirmada_un ?? manga.cantidad_planificada_un} un
+                                          {outputIsKg ? `${manga.kg_medido ?? '—'} kg medidos` : `${manga.cantidad_confirmada_un ?? manga.cantidad_planificada_un} un`}
                                           {' · '}{manga.estado}
                                         </Typography>
+                                        {outputIsKg && <Typography variant="body2">El pesaje confirma este WIP armado, sin conteo.</Typography>}
                                       </Box>
                                       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                                         {manga.estado === 'PLANIFICADA' && can('MANGA_ETIQUETA_PRE_GENERAR') && (
@@ -868,7 +896,7 @@ export default function AssemblyOrdersScm() {
                                             Confirmar armado
                                           </Button>
                                         )}
-                                        {manga.estado === 'CERRADA_ARMADO_PENDIENTE_PESAJE' && (
+                                        {!outputIsKg && manga.estado === 'CERRADA_ARMADO_PENDIENTE_PESAJE' && (
                                           <>
                                             <Chip size="small" color="warning" label="Pendiente de pesaje" />
                                             {can('ENSAMBLE_CORREGIR_SOLICITAR') && (
@@ -889,7 +917,7 @@ export default function AssemblyOrdersScm() {
                                           </>
                                         )}
                                         {manga.estado === 'PESADA' && <Chip size="small" color="success" label="Pesada" />}
-                                        {manga.cantidad_confirmada_un != null && can('GENEALOGIA_VER') && (
+                                        {!outputIsKg && manga.cantidad_confirmada_un != null && can('GENEALOGIA_VER') && (
                                           <Button
                                             size="small"
                                             startIcon={<AccountTreeOutlinedIcon />}
@@ -916,9 +944,9 @@ export default function AssemblyOrdersScm() {
 
           {ots.length > 0 && selected.estado === 'EN_EJECUCION' && (
             <Alert severity="warning">
-              El cierre anterior de la OA está bloqueado en esta experiencia: el cierre
-              trazable debe consumir las mangas asignadas y acreditar las mangas de salida
-              en una sola operación de Armado.
+              {outputIsKg
+                ? 'Cierre por kg medidos: primero cierre las OT resueltas. El cierre de OA conserva la estimación BOM y no consume piezas ni acredita inventario.'
+                : 'El cierre anterior de la OA está bloqueado en esta experiencia: el cierre trazable debe consumir las mangas asignadas y acreditar las mangas de salida en una sola operación de Armado.'}
             </Alert>
           )}
 
@@ -936,9 +964,9 @@ export default function AssemblyOrdersScm() {
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Alert severity="warning">
-              El cierre acredita la salida; no descuenta componentes del Kardex.
+              {outputIsKg ? 'El cierre consolida kg de los pesajes. La BOM estima fabricación; no ingresa stock ni descuenta componentes.' : 'El cierre acredita la salida; no descuenta componentes del Kardex.'}
             </Alert>
-            <TextField
+            {!outputIsKg && <><TextField
               type="number"
               label="Unidades conformes"
               value={closeForm.cantidad_real}
@@ -953,7 +981,7 @@ export default function AssemblyOrdersScm() {
               onChange={(event) => setCloseForm({
                 ...closeForm, cantidad_rechazada: event.target.value,
               })}
-            />
+            /></>}
             <TextField
               label="Observación"
               multiline
@@ -970,8 +998,7 @@ export default function AssemblyOrdersScm() {
           <Button
             variant="contained"
             onClick={() => run('cerrar', {
-              cantidad_real: Number(closeForm.cantidad_real),
-              cantidad_rechazada: Number(closeForm.cantidad_rechazada || 0),
+              ...(!outputIsKg ? { cantidad_real: Number(closeForm.cantidad_real), cantidad_rechazada: Number(closeForm.cantidad_rechazada || 0) } : {}),
               motivo: closeForm.motivo || null,
             })}
           >

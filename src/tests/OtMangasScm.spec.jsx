@@ -18,6 +18,7 @@ const scmMocks = vi.hoisted(() => ({
   crearOtFabricacionScm: vi.fn(),
   crearTrabajoColorScm: vi.fn(),
   cambiarEstadoTrabajoColorScm: vi.fn(),
+  cambiarEstadoOtScm: vi.fn(),
   asignarTrabajadorTrabajoColorScm: vi.fn(),
   reasignarMangasTrabajoColorScm: vi.fn(),
   agregarMangasTrabajoColorScm: vi.fn(),
@@ -60,7 +61,7 @@ vi.mock('../services/scmOtApi', () => ({
   aprobarMangaExtraScm: scmMocks.aprobarMangaExtraScm,
   aprobarCorreccionPesajeScm: vi.fn(),
   asignarTrabajadorTrabajoColorScm: scmMocks.asignarTrabajadorTrabajoColorScm,
-  cambiarEstadoOtScm: vi.fn(),
+  cambiarEstadoOtScm: scmMocks.cambiarEstadoOtScm,
   cambiarEstadoTrabajoColorScm: scmMocks.cambiarEstadoTrabajoColorScm,
   crearOtFabricacionScm: scmMocks.crearOtFabricacionScm,
   crearOtScm: vi.fn(),
@@ -217,6 +218,15 @@ const weighingDetail = {
 };
 
 describe('OT de máquina, Trabajos de color y mangas', () => {
+  it('permite solicitar cierre documental KG sin conteo ni bloquear continuidad por estado global', async () => {
+    const kgManga = { ...greenManga, unidad_inventario: 'KG', kg_medido: '5.000', estado: 'CONTINUIDAD_PENDIENTE' };
+    const kgOt = { ...machineOt, estado: 'PAUSADA', unidad_inventario: 'KG', trabajos_color: [{ ...greenWork, estado: 'PAUSADO', mangas: [kgManga] }], mangas: [kgManga] };
+    scmMocks.listarOtScm.mockResolvedValue({ items: [kgOt] });
+    scmMocks.cambiarEstadoOtScm.mockResolvedValue({ ot: { ...kgOt, estado: 'CERRADA' }, kg_medido: '5.000' });
+    render(<MemoryRouter initialEntries={['/?ot=ot-machine-1']}><OtMangasScm /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cerrar OT por kg medidos' }));
+    await waitFor(() => expect(scmMocks.cambiarEstadoOtScm).toHaveBeenCalledWith('ot-machine-1', 'cerrar', 1));
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     scmMocks.can.mockReturnValue(true);

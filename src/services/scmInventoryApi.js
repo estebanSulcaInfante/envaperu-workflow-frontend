@@ -20,8 +20,8 @@ export const listarSaldosInventarioScm = () => data(
   () => api.get('/scm/v1/inventario/saldos', config()),
 );
 
-export const listarMovimientosInventarioScm = () => data(
-  () => api.get('/scm/v1/inventario/movimientos?limite=100', config()),
+export const listarMovimientosInventarioScm = (params = {}) => data(
+  () => api.get('/scm/v1/inventario/movimientos', { ...config(), params: { limite: 100, ...params } }),
 );
 
 export const registrarMovimientoInventarioScm = (payload) => data(

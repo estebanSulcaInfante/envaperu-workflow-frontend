@@ -20,6 +20,7 @@ import {
   aprobarMangaExtraScm,
   aprobarCorreccionPesajeScm,
   cambiarEstadoTrabajoColorScm,
+  cambiarEstadoOtScm,
   crearOtFabricacionScm,
   crearTrabajoColorScm,
   generarEtiquetasPrepesaje,
@@ -599,7 +600,9 @@ function ColorWorkQueue({ works, selectedWorkId, onSelect }) {
                     color={running ? 'success' : (work.estado === 'PAUSADO' ? 'warning' : 'default')}
                   />
                   <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
-                    {compactQuantity(work.cantidad_confirmada_un)} / {compactQuantity(work.cantidad_objetivo_un)} un
+                    {work.mangas?.some((manga) => manga.unidad_inventario === 'KG')
+                      ? `Plan: ${compactQuantity(work.cantidad_objetivo_un)} un de referencia`
+                      : `${compactQuantity(work.cantidad_confirmada_un)} / ${compactQuantity(work.cantidad_objetivo_un)} un`}
                   </Typography>
                 </Box>
               </Stack>
@@ -685,13 +688,14 @@ function MangaTable({
                     </Typography>
                   )}
                 </TableCell>
-                <TableCell align="right">{compactQuantity(manga.cantidad_asignada_un)}</TableCell>
+                <TableCell align="right">{manga.unidad_inventario === 'KG' ? `${manga.kg_medido ?? '—'} kg medidos` : compactQuantity(manga.cantidad_asignada_un)}</TableCell>
                 <TableCell>
                   <Chip size="small" label={stateLabel(manga.estado)} />
                   {manga.continuidad?.ultimo_control && (
                     <Typography display="block" variant="caption">
-                      Corte {compactQuantity(manga.continuidad.conteo_acumulado_un)} ·
-                      faltan {compactQuantity(manga.continuidad.cantidad_pendiente_un)}
+                      {manga.unidad_inventario === 'KG'
+                        ? 'Control registrado · continuidad con el mismo QR'
+                        : `Corte ${compactQuantity(manga.continuidad.conteo_acumulado_un)} · faltan ${compactQuantity(manga.continuidad.cantidad_pendiente_un)}`}
                     </Typography>
                   )}
                 </TableCell>
@@ -1505,6 +1509,20 @@ export default function OtMangasScm({ view = 'all' }) {
     }
   };
 
+  const closeKgOt = async () => {
+    if (!selectedOt) return;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await cambiarEstadoOtScm(selectedOt.public_id, 'cerrar', selectedOt.version);
+      setNotice(`${selectedOt.codigo_ot}: cierre documental registrado en kg. No mueve stock.`);
+      try { await loadOts(selectedOt.public_id, selectedWork?.id); }
+      catch { setError('El cierre está confirmado. Actualice la consulta para ver el estado vigente.'); }
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudo confirmar el cierre. Revise los trabajos y tramos pendientes.'));
+    } finally { setBusy(false); }
+  };
+
   const transitionWork = async (action, reason = '') => {
     if (!selectedWork || selectedWork.legacy) return;
     setBusy(true);
@@ -2216,6 +2234,10 @@ export default function OtMangasScm({ view = 'all' }) {
               </Box>
             )}
             {selectedOt && <Chip label={stateLabel(selectedOt.estado)} />}
+            {selectedOt && canCloseWork && ['EN_EJECUCION', 'PAUSADA'].includes(selectedOt.estado)
+              && (selectedOt.unidad_inventario === 'KG' || selectedOt.mangas?.some((manga) => manga.unidad_inventario === 'KG')) && (
+              <Button disabled={busy} variant="outlined" color="success" onClick={closeKgOt}>Cerrar OT por kg medidos</Button>
+            )}
           </Stack>
         )}
         {selectedOt && <OtAnnulmentAction key={selectedOt.public_id} ot={selectedOt} allowed={can('OT_ANULAR')}
@@ -2233,6 +2255,11 @@ export default function OtMangasScm({ view = 'all' }) {
       </Paper>
 
       {!isLanding && (<>
+      {selectedOt?.cierre_kg && <Alert severity="info">
+        Cierre de la jornada: {selectedOt.cierre_kg.kg_medido} kg medidos en sus tramos.
+        {selectedOt.cierre_kg.kg_fabricacion_estimado != null && ` Fabricación estimada desde WIP concurrente: ${selectedOt.cierre_kg.kg_fabricacion_estimado} kg.`}
+        {' '}El cierre no acredita stock.
+      </Alert>}
       {selectedOt && selectedOt.estado !== 'ANULADA' && (
         <Paper component="section" aria-labelledby="ot-work-navigation-title" variant="outlined"
           sx={{ p: 1.5, position: 'sticky', top: 0, zIndex: 3, minWidth: 0 }}>

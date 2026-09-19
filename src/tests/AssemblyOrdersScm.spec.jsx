@@ -59,6 +59,7 @@ vi.mock('../services/scmOtApi', () => ({
 import {
   crearOrdenArmadoExcepcionalScm,
   listarOrdenesArmadoScm,
+  transicionarOrdenArmadoScm,
 } from '../services/scmAssemblyApi';
 import {
   listarArticulosScm,
@@ -130,6 +131,32 @@ const renderView = (initialEntry = '/') => render(
 );
 
 describe('OA y OT diaria de Armado', () => {
+  it('cierra OA KG con OT terminal sin pedir ni enviar unidades', async () => {
+    const kgOrder = { ...order, estado: 'EN_EJECUCION', salida: { ...order.salida, clase: 'SUBENSAMBLE_WIP', unidad_inventario: 'KG' } };
+    listarOrdenesArmadoScm.mockResolvedValue({ items: [kgOrder] });
+    listarOtArmadoScm.mockResolvedValue({ items: [{ ...ot, estado: 'CERRADA' }] });
+    transicionarOrdenArmadoScm.mockResolvedValue({ kg_medido: '12.000', un_confirmadas: false, cierre: { kg_medido: '12.000' } });
+    renderView();
+    const close = await screen.findByRole('button', { name: 'Cerrar armado' });
+    expect(close).toBeEnabled();
+    fireEvent.click(close);
+    expect(screen.queryByLabelText('Unidades conformes')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Unidades rechazadas')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar cierre' }));
+    await waitFor(() => expect(transicionarOrdenArmadoScm).toHaveBeenCalledWith(kgOrder, 'cerrar', { motivo: null }));
+    expect(await screen.findByText('OA-000001: cierre registrado con 12.000 kg medidos.')).toBeVisible();
+  });
+
+  it('WIP KG se confirma al pesar y no ofrece cierre manual por unidades', async () => {
+    actorState.capabilities.add('ENSAMBLE_MANGA_CERRAR');
+    listarOrdenesArmadoScm.mockResolvedValue({ items: [{ ...order, salida: { ...order.salida, clase: 'SUBENSAMBLE_WIP', unidad_inventario: 'KG' } }] });
+    listarOtArmadoScm.mockResolvedValue({ items: [{ ...ot, estado: 'EN_EJECUCION', mangas: [{ public_id: 'manga-kg', codigo: 'WIP-KG-1', estado: 'PREETIQUETADA', cantidad_planificada_un: '100' }] }] });
+    listarSolicitudesAbastecimientoScm.mockResolvedValue({ items: [{ ot_id: ot.public_id, estado: 'RECIBIDA', items: [] }] });
+    renderView();
+    await screen.findByText('WIP-KG-1');
+    expect(screen.queryByRole('button', { name: 'Confirmar armado' })).not.toBeInTheDocument();
+    expect(screen.getByText('El pesaje confirma este WIP armado, sin conteo.')).toBeVisible();
+  });
   it('oculta anuladas hasta activar el filtro y conserva su motivo', async () => {
     const user = userEvent.setup();
     listarOrdenesArmadoScm.mockResolvedValue({ items: [{ ...order, estado: 'ANULADA', anulacion: { motivo: 'Error al crear OA' } }] });

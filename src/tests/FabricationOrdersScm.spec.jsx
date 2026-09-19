@@ -19,6 +19,7 @@ vi.mock('../services/scmOtApi', () => ({
   anularOrdenFabricacionScm: vi.fn(),
   reemplazarOrdenFabricacionScm: vi.fn(),
   obtenerOrdenFabricacionScm: vi.fn(),
+  cerrarOrdenFabricacionScm: vi.fn(),
   configurarOrdenFabricacionScm: vi.fn(),
   crearOrdenFabricacionExcepcionalScm: vi.fn(),
   liberarOrdenFabricacionScm: vi.fn(),
@@ -44,13 +45,29 @@ import {
 } from '../services/api';
 import { listarArticulosScm } from '../services/scmEngineeringApi';
 import {
+  cerrarOrdenFabricacionScm,
   anularOrdenFabricacionScm,
-  configurarOrdenFabricacionScm,
-  crearOrdenFabricacionExcepcionalScm,
+  configurarOrdenFabricacionScm, crearOrdenFabricacionExcepcionalScm,
   listarOrdenesFabricacionScm,
 } from '../services/scmOtApi';
 
 describe('Órdenes de fabricación', () => {
+  it('distingue fabricación concurrente estimada de pesajes directos de la OF', async () => {
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [{ id: 'of-source', codigo: 'OF-FUENTE', estado: 'CERRADA', version: 3, corridas: [], cierre_kg: { kg_medido: '0.000', kg_fabricacion_estimado: '10.000' } }] });
+    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+    expect(await screen.findByText(/Cierre documental: 0.000 kg pesados directamente/)).toHaveTextContent('Aporte de fabricación estimado: 10.000 kg');
+    expect(screen.getByText(/medición y estimación no se suman como stock/)).toBeVisible();
+  });
+  it('presenta cierre KG con el contrato real sin código ni estado en la respuesta', async () => {
+    const kgOrder = { id: 'of-kg', codigo: 'OF-KG-01', estado: 'EN_EJECUCION', version: 2, corridas: [] };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [kgOrder] });
+    cerrarOrdenFabricacionScm.mockResolvedValue({ kg_medido: '12.000', un_confirmadas: false, cierre: { kg_medido: '12.000' } });
+    const user = userEvent.setup();
+    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+    await user.click(await screen.findByRole('button', { name: 'Cerrar OF' }));
+    expect(await screen.findByText('OF-KG-01 cerrada: 12.000 kg medidos, sin movimiento de stock por el cierre.')).toBeVisible();
+    expect(cerrarOrdenFabricacionScm).toHaveBeenCalledWith('of-kg', { version: 2 });
+  });
   it('anula el borrador con motivo y permite volver a ocultar las anuladas', async () => {
     const user = userEvent.setup();
     const draft = { id: 'of-annul', codigo: 'OF-000099', estado: 'BORRADOR', version: 1, corridas: [] };
@@ -80,6 +97,7 @@ describe('Órdenes de fabricación', () => {
     listarArticulosScm.mockResolvedValue([]);
     crearOrdenFabricacionExcepcionalScm.mockReset();
     configurarOrdenFabricacionScm.mockReset();
+    cerrarOrdenFabricacionScm.mockReset();
   });
 
   it('muestra la formulacion del color y permite elegir otra variante aprobada en borrador', async () => {
@@ -498,5 +516,40 @@ describe('Órdenes de fabricación', () => {
     expect(within(strip).getByText('En ejecución')).toBeVisible();
     expect(within(strip).getByText('2 OT')).toBeVisible();
     expect(within(strip).queryByRole('textbox')).not.toBeInTheDocument();
+  });
+  it('cierra una OF desde pesajes efectivos y muestra la proyección de la OP', async () => {
+    const user = userEvent.setup();
+    const running = {
+      id: 'of-running', codigo: 'OF-000020', estado: 'EN_EJECUCION', version: 7,
+      corridas: [{ id: 'run-1', codigo: 'C01', salidas: [] }],
+    };
+    listarOrdenesFabricacionScm
+      .mockResolvedValueOnce({ items: [running] })
+      .mockResolvedValueOnce({ items: [{ ...running, estado: 'CERRADA', version: 8 }] });
+    cerrarOrdenFabricacionScm.mockResolvedValue({
+      ...running,
+      estado: 'CERRADA',
+      cierre: {
+        ordenes_produccion: [{ codigo: 'OP-000010', estado: 'COMPLETADA' }],
+      },
+    });
+
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter><FabricationOrdersScm /></MemoryRouter>
+      </ThemeProvider>,
+    );
+
+    await user.type(
+      await screen.findByLabelText(/Motivo de diferencia/),
+      'Cierre conciliado del turno',
+    );
+    await user.click(screen.getByRole('button', { name: 'Cerrar OF' }));
+
+    expect(cerrarOrdenFabricacionScm).toHaveBeenCalledWith('of-running', {
+      version: 7,
+      motivo: 'Cierre conciliado del turno',
+    });
+    expect(await screen.findByText(/OP: OP-000010 COMPLETADA/)).toBeVisible();
   });
 });
