@@ -134,7 +134,9 @@ function CandidateCard({ candidate }) {
           <Typography variant="overline" color="success.dark" fontWeight={900}>Peso neto a recibir</Typography>
           <Typography variant="h4" fontWeight={900}>{measuredKg} kg NET</Typography>
           <Typography variant="body2" color="text.secondary">
-            Al confirmar: físico {measuredKg} kg · no disponible {measuredKg} kg · libre 0.000 kg · Calidad PENDIENTE.
+            {candidate.existencia?.estado_calidad === 'SIN_CONTROL'
+              ? 'Stock disponible en Producción. La recepción traslada estos kg a Almacén sin duplicarlos.'
+              : `Al confirmar: físico ${measuredKg} kg · no disponible ${measuredKg} kg · libre 0.000 kg · Calidad PENDIENTE.`}
           </Typography>
           {hasEstimate && (
             <Typography variant="body2" sx={{ mt: 0.5 }}>
@@ -404,7 +406,9 @@ export default function WarehouseReceivingScm() {
       setInteractionState(result?.idempotent_replay ? 'REPLAY' : 'EXITO');
       setNotice(result?.idempotent_replay
         ? 'Resultado recuperado: la recepción ya estaba registrada; no se creó un segundo ingreso.'
-        : 'Custodia aceptada. La manga existe en Kardex, bloqueada hasta Calidad.');
+        : result?.existencia?.estado_calidad === 'SIN_CONTROL'
+          ? 'Custodia aceptada. Los kg permanecen disponibles y se trasladaron a Almacén sin duplicarse.'
+          : 'Custodia aceptada. La manga existe en Kardex, bloqueada hasta Calidad.');
       await load();
       scanRef.current?.focus();
     } catch (requestError) {
@@ -552,7 +556,7 @@ export default function WarehouseReceivingScm() {
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       <Alert severity="info">
         Almacén no vuelve a contar ni pesar: compara la manga física con sus dos etiquetas.
-        Al recibirla nace el Kardex, pero permanece no disponible hasta la decisión de Calidad.
+        En el piloto KG, el stock está disponible desde el pesaje; recibir en Almacén traslada su ubicación. Las existencias históricas conservan su estado registrado.
       </Alert>
       <Paper variant="outlined">
         <Tabs value={tab} onChange={(_event, value) => setTab(value)} variant="scrollable">
@@ -728,9 +732,9 @@ export default function WarehouseReceivingScm() {
                     <TableCell align="right">
                       {(canQuality || canRequestReversal) && (
                         <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                          {can('CALIDAD_MANGA_LIBERAR') && item.estado_calidad !== 'LIBERADA' && <Button size="small" color="success" onClick={() => openAction('LIBERADA', item)}>Liberar</Button>}
-                          {can('CALIDAD_MANGA_BLOQUEAR') && item.estado_calidad !== 'BLOQUEADA' && <Button size="small" color="warning" onClick={() => openAction('BLOQUEADA', item)}>Bloquear</Button>}
-                          {can('CALIDAD_MANGA_RECHAZAR') && item.estado_calidad !== 'RECHAZADA' && <Button size="small" color="error" onClick={() => openAction('RECHAZADA', item)}>Rechazar</Button>}
+                          {item.estado_calidad !== 'SIN_CONTROL' && can('CALIDAD_MANGA_LIBERAR') && item.estado_calidad !== 'LIBERADA' && <Button size="small" color="success" onClick={() => openAction('LIBERADA', item)}>Liberar</Button>}
+                          {item.estado_calidad !== 'SIN_CONTROL' && can('CALIDAD_MANGA_BLOQUEAR') && item.estado_calidad !== 'BLOQUEADA' && <Button size="small" color="warning" onClick={() => openAction('BLOQUEADA', item)}>Bloquear</Button>}
+                          {item.estado_calidad !== 'SIN_CONTROL' && can('CALIDAD_MANGA_RECHAZAR') && item.estado_calidad !== 'RECHAZADA' && <Button size="small" color="error" onClick={() => openAction('RECHAZADA', item)}>Rechazar</Button>}
                           {!isKgItem(item) && canRequestReversal && item.estado_logistico === 'RECIBIDA_ALMACEN' && item.cantidad_reservada === '0.000' && (
                             <Button size="small" color="error" onClick={() => openAction('SOLICITAR_REVERSION', item)}>Solicitar reversa</Button>
                           )}

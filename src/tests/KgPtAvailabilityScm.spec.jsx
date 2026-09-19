@@ -67,3 +67,22 @@ describe('Kardex PT operativo', () => {
     expect(mocks.post.mock.calls[1][1]).not.toBe(mocks.post.mock.calls[0][1]);
   });
 });
+
+it('conserva un envío incierto si posteriormente se revoca el permiso', async () => {
+  mocks.post.mockRejectedValueOnce(new Error('Sin respuesta')).mockRejectedValueOnce({ response: { status: 403, data: { error: { code: 'FORBIDDEN' } } } });
+  render(<KgPtAvailabilityScm />);
+  await fillEntry();
+  fireEvent.click(screen.getByRole('button', { name: 'Confirmar movimiento' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Recuperar movimiento' }));
+  await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(2));
+  expect(mocks.post.mock.calls[1]).toEqual(mocks.post.mock.calls[0]);
+  expect(JSON.parse(sessionStorage.getItem('scm-pt-manual-intent:7')).sent).toBe(true);
+  expect(screen.getByLabelText(/Cantidad UN/)).toBeDisabled();
+});
+it('muestra la fecha del servidor para la consulta', async () => {
+  const asOf = '2026-09-10T15:00:00Z';
+  mocks.pieces.mockResolvedValue({ items: [], as_of: asOf });
+  render(<KgPtAvailabilityScm />);
+  const formatted = new Date(asOf).toLocaleString('es-PE', { timeZone: 'America/Lima' });
+  expect(await screen.findByText((text) => text.includes('Consultado:') && text.includes(formatted))).toBeInTheDocument();
+});

@@ -43,6 +43,7 @@ import {
   mensajeErrorScm,
 } from '../services/scmEngineeringApi';
 import PageHeader from './ui/PageHeader';
+import CloseKgControlAction from './CloseKgControlAction';
 import ProcessJourney from './ui/ProcessJourney';
 import PlantJourneysOverview from './PlantJourneysOverview';
 import { OtCreationReview, OtAnnulmentAction } from './OtHeaderSafety';
@@ -620,6 +621,8 @@ function MangaTable({
   canAnnulManga,
   canReplaceLabel,
   canViewWeighing,
+  canCloseControl,
+  onControlClosed,
   selectedLabels,
   selectedRelief,
   onToggleLabel,
@@ -734,6 +737,7 @@ function MangaTable({
                         Reemplazar etiqueta
                       </Button>
                     )}
+                    {canCloseControl && manga.unidad_inventario === 'KG' && manga.estado === 'EN_LLENADO' && manga.continuidad?.ultimo_control && <CloseKgControlAction manga={manga} onClosed={onControlClosed} />}
                     {canViewWeighing && (
                       <Button
                         size="small"
@@ -2861,6 +2865,8 @@ export default function OtMangasScm({ view = 'all' }) {
             canAnnulManga={canAnnulManga}
             canReplaceLabel={canReplaceLabel}
             canViewWeighing={canViewWeighing}
+            canCloseControl={can('MANGA_FINALIZAR_PARCIAL')}
+            onControlClosed={() => loadOts(selectedOtId, selectedWorkId)}
             selectedLabels={selectedLabels}
             selectedRelief={selectedRelief}
             onToggleLabel={(id) => setSelectedLabels((current) => (

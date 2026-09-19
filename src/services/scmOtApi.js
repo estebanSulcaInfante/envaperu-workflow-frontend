@@ -210,3 +210,8 @@ export const aprobarCorreccionPesajeScm = (
   payload,
   { headers: headers(true) },
 ));
+
+export const cerrarMangaDesdeControlScm = (mangaId, payload, operationId) => body(() => api.post(
+  `/scm/v1/mangas/${mangaId}/cerrar-desde-control`, payload,
+  { headers: { ...headers(), 'Idempotency-Key': operationId } },
+));

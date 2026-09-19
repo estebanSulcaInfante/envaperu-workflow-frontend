@@ -101,7 +101,7 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
 
   return <Stack spacing={2} aria-label="Custodia de piezas en kg">
     <Typography variant="h5" fontWeight={800}>Piezas y WIP · entradas y salidas en kg</Typography>
-    <Alert severity="info">Almacén conserva la custodia. Retirar para Armado no confirma consumo; los remanentes vuelven con peso automático y Calidad pendiente.</Alert>
+    <Alert severity="info">Almacén conserva la custodia. Retirar para Armado no confirma consumo; los remanentes vuelven con peso automático y quedan disponibles al confirmar su recepción.</Alert>
     {error && <Alert severity="error">{error}</Alert>}
     {notice && <Alert severity="success">{notice}</Alert>}
     {pending && <Alert severity="warning" action={<Button disabled={busy || readOnly} onClick={() => execute(null, null, null, true)}>Recuperar operación</Button>}>
@@ -118,7 +118,7 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
         <Typography variant="h5">{unit.kg_verificados == null ? 'Peso pendiente de verificación' : `${unit.kg_verificados} kg — última verificación`}</Typography>
         {['RECIBIDA_ALMACEN', 'ALMACENADA_CONTROLADA'].includes(state) && allowed('PICKING_PREPARAR') && <>
           <TextField label="Motivo y destino de uso en Armado" value={reason} disabled={locked} onChange={(e) => setReason(e.target.value)} />
-          <Button disabled={locked || !reason.trim() || unit.estado_calidad !== 'LIBERADA'} onClick={reserve}>Reservar para Armado</Button>
+          <Button disabled={locked || !reason.trim() || !['LIBERADA', 'SIN_CONTROL'].includes(unit.estado_calidad)} onClick={reserve}>Reservar para Armado</Button>
         </>}
         {state === 'RESERVADA' && <Stack direction="row" spacing={2}>
           {allowed('PICKING_DESPACHAR') && <Button variant="contained" disabled={locked} onClick={() => execute(`${unitPath}/retiro`, { version: unit.version }, 'Retiro registrado. Material junto a Armado, pendiente de conciliación.')}>Confirmar retiro físico a Armado</Button>}
@@ -136,7 +136,7 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
           </TextField>
           <Button variant="contained" disabled={locked || !destination} onClick={() => execute(`${unitPath}/retorno/recibir`, {
             version: unit.version, measurement_id: measurement.id, ubicacion_codigo: destination,
-          }, 'Retorno ingresado en kg. Queda pendiente de Calidad antes de estar disponible.')}>Recibir {measurement.neto_kg} kg medidos</Button>
+          }, 'Retorno ingresado en kg y disponible, sin liberación de Calidad.')}>Recibir {measurement.neto_kg} kg medidos</Button>
         </>}
         {unit.estado === 'ACTIVA' && unit.intencion === 'PERMANECE' && allowed('RETORNO_RECIBIR') && <>
           <Alert severity="info">Esta parte permanece en custodia sin peso verificado. Prepare su retorno cuando esté físicamente disponible y pésela en la estación.</Alert>

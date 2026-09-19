@@ -457,7 +457,7 @@ export default function FabricationOrdersScm() {
         {selected.cierre_kg && <Alert severity="info">
           Cierre documental: {selected.cierre_kg.kg_medido} kg pesados directamente.
           {selected.cierre_kg.kg_fabricacion_estimado != null && ` Aporte de fabricación estimado: ${selected.cierre_kg.kg_fabricacion_estimado} kg.`}
-          {' '}El ingreso al inventario se confirma en Almacén; medición y estimación no se suman como stock.
+          {' '}El stock medido del piloto está disponible desde el pesaje; medición y estimación no se suman como stock.
         </Alert>}
         {selected.estado === 'BORRADOR' ? (
           <Alert severity="warning">

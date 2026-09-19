@@ -26,7 +26,7 @@ function KgRows({ items }) {
       <TableCell><Typography fontWeight={700}>{item.articulo.codigo}</Typography><Typography variant="caption" color="text.secondary">{item.articulo.nombre}</Typography></TableCell>
       <TableCell><Chip size="small" label={item.estado_produccion === 'EN_PROCESO' ? 'En proceso' : item.estado_produccion === 'MIXTA' ? 'Mixta' : 'Terminada'} color={item.estado_produccion === 'EN_PROCESO' ? 'warning' : item.estado_produccion === 'MIXTA' ? 'default' : 'success'} /></TableCell>
       <TableCell>{location.nombre}<Typography variant="caption" display="block" color="text.secondary">{location.codigo}</Typography></TableCell>
-      <TableCell align="right">{location.kg_medidos} KG</TableCell><TableCell align="right">{location.kg_comprometidos} KG</TableCell><TableCell align="right">{location.kg_retirados || "0.000"} KG</TableCell><TableCell align="right"><Chip size="small" color="success" label={`${location.kg_disponibles} KG`} /></TableCell>
+      <TableCell align="right">{location.kg_medidos} KG</TableCell><TableCell align="right">{location.kg_comprometidos} KG</TableCell><TableCell align="right">{location.kg_retirados ?? "—"} KG</TableCell><TableCell align="right"><Chip size="small" color="success" label={`${location.kg_disponibles} KG`} /></TableCell>
     </TableRow>))}</TableBody>
   </Table></TableContainer>;
 }
@@ -36,10 +36,10 @@ function PtRows({ items }) {
   return <TableContainer><Table size="small" aria-label="Disponibilidad por producto terminado">
     <TableHead><TableRow><TableCell>PT</TableCell><TableCell align="right">Kardex manual</TableCell><TableCell>Potencial según BOM</TableCell><TableCell>Componentes y faltantes</TableCell></TableRow></TableHead>
     <TableBody>{items.map((item) => <TableRow key={item.pt.id}>
-      <TableCell><Typography fontWeight={700}>{item.pt.codigo}</Typography><Typography variant="caption" color="text.secondary">{item.pt.nombre}</Typography></TableCell>
+      <TableCell><Typography fontWeight={700}>{item.pt.codigo}</Typography><Typography variant="caption" color="text.secondary">{item.pt.nombre}</Typography>{item.revision_bom && <Typography variant="caption" display="block">BOM revisión {item.revision_bom.numero}</Typography>}</TableCell>
       <TableCell align="right">{item.saldo_manual_un} UN</TableCell>
       <TableCell>{item.potencial_estado === 'CALCULABLE' ? `${item.potencial_un_estimado} UN estimadas` : <Chip size="small" label="No calculable" color="warning" />}</TableCell>
-      <TableCell>{item.componentes.length ? item.componentes.map((component) => <Typography variant="caption" display="block" key={component.articulo.id}>{component.articulo.codigo}: {component.kg_disponibles} KG {component.estado === 'NO_CALCULABLE' ? '· sin referencia de peso' : component.es_limitante ? '· limitante' : ''} · saldo compartido no sumable</Typography>) : 'Sin BOM aprobada'}</TableCell>
+      <TableCell>{item.componentes.length ? item.componentes.map((component) => <Typography variant="caption" display="block" key={component.articulo.id}>{component.articulo.codigo}: {component.kg_disponibles} KG {component.estado === 'NO_CALCULABLE' ? '· sin referencia de peso' : component.es_limitante ? '· limitante' : ''}{component.faltante_kg != null ? ` · faltante ${component.faltante_kg} KG` : ''} · saldo compartido no sumable</Typography>) : 'Sin BOM aprobada'}</TableCell>
     </TableRow>)}</TableBody>
   </Table></TableContainer>;
 }
@@ -95,7 +95,7 @@ export default function KgPtAvailabilityScm() {
       ]);
       if (requestSequence !== sequence.current) return false;
       setPieces(kgPayload); setPt(ptPayload); setManual(manualPayload); setWarehouses(warehousePayload);
-      setConsultedAt(new Date()); setState('ready');
+      setConsultedAt(kgPayload.as_of ? new Date(kgPayload.as_of) : null); setState('ready');
       return true;
     } catch {
       if (requestSequence === sequence.current) setState('error');
@@ -130,8 +130,9 @@ export default function KgPtAvailabilityScm() {
     const requestedActor = actorId;
     flight.current = true; setBusy(true); setError(''); setNotice('');
     try {
-      sessionStorage.setItem(storageKey, JSON.stringify(intent));
-      setPending(intent); setConfirmation(null);
+      const sentIntent = { ...intent, sent: true };
+      sessionStorage.setItem(storageKey, JSON.stringify(sentIntent));
+      setPending(sentIntent); setConfirmation(null);
       await registrarMovimientoPtManual(intent.payload, intent.key);
       sessionStorage.removeItem(storageKey);
       if (activeActor.current !== requestedActor) return;
@@ -143,7 +144,7 @@ export default function KgPtAvailabilityScm() {
       const status = requestError.response?.status;
       const code = requestError.response?.data?.error?.code;
       const definitive = status >= 400 && status < 500 && ![408, 429].includes(status) && code !== 'IDEMPOTENCY_OPERATION_INCOMPLETE';
-      if (definitive) {
+      if (definitive && !intent.sent) {
         sessionStorage.removeItem(storageKey); setPending(null);
         await refresh();
         setError(requestError.response?.data?.error?.message || 'El movimiento fue rechazado. Revisa el saldo actualizado y corrige los datos.');
