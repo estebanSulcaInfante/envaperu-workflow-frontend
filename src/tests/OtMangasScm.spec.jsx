@@ -27,6 +27,8 @@ const scmMocks = vi.hoisted(() => ({
   solicitarMangaExtraScm: vi.fn(),
   aprobarMangaExtraScm: vi.fn(),
   obtenerPesajeMangaScm: vi.fn(),
+  previsualizarCorreccionAsignacionMangaScm: vi.fn(),
+  corregirAsignacionTrabajoMangaScm: vi.fn(),
   anularPesajeScm: vi.fn(),
   reabrirMangaScm: vi.fn(),
 }));
@@ -73,6 +75,9 @@ vi.mock('../services/scmOtApi', () => ({
   listarSolicitudesMangaExtraScm: scmMocks.listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm: scmMocks.listarOrdenesFabricacionScm,
   obtenerPesajeMangaScm: scmMocks.obtenerPesajeMangaScm,
+  previsualizarCorreccionAsignacionMangaScm:
+    scmMocks.previsualizarCorreccionAsignacionMangaScm,
+  corregirAsignacionTrabajoMangaScm: scmMocks.corregirAsignacionTrabajoMangaScm,
   obtenerPlanMangas: scmMocks.obtenerPlanMangas,
   recalcularPlanMangas: scmMocks.recalcularPlanMangas,
   reabrirMangaScm: scmMocks.reabrirMangaScm,
@@ -128,6 +133,7 @@ const weighedManga = {
   color: 'VERDE SÓLIDO',
   tipo: 'NORMAL',
   cantidad_asignada_un: '100',
+  unidad_inventario: 'KG',
   estado: 'PENDIENTE_RECEPCION_ALMACEN',
   etiqueta_vigente: { public_id: 'label-1', estado: 'IMPRESA' },
 };
@@ -272,6 +278,22 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     });
     scmMocks.aprobarMangaExtraScm.mockResolvedValue({ mangas: [greenManga] });
     scmMocks.obtenerPesajeMangaScm.mockResolvedValue(weighingDetail);
+    scmMocks.previsualizarCorreccionAsignacionMangaScm.mockResolvedValue({
+      manga: { codigo: 'MNG-PESADA-001' },
+      origen: { ot_codigo: 'OT-000001', trabajo_codigo: 'OT-000001-TC01' },
+      destino: { ot_codigo: 'OT-000001', trabajo_codigo: 'OT-000001-TC02' },
+      kg_referencia: '10.000',
+      kg_fuente: 'PESAJE_FINAL',
+      puede_aplicar: true,
+      compatibilidad: [],
+      bloqueos: [],
+      verificaciones: [{
+        campo: 'maquina_id', etiqueta: 'Máquina', origen: 4, destino: 4, coincide: true,
+      }],
+    });
+    scmMocks.corregirAsignacionTrabajoMangaScm.mockResolvedValue({
+      correccion: { id: 'corr-audit-001' },
+    });
     scmMocks.anularPesajeScm.mockResolvedValue({
       manga: { estado: 'ANULADA' },
       plan: { cantidad_devuelta_un: '100' },
@@ -1242,6 +1264,190 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       },
     ));
     expect(await screen.findByText(/los QR quedaron invalidados/i)).toBeVisible();
+  });
+
+  it('ofrece corrección auditada para una manga con pesaje final', async () => {
+    const user = userEvent.setup();
+    renderSubject();
+
+    await user.click(await screen.findByRole('button', {
+      name: 'Ver pesaje de MNG-PESADA-001',
+    }));
+
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Pesaje de MNG-PESADA-001',
+    });
+    expect(within(dialog).getByText('Corregir OT / Trabajo de color')).toBeVisible();
+    expect(within(dialog).getByText(/conserva manga, QR, pesajes y saldo KG/i)).toBeVisible();
+  });
+
+  it('no ofrece reatribución del piloto para una manga UN', async () => {
+    const user = userEvent.setup();
+    const unManga = { ...weighedManga, unidad_inventario: 'UN' };
+    scmMocks.listarOtScm.mockResolvedValue({
+      items: [{
+        ...machineOt,
+        trabajos_color: [{ ...greenWork, mangas: [greenManga, unManga] }, blueWork],
+        mangas: [greenManga, unManga, blueManga],
+      }],
+    });
+    renderSubject();
+
+    await user.click(await screen.findByRole('button', {
+      name: 'Ver pesaje de MNG-PESADA-001',
+    }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Pesaje de MNG-PESADA-001',
+    });
+
+    expect(within(dialog).queryByText('Corregir OT / Trabajo de color')).toBeNull();
+  });
+
+  it('muestra la evidencia previa y el ID auditable con instrucción de rótulo', async () => {
+    const user = userEvent.setup();
+    renderSubject();
+    await user.click(await screen.findByRole('button', {
+      name: 'Ver pesaje de MNG-PESADA-001',
+    }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Pesaje de MNG-PESADA-001',
+    });
+
+    await user.click(within(dialog).getByLabelText('Trabajo destino'));
+    await user.click(await screen.findByRole('option', { name: /OT-000001-TC02.*AZUL/i }));
+    await user.click(within(dialog).getByLabelText('Asignación destino'));
+    await user.click(await screen.findByRole('option', { name: /Ana Maquinista.*PREVISTA/i }));
+    await user.click(within(dialog).getByRole('button', {
+      name: 'Revisar compatibilidad y bloqueos',
+    }));
+
+    expect(await within(dialog).findByText(/Manga\/QR: MNG-PESADA-001.*KG: 10.000/i)).toBeVisible();
+    expect(within(dialog).getByRole('table', {
+      name: 'Verificaciones de compatibilidad',
+    })).toHaveTextContent('PASS');
+    const correctionPanel = within(dialog).getByText('Corregir OT / Trabajo de color')
+      .closest('.MuiPaper-root');
+    await user.type(within(correctionPanel).getByLabelText('Motivo obligatorio'), 'OT elegida por error');
+    await user.click(within(dialog).getByRole('button', {
+      name: 'Confirmar corrección auditada',
+    }));
+
+    expect(await screen.findByText(/Corrección corr-audit-001 aplicada/i)).toBeVisible();
+    expect(screen.getByText(/no continúes con el rótulo anterior/i)).toBeVisible();
+  });
+
+  it('conserva el éxito si falla la recarga posterior al comando aplicado', async () => {
+    const user = userEvent.setup();
+    scmMocks.listarOtScm.mockImplementation(() => (
+      scmMocks.corregirAsignacionTrabajoMangaScm.mock.calls.length
+        ? Promise.reject(new Error('recarga indisponible'))
+        : Promise.resolve({ items: [machineOt] })
+    ));
+    renderSubject();
+    await user.click(await screen.findByRole('button', {
+      name: 'Ver pesaje de MNG-PESADA-001',
+    }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Pesaje de MNG-PESADA-001',
+    });
+    await user.click(within(dialog).getByLabelText('Trabajo destino'));
+    await user.click(await screen.findByRole('option', { name: /OT-000001-TC02.*AZUL/i }));
+    await user.click(within(dialog).getByLabelText('Asignación destino'));
+    await user.click(await screen.findByRole('option', { name: /Ana Maquinista.*PREVISTA/i }));
+    await user.click(within(dialog).getByRole('button', {
+      name: 'Revisar compatibilidad y bloqueos',
+    }));
+    const correctionPanel = within(dialog).getByText('Corregir OT / Trabajo de color')
+      .closest('.MuiPaper-root');
+    await user.type(
+      within(correctionPanel).getByLabelText('Motivo obligatorio'),
+      'OT elegida por error',
+    );
+    await user.click(within(dialog).getByRole('button', {
+      name: 'Confirmar corrección auditada',
+    }));
+
+    expect(await screen.findByText(/Corrección corr-audit-001 aplicada/i)).toBeVisible();
+    expect(screen.getByText(/vista quedó pendiente de actualizar/i)).toBeVisible();
+    expect(screen.queryByText(/No se pudo aplicar la corrección/i)).toBeNull();
+  });
+
+  it('recarga la versión e invalida el preview ante conflicto concurrente', async () => {
+    const user = userEvent.setup();
+    scmMocks.obtenerPesajeMangaScm
+      .mockResolvedValueOnce(weighingDetail)
+      .mockResolvedValueOnce({ ...weighingDetail, manga_version: 8 });
+    scmMocks.corregirAsignacionTrabajoMangaScm.mockRejectedValue({
+      response: { status: 409, data: { error: { code: 'VERSION_CONFLICT' } } },
+    });
+    renderSubject();
+    await user.click(await screen.findByRole('button', {
+      name: 'Ver pesaje de MNG-PESADA-001',
+    }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Pesaje de MNG-PESADA-001',
+    });
+    await user.click(within(dialog).getByLabelText('Trabajo destino'));
+    await user.click(await screen.findByRole('option', { name: /OT-000001-TC02.*AZUL/i }));
+    await user.click(within(dialog).getByLabelText('Asignación destino'));
+    await user.click(await screen.findByRole('option', { name: /Ana Maquinista.*PREVISTA/i }));
+    await user.click(within(dialog).getByRole('button', {
+      name: 'Revisar compatibilidad y bloqueos',
+    }));
+    const correctionPanel = within(dialog).getByText('Corregir OT / Trabajo de color')
+      .closest('.MuiPaper-root');
+    await user.type(within(correctionPanel).getByLabelText('Motivo obligatorio'), 'Conflicto esperado');
+    await user.click(within(correctionPanel).getByRole('button', {
+      name: 'Confirmar corrección auditada',
+    }));
+
+    expect(await screen.findByText(/recargamos su versión/i)).toBeVisible();
+    expect(scmMocks.obtenerPesajeMangaScm).toHaveBeenCalledTimes(2);
+    expect(within(correctionPanel).queryByText(/Compatible: confirma/i)).toBeNull();
+    expect(within(correctionPanel).getByRole('button', {
+      name: 'Confirmar corrección auditada',
+    })).toBeDisabled();
+  });
+
+  it('ofrece corrección auditada después del primer control sin exigir cierre final', async () => {
+    const user = userEvent.setup();
+    const controlledManga = {
+      ...greenManga,
+      estado: 'EN_LLENADO',
+      unidad_inventario: 'KG',
+      continuidad: {
+        ultimo_control: { peso_neto_kg: '3.250' },
+      },
+    };
+    const controlledWork = { ...greenWork, mangas: [controlledManga, weighedManga] };
+    scmMocks.listarOtScm.mockResolvedValue({
+      items: [{
+        ...machineOt,
+        trabajos_color: [controlledWork, blueWork],
+        mangas: [controlledManga, weighedManga, blueManga],
+      }],
+    });
+    scmMocks.obtenerPesajeMangaScm.mockResolvedValue({
+      manga_version: 4,
+      estado_manga: 'EN_LLENADO',
+      original: null,
+      vigente: null,
+      anulacion: null,
+      correcciones: [],
+    });
+    renderSubject();
+
+    const openButton = await screen.findByRole('button', {
+      name: 'Ver pesaje de MNG-VERDE-001',
+    });
+    expect(openButton).toBeEnabled();
+    await user.click(openButton);
+
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Pesaje de MNG-VERDE-001',
+    });
+    expect(within(dialog).getByText(/manga abierta con control vigente de 3.250 kg/i)).toBeVisible();
+    expect(within(dialog).getByText('Corregir OT / Trabajo de color')).toBeVisible();
   });
 
   it('reabre para continuar llenado conservando identidad, historial y línea base', async () => {

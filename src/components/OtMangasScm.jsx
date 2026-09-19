@@ -30,6 +30,8 @@ import {
   listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm,
   obtenerPesajeMangaScm,
+  previsualizarCorreccionAsignacionMangaScm,
+  corregirAsignacionTrabajoMangaScm,
   obtenerPlanMangas,
   recalcularPlanMangas,
   reabrirMangaScm,
@@ -621,6 +623,7 @@ function MangaTable({
   canAnnulManga,
   canReplaceLabel,
   canViewWeighing,
+  canReattributeManga,
   canCloseControl,
   onControlClosed,
   selectedLabels,
@@ -743,10 +746,13 @@ function MangaTable({
                         size="small"
                         aria-label={`Ver pesaje de ${manga.codigo}`}
                         disabled={
-                          weighingBusy || ![
-                            'PESADA', 'ETIQUETADA_FINAL', 'PENDIENTE_RECEPCION_ALMACEN',
-                            'ANULADA',
-                          ].includes(manga.estado)
+                          weighingBusy || !(
+                            [
+                              'PESADA', 'ETIQUETADA_FINAL', 'PENDIENTE_RECEPCION_ALMACEN',
+                              'ANULADA',
+                            ].includes(manga.estado)
+                            || (canReattributeManga && manga.continuidad?.ultimo_control)
+                          )
                         }
                         onClick={() => onWeighing(manga)}
                       >
@@ -791,12 +797,14 @@ export default function OtMangasScm({ view = 'all' }) {
   const canApproveCorrection = can('PESAJE_CORRECCION_APROBAR');
   const canAnnulWeighing = can('ANULAR_PESAJE');
   const canReopenManga = can('MANGA_REABRIR');
+  const canReattributeManga = can('MANGA_REATRIBUIR_TRABAJO');
   const hasOperationalActions = canAny([
     'PLAN_MANGA_ADMINISTRAR', 'OT_CREAR', 'OT_INICIAR', 'OT_CERRAR',
     'MANGA_PLANIFICAR', 'MANGA_EXTRA_SOLICITAR', 'MANGA_EXTRA_APROBAR',
     'MANGA_ETIQUETA_PRE_GENERAR', 'MANGA_ANULAR',
     'MANGA_ETIQUETA_REEMPLAZAR_APROBAR', 'PESAJE_CORRECCION_SOLICITAR',
     'PESAJE_CORRECCION_APROBAR', 'ANULAR_PESAJE', 'MANGA_REABRIR',
+    'MANGA_REATRIBUIR_TRABAJO',
   ]);
 
   const [catalogs, setCatalogs] = useState({
@@ -878,6 +886,10 @@ export default function OtMangasScm({ view = 'all' }) {
   const [reopeningForm, setReopeningForm] = useState({
     tipo_reapertura: '', motivo: '', evidencia: '',
   });
+  const [assignmentCorrectionForm, setAssignmentCorrectionForm] = useState({
+    destinoTrabajoId: '', destinoAsignacionId: '', motivo: '', operationId: '',
+  });
+  const [assignmentCorrectionPreview, setAssignmentCorrectionPreview] = useState(null);
 
   const selectedOt = useMemo(
     () => {
@@ -905,6 +917,7 @@ export default function OtMangasScm({ view = 'all' }) {
     () => works.find((item) => item.id === selectedWorkId) || null,
     [works, selectedWorkId],
   );
+  const [assignmentCorrectionTargets, setAssignmentCorrectionTargets] = useState([]);
   const selectedOrder = useMemo(
     () => catalogs.orders.find((item) => item.id === workForm.orderId) || null,
     [catalogs.orders, workForm.orderId],
@@ -1777,7 +1790,30 @@ export default function OtMangasScm({ view = 'all' }) {
     setWeighingBusy(true);
     setError('');
     try {
-      const detail = await obtenerPesajeMangaScm(manga.public_id);
+      const [detailResult, targetsResult] = await Promise.allSettled([
+        obtenerPesajeMangaScm(manga.public_id),
+        canReattributeManga
+          ? listarOtScm(
+            selectedWork?.orden_fabricacion_id,
+            'FABRICACION',
+            { maquina_id: selectedOt?.maquina_id },
+          )
+          : Promise.resolve({ items: [] }),
+      ]);
+      if (detailResult.status === 'rejected') throw detailResult.reason;
+      const detail = detailResult.value;
+      const targetPayload = targetsResult.status === 'fulfilled'
+        ? targetsResult.value
+        : { items: [] };
+      setAssignmentCorrectionTargets((targetPayload.items || []).flatMap(
+        (ot) => (ot.trabajos_color || [])
+          .filter((work) => ['PLANIFICADO', 'EN_EJECUCION', 'PAUSADO'].includes(work.estado))
+          .map((work) => ({
+            ...work,
+            otCodigo: ot.codigo_ot || ot.codigo,
+            otId: ot.public_id,
+          })),
+      ));
       setWeighingDialog({ manga, detail });
       setCorrectionForm({
         peso_bruto_kg: detail.vigente?.peso_bruto_kg || '',
@@ -1787,8 +1823,91 @@ export default function OtMangasScm({ view = 'all' }) {
       });
       setAnnulmentForm({ motivo: '', evidencia: '' });
       setReopeningForm({ tipo_reapertura: '', motivo: '', evidencia: '' });
+      setAssignmentCorrectionForm({
+        destinoTrabajoId: '', destinoAsignacionId: '', motivo: '', operationId: '',
+      });
+      setAssignmentCorrectionPreview(null);
+      if (canReattributeManga && targetsResult.status === 'rejected') {
+        setNotice('Se abrió la manga, pero no se pudieron cargar los Trabajos destino. Reintenta al volver a abrirla.');
+      }
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo consultar el pesaje.'));
+    } finally {
+      setWeighingBusy(false);
+    }
+  };
+
+  const previewAssignmentCorrection = async () => {
+    if (!weighingDialog?.manga?.public_id || !assignmentCorrectionForm.destinoTrabajoId) {
+      setError('Selecciona el Trabajo destino para revisar compatibilidad.');
+      return;
+    }
+    setWeighingBusy(true);
+    setError('');
+    try {
+      const result = await previsualizarCorreccionAsignacionMangaScm(
+        weighingDialog.manga.public_id,
+        assignmentCorrectionForm.destinoTrabajoId,
+        assignmentCorrectionForm.destinoAsignacionId || undefined,
+      );
+      setAssignmentCorrectionPreview(result);
+    } catch (requestError) {
+      setError(mensajeErrorScm(requestError, 'No se pudo revisar la compatibilidad.'));
+      setAssignmentCorrectionPreview(null);
+    } finally {
+      setWeighingBusy(false);
+    }
+  };
+
+  const applyAssignmentCorrection = async () => {
+    if (!weighingDialog?.manga?.public_id || !assignmentCorrectionPreview?.puede_aplicar
+      || !assignmentCorrectionForm.destinoAsignacionId || !assignmentCorrectionForm.motivo.trim()) {
+      setError('Confirma compatibilidad, asignación destino y motivo.');
+      return;
+    }
+    setWeighingBusy(true);
+    setError('');
+    const operationId = assignmentCorrectionForm.operationId || crypto.randomUUID();
+    setAssignmentCorrectionForm((current) => ({ ...current, operationId }));
+    try {
+      const result = await corregirAsignacionTrabajoMangaScm(weighingDialog.manga.public_id, {
+        destino_trabajo_ot_id: assignmentCorrectionForm.destinoTrabajoId,
+        destino_asignacion_id: assignmentCorrectionForm.destinoAsignacionId,
+        version: weighingDialog.detail.manga_version,
+        motivo: assignmentCorrectionForm.motivo.trim(),
+      }, operationId);
+      setWeighingDialog(null);
+      setAssignmentCorrectionPreview(null);
+      setNotice(
+        `Corrección ${result.correccion.id} aplicada. Se conservaron manga, QR, pesajes y saldo KG. No continúes con el rótulo anterior; coordina su actualización según el procedimiento del piloto.`,
+      );
+      try {
+        await loadOts(selectedOt?.public_id, selectedWork?.id);
+      } catch {
+        setNotice(
+          `Corrección ${result.correccion.id} aplicada. La vista quedó pendiente de actualizar; usa Recargar y no continúes con el rótulo anterior hasta coordinar su actualización.`,
+        );
+      }
+    } catch (requestError) {
+      const status = requestError?.response?.status;
+      const code = requestError?.response?.data?.error?.code;
+      if (status === 409 && code === 'VERSION_CONFLICT') {
+        try {
+          const detail = await obtenerPesajeMangaScm(weighingDialog.manga.public_id);
+          setWeighingDialog((current) => (current ? { ...current, detail } : current));
+        } catch {
+          // El mensaje conserva la instrucción de recargar aunque falle esta recuperación.
+        }
+        setAssignmentCorrectionPreview(null);
+        setAssignmentCorrectionForm((current) => ({ ...current, operationId: '' }));
+        setError('La manga cambió mientras confirmabas. Recargamos su versión; revisa otra vez la compatibilidad antes de aplicar.');
+      } else {
+        if (status >= 400 && status < 500 && ![408, 429].includes(status)) {
+          setAssignmentCorrectionPreview(null);
+          setAssignmentCorrectionForm((current) => ({ ...current, operationId: '' }));
+        }
+        setError(mensajeErrorScm(requestError, 'No se pudo aplicar la corrección. Revisa el conflicto y vuelve a previsualizar.'));
+      }
     } finally {
       setWeighingBusy(false);
     }
@@ -2865,6 +2984,7 @@ export default function OtMangasScm({ view = 'all' }) {
             canAnnulManga={canAnnulManga}
             canReplaceLabel={canReplaceLabel}
             canViewWeighing={canViewWeighing}
+            canReattributeManga={canReattributeManga}
             canCloseControl={can('MANGA_FINALIZAR_PARCIAL')}
             onControlClosed={() => loadOts(selectedOtId, selectedWorkId)}
             selectedLabels={selectedLabels}
@@ -3034,7 +3154,7 @@ export default function OtMangasScm({ view = 'all' }) {
         <DialogTitle>Pesaje de {weighingDialog?.manga?.codigo}</DialogTitle>
         <DialogContent>
           {weighingBusy && <CircularProgress size={24} />}
-          {weighingDialog?.detail?.original && (
+          {weighingDialog?.detail && (
             <Stack spacing={2} sx={{ pt: 1 }}>
               {weighingDialog.detail.anulacion && (
                 <Alert severity="warning">
@@ -3046,9 +3166,200 @@ export default function OtMangasScm({ view = 'all' }) {
                   Cierre reabierto: {weighingDialog.detail.reapertura.motivo}. La manga conserva su QR.
                 </Alert>
               )}
-              <Alert severity="info">
-                El original es inmutable. Una corrección aprobada crea una proyección vigente y otra etiqueta final.
-              </Alert>
+              {weighingDialog.detail.original && (
+                <Alert severity="info">
+                  El original es inmutable. Una corrección aprobada crea una proyección vigente y otra etiqueta final.
+                </Alert>
+              )}
+              {!weighingDialog.detail.original && weighingDialog.manga.continuidad?.ultimo_control && (
+                <Alert severity="info">
+                  Manga abierta con control vigente de{' '}
+                  {weighingDialog.manga.continuidad.ultimo_control.peso_neto_kg} kg.
+                  La corrección conserva este control y el mismo QR.
+                </Alert>
+              )}
+              {weighingDialog.detail.correccion_asignacion && (
+                <Alert severity="success">
+                  <Stack spacing={0.4}>
+                    <Typography variant="body2" fontWeight={850}>
+                      Corrección auditada {weighingDialog.detail.correccion_asignacion.id} ya aplicada
+                    </Typography>
+                    <Typography variant="body2">
+                      {weighingDialog.detail.correccion_asignacion.origen?.trabajo_codigo || 'Origen sin código'}
+                      {' → '}
+                      {weighingDialog.detail.correccion_asignacion.destino?.trabajo_codigo || 'Destino sin código'}
+                    </Typography>
+                    <Typography variant="body2">
+                      Motivo: {weighingDialog.detail.correccion_asignacion.motivo}
+                      {' · '}Actor: {weighingDialog.detail.correccion_asignacion.actor_id}
+                    </Typography>
+                    <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>
+                      Operación: {weighingDialog.detail.correccion_asignacion.operation_id}
+                    </Typography>
+                    <Typography variant="body2">
+                      Para el piloto esta manga admite una sola corrección de OT/Trabajo.
+                    </Typography>
+                  </Stack>
+                </Alert>
+              )}
+              {canReattributeManga
+                && weighingDialog.manga.unidad_inventario === 'KG'
+                && (weighingDialog.detail.vigente
+                  || weighingDialog.manga.continuidad?.ultimo_control)
+                && !weighingDialog.detail.correccion_asignacion
+                && !weighingDialog.detail.anulacion && (
+                <Paper variant="outlined" sx={{ p: 1.5, borderColor: 'warning.main' }}>
+                  <Stack spacing={1}>
+                    <Typography fontWeight={850} color="warning.dark">
+                      Corregir OT / Trabajo de color
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Conserva manga, QR, pesajes y saldo KG. Solo se permite una OT/Trabajo
+                      compatible y se bloquea si ya hubo recepción, reserva, retiro, retorno,
+                      división o movimiento posterior.
+                    </Typography>
+                    <FormControl fullWidth size="small">
+                      <InputLabel id="assignment-correction-target-label">Trabajo destino</InputLabel>
+                      <Select
+                        labelId="assignment-correction-target-label"
+                        label="Trabajo destino"
+                        value={assignmentCorrectionForm.destinoTrabajoId}
+                        onChange={(event) => {
+                          setAssignmentCorrectionForm((current) => ({
+                            ...current,
+                            destinoTrabajoId: event.target.value,
+                            destinoAsignacionId: '',
+                            operationId: '',
+                          }));
+                          setAssignmentCorrectionPreview(null);
+                        }}
+                      >
+                        <MenuItem value=""><em>Seleccionar</em></MenuItem>
+                        {assignmentCorrectionTargets
+                          .filter((work) => work.id !== weighingDialog.manga.trabajo_color_actual_id)
+                          .map((work) => (
+                            <MenuItem key={work.id} value={work.id}>
+                              {work.otCodigo || 'OT'} · {work.codigo} · {work.color_nombre || work.color || 'color'}
+                            </MenuItem>
+                          ))}
+                      </Select>
+                    </FormControl>
+                    {assignmentCorrectionForm.destinoTrabajoId && (
+                      <FormControl fullWidth size="small">
+                        <InputLabel id="assignment-correction-assignment-label">Asignación destino</InputLabel>
+                        <Select
+                          labelId="assignment-correction-assignment-label"
+                          label="Asignación destino"
+                          value={assignmentCorrectionForm.destinoAsignacionId}
+                          onChange={(event) => {
+                            setAssignmentCorrectionForm((current) => ({
+                              ...current, destinoAsignacionId: event.target.value, operationId: '',
+                            }));
+                            setAssignmentCorrectionPreview(null);
+                          }}
+                        >
+                          <MenuItem value=""><em>Seleccionar</em></MenuItem>
+                          {(assignmentCorrectionTargets.find(
+                            (work) => work.id === assignmentCorrectionForm.destinoTrabajoId,
+                          )?.asignaciones_personal || []).filter(
+                            (assignment) => ['ACTIVA', 'PREVISTA'].includes(assignment.estado),
+                          ).map((assignment) => (
+                            <MenuItem key={assignment.id} value={assignment.id}>
+                              {assignment.trabajador || `Trabajador #${assignment.trabajador_id}`} · {assignment.estado}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    )}
+                    <Button
+                      variant="outlined"
+                      disabled={weighingBusy || !assignmentCorrectionForm.destinoTrabajoId}
+                      onClick={previewAssignmentCorrection}
+                    >
+                      Revisar compatibilidad y bloqueos
+                    </Button>
+                    {assignmentCorrectionPreview && (
+                      <Stack spacing={1}>
+                        <Alert severity={assignmentCorrectionPreview.puede_aplicar ? 'success' : 'warning'}>
+                          <Typography variant="body2" fontWeight={800}>
+                            {assignmentCorrectionPreview.puede_aplicar
+                              ? 'Compatible: confirma el motivo para aplicar la corrección.'
+                              : `Bloqueada: ${[
+                                ...(assignmentCorrectionPreview.compatibilidad || []),
+                                ...(assignmentCorrectionPreview.bloqueos || []),
+                              ].map((item) => item.message).join(' ')}`}
+                          </Typography>
+                          {!assignmentCorrectionPreview.puede_aplicar && [
+                            ...(assignmentCorrectionPreview.compatibilidad || []),
+                            ...(assignmentCorrectionPreview.bloqueos || []),
+                          ].some((item) => item.recovery) && (
+                            <Typography variant="body2">
+                              Cómo resolver: {[
+                                ...(assignmentCorrectionPreview.compatibilidad || []),
+                                ...(assignmentCorrectionPreview.bloqueos || []),
+                              ].map((item) => item.recovery).filter(Boolean).join(' ')}
+                            </Typography>
+                          )}
+                          <Typography variant="body2">
+                            Manga/QR: {assignmentCorrectionPreview.manga.codigo}
+                            {' · '}KG: {assignmentCorrectionPreview.kg_referencia || 'sin lectura'}
+                            {assignmentCorrectionPreview.kg_fuente
+                              ? ` (${assignmentCorrectionPreview.kg_fuente})` : ''}
+                          </Typography>
+                          <Typography variant="body2">
+                            Origen: {assignmentCorrectionPreview.origen.ot_codigo}
+                            {' / '}{assignmentCorrectionPreview.origen.trabajo_codigo}
+                          </Typography>
+                          <Typography variant="body2">
+                            Destino: {assignmentCorrectionPreview.destino.ot_codigo}
+                            {' / '}{assignmentCorrectionPreview.destino.trabajo_codigo}
+                          </Typography>
+                        </Alert>
+                        <TableContainer component={Paper} variant="outlined">
+                          <Table size="small" aria-label="Verificaciones de compatibilidad">
+                            <TableHead><TableRow>
+                              <TableCell>Verificación</TableCell>
+                              <TableCell>Origen</TableCell>
+                              <TableCell>Destino</TableCell>
+                              <TableCell>Resultado</TableCell>
+                            </TableRow></TableHead>
+                            <TableBody>
+                              {(assignmentCorrectionPreview.verificaciones || []).map((check) => (
+                                <TableRow key={check.campo}>
+                                  <TableCell>{check.etiqueta}</TableCell>
+                                  <TableCell>{check.origen ?? '—'}</TableCell>
+                                  <TableCell>{check.destino ?? '—'}</TableCell>
+                                  <TableCell>{check.coincide ? 'PASS' : 'FAIL'}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      </Stack>
+                    )}
+                    <TextField
+                      label="Motivo obligatorio"
+                      multiline
+                      minRows={2}
+                      value={assignmentCorrectionForm.motivo}
+                      onChange={(event) => setAssignmentCorrectionForm((current) => ({
+                        ...current, motivo: event.target.value, operationId: '',
+                      }))}
+                    />
+                    <Button
+                      color="warning"
+                      variant="contained"
+                      disabled={weighingBusy || !assignmentCorrectionPreview?.puede_aplicar
+                        || !assignmentCorrectionForm.destinoAsignacionId
+                        || !assignmentCorrectionForm.motivo.trim()}
+                      onClick={applyAssignmentCorrection}
+                    >
+                      Confirmar corrección auditada
+                    </Button>
+                  </Stack>
+                </Paper>
+              )}
+              {weighingDialog.detail.original && (
               <TableContainer component={Paper} variant="outlined">
                 <Table size="small">
                   <TableHead><TableRow>
@@ -3076,6 +3387,7 @@ export default function OtMangasScm({ view = 'all' }) {
                   </TableBody>
                 </Table>
               </TableContainer>
+              )}
 
               {canRequestCorrection && weighingDialog.detail.vigente
                 && !weighingDialog.detail.anulacion && (

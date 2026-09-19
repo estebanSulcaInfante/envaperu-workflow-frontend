@@ -187,6 +187,25 @@ export const obtenerPesajeMangaScm = (mangaId) => body(() => api.get(
   `/scm/v1/mangas/${mangaId}/pesaje`,
   { headers: headers() },
 ));
+export const previsualizarCorreccionAsignacionMangaScm = (
+  mangaId, destinoTrabajoId, destinoAsignacionId,
+) => body(() => api.get(
+  `/scm/v1/mangas/${encodeURIComponent(mangaId)}/correccion-asignacion/preview`,
+  {
+    params: {
+      destino_trabajo_ot_id: destinoTrabajoId,
+      ...(destinoAsignacionId ? { destino_asignacion_id: destinoAsignacionId } : {}),
+    },
+    headers: headers(),
+  },
+));
+export const corregirAsignacionTrabajoMangaScm = (
+  mangaId, payload, operationId,
+) => body(() => api.post(
+  `/scm/v1/mangas/${encodeURIComponent(mangaId)}/correcciones-asignacion`,
+  payload,
+  { headers: { ...headers(), 'Idempotency-Key': operationId || crypto.randomUUID() } },
+));
 export const solicitarCorreccionPesajeScm = (
   weighingId, payload,
 ) => body(() => api.post(
