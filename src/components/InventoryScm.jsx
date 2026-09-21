@@ -1,13 +1,14 @@
 import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent,
   DialogTitle, Divider, FormControl, InputAdornment, InputLabel, MenuItem,
-  Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer,
+  Menu, Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer,
   TableHead, TablePagination, TableRow, Tabs, TextField, Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import PageHeader from './ui/PageHeader';
 import InventoryOpeningScm from './InventoryOpeningScm';
@@ -222,6 +223,8 @@ export default function InventoryScm() {
   const [warning, setWarning] = useState('');
   const [notice, setNotice] = useState('');
   const [open, setOpen] = useState(false);
+  const [actionsAnchor, setActionsAnchor] = useState(null);
+  const [openingOpen, setOpeningOpen] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -458,32 +461,52 @@ export default function InventoryScm() {
     }
   };
 
+  const openManualMovement = async () => {
+    await loadCatalogs();
+    setForm({ ...initialForm, tipo: 'AJUSTE_POSITIVO' });
+    setOpen(true);
+  };
+
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        title="Kardex de mi almacén"
-        description="Consulta existencias, reservas y movimientos dentro de los almacenes y clases asignados a tu trabajo."
+        title="Kardex y existencias"
+        description="Consulta el stock físico disponible, comprometido y en movimiento."
         actions={(
           <Stack direction="row" spacing={1}>
-            <Button component="a" href="/almacen/kardex/disponibilidad" variant="contained">Disponibilidad y PT manual</Button>
             <Button startIcon={<RefreshIcon />} variant="outlined" onClick={refresh}>
               Actualizar
             </Button>
-            {canAdjust && articles.some((item) => !isKg(item)) && (
-              <Button
-                startIcon={<AddIcon />}
-                variant="contained"
-                onClick={() => {
-                  setForm({
-                    ...initialForm,
-                    tipo: 'AJUSTE_POSITIVO',
-                  });
-                  setOpen(true);
-                }}
-              >
-                Registrar movimiento
-              </Button>
-            )}
+            <Button
+              startIcon={<MoreVertIcon />}
+              variant="outlined"
+              aria-haspopup="menu"
+              aria-expanded={Boolean(actionsAnchor)}
+              onClick={(event) => setActionsAnchor(event.currentTarget)}
+            >
+              Más acciones
+            </Button>
+            <Menu
+              anchorEl={actionsAnchor}
+              open={Boolean(actionsAnchor)}
+              onClose={() => setActionsAnchor(null)}
+            >
+              <MenuItem component="a" href="/almacen/kardex/disponibilidad" onClick={() => setActionsAnchor(null)}>
+                Disponibilidad por PT
+              </MenuItem>
+              <MenuItem onClick={() => { setActionsAnchor(null); setOpeningOpen(true); }}>
+                Apertura inicial
+              </MenuItem>
+              {canAdjust && (
+                <MenuItem onClick={() => {
+                  setActionsAnchor(null);
+                  openManualMovement();
+                }}>
+                  <AddIcon fontSize="small" sx={{ mr: 1 }} />
+                  Registrar movimiento
+                </MenuItem>
+              )}
+            </Menu>
           </Stack>
         )}
       />
@@ -507,13 +530,16 @@ export default function InventoryScm() {
         inicial no crea mangas ficticias; una reserva no equivale todavía a consumo.
       </Alert>
 
-      <InventoryOpeningScm
-        articles={articles.filter((item) => !isKg(item))}
-        materials={materials}
-        onRequestCatalog={loadCatalogs}
-        onApplied={refresh}
-        refreshVersion={refreshVersion}
-      />
+      {openingOpen && (
+        <InventoryOpeningScm
+          articles={articles.filter((item) => !isKg(item))}
+          materials={materials}
+          onClose={() => setOpeningOpen(false)}
+          onRequestCatalog={loadCatalogs}
+          onApplied={refresh}
+          refreshVersion={refreshVersion}
+        />
+      )}
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
         {[

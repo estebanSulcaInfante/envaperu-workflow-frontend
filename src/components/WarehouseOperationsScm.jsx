@@ -7,7 +7,6 @@ import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PageHeader from './ui/PageHeader';
-import WarehouseKgCustodyScm from './WarehouseKgCustodyScm';
 import { useScmActor } from '../context/ScmActorContext';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
 import {
@@ -25,7 +24,6 @@ import {
 
 export default function WarehouseOperationsScm({ control = false, transfersOnly = false }) {
   const { actor, can } = useScmActor();
-  const [kgView, setKgView] = useState(false);
   const canMove = can('INVENTARIO_MOVILIZAR') && !control;
   const [warehouses, setWarehouses] = useState([]);
   const [transfers, setTransfers] = useState([]);
@@ -153,7 +151,7 @@ export default function WarehouseOperationsScm({ control = false, transfersOnly 
   };
 
   const title = control ? 'Control de inventario' : transfersOnly
-    ? 'Transferencias y pickup' : 'Operaciones de almacén';
+    ? 'Transferencias entre ubicaciones' : 'Operaciones de almacén';
 
   return <Stack spacing={2.5}>
     <PageHeader
@@ -170,9 +168,6 @@ export default function WarehouseOperationsScm({ control = false, transfersOnly 
     {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
     {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
 
-    {can('ABASTECIMIENTO_VER') && <Button variant="outlined" onClick={() => setKgView(!kgView)}>{kgView ? 'Ver transferencias generales' : 'Ver custodia de piezas y WIP en kg'}</Button>}
-    {kgView ? <WarehouseKgCustodyScm readOnly={control} /> : <>
-
     <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
       {[...(summary.items || []), ...(summary.materiales || [])].map((item) => <Paper key={`${item.unidad}-${item.almacen_id || 'legacy'}`} variant="outlined" sx={{ p: 2, flex: 1 }}>
         <Typography variant="overline">{item.almacen_id ? 'Almacén configurado' : 'Ubicaciones por clasificar'}</Typography>
@@ -182,7 +177,7 @@ export default function WarehouseOperationsScm({ control = false, transfersOnly 
       {summary.as_of && <Paper variant="outlined" sx={{ p: 2 }}><Typography variant="caption">Datos a</Typography><Typography>{new Date(summary.as_of).toLocaleString('es-PE')}</Typography></Paper>}
     </Stack>
 
-    {canMove && !transfersOnly && <Paper variant="outlined" sx={{ p: 2.5 }}>
+    {canMove && <Paper variant="outlined" sx={{ p: 2.5 }}>
       <Typography variant="h6" fontWeight={800}>Nueva sesión multi‑QR</Typography>
       {!session ? <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mt: 2 }}>
         <FormControl fullWidth><InputLabel id="origin-label">Ubicación origen</InputLabel><Select labelId="origin-label" label="Ubicación origen" value={originId} onChange={(event) => setOriginId(event.target.value)}>
@@ -219,10 +214,9 @@ export default function WarehouseOperationsScm({ control = false, transfersOnly 
     <Paper variant="outlined">
       <Box sx={{ p: 2 }}><Typography variant="h6" fontWeight={800}>Custodia y transferencias recientes</Typography></Box>
       <TableContainer><Table size="small"><TableHead><TableRow><TableCell>Código</TableCell><TableCell>Estado</TableCell><TableCell>Recorrido</TableCell><TableCell>Custodio</TableCell><TableCell>Unidades</TableCell><TableCell>Acción</TableCell></TableRow></TableHead><TableBody>
-        {transfers.map((item) => <TableRow key={item.id}><TableCell>{item.codigo}</TableCell><TableCell><Chip size="small" label={item.estado.replaceAll('_', ' ')} /></TableCell><TableCell>{item.origen.codigo} → {item.destino.codigo}</TableCell><TableCell>{item.custodio_id || '—'}</TableCell><TableCell>{item.items.length}</TableCell><TableCell>{canMove && !transfersOnly && item.estado === 'CERRADA' && item.modalidad === 'PICKUP' ? <Button size="small" onClick={() => prepareReturn(item)}>Preparar retorno</Button> : '—'}</TableCell></TableRow>)}
+        {transfers.map((item) => <TableRow key={item.id}><TableCell>{item.codigo}</TableCell><TableCell><Chip size="small" label={item.estado.replaceAll('_', ' ')} /></TableCell><TableCell>{item.origen.codigo} → {item.destino.codigo}</TableCell><TableCell>{item.custodio_id || '—'}</TableCell><TableCell>{item.items.length}</TableCell><TableCell>{canMove && item.estado === 'CERRADA' && item.modalidad === 'PICKUP' ? <Button size="small" onClick={() => prepareReturn(item)}>Preparar retorno</Button> : '—'}</TableCell></TableRow>)}
         {!busy && transfers.length === 0 && <TableRow><TableCell colSpan={6}><Alert severity="info">Aún no hay transferencias dentro de tu alcance.</Alert></TableCell></TableRow>}
       </TableBody></Table></TableContainer>
     </Paper>
-    </>}
   </Stack>;
 }

@@ -154,10 +154,29 @@ function NavigationList({
             </Tooltip>
             {showChildren && (
               <List component="ul" disablePadding aria-label={`Secciones de ${area.label}`}>
-                {area.features.map((item) => {
+                {area.features.map((item, index) => {
                   const childActive = item.key === activeFeature?.key || featureMatches(value, item);
+                  const sectionStarts = item.sectionHeading && item.sectionHeading !== area.features[index - 1]?.sectionHeading;
                   return (
                     <Box component="li" key={item.key} sx={{ listStyle: 'none' }}>
+                      {sectionStarts && (
+                        <ListSubheader
+                          component="div"
+                          disableSticky
+                          sx={{
+                            bgcolor: 'transparent',
+                            color: 'rgba(255,255,255,0.62)',
+                            fontSize: 10.5,
+                            fontWeight: 800,
+                            lineHeight: '28px',
+                            px: 1.5,
+                            mt: index === 0 ? 0 : 0.75,
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          {item.sectionHeading}
+                        </ListSubheader>
+                      )}
                       <ListItemButton
                         component={RouterLink}
                         to={item.path}

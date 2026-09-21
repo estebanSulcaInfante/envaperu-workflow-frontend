@@ -226,6 +226,65 @@ describe('TS-010N2: proyección única del workspace', () => {
     ]);
   });
 
+  it('normaliza la preferencia histórica de Reservas y staging', () => {
+    const workspace = project({
+      capacidades_efectivas: ['ABASTECIMIENTO_VER'],
+      rol_principal: {
+        id: 22,
+        codigo: 'ABASTECIMIENTO',
+        nombre: 'Abastecimiento',
+        workspace_start_feature: 'warehouse.reservationInbox',
+        workspace_preferencias: [
+          { feature_key: 'warehouse.reservationInbox', prioridad: 1, fijada: true },
+        ],
+      },
+    });
+
+    expect(workspace.startFeature.key).toBe('materials.internalSupply');
+    expect(workspace.startFeature.pinned).toBe(true);
+    expect(workspace.configurationWarnings).toEqual([]);
+  });
+
+  it('mantiene el orden de secciones aunque Transferencias esté fijada', () => {
+    const workspace = project({
+      capacidades_efectivas: ['INVENTARIO_VER', 'ABASTECIMIENTO_VER'],
+      rol_principal: {
+        id: 23,
+        codigo: 'ALMACEN',
+        nombre: 'Almacén',
+        workspace_preferencias: [
+          { feature_key: 'warehouse.transfers', prioridad: 1, fijada: true },
+        ],
+      },
+    });
+    const warehouse = workspace.areas.find((area) => area.key === 'warehouse');
+
+    expect(warehouse.features.map((item) => item.key)).toEqual([
+      'warehouse.kardex', 'warehouse.availability', 'warehouse.transfers', 'warehouse.operations',
+    ]);
+    expect(warehouse.features.map((item) => item.sectionHeading)).toEqual([
+      'EXISTENCIAS', 'EXISTENCIAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS',
+    ]);
+  });
+
+  it('conserva el orden entre áreas aunque una función de Producción esté fijada', () => {
+    const workspace = project({
+      capacidades_efectivas: ['OF_VER', 'INVENTARIO_VER'],
+      rol_principal: {
+        id: 24,
+        codigo: 'PLANTA',
+        nombre: 'Planta',
+        workspace_preferencias: [
+          { feature_key: 'production.fabrication', prioridad: 1, fijada: true },
+        ],
+      },
+    });
+
+    expect(workspace.homeFeatures.slice(0, 2).map((item) => item.key)).toEqual([
+      'production.fabrication', 'warehouse.kardex',
+    ]);
+  });
+
   it('rechaza Inicio como acceso de sí mismo y usa la Guía sin trabajo elegible', () => {
     const workspace = project({
       capacidades_efectivas: [],

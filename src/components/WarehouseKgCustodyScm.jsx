@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { useScmActor } from '../context/ScmActorContext';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
 import { commandKgCustody, listKgWithdrawals, resolveKgUnit } from '../services/scmKgCustodyApi';
+import PageHeader from './ui/PageHeader';
+
+const asNumber = (value) => Number(value || 0);
+const formatKg = (value) => `${value.toLocaleString('es-PE', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} KG`;
 
 export default function WarehouseKgCustodyScm({ readOnly = false }) {
   const { actorId, can } = useScmActor();
@@ -20,6 +26,7 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
   const [parts, setParts] = useState([]);
   const [pending, setPending] = useState(null);
   const inFlight = useRef(false);
+  const codeRef = useRef(null);
   const activeActor = useRef(actorId);
   activeActor.current = actorId;
   const storageKey = `scm-kg-custody-intent:${actorId}`;
@@ -98,18 +105,60 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
   const unitPath = `unidades-kg/${unit?.id}`;
   const reserve = () => execute(`${unitPath}/reservas`, { version: unit.version, motivo_operativo: reason.trim() }, 'Reserva registrada. El material sigue en Almacén.');
   const measurement = context?.measurement || context?.medicion;
-
+  const summary = useMemo(() => {
+    const returned = rows.reduce((total, row) => total + asNumber(row.kg_retornado_recibido), 0);
+    const pendingReturn = rows.reduce((total, row) => total + asNumber(row.kg_retorno_verificado_pendiente), 0);
+    const retained = rows.reduce((total, row) => total + asNumber(row.kg_retenido_verificado), 0);
+    const unverified = rows.reduce((total, row) => total + asNumber(row.kg_sin_verificar_clasificar), 0);
+    const alongsideCount = rows.filter((row) => (
+      asNumber(row.kg_retenido_verificado) + asNumber(row.kg_sin_verificar_clasificar) > 0
+    )).length;
+    return {
+      alongsideAssembly: retained + unverified,
+      alongsideCount,
+      returned,
+      pendingReturn,
+      unverified,
+      pendingCount: rows.filter((row) => asNumber(row.kg_retorno_verificado_pendiente) > 0).length,
+    };
+  }, [rows]);
   return <Stack spacing={2} aria-label="Custodia de piezas en kg">
-    <Typography variant="h5" fontWeight={800}>Piezas y WIP · entradas y salidas en kg</Typography>
+    <PageHeader
+      title="Salidas y retornos de Armado"
+      description="Controla qué material sale, qué permanece junto a Armado y qué retorna medido."
+      actions={(
+        <Stack direction="row" spacing={1}>
+          <Button variant="contained" startIcon={<QrCodeScannerIcon />} onClick={() => codeRef.current?.focus()} disabled={locked}>
+            Escanear QR
+          </Button>
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => load().catch((e) => setError(mensajeErrorScm(e, 'No se pudo consultar la custodia KG.')))} disabled={locked}>
+            Actualizar
+          </Button>
+        </Stack>
+      )}
+    />
     <Alert severity="info">Almacén conserva la custodia. Retirar para Armado no confirma consumo; los remanentes vuelven con peso automático y quedan disponibles al confirmar su recepción.</Alert>
     {error && <Alert severity="error">{error}</Alert>}
     {notice && <Alert severity="success">{notice}</Alert>}
     {pending && <Alert severity="warning" action={<Button disabled={busy || readOnly} onClick={() => execute(null, null, null, true)}>Recuperar operación</Button>}>
       Hay una solicitud sin resultado confirmado. Conserve esta identidad y recupere la misma operación antes de continuar.
     </Alert>}
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+      {[
+        ['Junto a Armado', `${summary.alongsideCount} · ${formatKg(summary.alongsideAssembly)}`, 'info'],
+        ['Retornado', formatKg(summary.returned), 'success'],
+        ['Retorno por recibir', `${summary.pendingCount} · ${formatKg(summary.pendingReturn)}`, 'warning'],
+        ['Pendiente de verificar', formatKg(summary.unverified), 'default'],
+      ].map(([label, value, color]) => (
+        <Paper key={label} variant="outlined" sx={{ p: 1.75, flex: 1, minWidth: 0 }}>
+          <Typography variant="overline" color={color === 'default' ? 'text.secondary' : `${color}.main`} fontWeight={850}>{label}</Typography>
+          <Typography variant="h6" fontWeight={850}>{value}</Typography>
+        </Paper>
+      ))}
+    </Stack>
     <Paper variant="outlined" sx={{ p: 2 }}>
       <Stack component="form" spacing={2} onSubmit={(e) => { e.preventDefault(); resolve(); }}>
-        <TextField label="QR o código de pieza / parte" value={code} disabled={locked} onChange={(e) => { setCode(e.target.value); setContext(null); }} />
+        <TextField inputRef={codeRef} label="QR o código de pieza / parte" value={code} disabled={locked} onChange={(e) => { setCode(e.target.value); setContext(null); }} />
         <Button type="submit" variant="contained" disabled={locked || !code.trim()}>Consultar identidad KG</Button>
       </Stack>
       {unit && <Stack spacing={2} sx={{ mt: 2 }}>
@@ -168,7 +217,7 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
         {parts.map(({ unidad: part }) => <Button key={part.id} disabled={locked} onClick={() => resolve(part.codigo)}>{part.codigo} · {part.intencion} · {part.kg_verificados ?? 'sin pesar'}</Button>)}
       </Stack>}
     </Paper>
-    <Stack direction="row" justifyContent="space-between"><Typography variant="h6">Material junto a Armado</Typography><Button disabled={locked} onClick={() => load().catch((e) => setError(mensajeErrorScm(e)))}>Actualizar custodia</Button></Stack>
+    <Stack direction="row" justifyContent="space-between"><Typography variant="h6" fontWeight={850}>Custodia de piezas y WIP</Typography><Typography variant="body2" color="text.secondary">{rows.length} retiro(s) consultado(s)</Typography></Stack>
     <TableContainer component={Paper} variant="outlined"><Table size="small"><TableHead><TableRow>
       <TableCell>Retiro / fecha</TableCell><TableCell>Entregado kg</TableCell><TableCell>Retornado kg</TableCell><TableCell>Repesado por recibir kg</TableCell><TableCell>Sin verificar / clasificar kg</TableCell>
     </TableRow></TableHead><TableBody>{rows.map((row) => <TableRow key={row.id}>

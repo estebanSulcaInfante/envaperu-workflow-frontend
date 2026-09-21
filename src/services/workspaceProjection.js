@@ -18,8 +18,16 @@ export const GENERIC_WORKSPACE_EXPERIENCE = Object.freeze({
   focus: 'Consulta las funciones disponibles para tu perfil.',
 });
 
+export const WORKSPACE_FEATURE_KEY_ALIASES = Object.freeze({
+  'warehouse.reservationInbox': 'materials.internalSupply',
+});
+
+export const normalizeWorkspaceFeatureKey = (featureKey) => (
+  WORKSPACE_FEATURE_KEY_ALIASES[featureKey] || featureKey
+);
+
 const normalizePreference = (item = {}) => ({
-  featureKey: item.feature_key || item.featureKey || '',
+  featureKey: normalizeWorkspaceFeatureKey(item.feature_key || item.featureKey || ''),
   priority: Number.isFinite(Number(item.prioridad ?? item.priority))
     ? Number(item.prioridad ?? item.priority)
     : null,
@@ -32,6 +40,12 @@ const featureComparator = (left, right) => (
     - (right.preferencePriority ?? Number.POSITIVE_INFINITY)
   || (left.defaultPriority ?? 100) - (right.defaultPriority ?? 100)
   || String(left.label || '').localeCompare(String(right.label || ''), 'es')
+);
+
+const projectedFeatureComparator = (left, right) => (
+  (left.sectionPriority ?? Number.POSITIVE_INFINITY)
+    - (right.sectionPriority ?? Number.POSITIVE_INFINITY)
+  || featureComparator(left, right)
 );
 
 const warning = (code, message, featureKey = null, severity = 'info') => ({
@@ -110,7 +124,7 @@ export function buildActorWorkspace({
     .map((area) => {
       const areaFeatures = [...eligibleByKey.values()]
         .filter((item) => item.areaKey === area.key && item.navigation !== false)
-        .sort(featureComparator);
+        .sort(projectedFeatureComparator);
       if (!areaFeatures.length) return null;
       return {
         ...area,
@@ -133,7 +147,7 @@ export function buildActorWorkspace({
     .filter((item) => item.task === true && item.key !== 'home.workspace' && item.navigation !== false)
     .sort(featureComparator);
 
-  const requestedStartKey = primaryRole?.workspace_start_feature || null;
+  const requestedStartKey = normalizeWorkspaceFeatureKey(primaryRole?.workspace_start_feature || '');
   let startFeature = null;
   if (requestedStartKey) {
     const registered = registryByKey.get(requestedStartKey);

@@ -103,4 +103,22 @@ describe('Custodia KG', () => {
     expect(screen.queryByRole('button', { name: 'Reservar para Armado' })).toBeNull();
     expect(screen.queryByText('Configuración de lectura de esta identidad')).toBeNull();
   });
+
+  it('calcula junto a Armado con lo retenido y sin verificar, no con el entregado histórico', async () => {
+    mocks.list.mockResolvedValue({ items: [{
+      id: 'retiro-1', codigo: 'KG-RETIRO-1', kg_entregado: '12.000',
+      kg_retornado_recibido: '3.000', kg_retorno_verificado_pendiente: '2.000',
+      kg_retenido_verificado: '4.000', kg_sin_verificar_clasificar: '3.000',
+    }, {
+      id: 'retiro-2', codigo: 'KG-RETIRO-2', kg_entregado: '5.000',
+      kg_retornado_recibido: '5.000', kg_retorno_verificado_pendiente: '0.000',
+      kg_retenido_verificado: '0.000', kg_sin_verificar_clasificar: '0.000',
+    }] });
+    render(<WarehouseKgCustodyScm />);
+
+    expect(await screen.findByText('1 · 7.000 KG')).toBeVisible();
+    expect(screen.getByText('1 · 2.000 KG')).toBeVisible();
+    expect(screen.getByText('8.000 KG')).toBeVisible();
+    expect(screen.getByText('3.000 KG')).toBeVisible();
+  });
 });

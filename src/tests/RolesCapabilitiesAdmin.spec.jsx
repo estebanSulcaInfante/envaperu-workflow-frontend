@@ -97,11 +97,11 @@ describe('TS-010N2: administración de roles y capacidades', () => {
 
     expect(await screen.findByRole('heading', { name: 'Roles y capacidades' })).toBeVisible();
     expect(screen.getByRole('region', { name: 'Así verá este rol' })).toBeVisible();
-    expect(screen.getByText(/Acceso principal:/)).toHaveTextContent('Kardex de mi almacén');
+    expect(screen.getByText(/Acceso principal:/)).toHaveTextContent('Kardex y existencias');
     expect(screen.getAllByText(/Fabricación · OF.*no está disponible/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Persona multirrol').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Persona con un rol').length).toBeGreaterThan(0);
-    expect(screen.getByRole('spinbutton', { name: 'Prioridad de Kardex de mi almacén' })).toBeVisible();
+    expect(screen.getByRole('spinbutton', { name: 'Prioridad de Kardex y existencias' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Cambiar perfil' })).not.toBeInTheDocument();
   });
 
@@ -201,5 +201,53 @@ describe('TS-010N2: administración de roles y capacidades', () => {
     const preview = screen.getByRole('region', { name: 'Así verá este rol' });
     expect(within(preview).getByText(/Un rol inactivo no aporta capacidades/i)).toBeVisible();
     expect(within(preview).queryByText('Kardex y existencias')).not.toBeInTheDocument();
+  });
+
+  it('normaliza la preferencia histórica de Reservas y staging al cargar el rol', async () => {
+    listarRolesWorkspace.mockResolvedValue([{
+      ...auditorRole,
+      capacidad_codigos: ['ABASTECIMIENTO_VER'],
+      workspace_start_feature: 'warehouse.reservationInbox',
+      workspace_preferencias: [
+        { feature_key: 'warehouse.reservationInbox', prioridad: 1, fijada: true },
+      ],
+    }]);
+    listarCapacidadesWorkspace.mockResolvedValue([
+      { id: 1, codigo: 'ABASTECIMIENTO_VER', nombre: 'Consultar abastecimiento', activo: true },
+    ]);
+
+    renderAdmin();
+
+    expect(await screen.findByText(/Acceso principal:/)).toHaveTextContent('Abastecimiento interno');
+    expect(screen.queryByText('Preferencias no disponibles')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Fijar Abastecimiento interno')).toBeChecked();
+  });
+
+  it('deduplica alias y clave canónica, conservando la entrada canónica en el payload', async () => {
+    listarRolesWorkspace.mockResolvedValue([{
+      ...auditorRole,
+      capacidad_codigos: ['ABASTECIMIENTO_VER'],
+      workspace_start_feature: 'warehouse.reservationInbox',
+      workspace_preferencias: [
+        { feature_key: 'warehouse.reservationInbox', prioridad: 2, fijada: false },
+        { feature_key: 'materials.internalSupply', prioridad: 7, fijada: true },
+      ],
+    }]);
+    listarCapacidadesWorkspace.mockResolvedValue([
+      { id: 1, codigo: 'ABASTECIMIENTO_VER', nombre: 'Consultar abastecimiento', activo: true },
+    ]);
+    actualizarRolWorkspace.mockResolvedValue({ ...auditorRole, version: 3 });
+
+    const user = userEvent.setup();
+    renderAdmin();
+    expect(await screen.findByLabelText('Fijar Abastecimiento interno')).toBeChecked();
+    expect(screen.getAllByLabelText('Fijar Abastecimiento interno')).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Guardar rol' }));
+
+    await waitFor(() => expect(actualizarRolWorkspace).toHaveBeenCalledWith(7, expect.objectContaining({
+      workspace_preferencias: [
+        { feature_key: 'materials.internalSupply', prioridad: 7, fijada: true },
+      ],
+    })));
   });
 });

@@ -17,6 +17,52 @@ describe('US-010N1: registro único del workspace', () => {
     expect(getWorkspaceFeature('/produccion/ots-planta')?.areaKey).toBe('production');
   });
 
+  it('registra el árbol plano de Almacén y sus aliases históricos', () => {
+    const warehouse = buildAreaNavigation({
+      canAny: () => true,
+      runtimeFlags: { showLegacy: false, allowPrototype: false, allowOutOfPilot: false },
+    }).find((item) => item.key === 'warehouse');
+
+    expect(warehouse?.features.map((item) => item.label)).toEqual([
+      'Kardex y existencias',
+      'Disponibilidad por PT',
+      'Recibir desde Producción',
+      'Salidas y retornos de Armado',
+      'Transferencias entre ubicaciones',
+    ]);
+    expect(warehouse?.features.map((item) => item.sectionHeading)).toEqual([
+      'EXISTENCIAS', 'EXISTENCIAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS',
+    ]);
+    expect(getWorkspaceFeature('/almacen/operaciones')?.key).toBe('warehouse.operations');
+    expect(getWorkspaceFeature('/almacen/reservas-staging')?.key).toBe('materials.internalSupply');
+    expect(getWorkspaceFeature('/almacen/transferencias')?.key).toBe('warehouse.transfers');
+    expect(getFeatureByKey('warehouse.operations')?.requiredAny).toEqual(['ABASTECIMIENTO_VER']);
+  });
+
+  it('no fabrica encabezados para secciones sin funciones autorizadas', () => {
+    const warehouse = buildAreaNavigation({
+      canAny: (required) => required.includes('INVENTARIO_VER'),
+      runtimeFlags: { showLegacy: false, allowPrototype: false, allowOutOfPilot: false },
+    }).find((item) => item.key === 'warehouse');
+
+    expect(warehouse?.features.map((item) => item.label)).toEqual([
+      'Kardex y existencias', 'Disponibilidad por PT', 'Transferencias entre ubicaciones',
+    ]);
+    expect([...new Set(warehouse?.features.map((item) => item.sectionHeading))]).toEqual([
+      'EXISTENCIAS', 'OPERACIONES FÍSICAS',
+    ]);
+  });
+
+  it('no fabrica EXISTENCIAS cuando el perfil parcial solo puede operar retornos', () => {
+    const warehouse = buildAreaNavigation({
+      canAny: (required) => required.includes('ABASTECIMIENTO_VER'),
+      runtimeFlags: { showLegacy: false, allowPrototype: false, allowOutOfPilot: false },
+    }).find((item) => item.key === 'warehouse');
+
+    expect(warehouse?.features.map((item) => item.label)).toEqual(['Salidas y retornos de Armado']);
+    expect(warehouse?.features.map((item) => item.sectionHeading)).toEqual(['OPERACIONES FÍSICAS']);
+  });
+
   it('mantiene claves y rutas primarias únicas', () => {
     expect(new Set(workspaceFeatures.map((item) => item.key)).size).toBe(workspaceFeatures.length);
     expect(new Set(workspaceFeatures.map((item) => item.path)).size).toBe(workspaceFeatures.length);

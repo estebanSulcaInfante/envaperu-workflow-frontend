@@ -30,10 +30,17 @@ describe('US-010N1: shell de navegación', () => {
 
     expect(screen.getByRole('button', { name: /Almacén e inventario/i }))
       .toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('link', { name: /Kardex de mi almacén/i })).toBeVisible();
-    expect(screen.getByRole('link', { name: /Kardex de mi almacén/i }))
+    expect(screen.getByRole('link', { name: /Kardex y existencias/i })).toBeVisible();
+    expect(screen.getByRole('link', { name: /Kardex y existencias/i }))
       .toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: /Recepción y Calidad/i })).toBeVisible();
+    expect(screen.getByRole('link', { name: /Disponibilidad por PT/i })).toBeVisible();
+    expect(screen.getByRole('link', { name: /Recibir desde Producción/i })).toBeVisible();
+    expect(screen.getByRole('link', { name: /Salidas y retornos de Armado/i })).toBeVisible();
+    expect(screen.getByRole('link', { name: /Transferencias entre ubicaciones/i })).toBeVisible();
+    expect(screen.getByText('EXISTENCIAS').tagName).toBe('DIV');
+    expect(screen.getByText('OPERACIONES FÍSICAS').tagName).toBe('DIV');
+    expect(screen.queryByRole('button', { name: /EXISTENCIAS|OPERACIONES FÍSICAS/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Operaciones por QR|Reservas y staging|Transferencias y pickup/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
 

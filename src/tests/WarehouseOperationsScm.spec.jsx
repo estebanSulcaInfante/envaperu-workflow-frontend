@@ -90,4 +90,11 @@ describe('workspace de almacenes y custodia', () => {
     expect(await screen.findByText(/EN TRANSITO PRODUCCION/i)).toBeVisible();
     expect(screen.getByText(/Transferencias: 1 · Movimientos: 2/i)).toBeVisible();
   });
+
+  it('mantiene la sesión multi-QR en Transferencias entre ubicaciones', async () => {
+    renderView({ transfersOnly: true });
+    expect(await screen.findByRole('heading', { name: /transferencias entre ubicaciones/i })).toBeVisible();
+    expect(screen.getByRole('button', { name: /iniciar sesión qr/i })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Ver custodia de piezas y WIP/i })).not.toBeInTheDocument();
+  });
 });

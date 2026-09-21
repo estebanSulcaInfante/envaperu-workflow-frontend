@@ -14,6 +14,7 @@ const inventoryApi = vi.hoisted(() => ({
   listarMovimientosInventarioScm: vi.fn(),
   registrarMovimientoInventarioScm: vi.fn(),
 }));
+const actorApi = vi.hoisted(() => ({ can: vi.fn() }));
 vi.mock('../services/scmWarehouseOperationsApi', () => warehouseApi);
 vi.mock('../services/scmInventoryApi', () => inventoryApi);
 vi.mock('../services/scmEngineeringApi', () => ({
@@ -22,15 +23,18 @@ vi.mock('../services/scmEngineeringApi', () => ({
 }));
 vi.mock('../services/scmCatalogApi', () => ({ listarMaterialesScm: vi.fn().mockResolvedValue([]) }));
 vi.mock('../context/ScmActorContext', () => ({
-  useScmActor: () => ({ can: () => false }),
+  useScmActor: () => ({ can: actorApi.can }),
 }));
-vi.mock('../components/InventoryOpeningScm', () => ({ default: () => null }));
+vi.mock('../components/InventoryOpeningScm', () => ({
+  default: ({ onClose }) => onClose && <button type="button" onClick={onClose}>Cerrar apertura</button>,
+}));
 
 const renderView = () => render(<ThemeProvider theme={createTheme()}><InventoryScm /></ThemeProvider>);
 
 describe('Kardex según alcance de almacén', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    actorApi.can.mockImplementation((code) => code === 'INVENTARIO_AJUSTAR');
     inventoryApi.explorarSaldosInventarioScm.mockResolvedValue({
       items: [], page: { total: 0, has_more: false, next_cursor: null, limit: 25 },
     });
@@ -49,7 +53,7 @@ describe('Kardex según alcance de almacén', () => {
       ],
     });
     renderView();
-    expect(await screen.findByRole('heading', { name: 'Kardex de mi almacén' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Kardex y existencias' })).toBeVisible();
     expect(await screen.findByText(/ALM-PZ \(PIEZA COLOR, SUBENSAMBLE WIP\)/i)).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Explorador de Kardex' })).toBeVisible();
     expect(screen.getByRole('tab', { name: 'Piezas y WIP · 0' })).toHaveAttribute('aria-selected', 'true');
@@ -67,6 +71,35 @@ describe('Kardex según alcance de almacén', () => {
     expect(inventoryApi.explorarSaldosInventarioScm).toHaveBeenLastCalledWith(
       expect.objectContaining({ kardex: 'PRODUCTO_TERMINADO' }),
     );
+  });
+
+  it('relega apertura y movimiento manual a Más acciones', async () => {
+    warehouseApi.obtenerAlcanceAlmacenScm.mockResolvedValue({
+      configurado: true,
+      control_transversal: false,
+      almacenes: [{ codigo: 'ALM-PT', clases_articulo: ['PRODUCTO_TERMINADO'] }],
+    });
+    renderView();
+    expect(await screen.findByRole('heading', { name: 'Kardex y existencias' })).toBeVisible();
+    expect(screen.getByRole('button', { name: /Más acciones/i })).toBeVisible();
+    expect(screen.queryByText('Apertura inicial')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Registrar movimiento/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Más acciones/i }));
+    expect(await screen.findByText('Apertura inicial')).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: /Registrar movimiento/i })).toBeVisible();
+  });
+
+  it('permite cerrar Apertura inicial desde la pantalla secundaria', async () => {
+    warehouseApi.obtenerAlcanceAlmacenScm.mockResolvedValue({
+      configurado: true, control_transversal: false, almacenes: [{ codigo: 'ALM-PT', clases_articulo: ['PRODUCTO_TERMINADO'] }],
+    });
+    renderView();
+    await screen.findByRole('heading', { name: 'Kardex y existencias' });
+    await userEvent.click(screen.getByRole('button', { name: /Más acciones/i }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Apertura inicial' }));
+    expect(screen.getByRole('button', { name: 'Cerrar apertura' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar apertura' }));
+    expect(screen.queryByRole('button', { name: 'Cerrar apertura' })).not.toBeInTheDocument();
   });
 
   it('no presenta un Kardex vacío como normal cuando falta asignación', async () => {
@@ -254,9 +287,9 @@ describe('Kardex según alcance de almacén', () => {
     expect(await screen.findByText('Materias primas · KG')).toBeVisible();
     expect(screen.getByText('Piezas y WIP · KG')).toBeVisible();
     expect(screen.getByText('Producto terminado · UN')).toBeVisible();
-    expect(screen.getAllByText(/Físico:/).map((element) => element.parentElement?.textContent)).toEqual(
-      expect.arrayContaining(['Físico: 15 KG', 'Físico: 4 UN', 'Físico: 10 KG']),
-    );
+    await waitFor(() => expect(
+      screen.getAllByText(/Físico:/).map((element) => element.parentElement?.textContent),
+    ).toEqual(expect.arrayContaining(['Físico: 15 KG', 'Físico: 4 UN', 'Físico: 10 KG'])));
   });
 
   it('no consulta ni muestra movimientos KG para un alcance solo PT', async () => {

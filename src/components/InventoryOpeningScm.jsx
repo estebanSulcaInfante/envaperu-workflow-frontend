@@ -27,7 +27,7 @@ const emptyForm = () => ({
 const catalogUnit = (item) => item?.unidad_base || item?.unidad || (item?.type === 'MATERIAL' ? 'KG' : 'UN');
 
 export default function InventoryOpeningScm({
-  articles, materials, onApplied, onRequestCatalog, refreshVersion = 0,
+  articles, materials, onApplied, onRequestCatalog, onClose, refreshVersion = 0,
 }) {
   const { actorId, can } = useScmActor();
   const canPrepare = can('INVENTARIO_APERTURA_PREPARAR');
@@ -211,7 +211,10 @@ export default function InventoryOpeningScm({
               El borrador no cambia existencias. Solo otro actor autorizado puede aplicarlo.
             </Typography>
           </Box>
-          {canPrepare && <Button variant="contained" startIcon={<AddIcon />} disabled={busy} onClick={openNew}>Nuevo lote de conteo</Button>}
+          <Stack direction="row" spacing={1}>
+            {onClose && <Button variant="outlined" onClick={onClose}>Cerrar apertura</Button>}
+            {canPrepare && <Button variant="contained" startIcon={<AddIcon />} disabled={busy} onClick={openNew}>Nuevo lote de conteo</Button>}
+          </Stack>
         </Stack>
         {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
         {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}

@@ -16,7 +16,7 @@ import {
   listarRolesWorkspace,
   listarTrabajadoresWorkspace,
 } from '../services/workspaceAdminApi';
-import { buildActorWorkspace } from '../services/workspaceProjection';
+import { buildActorWorkspace, normalizeWorkspaceFeatureKey } from '../services/workspaceProjection';
 import { workspaceAreas, workspaceFeatures } from '../config/workspaceRegistry';
 import PageHeader from './ui/PageHeader';
 
@@ -37,15 +37,35 @@ const capabilityCodes = (role = {}) => (
   || (role.capacidades || []).map((item) => (typeof item === 'string' ? item : item.codigo))
 ).filter(Boolean);
 
+const normalizeWorkspacePreferences = (preferences = []) => {
+  const chosen = new Map();
+  preferences.forEach((item) => {
+    const rawKey = item.feature_key || item.featureKey || '';
+    const featureKey = normalizeWorkspaceFeatureKey(rawKey);
+    const candidate = {
+      feature_key: featureKey,
+      prioridad: Number(item.prioridad ?? item.priority ?? 100),
+      fijada: Boolean(item.fijada ?? item.pinned),
+      canonicalSource: rawKey === featureKey,
+    };
+    const current = chosen.get(featureKey);
+    if (!current || (candidate.canonicalSource && !current.canonicalSource)) {
+      chosen.set(featureKey, candidate);
+    }
+  });
+  return [...chosen.values()].map((preference) => ({
+    feature_key: preference.feature_key,
+    prioridad: preference.prioridad,
+    fijada: preference.fijada,
+  }));
+};
+
 const normalizeRole = (role = EMPTY_ROLE) => ({
   ...EMPTY_ROLE,
   ...role,
+  workspace_start_feature: normalizeWorkspaceFeatureKey(role.workspace_start_feature || ''),
   capacidad_codigos: capabilityCodes(role),
-  workspace_preferencias: (role.workspace_preferencias || []).map((item) => ({
-    feature_key: item.feature_key || item.featureKey,
-    prioridad: Number(item.prioridad ?? item.priority ?? 100),
-    fijada: Boolean(item.fijada ?? item.pinned),
-  })),
+  workspace_preferencias: normalizeWorkspacePreferences(role.workspace_preferencias),
 });
 
 const areaOrder = new Map(workspaceAreas.map((area) => [area.key, area.order]));
