@@ -48,17 +48,30 @@ const inventoryUnit = (item) => (
 
 const isKg = (item) => inventoryUnit(item) === 'KG';
 
-const totalsFor = (items = []) => items.reduce((accumulator, item) => ({
-  physical: accumulator.physical + number(item.fisico),
-  reserved: accumulator.reserved + number(item.reservado),
-  unavailable: accumulator.unavailable + number(item.no_disponible),
-  free: accumulator.free + number(item.fisico) - number(item.reservado) - number(item.no_disponible),
-}), { physical: 0, reserved: 0, unavailable: 0, free: 0 });
+const totalsFor = (items = []) => items.reduce((accumulator, item) => {
+  const physical = number(item.fisico ?? item.cantidad_fisica);
+  const reserved = number(item.reservado ?? item.cantidad_reservada);
+  const unavailable = number(item.no_disponible ?? item.cantidad_no_disponible);
+  const free = item.libre !== undefined && item.libre !== null
+    ? number(item.libre)
+    : physical - reserved - unavailable;
+  return {
+    physical: accumulator.physical + physical,
+    reserved: accumulator.reserved + reserved,
+    unavailable: accumulator.unavailable + unavailable,
+    free: accumulator.free + free,
+  };
+}, { physical: 0, reserved: 0, unavailable: 0, free: 0 });
+
+const listFrom = (value) => (
+  Array.isArray(value)
+    ? value
+    : (Array.isArray(value?.items) ? value.items : (value && typeof value === 'object' ? [value] : []))
+);
 
 const LEDGER_API_NAMES = {
   materials: 'MATERIALES',
   pieces: 'PIEZAS_WIP',
-  piecesKg: 'PIEZAS_WIP',
   finished: 'PRODUCTO_TERMINADO',
 };
 
@@ -167,7 +180,7 @@ function MovementGrid({ items, busy }) {
         </TableRow></TableHead>
         <TableBody>
           {items.map((item) => (
-            <TableRow key={item.id}>
+            <TableRow key={`${item.unidad || inventoryUnit(item)}-${item.id}`}>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>
                 {item.created_at ? new Date(item.created_at).toLocaleString('es-PE') : '—'}
               </TableCell>
@@ -206,6 +219,7 @@ export default function InventoryScm() {
   const [catalogsLoaded, setCatalogsLoaded] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
   const [notice, setNotice] = useState('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(initialForm);
@@ -260,13 +274,31 @@ export default function InventoryScm() {
     return () => globalThis.clearTimeout(timer);
   }, [query]);
 
-  const totals = useMemo(() => totalsFor(
-    (summary.items || []).filter((item) => !isKg(item)),
-  ), [summary]);
-  const materialTotals = useMemo(() => totalsFor(summary.materiales || []), [summary]);
-  const kgTotals = useMemo(() => totalsFor(
-    (summary.piezas_kg || []).map((item) => ({ ...item, unidad: 'KG' })),
-  ), [summary]);
+  const familySummaries = useMemo(() => {
+    const families = summary.familias || summary.families || {};
+    const detailedArticleItems = (summary.items || []).filter((item) => item?.articulo?.clase || item?.clase);
+    const finishedItems = listFrom(
+      summary.producto_terminado
+      || summary.producto_terminado_un
+      || summary.finished
+      || summary.pt
+      || families.producto_terminado
+      || families.finished,
+    );
+    return {
+      pieces: listFrom(summary.piezas_kg || summary.piezas_wip || families.piezas_wip || families.pieces),
+      finished: finishedItems.length > 0
+        ? finishedItems
+        : detailedArticleItems.filter((item) => (item.articulo?.clase || item.clase) === 'PRODUCTO_TERMINADO'),
+      materials: listFrom(summary.materiales || summary.materias_primas || families.materias_primas || families.materials),
+    };
+  }, [summary]);
+
+  const familyTotals = useMemo(() => ({
+    pieces: totalsFor(familySummaries.pieces),
+    finished: totalsFor(familySummaries.finished),
+    materials: totalsFor(familySummaries.materials),
+  }), [familySummaries]);
 
   const visibleClasses = useMemo(() => new Set(
     (warehouseScope?.almacenes || []).flatMap((item) => item.clases_articulo || []),
@@ -286,25 +318,20 @@ export default function InventoryScm() {
     }] : []),
     ...(showPiecesAndWip ? [{
       id: 'pieces', label: 'Piezas y WIP',
-      emptyMessage: 'Tienes acceso a Piezas y WIP, pero todavía no hay saldo. Aparecerá con una apertura aprobada o al recibir producción.',
-    }] : []),
-    ...(showPiecesAndWip ? [{
-      id: 'piecesKg', label: 'Piezas y WIP KG',
-      emptyMessage: 'Todavía no hay saldo físico KG de piezas o WIP en tus ubicaciones.',
+      emptyMessage: 'Tienes acceso a Piezas y WIP, pero todavía no hay saldo físico en KG. Aparecerá al recibir producción medida.',
     }] : []),
     ...(showFinishedProducts ? [{
       id: 'finished', label: 'Producto terminado',
-      emptyMessage: 'Tienes acceso a Producto terminado, pero todavía no hay saldo. Aparecerá al recibir y liberar producción terminada.',
+      emptyMessage: 'Todavía no hay producto terminado registrado. Este Kardex se usará en la siguiente etapa del piloto y aparecerá al registrar movimientos manuales de producto terminado.',
     }] : []),
-    { id: 'movements', label: 'Movimientos UN' },
-    ...(showPiecesAndWip ? [{ id: 'movementsKg', label: 'Movimientos KG' }] : []),
+    { id: 'movements', label: 'Movimientos' },
   ], [showFinishedProducts, showMaterials, showPiecesAndWip]);
   const effectiveLedger = ledgers.some((item) => item.id === activeLedger)
     ? activeLedger
     : ledgers[0]?.id;
   const ledger = ledgers.find((item) => item.id === effectiveLedger) || ledgers[0];
-  const isMovements = effectiveLedger === 'movements' || effectiveLedger === 'movementsKg';
-  const isKgLedger = effectiveLedger === 'piecesKg' || effectiveLedger === 'movementsKg';
+  const isMovements = effectiveLedger === 'movements';
+  const isPiecesLedger = effectiveLedger === 'pieces';
   const balanceSorts = ['CODIGO', 'NOMBRE', 'FISICO_DESC', 'LIBRE_DESC', 'ACTUALIZADO'];
   const effectiveSort = isMovements
     ? (['RECIENTES', 'ANTIGUOS'].includes(sortBy) ? sortBy : 'RECIENTES')
@@ -321,11 +348,16 @@ export default function InventoryScm() {
     let alive = true;
     setBusy(true);
     setError('');
+    setWarning('');
+    if (isMovements && !warehouseScope) return undefined;
     const request = isMovements
-      ? listarMovimientosInventarioScm(isKgLedger ? { unidad: 'KG' } : {})
+      ? Promise.allSettled([
+        listarMovimientosInventarioScm({}),
+        ...(showPiecesAndWip ? [listarMovimientosInventarioScm({ unidad: 'KG' })] : []),
+      ])
       : explorarSaldosInventarioScm({
         kardex: LEDGER_API_NAMES[effectiveLedger],
-        ...(isKgLedger ? { unidad: 'KG' } : {}),
+        ...(isPiecesLedger ? { unidad: 'KG' } : {}),
         q: debouncedQuery || undefined,
         ubicacion: locationFilter === 'TODAS' ? undefined : locationFilter,
         disponibilidad: stockFilter,
@@ -336,10 +368,29 @@ export default function InventoryScm() {
     request.then((payload) => {
       if (!alive) return;
       if (isMovements) {
+        const fulfilled = payload.filter((result) => result.status === 'fulfilled');
+        const rejected = payload.filter((result) => result.status === 'rejected');
+        if (fulfilled.length === 0) {
+          setRows([]);
+          setPageMeta({ total: 0, has_more: false, next_cursor: null });
+          throw rejected[0]?.reason || new Error('No se cargaron los movimientos del Kardex.');
+        }
+        setWarning(rejected.length > 0
+          ? 'No se cargaron todas las fuentes de movimientos. Se muestran los datos disponibles; puedes reintentar con Actualizar.'
+          : '');
         const normalized = debouncedQuery.toLocaleLowerCase('es');
-        const filtered = (payload.items || []).filter((item) => {
-          if (isKgLedger && inventoryUnit(item) !== 'KG') return false;
-          if (!isKgLedger && inventoryUnit(item) === 'KG') return false;
+        const unique = new Map();
+        payload.forEach((result, sourceIndex) => {
+          if (result.status !== 'fulfilled') return;
+          const expectedUnit = sourceIndex === 0 ? 'UN' : 'KG';
+          (result.value?.items || []).forEach((item) => {
+            const unidad = inventoryUnit(item);
+            if (unidad !== expectedUnit) return;
+            const key = `${unidad}:${item.id}`;
+            if (!unique.has(key)) unique.set(key, { ...item, unidad });
+          });
+        });
+        const filtered = [...unique.values()].filter((item) => {
           const haystack = `${item.articulo_codigo} ${item.articulo_nombre} ${item.ubicacion_codigo || ''} ${item.tipo} ${item.motivo || ''}`;
           return (!normalized || haystack.toLocaleLowerCase('es').includes(normalized))
             && (locationFilter === 'TODAS' || item.ubicacion_codigo === locationFilter);
@@ -350,7 +401,9 @@ export default function InventoryScm() {
         setRows(filtered.slice(page * rowsPerPage, (page + 1) * rowsPerPage));
         setPageMeta({ total: filtered.length, has_more: false, next_cursor: null });
       } else {
-        const nextRows = payload.items || [];
+        const nextRows = (payload.items || []).map((item) => (
+          isPiecesLedger ? { ...item, unidad: 'KG' } : item
+        ));
         setRows(nextRows);
         setPageMeta(payload.page || {
           total: nextRows.length, has_more: false, next_cursor: null,
@@ -363,8 +416,9 @@ export default function InventoryScm() {
     });
     return () => { alive = false; };
   }, [
-    debouncedQuery, effectiveLedger, effectiveSort, isKgLedger, isMovements,
-    locationFilter, page, pageCursors, refreshVersion, rowsPerPage, stockFilter,
+    debouncedQuery, effectiveLedger, effectiveSort, isMovements, isPiecesLedger,
+    locationFilter, page, pageCursors, refreshVersion, rowsPerPage, showPiecesAndWip,
+    stockFilter, warehouseScope,
   ]);
 
   const changeLedger = (_event, value) => {
@@ -374,7 +428,7 @@ export default function InventoryScm() {
     setQuery('');
     setLocationFilter('TODAS');
     setStockFilter('TODOS');
-    setSortBy(value === 'movements' || value === 'movementsKg' ? 'RECIENTES' : 'CODIGO');
+    setSortBy(value === 'movements' ? 'RECIENTES' : 'CODIGO');
     setPage(0);
     setPageCursors({ 0: null });
   };
@@ -434,6 +488,7 @@ export default function InventoryScm() {
         )}
       />
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      {warning && <Alert severity="warning" onClose={() => setWarning('')}>{warning}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       {warehouseScope?.configurado && warehouseScope.control_transversal && (
         <Alert severity="info"><strong>Control transversal:</strong> puedes consultar todos los almacenes. Las operaciones físicas conservan sus permisos propios.</Alert>
@@ -447,8 +502,9 @@ export default function InventoryScm() {
         <Alert severity="warning">No tienes un almacén asignado. Administración debe asignarte almacén y clases antes de mostrar saldos.</Alert>
       )}
       <Alert severity="info">
-        El saldo inicial no crea mangas ficticias. Las mangas nuevas ingresarán al Kardex
-        cuando Almacén confirme su recepción; una reserva no equivale todavía a consumo.
+        Cada familia usa su unidad correspondiente: piezas y WIP se muestran en KG,
+        producto terminado en UN y materias primas en la unidad de su saldo. El saldo
+        inicial no crea mangas ficticias; una reserva no equivale todavía a consumo.
       </Alert>
 
       <InventoryOpeningScm
@@ -461,34 +517,26 @@ export default function InventoryScm() {
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
         {[
-          ['Existencia física', totals.physical, materialTotals.physical, 'Todo lo registrado'],
-          ['No disponible', totals.unavailable, materialTotals.unavailable, 'Pendiente, bloqueado o rechazado'],
-          ['Reservada', totals.reserved, materialTotals.reserved, 'Comprometida por planes'],
-          ['Libre', totals.free, materialTotals.free, 'Disponible para nuevas OP'],
-        ].map(([label, value, materialValue, help]) => (
-          <Paper key={label} variant="outlined" sx={{ p: 2, flex: 1 }}>
-            <Typography variant="body2" color="text.secondary">{label}</Typography>
-            <Typography variant="caption" color="text.secondary">Artículos UN</Typography>
-            <Typography variant="h5" fontWeight={800}>{value.toLocaleString('es-PE')} UN</Typography>
-            <Typography variant="body2" fontWeight={700}>Materiales KG: {materialValue.toLocaleString('es-PE')}</Typography>
-            <Typography variant="caption" color="text.secondary">{help}</Typography>
-          </Paper>
-        ))}
+          ...(showPiecesAndWip ? [{ key: 'pieces', label: 'Piezas y WIP', unit: 'KG' }] : []),
+          ...(showFinishedProducts ? [{ key: 'finished', label: 'Producto terminado', unit: 'UN' }] : []),
+          ...(showMaterials ? [{
+            key: 'materials', label: 'Materias primas', unit: 'KG',
+          }] : []),
+        ].map(({ key, label, unit }) => {
+          const values = familyTotals[key];
+          return (
+            <Paper key={key} variant="outlined" sx={{ p: 2, flex: 1, minWidth: 0 }}>
+              <Typography variant="overline" color="primary" fontWeight={900}>{label} · {unit}</Typography>
+              <Stack spacing={0.25}>
+                <Typography><strong>Físico:</strong> {values.physical.toLocaleString('es-PE')} {unit}</Typography>
+                <Typography><strong>Reservado:</strong> {values.reserved.toLocaleString('es-PE')} {unit}</Typography>
+                <Typography><strong>No disponible:</strong> {values.unavailable.toLocaleString('es-PE')} {unit}</Typography>
+                <Typography><strong>Libre:</strong> {values.free.toLocaleString('es-PE')} {unit}</Typography>
+              </Stack>
+            </Paper>
+          );
+        })}
       </Stack>
-      {showPiecesAndWip && (
-        <Paper variant="outlined" sx={{ p: 2, bgcolor: 'rgba(18, 61, 99, 0.03)' }}>
-          <Typography variant="overline" color="primary" fontWeight={900}>Piezas y WIP · KG</Typography>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 1, sm: 3 }}>
-            <Typography><strong>Físico:</strong> {kgTotals.physical.toLocaleString('es-PE')} KG</Typography>
-            <Typography><strong>No disponible:</strong> {kgTotals.unavailable.toLocaleString('es-PE')} KG</Typography>
-            <Typography><strong>Reservado:</strong> {kgTotals.reserved.toLocaleString('es-PE')} KG</Typography>
-            <Typography><strong>Libre:</strong> {kgTotals.free.toLocaleString('es-PE')} KG</Typography>
-          </Stack>
-          <Typography variant="caption" color="text.secondary">
-            Este resumen es independiente de Artículos UN y Materiales KG.
-          </Typography>
-        </Paper>
-      )}
 
       <Paper
         variant="outlined"
@@ -504,7 +552,7 @@ export default function InventoryScm() {
             Explorador de Kardex
           </Typography>
           <Typography color="text.secondary" variant="body2">
-            Trabaja como en una hoja de cálculo: elige un Kardex, filtra y revisa una sola tabla a la vez.
+            Consulta una familia, filtra y revisa una sola tabla a la vez; la unidad correcta se muestra en cada cifra y fila.
           </Typography>
         </Box>
         <Tabs
