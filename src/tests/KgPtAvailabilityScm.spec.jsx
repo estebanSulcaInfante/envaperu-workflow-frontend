@@ -28,6 +28,14 @@ async function fillEntry() {
   fireEvent.click(screen.getByRole('button', { name: 'Revisar movimiento' }));
 }
 describe('Kardex PT operativo', () => {
+  it('mantiene visibles las etiquetas de los selectores cuando todavía están vacíos', async () => {
+    render(<KgPtAvailabilityScm />);
+    await screen.findByText('No hay piezas medidas en las ubicaciones consultables.');
+    fireEvent.click(screen.getByRole('tab', { name: 'Kardex PT manual' }));
+    expect(screen.getByLabelText(/Producto terminado/).labels[0]).toHaveAttribute('data-shrink', 'true');
+    expect(screen.getByLabelText(/Ubicación autorizada/).labels[0]).toHaveAttribute('data-shrink', 'true');
+  });
+
   it('confirma datos antes de enviar y recupera exactamente el intento tras perder respuesta', async () => {
     mocks.post.mockRejectedValueOnce(new Error('Sin respuesta')).mockResolvedValue({ saldo: balance(3) });
     render(<KgPtAvailabilityScm />);
