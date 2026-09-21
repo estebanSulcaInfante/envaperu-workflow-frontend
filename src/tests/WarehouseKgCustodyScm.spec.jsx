@@ -63,6 +63,16 @@ describe('Custodia KG', () => {
     expect(mocks.command.mock.calls[0][0].data).toEqual({ version: 3, motivo_operativo: 'Mesa A, turno tarde' });
   });
 
+  it('permite reservar para Armado una manga disponible desde el pesaje', async () => {
+    mocks.resolve.mockResolvedValue({ unit: { ...unit, estado_logistico: 'DISPONIBLE_PRODUCCION', estado_calidad: 'SIN_CONTROL' } });
+    render(<WarehouseKgCustodyScm />);
+    await scan();
+    expect(screen.getByLabelText('Motivo y destino de uso en Armado')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Motivo y destino de uso en Armado'), { target: { value: 'Armado, mesa principal' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Reservar para Armado' }));
+    await waitFor(() => expect(mocks.command).toHaveBeenCalledTimes(1));
+  });
+
   it('tras perder respuesta reintenta exactamente la operación guardada', async () => {
     mocks.command.mockRejectedValueOnce(new Error('Sin respuesta')).mockResolvedValue({});
     render(<WarehouseKgCustodyScm />);

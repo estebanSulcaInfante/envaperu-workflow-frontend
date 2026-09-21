@@ -116,7 +116,7 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
         <Typography variant="h6">{unit.codigo} · {unit.articulo?.nombre || unit.articulo?.codigo}</Typography>
         <Typography>{state?.replaceAll('_', ' ')} · Calidad {unit.estado_calidad}</Typography>
         <Typography variant="h5">{unit.kg_verificados == null ? 'Peso pendiente de verificación' : `${unit.kg_verificados} kg — última verificación`}</Typography>
-        {['RECIBIDA_ALMACEN', 'ALMACENADA_CONTROLADA'].includes(state) && allowed('PICKING_PREPARAR') && <>
+        {['RECIBIDA_ALMACEN', 'ALMACENADA_CONTROLADA', 'DISPONIBLE_PRODUCCION'].includes(state) && allowed('PICKING_PREPARAR') && <>
           <TextField label="Motivo y destino de uso en Armado" value={reason} disabled={locked} onChange={(e) => setReason(e.target.value)} />
           <Button disabled={locked || !reason.trim() || !['LIBERADA', 'SIN_CONTROL'].includes(unit.estado_calidad)} onClick={reserve}>Reservar para Armado</Button>
         </>}
