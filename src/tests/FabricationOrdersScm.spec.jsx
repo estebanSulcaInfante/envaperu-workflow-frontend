@@ -7,12 +7,20 @@ import {
 } from 'vitest';
 import FabricationOrdersScm from '../components/FabricationOrdersScm';
 
+const auth = vi.hoisted(() => ({ article: true }));
+
 vi.mock('../services/api', () => ({
   obtenerColores: vi.fn().mockResolvedValue([]),
+  obtenerFamiliasColor: vi.fn().mockResolvedValue([]),
+  obtenerIngredientesRecetaColor: vi.fn().mockResolvedValue([]),
   obtenerMaquinas: vi.fn().mockResolvedValue([]),
   obtenerMolde: vi.fn(),
   obtenerMoldes: vi.fn().mockResolvedValue([]),
   obtenerRecetasColorMaestras: vi.fn().mockResolvedValue({ items: [] }),
+}));
+vi.mock('../services/scmCatalogApi', () => ({
+  crearMaterialScm: vi.fn(),
+  listarCategoriasRecepcionScm: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('../services/scmOtApi', () => ({
@@ -27,13 +35,14 @@ vi.mock('../services/scmOtApi', () => ({
 }));
 
 vi.mock('../services/scmEngineeringApi', () => ({
+  obtenerActorScm: () => 1,
   listarArticulosScm: vi.fn().mockResolvedValue([]),
   mensajeErrorScm: (error, fallback) => error?.message || fallback,
 }));
 
 vi.mock('../context/ScmActorContext', () => ({
   useScmActor: () => ({
-    can: () => true,
+    can: (capability) => capability !== 'ARTICULO_ADMINISTRAR' || auth.article,
     canAny: () => true,
     experience: { label: 'Gerencia' },
   }),
@@ -52,6 +61,35 @@ import {
 } from '../services/scmOtApi';
 
 describe('Órdenes de fabricación', () => {
+  it('abre la formulación en un panel sin abandonar la OF', async () => {
+    const user = userEvent.setup();
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [{
+      id: 'of-contexto', codigo: 'OF-CONTEXTO', estado: 'BORRADOR', version: 1,
+      corridas: [{ id: 'run-1', codigo: 'OF-CONTEXTO-C01', color_produccion_id: 7, salidas: [] }],
+    }] });
+    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+    await user.click(await screen.findByRole('button', { name: 'Crear o editar aquí' }));
+    expect(await screen.findByText('OF-CONTEXTO · OF-CONTEXTO-C01 · formulación')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Volver a la OF' })).toBeVisible();
+  });
+  it('advierte antes de descartar una formulación sin guardar', async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [{
+      id: 'of-dirty', codigo: 'OF-DIRTY', estado: 'BORRADOR', version: 1,
+      corridas: [{ id: 'run-dirty', codigo: 'OF-DIRTY-C01', color_produccion_id: 7, salidas: [] }],
+    }] });
+    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+    await user.click(await screen.findByRole('button', { name: 'Crear o editar aquí' }));
+    await user.type(screen.getByLabelText('Nombre de variante'), 'Rojo piloto');
+    await user.click(screen.getByRole('button', { name: 'Volver a la OF' }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('Nombre de variante')).toHaveValue('Rojo piloto');
+    await user.click(screen.getByRole('button', { name: 'Volver a la OF' }));
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(screen.queryByLabelText('Nombre de variante')).not.toBeInTheDocument();
+    confirm.mockRestore();
+  });
   it('distingue fabricación concurrente estimada de pesajes directos de la OF', async () => {
     listarOrdenesFabricacionScm.mockResolvedValue({ items: [{ id: 'of-source', codigo: 'OF-FUENTE', estado: 'CERRADA', version: 3, corridas: [], cierre_kg: { kg_medido: '0.000', kg_fabricacion_estimado: '10.000' } }] });
     render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
@@ -88,6 +126,7 @@ describe('Órdenes de fabricación', () => {
     expect(await screen.findByText(/Aún no hay/)).toBeVisible();
   });
   beforeEach(() => {
+    auth.article = true;
     listarOrdenesFabricacionScm.mockResolvedValue({ items: [] });
     obtenerColores.mockResolvedValue([]);
     obtenerMaquinas.mockResolvedValue([]);
@@ -98,6 +137,17 @@ describe('Órdenes de fabricación', () => {
     crearOrdenFabricacionExcepcionalScm.mockReset();
     configurarOrdenFabricacionScm.mockReset();
     cerrarOrdenFabricacionScm.mockReset();
+  });
+
+  it('explica el permiso faltante sin ofrecer alta contextual falsa', async () => {
+    auth.article = false;
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [{
+      id: 'of-limited', codigo: 'OF-LIMITED', estado: 'BORRADOR', version: 1,
+      corridas: [{ id: 'run-limited', codigo: 'OF-LIMITED-C01', color_produccion_id: 7, salidas: [] }],
+    }] });
+    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+    expect(await screen.findByText(/solicita administración de artículos/)).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Crear o editar aquí' })).not.toBeInTheDocument();
   });
 
   it('muestra la formulacion del color y permite elegir otra variante aprobada en borrador', async () => {
@@ -230,6 +280,10 @@ describe('Órdenes de fabricación', () => {
     });
     obtenerMaquinas.mockResolvedValue([{
       id: 8, codigo: 'INY-01', nombre: 'Inyectora 1', activo: true, estado: 'OPERATIVA',
+      tipo_maquina: { proceso: 'INYECCION' },
+    }, {
+      id: 9, codigo: 'SOP-01', nombre: 'Sopladora 1', activo: true, estado: 'OPERATIVA',
+      tipo_maquina: { proceso: 'SOPLADO' },
     }]);
     obtenerColores.mockResolvedValue([{ id: 5, nombre: 'ROJO', activo: true }]);
     obtenerRecetasColorMaestras.mockResolvedValue({ items: [{
@@ -264,7 +318,8 @@ describe('Órdenes de fabricación', () => {
     await user.click(screen.getByLabelText(/^Molde/));
     await user.click(await screen.findByRole('option', { name: /ML-ASA/ }));
     await screen.findByDisplayValue('20');
-    await user.click(screen.getByLabelText(/Máquina prevista/));
+    await user.click(screen.getByLabelText(/Máquina sugerida/));
+    expect(screen.queryByRole('option', { name: /SOP-01/ })).not.toBeInTheDocument();
     await user.click(await screen.findByRole('option', { name: /INY-01/ }));
     await user.click(screen.getByLabelText(/Color corrida 1/));
     await user.click(await screen.findByRole('option', { name: 'ROJO' }));
@@ -328,7 +383,7 @@ describe('Órdenes de fabricación', () => {
     expect(screen.queryByText('Aún no hay órdenes de fabricación')).not.toBeInTheDocument();
   });
 
-  it('filtra y propone el único molde y máquina compatibles con el proceso', async () => {
+  it('filtra el recurso y mantiene opcional la sugerencia de máquina', async () => {
     const user = userEvent.setup();
     listarOrdenesFabricacionScm.mockResolvedValue({
       items: [{
@@ -402,8 +457,8 @@ describe('Órdenes de fabricación', () => {
     await screen.findByText('Configuración del recurso');
     const [, mold, machine] = screen.getAllByRole('combobox');
     expect(mold).toHaveTextContent('ML-CORRECTO');
-    expect(machine).toHaveTextContent('MAQ-SOP');
-    expect(screen.getByText(/Solo se muestran recursos operativos compatibles con SOPLADO/))
+    expect(machine).toHaveTextContent('Sin sugerencia');
+    expect(screen.getByText(/Se muestran moldes compatibles con SOPLADO/))
       .toBeVisible();
 
     await user.click(mold);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, CircularProgress, FormControl, InputLabel, Checkbox, FormControlLabel,
+  Alert, Box, Button, Chip, CircularProgress, Drawer, FormControl, InputLabel, Checkbox, FormControlLabel,
   MenuItem, Paper, Select, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography,
 } from '@mui/material';
@@ -32,6 +32,7 @@ import OrderScheduleStrip from './ui/OrderScheduleStrip';
 import { useScmActor } from '../context/ScmActorContext';
 import ExceptionalFabricationOrderDialog from './ExceptionalFabricationOrderDialog';
 import FabricationRecipeSelector from './FabricationRecipeSelector';
+import FabricationContextualRecipePanel from './FabricationContextualRecipePanel';
 import DraftOrderAnnulment from './DraftOrderAnnulment';
 import FabricationOrderReplacement from './FabricationOrderReplacement';
 import { obtenerOrdenFabricacionScm } from '../services/scmOtApi';
@@ -96,6 +97,7 @@ const formFromOrder = (order, recipes = []) => ({
         : '')
       || '',
     ciclos_objetivo: run.ciclos_objetivo || '',
+    objetivo_neto_kg: run.objetivo_neto_kg ?? '',
     salidas: run.salidas.map((output) => ({
       id: output.id,
       cantidad_por_ciclo: output.cantidad_por_ciclo_snapshot || '',
@@ -104,19 +106,15 @@ const formFromOrder = (order, recipes = []) => ({
   })),
 });
 
-const suggestedForm = (order, molds, machines, recipes = []) => {
+const suggestedForm = (order, molds, recipes = []) => {
   const next = formFromOrder(order, recipes);
   if (!order || order.estado !== 'BORRADOR') return next;
   const compatibleMolds = compatibleMoldsForOrder(order, molds);
-  const compatibleMachines = compatibleMachinesForOrder(order, machines);
   if (!next.molde_id && compatibleMolds.length === 1) {
     const mold = compatibleMolds[0];
     next.molde_id = mold.codigo;
     next.snapshot_tiempo_ciclo_seg = mold.tiempo_ciclo_std ?? '';
     next.snapshot_peso_colada_gr = Math.max(Number(mold.peso_colada_gr || 0), 0);
-  }
-  if (!next.maquina_prevista_id && compatibleMachines.length === 1) {
-    next.maquina_prevista_id = compatibleMachines[0].id;
   }
   return next;
 };
@@ -141,6 +139,9 @@ export default function FabricationOrdersScm() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [exceptionalOpen, setExceptionalOpen] = useState(false);
+  const [formulaRunIndex, setFormulaRunIndex] = useState(null);
+  const [formulaDirty, setFormulaDirty] = useState(false);
+  const [formulaBusy, setFormulaBusy] = useState(false);
   const [closeReason, setCloseReason] = useState('');
 
   const selected = useMemo(
@@ -183,7 +184,7 @@ export default function FabricationOrdersScm() {
       const nextRecipes = recipePayload?.items || [];
       setRecipes(nextRecipes);
       setOrderId(nextId);
-      setForm(suggestedForm(nextOrder, nextMolds, nextMachines, nextRecipes));
+      setForm(suggestedForm(nextOrder, nextMolds, nextRecipes));
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudieron cargar las OF.'));
     } finally {
@@ -196,7 +197,7 @@ export default function FabricationOrdersScm() {
   const chooseOrder = (nextId) => {
     const nextOrder = orders.find((item) => item.id === nextId);
     setOrderId(nextId);
-    setForm(suggestedForm(nextOrder, molds, machines, recipes));
+    setForm(suggestedForm(nextOrder, molds, recipes));
     setError('');
     setNotice('');
     setCloseReason('');
@@ -219,6 +220,21 @@ export default function FabricationOrdersScm() {
     )),
   }));
 
+  const recipeSavedInWorkspace = async (result) => {
+    await load(selected?.id);
+    setNotice(result?.receta?.estado === 'APROBADA'
+      ? 'Formulación aprobada y seleccionada en la OF. Revisa la configuración antes de liberarla.'
+      : 'Formulación guardada en borrador. Debe aprobarse antes de seleccionarla en la OF.');
+    setFormulaRunIndex(null);
+  };
+
+  const closeFormulaWorkspace = () => {
+    if (formulaBusy) return;
+    if (formulaDirty && !window.confirm('Hay cambios de formulación sin guardar. ¿Descartarlos?')) return;
+    setFormulaRunIndex(null);
+    setFormulaDirty(false);
+  };
+
   const changeOutput = (runIndex, outputIndex, field, value) => {
     setForm((current) => ({
       ...current,
@@ -234,8 +250,8 @@ export default function FabricationOrdersScm() {
   };
 
   const configure = async () => {
-    if (!selected || !form.molde_id || !form.maquina_prevista_id) {
-      setError('Selecciona molde y máquina prevista.');
+    if (!selected || !form.molde_id) {
+      setError('Selecciona un molde.');
       return;
     }
     setBusy(true);
@@ -253,7 +269,7 @@ export default function FabricationOrdersScm() {
         : {
           version: selected.version,
           molde_id: form.molde_id,
-          maquina_prevista_id: Number(form.maquina_prevista_id),
+          maquina_prevista_id: form.maquina_prevista_id ? Number(form.maquina_prevista_id) : null,
           snapshot_tiempo_ciclo_seg: Number(form.snapshot_tiempo_ciclo_seg),
           snapshot_horas_turno: Number(form.snapshot_horas_turno),
           snapshot_peso_colada_gr: Number(form.snapshot_peso_colada_gr),
@@ -265,6 +281,8 @@ export default function FabricationOrdersScm() {
             ? Number(run.receta_revision_id) : null,
           ...(Number(run.ciclos_objetivo) > 0
             ? { ciclos_objetivo: Number(run.ciclos_objetivo) } : {}),
+          ...(Number(run.objetivo_neto_kg) > 0
+            ? { objetivo_neto_kg: Number(run.objetivo_neto_kg) } : {}),
           salidas: run.salidas.map((output, outputIndex) => {
             const source = selected.corridas[runIndex].salidas[outputIndex];
             return {
@@ -504,12 +522,12 @@ export default function FabricationOrdersScm() {
             <Typography fontWeight={800} sx={{ mb: 2 }}>Configuración del recurso</Typography>
             {selected.estado === 'BORRADOR' && (
               <Alert
-                severity={compatibleMolds.length && compatibleMachines.length ? 'info' : 'error'}
+                severity={compatibleMolds.length ? 'info' : 'error'}
                 sx={{ mb: 2 }}
               >
-                {compatibleMolds.length && compatibleMachines.length
-                  ? `Solo se muestran recursos operativos compatibles con ${selected.proceso_requerido || 'la operación'}. Cuando existe una sola alternativa, se propone sin guardar ni liberar automáticamente la OF.`
-                  : 'No existe un molde y una máquina operativa compatibles. Corrige los maestros antes de configurar la OF.'}
+                {compatibleMolds.length
+                  ? `Se muestran moldes compatibles con ${selected.proceso_requerido || 'la operación'}. La máquina sugerida es opcional; la máquina real se elige y valida al agregar el Trabajo de color a una OT.`
+                  : 'No existe un molde compatible. Corrige el maestro antes de configurar la OF.'}
               </Alert>
             )}
             <Box sx={{
@@ -549,15 +567,17 @@ export default function FabricationOrdersScm() {
                 </Select>
               </FormControl>
               <FormControl>
-                <InputLabel>Máquina prevista</InputLabel>
+                <InputLabel>Máquina sugerida (opcional)</InputLabel>
                 <Select
-                  label="Máquina prevista"
+                  label="Máquina sugerida (opcional)"
                   value={form.maquina_prevista_id}
+                  displayEmpty
                   disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
                   onChange={(event) => setForm({
                     ...form, maquina_prevista_id: event.target.value,
                   })}
                   renderValue={(value) => {
+                    if (!value) return 'Sin sugerencia';
                     const machine = compatibleMachines.find((item) => item.id === value);
                     return machine ? (
                       <Box title={`${machine.codigo} · ${machine.nombre}`} sx={{ minWidth: 0 }}>
@@ -570,6 +590,7 @@ export default function FabricationOrdersScm() {
                   }}
                   sx={{ '& .MuiSelect-select': { py: 1 } }}
                 >
+                  <MenuItem value="">Sin sugerencia</MenuItem>
                   {compatibleMachines.map((machine) => (
                     <MenuItem key={machine.id} value={machine.id}>
                       {machine.codigo} · {machine.nombre}
@@ -671,7 +692,28 @@ export default function FabricationOrdersScm() {
                   })}
                   sx={{ width: 210 }}
                 />
+                <TextField
+                  size="small"
+                  type="number"
+                  label="Objetivo neto (kg)"
+                  value={form.corridas[runIndex]?.objetivo_neto_kg ?? ''}
+                  disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
+                  onChange={(event) => changeRun(runIndex, {
+                    objetivo_neto_kg: event.target.value,
+                  })}
+                  slotProps={{ htmlInput: { min: 0, step: 0.001 } }}
+                  helperText="Se cubre la demanda y se redondea a ciclos completos; los kg reales vienen del pesaje."
+                  sx={{ width: 230 }}
+                />
               </Stack>
+              {run.objetivo_neto_kg != null && (
+                <Alert severity="info" sx={{ mx: 2, mb: 1 }}>
+                  Objetivo guardado: {run.objetivo_neto_kg} kg netos · {run.ciclos_objetivo} ciclos completos ·
+                  {' '}alcanzable estimado {run.kg_neto_alcanzable} kg
+                  {run.redondeo_kg != null && ` · diferencia ${run.redondeo_kg} kg`}.
+                  {' '}La producción real se registra con pesajes.
+                </Alert>
+              )}
               <FabricationRecipeSelector
                 idPrefix={`of-${selected.id}-run-${run.id}`}
                 run={run}
@@ -683,6 +725,11 @@ export default function FabricationOrdersScm() {
                 onChange={(recipeId) => changeRun(runIndex, {
                   receta_revision_id: recipeId,
                 })}
+                onOpenWorkspace={can('ARTICULO_ADMINISTRAR') ? () => {
+                  setFormulaDirty(false);
+                  setFormulaBusy(false);
+                  setFormulaRunIndex(runIndex);
+                } : undefined}
               />
               <TableContainer>
                 <Table size="small">
@@ -782,6 +829,34 @@ export default function FabricationOrdersScm() {
           )}
         </>
       )}
+
+      <Drawer
+        anchor="right"
+        open={formulaRunIndex !== null}
+        onClose={closeFormulaWorkspace}
+        PaperProps={{ sx: { width: { xs: '100%', md: 'min(1120px, 90vw)' }, p: 2, overflowY: 'auto' } }}
+      >
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+          <Typography variant="h6" fontWeight={800}>
+            {selected?.codigo} · {selected?.corridas?.[formulaRunIndex]?.codigo} · formulación
+          </Typography>
+          <Button onClick={closeFormulaWorkspace} disabled={formulaBusy}>Volver a la OF</Button>
+        </Stack>
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Las altas de color, materiales y receta se confirman juntas. Guarda antes cualquier otro cambio pendiente en la OF.
+        </Alert>
+        {formulaRunIndex !== null && selected?.corridas?.[formulaRunIndex] && (
+          <FabricationContextualRecipePanel
+            order={selected}
+            run={selected.corridas[formulaRunIndex]}
+            colorId={form.corridas?.[formulaRunIndex]?.color_produccion_id}
+            colors={colors}
+            onSaved={recipeSavedInWorkspace}
+            onDirtyChange={setFormulaDirty}
+            onBusyChange={setFormulaBusy}
+          />
+        )}
+      </Drawer>
 
       <ExceptionalFabricationOrderDialog
         open={exceptionalOpen}

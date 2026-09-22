@@ -41,6 +41,13 @@ export const configurarOrdenFabricacionScm = (ofId, payload) => body(
     { headers: headers(true) },
   ),
 );
+export const crearFormulacionContextualScm = (ofId, runId, payload, operationId) => body(
+  () => api.post(
+    `/scm/v1/ordenes-fabricacion/${encodeURIComponent(ofId)}/corridas/${encodeURIComponent(runId)}/formulacion-contextual`,
+    payload,
+    { headers: { ...headers(), 'Idempotency-Key': operationId } },
+  ),
+);
 export const liberarOrdenFabricacionScm = (ofId, version) => body(
   () => api.post(
     `/scm/v1/ordenes-fabricacion/${encodeURIComponent(ofId)}/liberar`,

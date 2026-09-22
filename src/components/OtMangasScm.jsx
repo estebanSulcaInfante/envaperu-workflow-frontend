@@ -380,10 +380,10 @@ function DailyMachineBoard({
                 <Stack direction="row" justifyContent="space-between" spacing={1}>
                   <Box>
                     <Typography component="h3" variant="h6" fontWeight={900}>
-                      {card.machine.codigo}
+                      {card.machine.nombre || card.machine.codigo}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {card.machine.nombre}
+                      {`ID: ${card.machine.codigo}`}
                     </Typography>
                   </Box>
                   <Chip
@@ -1531,7 +1531,7 @@ export default function OtMangasScm({ view = 'all' }) {
     setBusy(true);
     setError('');
     try {
-      const result = await cambiarEstadoOtScm(selectedOt.public_id, 'cerrar', selectedOt.version);
+      await cambiarEstadoOtScm(selectedOt.public_id, 'cerrar', selectedOt.version);
       setNotice(`${selectedOt.codigo_ot}: cierre documental registrado en kg. No mueve stock.`);
       try { await loadOts(selectedOt.public_id, selectedWork?.id); }
       catch { setError('El cierre está confirmado. Actualice la consulta para ver el estado vigente.'); }
@@ -2018,7 +2018,7 @@ export default function OtMangasScm({ view = 'all' }) {
       );
       try {
         await loadOts(selectedOt.public_id, selectedWork.id);
-      } catch (_refreshError) {
+      } catch {
         setError(
           'La manga sí fue reabierta, pero no se pudo refrescar la OT. Use Actualizar antes de continuar.',
         );

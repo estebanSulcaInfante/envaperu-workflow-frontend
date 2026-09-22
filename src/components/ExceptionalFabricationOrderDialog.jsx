@@ -17,11 +17,16 @@ const emptyRun = (key = 'run-1') => ({
   color_produccion_id: '',
   receta_revision_id: '',
   ciclos_objetivo: '',
+  objetivo_neto_kg: '',
 });
 
 const colorLabel = (color) => color.nombre
   || [color.color_base?.nombre, color.familia_color?.nombre].filter(Boolean).join(' ')
   || `Color ${color.id}`;
+const isInjectionMachine = (machine) => {
+  const process = machine.tipo_maquina?.proceso || machine.tipo_legacy || machine.tipo;
+  return String(process || '').trim().toUpperCase() === 'INYECCION';
+};
 
 const exceptionalOutputsForRun = (mold, articles, colorId) => {
   const articlesBySku = new Map(
@@ -109,6 +114,7 @@ export default function ExceptionalFabricationOrderDialog({
   const outputGroups = useMemo(() => runs.map((run) => (
     exceptionalOutputsForRun(mold, articles, run.color_produccion_id)
   )), [articles, mold, runs]);
+  const suggestedMachines = machines.filter(isInjectionMachine);
 
   const selectedColorIds = runs.map((run) => Number(run.color_produccion_id)).filter(Boolean);
   const duplicateColors = new Set(selectedColorIds).size !== selectedColorIds.length;
@@ -124,12 +130,12 @@ export default function ExceptionalFabricationOrderDialog({
   const canSubmit = (
     reason.trim().length >= 5
     && moldId
-    && Number(machineId) > 0
     && Number(cycleSeconds) > 0
     && Number(shiftHours) > 0
     && Number(runnerWeight) >= 0
     && runs.length > 0
-    && runs.every((run) => Number(run.color_produccion_id) > 0 && Number(run.ciclos_objetivo) > 0)
+    && runs.every((run) => Number(run.color_produccion_id) > 0
+      && (Number(run.ciclos_objetivo) > 0 || Number(run.objetivo_neto_kg) > 0))
     && !duplicateColors
     && outputsComplete
     && !busy
@@ -142,7 +148,7 @@ export default function ExceptionalFabricationOrderDialog({
 
   const submit = async () => {
     if (!canSubmit) {
-      setError('Completa el motivo, recurso, corridas y variantes PiezaColor antes de crear la OF.');
+      setError('Completa el motivo, molde, objetivo de cada corrida y variantes PiezaColor antes de crear la OF.');
       return;
     }
     setBusy(true);
@@ -151,7 +157,7 @@ export default function ExceptionalFabricationOrderDialog({
       const created = await crearOrdenFabricacionExcepcionalScm({
         motivo: reason.trim(),
         molde_id: moldId,
-        maquina_prevista_id: Number(machineId),
+        maquina_prevista_id: machineId ? Number(machineId) : null,
         snapshot_tiempo_ciclo_seg: Number(cycleSeconds),
         snapshot_horas_turno: Number(shiftHours),
         snapshot_peso_colada_gr: Number(runnerWeight),
@@ -160,7 +166,8 @@ export default function ExceptionalFabricationOrderDialog({
           ...(run.receta_revision_id
             ? { receta_revision_id: Number(run.receta_revision_id) }
             : {}),
-          ciclos_objetivo: Number(run.ciclos_objetivo),
+          ...(Number(run.ciclos_objetivo) > 0 ? { ciclos_objetivo: Number(run.ciclos_objetivo) } : {}),
+          ...(Number(run.objetivo_neto_kg) > 0 ? { objetivo_neto_kg: Number(run.objetivo_neto_kg) } : {}),
           salidas: outputGroups[runIndex].map((output) => ({
             articulo_scm_id: output.article.id,
             cantidad_por_ciclo: output.cantidad_por_ciclo,
@@ -211,20 +218,24 @@ export default function ExceptionalFabricationOrderDialog({
                 ))}
               </Select>
             </FormControl>
-            <FormControl fullWidth required>
-              <InputLabel id="exceptional-of-machine-label">Máquina prevista</InputLabel>
+            <FormControl fullWidth>
+              <InputLabel id="exceptional-of-machine-label">Máquina sugerida (opcional)</InputLabel>
               <Select
                 id="exceptional-of-machine"
                 labelId="exceptional-of-machine-label"
-                label="Máquina prevista"
+                label="Máquina sugerida (opcional)"
                 value={machineId}
                 onChange={(event) => setMachineId(event.target.value)}
               >
-                {machines.map((item) => (
+                <MenuItem value="">Sin sugerencia</MenuItem>
+                {suggestedMachines.map((item) => (
                   <MenuItem key={item.id} value={item.id}>{item.codigo} - {item.nombre}</MenuItem>
                 ))}
               </Select>
             </FormControl>
+            <Alert severity="info" sx={{ gridColumn: '1 / -1' }}>
+              El molde de esta OF excepcional corresponde a inyección. La máquina real se elige en la OT.
+            </Alert>
             <TextField required type="number" label="Tiempo de ciclo (s)" value={cycleSeconds} onChange={(event) => setCycleSeconds(event.target.value)} slotProps={{ htmlInput: { min: 0.001, step: 'any' } }} />
             <TextField required type="number" label="Horas de turno" value={shiftHours} onChange={(event) => setShiftHours(event.target.value)} slotProps={{ htmlInput: { min: 0.1, step: 'any' } }} />
             <TextField type="number" label="Peso de colada (g)" value={runnerWeight} onChange={(event) => setRunnerWeight(event.target.value)} slotProps={{ htmlInput: { min: 0, step: 'any' } }} />
@@ -274,12 +285,20 @@ export default function ExceptionalFabricationOrderDialog({
                   </FormControl>
                   <TextField
                     fullWidth
-                    required
                     type="number"
                     label={`Ciclos objetivo corrida ${runIndex + 1}`}
                     value={run.ciclos_objetivo}
                     onChange={(event) => updateRun(runIndex, { ciclos_objetivo: event.target.value })}
                     slotProps={{ htmlInput: { min: 1, step: 1 } }}
+                  />
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label={`Objetivo neto corrida ${runIndex + 1} (kg)`}
+                    value={run.objetivo_neto_kg}
+                    onChange={(event) => updateRun(runIndex, { objetivo_neto_kg: event.target.value })}
+                    slotProps={{ htmlInput: { min: 0, step: 0.001 } }}
+                    helperText="Se cubre cualquier cantidad mínima y se redondea a ciclos completos; los kg reales vienen del pesaje."
                   />
                   <IconButton
                     aria-label={`Eliminar corrida ${runIndex + 1}`}

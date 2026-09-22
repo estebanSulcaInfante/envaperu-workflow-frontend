@@ -47,7 +47,10 @@ import {
   obtenerRecetasColorMaestras,
 } from '../services/api';
 import PageHeader from './ui/PageHeader';
+import MaterialQuickCreateDialog from './MaterialQuickCreateDialog';
 import { matchesOmniSearch } from '../utils/tableSearch';
+import { listarCategoriasRecepcionScm } from '../services/scmCatalogApi';
+import { useScmActor } from '../context/ScmActorContext';
 
 const emptyColor = {
   nombre: '',
@@ -98,10 +101,13 @@ function ColorSwatch({ hex, size = 28 }) {
   );
 }
 
-function ColoresRecetasAdmin() {
+function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipeSaved = null }) {
+  const { can } = useScmActor();
+  const canPublishRecipe = can('FORMULACION_PUBLICAR_DIRECTO');
   const [colors, setColors] = useState([]);
   const [families, setFamilies] = useState([]);
   const [ingredients, setIngredients] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [recipes, setRecipes] = useState([]);
   const [selectedColorId, setSelectedColorId] = useState(null);
   const [search, setSearch] = useState('');
@@ -118,6 +124,7 @@ function ColoresRecetasAdmin() {
   const [editingFamily, setEditingFamily] = useState(null);
   const [recipeDialog, setRecipeDialog] = useState({ open: false, item: null });
   const [recipeForm, setRecipeForm] = useState(emptyRecipe);
+  const [materialDialog, setMaterialDialog] = useState({ open: false, lineIndex: null, role: 'MATERIA_PRIMA' });
 
   const selectedColor = colors.find((item) => item.id === selectedColorId) || null;
   const visibleColors = useMemo(() => colors.filter((item) => (
@@ -131,17 +138,21 @@ function ColoresRecetasAdmin() {
     setLoading(true);
     setError('');
     try {
-      const [colorRows, familyRows, ingredientRows] = await Promise.all([
+      const [colorRows, familyRows, ingredientRows, categoryRows] = await Promise.all([
         obtenerColores({ include_inactive: true }),
         obtenerFamiliasColor({ include_inactive: true }),
         obtenerIngredientesRecetaColor({ include_inactive: true }),
+        listarCategoriasRecepcionScm(),
       ]);
       setColors(asItems(colorRows));
       setFamilies(asItems(familyRows));
       setIngredients(asItems(ingredientRows));
+      setCategories(asItems(categoryRows));
       setSelectedColorId((current) => (
         asItems(colorRows).some((item) => item.id === current)
           ? current
+          : asItems(colorRows).some((item) => item.id === Number(initialColorId))
+            ? Number(initialColorId)
           : asItems(colorRows).find((item) => item.activo !== false)?.id
             ?? asItems(colorRows)[0]?.id
             ?? null
@@ -209,17 +220,22 @@ function ColoresRecetasAdmin() {
       const payload = {
         nombre: familyForm.nombre.trim(),
       };
+      let savedFamily;
       if (editingFamily) {
         payload.codigo = familyForm.codigo === '' ? null : Number(familyForm.codigo);
-        await actualizarFamiliaColor(editingFamily.id, {
+        savedFamily = await actualizarFamiliaColor(editingFamily.id, {
           ...payload,
           activo: familyForm.activo,
           version: editingFamily.version,
         });
       } else {
-        await crearFamiliaColor(payload);
+        savedFamily = await crearFamiliaColor(payload);
       }
       await loadCatalog();
+      if (colorDialog.open && savedFamily?.id) {
+        setColorForm((current) => ({ ...current, familia_color_id: savedFamily.id }));
+        setFamilyDialogOpen(false);
+      }
       resetFamilyForm();
       setNotice('Familia de color guardada correctamente.');
     } catch (requestError) {
@@ -284,17 +300,19 @@ function ColoresRecetasAdmin() {
         hex_referencia: colorForm.hex_referencia || null,
         activo: colorForm.activo,
       };
+      let savedColor;
       if (colorDialog.item) {
-        await actualizarColor(colorDialog.item.id, {
+        savedColor = await actualizarColor(colorDialog.item.id, {
           ...payload,
           version: colorDialog.item.version,
         });
       } else {
-        await crearColor(payload);
+        savedColor = await crearColor(payload);
       }
       setColorDialog({ open: false, item: null });
       setNotice('Color guardado correctamente.');
       await loadCatalog();
+      if (savedColor?.id) setSelectedColorId(savedColor.id);
     } catch (requestError) {
       setError(apiError(requestError, 'No se pudo guardar el color.'));
     } finally {
@@ -342,7 +360,8 @@ function ColoresRecetasAdmin() {
       lineas: item.lineas.map((line) => ({
         material_id: line.material_id,
         tipo_componente: line.tipo_componente,
-        cantidad: line.cantidad,
+        cantidad: line.tipo_componente === 'MATERIA_PRIMA'
+          ? Number(line.cantidad) * 100 : line.cantidad,
         base_kg: line.base_kg || item.base_virgen_kg,
       })),
     });
@@ -390,6 +409,10 @@ function ColoresRecetasAdmin() {
     .reduce((sum, line) => sum + (Number(line.cantidad) || 0), 0);
 
   const saveRecipe = async () => {
+    if (recipeForm.estado === 'APROBADA' && !canPublishRecipe) {
+      setError('Tu perfil puede guardar borradores, pero no aprobar formulaciones.');
+      return;
+    }
     if (!selectedColorId || !recipeForm.nombre_variante.trim()) {
       setError('Selecciona un color e ingresa el nombre de la variante.');
       return;
@@ -398,8 +421,8 @@ function ColoresRecetasAdmin() {
       setError('Completa el material y una cantidad positiva en cada línea.');
       return;
     }
-    if (recipeForm.estado === 'APROBADA' && Math.abs(resinFraction - 1) > 0.0001) {
-      setError('Para aprobar, las fracciones de materia prima deben sumar 1.');
+    if (recipeForm.estado === 'APROBADA' && Math.abs(resinFraction - 100) > 0.000001) {
+      setError('Para aprobar, los porcentajes de materia prima deben sumar 100%.');
       return;
     }
     setSaving(true);
@@ -416,7 +439,8 @@ function ColoresRecetasAdmin() {
         lineas: recipeForm.lineas.map((line) => ({
           material_id: Number(line.material_id),
           tipo_componente: line.tipo_componente,
-          cantidad: Number(line.cantidad),
+          cantidad: line.tipo_componente === 'MATERIA_PRIMA'
+            ? Number(line.cantidad) / 100 : Number(line.cantidad),
           base_kg: line.tipo_componente === 'MATERIA_PRIMA'
             ? null
             : Number(line.base_kg || recipeForm.base_virgen_kg),
@@ -433,6 +457,7 @@ function ColoresRecetasAdmin() {
         ? `Se creó la revisión ${result.revision}; la anterior quedó histórica.`
         : 'Receta guardada correctamente.');
       await loadRecipes(selectedColorId);
+      onRecipeSaved?.(result);
     } catch (requestError) {
       setError(apiError(requestError, 'No se pudo guardar la receta.'));
     } finally {
@@ -458,10 +483,14 @@ function ColoresRecetasAdmin() {
 
   return (
     <Stack spacing={2.25} sx={{ maxWidth: 1500, mx: 'auto' }}>
-      <PageHeader
-        title="Colores y recetas"
-        description="Administra colores visuales y fórmulas manuales versionadas. Las OP conservan su propia copia histórica."
-      />
+      {embedded ? (
+        <Typography variant="h6" fontWeight={800}>Colores y formulaciones de la OF</Typography>
+      ) : (
+        <PageHeader
+          title="Colores y recetas"
+          description="Administra colores visuales y fórmulas manuales versionadas. Las OP conservan su propia copia histórica."
+        />
+      )}
 
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
@@ -553,7 +582,7 @@ function ColoresRecetasAdmin() {
                         </TableCell>
                         <TableCell>
                           <Stack spacing={0.35}>
-                            {item.lineas.map((line) => <Typography key={line.id || `${line.material_id}-${line.tipo_componente}`} variant="caption">{line.material_nombre}: {line.cantidad} {line.unidad === 'FRACCION' ? 'fracción' : `g/${line.base_kg} kg virgen`}</Typography>)}
+                            {item.lineas.map((line) => <Typography key={line.id || `${line.material_id}-${line.tipo_componente}`} variant="caption">{line.material_nombre}: {line.unidad === 'FRACCION' ? `${Number(line.cantidad) * 100}%` : `${line.cantidad} g/${line.base_kg} kg virgen`}</Typography>)}
                             {item.lineas.length === 0 && <Typography variant="caption" color="warning.main">Borrador sin componentes</Typography>}
                           </Stack>
                         </TableCell>
@@ -577,7 +606,10 @@ function ColoresRecetasAdmin() {
         <DialogTitle>{colorDialog.item ? 'Editar color' : 'Nuevo color de producción'}</DialogTitle>
         <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
           <TextField label="Nombre del color base" value={colorForm.nombre} onChange={(event) => setColorForm((current) => ({ ...current, nombre: event.target.value }))} autoFocus fullWidth />
-          <TextField select label="Acabado / familia de color" value={colorForm.familia_color_id} onChange={(event) => setColorForm((current) => ({ ...current, familia_color_id: event.target.value }))} fullWidth>{families.filter((family) => family.activo !== false || family.id === colorForm.familia_color_id).map((family) => <MenuItem key={family.id} value={family.id}>{family.nombre}{family.activo === false ? ' (INACTIVA)' : ''}</MenuItem>)}</TextField>
+          <Stack spacing={0.5}>
+            <TextField select label="Acabado / familia de color" value={colorForm.familia_color_id} onChange={(event) => setColorForm((current) => ({ ...current, familia_color_id: event.target.value }))} fullWidth>{families.filter((family) => family.activo !== false || family.id === colorForm.familia_color_id).map((family) => <MenuItem key={family.id} value={family.id}>{family.nombre}{family.activo === false ? ' (INACTIVA)' : ''}</MenuItem>)}</TextField>
+            <Button size="small" startIcon={<AddOutlinedIcon />} sx={{ alignSelf: 'flex-start' }} onClick={() => { resetFamilyForm(); setFamilyDialogOpen(true); }}>Crear acabado / familia</Button>
+          </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
             <ColorSwatch hex={/^#[0-9a-fA-F]{6}$/.test(colorForm.hex_referencia) ? colorForm.hex_referencia : null} size={42} />
             <TextField
@@ -653,31 +685,50 @@ function ColoresRecetasAdmin() {
           <Grid container spacing={1.5}>
             <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Nombre de variante" value={recipeForm.nombre_variante} onChange={(event) => setRecipeForm((current) => ({ ...current, nombre_variante: event.target.value }))} /></Grid>
             <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Producto SKU (opcional)" value={recipeForm.producto_sku} onChange={(event) => setRecipeForm((current) => ({ ...current, producto_sku: event.target.value }))} helperText="Vacío = receta general del color" /></Grid>
-            <Grid size={{ xs: 12, md: 4 }}><TextField select fullWidth label="Estado" value={recipeForm.estado} onChange={(event) => setRecipeForm((current) => ({ ...current, estado: event.target.value, es_default: event.target.value === 'APROBADA' ? current.es_default : false }))}><MenuItem value="BORRADOR">BORRADOR</MenuItem><MenuItem value="APROBADA">APROBADA</MenuItem></TextField></Grid>
+            <Grid size={{ xs: 12, md: 4 }}><TextField select fullWidth label="Estado" value={recipeForm.estado} onChange={(event) => setRecipeForm((current) => ({ ...current, estado: event.target.value, es_default: event.target.value === 'APROBADA' ? current.es_default : false }))}><MenuItem value="BORRADOR">BORRADOR</MenuItem>{canPublishRecipe && <MenuItem value="APROBADA">APROBADA</MenuItem>}</TextField></Grid>
             <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth type="number" label="Base virgen (kg)" value={recipeForm.base_virgen_kg} onChange={(event) => setRecipeForm((current) => ({ ...current, base_virgen_kg: event.target.value }))} slotProps={{ htmlInput: { min: 0.001, step: 0.001 } }} /></Grid>
             <Grid size={{ xs: 12, md: 4 }}><FormControlLabel control={<Switch disabled={recipeForm.estado !== 'APROBADA'} checked={recipeForm.es_default} onChange={(event) => setRecipeForm((current) => ({ ...current, es_default: event.target.checked }))} />} label="Predeterminada" /></Grid>
           </Grid>
           <TextField fullWidth multiline minRows={2} label="Notas" value={recipeForm.notas} onChange={(event) => setRecipeForm((current) => ({ ...current, notas: event.target.value }))} />
-          <Stack direction="row" justifyContent="space-between" alignItems="center"><Box><Typography variant="h6" sx={{ fontWeight: 750 }}>Componentes</Typography><Typography variant="caption" color={recipeForm.estado === 'APROBADA' && Math.abs(resinFraction - 1) > 0.0001 ? 'error.main' : 'text.secondary'}>Fracción total de materias primas: {resinFraction.toFixed(4)}</Typography></Box><Button startIcon={<AddOutlinedIcon />} onClick={addRecipeLine}>Agregar componente</Button></Stack>
+          <Stack direction="row" justifyContent="space-between" alignItems="center"><Box><Typography variant="h6" sx={{ fontWeight: 750 }}>Componentes</Typography><Typography variant="caption" color={recipeForm.estado === 'APROBADA' && Math.abs(resinFraction - 100) > 0.000001 ? 'error.main' : 'text.secondary'}>Total materias primas: {resinFraction.toFixed(2)}%</Typography></Box><Button startIcon={<AddOutlinedIcon />} onClick={addRecipeLine}>Agregar componente</Button></Stack>
+          {ingredients.filter((item) => item.activo !== false).length === 0 && (
+            <Alert severity="info">No hay materiales activos disponibles para esta formulación. Agrega un componente y créalo aquí mismo.</Alert>
+          )}
           {recipeForm.lineas.map((line, index) => {
             const selectedIngredient = ingredients.find((item) => String(item.id) === String(line.material_id));
             const isRaw = line.tipo_componente === 'MATERIA_PRIMA';
             return (
               <Paper key={`${index}-${line.material_id}`} variant="outlined" sx={{ p: 1.5 }}>
                 <Grid container spacing={1.25} alignItems="center">
-                  <Grid size={{ xs: 12, md: 5 }}><TextField select fullWidth size="small" label="Material" value={line.material_id} onChange={(event) => updateRecipeLine(index, 'material_id', event.target.value)}>{ingredients.filter((item) => item.activo !== false).map((item) => <MenuItem key={item.id} value={item.id}>{item.codigo} · {item.nombre}</MenuItem>)}</TextField></Grid>
+                  <Grid size={{ xs: 12, md: 5 }}><Stack spacing={0.5}><TextField select fullWidth size="small" label="Material" value={line.material_id} onChange={(event) => updateRecipeLine(index, 'material_id', event.target.value)}>{ingredients.filter((item) => item.activo !== false).map((item) => <MenuItem key={item.id} value={item.id}>{item.codigo} · {item.nombre}</MenuItem>)}</TextField><Button size="small" startIcon={<AddOutlinedIcon />} sx={{ alignSelf: 'flex-start' }} onClick={() => setMaterialDialog({ open: true, lineIndex: index, role: line.tipo_componente })}>Crear {line.tipo_componente === 'MATERIA_PRIMA' ? 'materia prima' : line.tipo_componente === 'ADITIVO' ? 'aditivo' : 'colorante'}</Button></Stack></Grid>
                   <Grid size={{ xs: 12, md: 2.5 }}><TextField select fullWidth size="small" label="Rol" value={line.tipo_componente} disabled={selectedIngredient?.clase === 'MATERIA_PRIMA'} onChange={(event) => updateRecipeLine(index, 'tipo_componente', event.target.value)}>{selectedIngredient?.clase === 'MATERIA_PRIMA' ? <MenuItem value="MATERIA_PRIMA">Materia prima</MenuItem> : selectedIngredient?.clase === 'COLORANTE' ? [<MenuItem key="COLORANTE" value="COLORANTE">Colorante</MenuItem>, <MenuItem key="ADITIVO" value="ADITIVO">Aditivo</MenuItem>] : [<MenuItem key="MATERIA_PRIMA" value="MATERIA_PRIMA">Materia prima</MenuItem>, <MenuItem key="COLORANTE" value="COLORANTE">Colorante</MenuItem>, <MenuItem key="ADITIVO" value="ADITIVO">Aditivo</MenuItem>]}</TextField></Grid>
-                  <Grid size={{ xs: 10, md: isRaw ? 4 : 2 }}><TextField fullWidth size="small" type="number" label={isRaw ? 'Fracción (0–1)' : 'Dosis (g)'} value={line.cantidad} onChange={(event) => updateRecipeLine(index, 'cantidad', event.target.value)} slotProps={{ htmlInput: { min: 0.0001, step: 0.0001 } }} /></Grid>
+                  <Grid size={{ xs: 10, md: isRaw ? 4 : 2 }}><TextField fullWidth size="small" type="number" label={isRaw ? 'Materia prima (%)' : 'Dosis (g)'} value={line.cantidad} onChange={(event) => updateRecipeLine(index, 'cantidad', event.target.value)} slotProps={{ htmlInput: { min: 0.0001, max: isRaw ? 100 : undefined, step: isRaw ? 0.01 : 0.0001 } }} /></Grid>
                   {!isRaw && <Grid size={{ xs: 10, md: 2 }}><TextField fullWidth size="small" type="number" label="Por kg virgen" value={line.base_kg} onChange={(event) => updateRecipeLine(index, 'base_kg', event.target.value)} slotProps={{ htmlInput: { min: 0.001, step: 0.001 } }} /></Grid>}
                   <Grid size={{ xs: 2, md: 0.5 }}><IconButton aria-label={`Eliminar componente ${index + 1}`} color="error" onClick={() => removeRecipeLine(index)}><DeleteOutlineIcon fontSize="small" /></IconButton></Grid>
                 </Grid>
               </Paper>
             );
           })}
-          {recipeForm.lineas.length === 0 && <Alert severity="warning">Puede guardar el borrador vacío, pero una receta aprobada necesita componentes y fracciones de resina que sumen 1.</Alert>}
+          {recipeForm.lineas.length === 0 && <Alert severity="warning">Esta formulación todavía no tiene componentes. Puede guardar el borrador vacío; para aprobarlo, los porcentajes de materia prima deben sumar 100%.</Alert>}
         </Stack></DialogContent>
-        <DialogActions><Button onClick={() => setRecipeDialog({ open: false, item: null })} disabled={saving}>Cancelar</Button><Button variant="contained" onClick={saveRecipe} disabled={saving}>{saving ? 'Guardando…' : recipeDialog.item?.estado === 'APROBADA' ? 'Crear revisión' : 'Guardar receta'}</Button></DialogActions>
+        <DialogActions><Button onClick={() => setRecipeDialog({ open: false, item: null })} disabled={saving}>Cancelar</Button><Button variant="contained" onClick={saveRecipe} disabled={saving}>{saving ? 'Guardando…' : recipeForm.estado === 'APROBADA' ? embedded ? 'Aprobar y seleccionar' : 'Aprobar receta' : recipeDialog.item?.estado === 'APROBADA' ? 'Crear revisión' : 'Guardar receta'}</Button></DialogActions>
       </Dialog>
+      <MaterialQuickCreateDialog
+        open={materialDialog.open}
+        role={materialDialog.role}
+        categories={categories}
+        onClose={() => setMaterialDialog({ open: false, lineIndex: null, role: 'MATERIA_PRIMA' })}
+        onCreated={(created) => {
+          setIngredients((current) => [...current, created]);
+          setRecipeForm((current) => ({
+            ...current,
+            lineas: current.lineas.map((line, index) => index === materialDialog.lineIndex
+              ? { ...line, material_id: created.id, tipo_componente: materialDialog.role }
+              : line),
+          }));
+          setMaterialDialog({ open: false, lineIndex: null, role: 'MATERIA_PRIMA' });
+        }}
+      />
     </Stack>
   );
 }

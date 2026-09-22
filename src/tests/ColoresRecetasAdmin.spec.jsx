@@ -18,6 +18,13 @@ vi.mock('../services/api', () => ({
   obtenerIngredientesRecetaColor: vi.fn(),
   obtenerRecetasColorMaestras: vi.fn(),
 }));
+vi.mock('../services/scmCatalogApi', () => ({
+  crearMaterialScm: vi.fn(),
+  listarCategoriasRecepcionScm: vi.fn(),
+}));
+vi.mock('../context/ScmActorContext', () => ({
+  useScmActor: () => ({ can: () => true }),
+}));
 
 import {
   crearColor,
@@ -28,6 +35,7 @@ import {
   obtenerIngredientesRecetaColor,
   obtenerRecetasColorMaestras,
 } from '../services/api';
+import { crearMaterialScm, listarCategoriasRecepcionScm } from '../services/scmCatalogApi';
 
 const color = {
   id: 7,
@@ -49,11 +57,30 @@ beforeEach(() => {
     { id: 12, codigo: 'COL-001', nombre: 'AMARILLO', clase: 'COLORANTE', tipo_colorante: 'COLORANTE', activo: true },
   ]);
   obtenerRecetasColorMaestras.mockResolvedValue({ items: [] });
+  listarCategoriasRecepcionScm.mockResolvedValue([{ id: 4, codigo: 'RESINA_VIRGEN', nombre: 'Resina virgen', activo: true }]);
+  crearMaterialScm.mockResolvedValue({ id: 13, codigo: 'MP-013', nombre: 'PP NUEVO', clase: 'MATERIA_PRIMA', activo: true });
   crearColor.mockResolvedValue({ id: 8, nombre: 'VERDE SOLIDO' });
   crearRecetaColorMaestra.mockResolvedValue({ id: 20, revision: 1 });
 });
 
 describe('ColoresRecetasAdmin', () => {
+  it('crea materia prima con categoría y la selecciona en la receta abierta', async () => {
+    const user = userEvent.setup();
+    render(<ColoresRecetasAdmin />);
+    await user.click(await screen.findByRole('button', { name: 'Nueva receta' }));
+    await user.click(screen.getByRole('button', { name: 'Agregar componente' }));
+    await user.click(screen.getByRole('button', { name: 'Crear materia prima' }));
+    const materialDialog = screen.getByRole('dialog', { name: 'Crear materia prima' });
+    await user.type(await within(materialDialog).findByLabelText(/Nombre del material/), 'PP NUEVO');
+    await user.click(within(materialDialog).getByRole('combobox', { name: /Categoría de recepción/ }));
+    await user.click(screen.getByRole('option', { name: 'RESINA_VIRGEN · Resina virgen' }));
+    await user.click(within(materialDialog).getByRole('button', { name: 'Crear y seleccionar' }));
+    expect(crearMaterialScm).toHaveBeenCalledWith({
+      nombre: 'PP NUEVO', clase: 'MATERIA_PRIMA', categoria_recepcion_id: 4,
+      unidad_base: 'KG', activo: true,
+    });
+    expect(await screen.findByRole('combobox', { name: 'Material' })).toHaveTextContent('PP NUEVO');
+  });
   it('habilita el maestro y crea un color con HEX opcional', async () => {
     const user = userEvent.setup();
     render(<ColoresRecetasAdmin />);
@@ -114,7 +141,7 @@ describe('ColoresRecetasAdmin', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Agregar componente' }));
     await user.click(within(dialog).getByRole('combobox', { name: 'Material' }));
     await user.click(screen.getByRole('option', { name: 'MP-001 · PP VIRGEN' }));
-    await user.type(within(dialog).getByLabelText('Fracción (0–1)'), '1');
+    await user.type(within(dialog).getByLabelText('Materia prima (%)'), '100');
 
     await user.click(within(dialog).getByRole('button', { name: 'Agregar componente' }));
     const materialSelectors = within(dialog).getAllByRole('combobox', { name: 'Material' });
@@ -125,7 +152,7 @@ describe('ColoresRecetasAdmin', () => {
     await user.click(within(dialog).getByRole('combobox', { name: 'Estado' }));
     await user.click(screen.getByRole('option', { name: 'APROBADA' }));
     await user.click(within(dialog).getByRole('switch', { name: 'Predeterminada' }));
-    await user.click(within(dialog).getByRole('button', { name: 'Guardar receta' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Aprobar receta' }));
 
     await waitFor(() => expect(crearRecetaColorMaestra).toHaveBeenCalledWith(expect.objectContaining({
       color_produccion_id: 7,

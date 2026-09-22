@@ -1,5 +1,5 @@
 import {
-  Alert, Box, Chip, FormControl, InputLabel, Link, MenuItem, Paper, Select,
+  Alert, Box, Button, Chip, FormControl, InputLabel, Link, MenuItem, Paper, Select,
   Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Typography,
 } from '@mui/material';
@@ -31,6 +31,7 @@ export default function FabricationRecipeSelector({
   frozenRecipe,
   editable,
   onChange,
+  onOpenWorkspace,
 }) {
   const approved = approvedRecipesForRun(recipes, run, colorId);
   const catalogSelected = approved.find((recipe) => Number(recipe.id) === Number(value));
@@ -68,12 +69,15 @@ export default function FabricationRecipeSelector({
         {!editable && selected && (
           <Chip size="small" color="success" variant="outlined" label="Congelada al liberar" />
         )}
+        {editable && onOpenWorkspace && <Button variant="outlined" onClick={onOpenWorkspace}>Crear o editar aquí</Button>}
       </Stack>
 
       {!selected && (
         <Alert severity="warning">
           {editable
-            ? 'No hay una formulación aprobada seleccionada para este color. Créala o apruébala en Datos maestros antes de liberar la OF. '
+            ? (onOpenWorkspace
+              ? 'Este color no tiene una formulación aprobada compatible con la corrida. Crea o aprueba una aquí antes de liberar la OF. '
+              : 'Este color no tiene una formulación aprobada compatible. Tu perfil no puede crearla; solicita administración de artículos. ')
             : 'Esta corrida no conserva una formulación visible. Revísala en Datos maestros. '}
           <Link component={RouterLink} to="/datos-maestros/colores" fontWeight={700}>
             Abrir Colores y recetas

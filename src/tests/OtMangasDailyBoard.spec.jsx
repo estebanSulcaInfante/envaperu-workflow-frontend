@@ -216,8 +216,8 @@ describe('tablero diario por máquina y selección humana de color', () => {
     const board = await screen.findByTestId('daily-machine-board');
     expect(within(board).getAllByTestId('machine-day-card')).toHaveLength(13);
     expect(within(board).getAllByText('Sin OT')).toHaveLength(13);
-    expect(within(board).getByText('SOP-01')).toBeVisible();
-    expect(within(board).getByText('SOP-13')).toBeVisible();
+    expect(within(board).getByText('ID: SOP-01')).toBeVisible();
+    expect(within(board).getByText('ID: SOP-13')).toBeVisible();
     const summary = screen.getByTestId('plant-day-summary');
     expect(within(summary).getByText('Máquinas 13')).toBeVisible();
     expect(within(summary).getByText('Con OT 0')).toBeVisible();
@@ -243,7 +243,7 @@ describe('tablero diario por máquina y selección humana de color', () => {
 
     const board = await screen.findByTestId('daily-machine-board');
     expect(within(board).getAllByTestId('machine-day-card')).toHaveLength(1);
-    expect(within(board).getByText('SOP-01')).toBeVisible();
+    expect(within(board).getByText('ID: SOP-01')).toBeVisible();
     expect(within(board).queryByText('SOP-02')).not.toBeInTheDocument();
     expect(within(board).queryByText('SOP-03')).not.toBeInTheDocument();
   });
@@ -454,7 +454,6 @@ describe('tablero diario por máquina y selección humana de color', () => {
   });
 
   it('resuelve el artículo histórico desde una OF cerrada sin ofrecerla para alta', async () => {
-    const user = userEvent.setup();
     const closedWork = {
       ...makeWork({
         id: 'closed', color: 'ROJO', state: 'COMPLETADO', ofCode: 'OF-CLOSED', mangas: [],
