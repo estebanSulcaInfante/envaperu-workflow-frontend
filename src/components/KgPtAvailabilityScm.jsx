@@ -19,6 +19,7 @@ import {
 import { listarAlmacenesScm } from '../services/scmWarehouseOperationsApi';
 
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima' }).format(new Date());
+const emptyManualForm = () => ({ articulo_scm_id: '', ubicacion_id: '', cantidad: '', tipo: 'ENTRADA', fecha_operativa: today(), motivo: '', referencia: '' });
 
 function KgRows({ items }) {
   if (!items.length) return <Alert severity="info">No hay piezas medidas en las ubicaciones consultables.</Alert>;
@@ -193,7 +194,7 @@ export default function KgPtAvailabilityScm() {
   const [pt, setPt] = useState({ items: [] });
   const [manual, setManual] = useState({ items: [] });
   const [warehouses, setWarehouses] = useState({ items: [] });
-  const [form, setForm] = useState({ articulo_scm_id: '', ubicacion_id: '', cantidad: '', tipo: 'ENTRADA', fecha_operativa: today(), motivo: '', referencia: '' });
+  const [form, setForm] = useState(emptyManualForm);
   const [adjustment, setAdjustment] = useState(false);
   const [state, setState] = useState('loading');
   const [error, setError] = useState('');
@@ -217,6 +218,9 @@ export default function KgPtAvailabilityScm() {
     setWarehouses({ items: [] });
     setConsultedAt(null);
     setHistory({});
+    setForm(emptyManualForm());
+    setAdjustment(false);
+    setPending(null);
     setConfirmation(null);
     setState('loading');
   }, [actorId]);

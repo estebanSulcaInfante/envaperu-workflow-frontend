@@ -35,12 +35,30 @@ describe('Kardex PT operativo', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Por PT' }));
     expect(screen.getByText('Balde completo')).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Kardex PT manual' }));
+    fireEvent.change(screen.getByLabelText(/Cantidad UN/), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText(/Referencia/), { target: { value: 'BORRADOR-ACTOR-7' } });
+    fireEvent.change(screen.getByLabelText(/Motivo/), { target: { value: 'No debe cruzar de actor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar ajuste excepcional' }));
+    sessionStorage.setItem('scm-pt-manual-intent:8', JSON.stringify({
+      key: 'actor-8-operation', product: 'PT del actor 8',
+      payload: { tipo: 'ENTRADA', cantidad: '2' },
+    }));
+
     mocks.pt.mockResolvedValueOnce({ items: [] });
     mocks.actor.id = 8;
     rerender(<KgPtAvailabilityScm />);
 
     expect(screen.queryByText('Balde completo')).toBeNull();
+    expect(screen.getByLabelText(/Cantidad UN/)).toHaveValue(null);
+    expect(screen.getByLabelText(/Referencia/)).toHaveValue('');
+    expect(screen.getByLabelText(/Motivo/)).toHaveValue('');
+    expect(screen.getByLabelText(/Movimiento/)).toHaveValue('ENTRADA');
+    expect(screen.getByRole('button', { name: 'Registrar ajuste excepcional' })).toBeInTheDocument();
+    expect(await screen.findByText(/PT del actor 8/)).toBeInTheDocument();
+    expect(screen.queryByText(/BORRADOR-ACTOR-7/)).toBeNull();
     await waitFor(() => expect(mocks.pt).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('tab', { name: 'Por PT' }));
     expect(await screen.findByText('No hay PT de catálogo ni saldos manuales para este alcance.')).toBeInTheDocument();
   });
 
