@@ -2,9 +2,11 @@ import {
   Alert, Box, Button, Chip, Divider, Paper, Stack, Tab, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs,
   TextField, Typography, Dialog, DialogTitle, DialogContent, DialogActions,
+  useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { useCallback, useEffect, useState, useRef } from 'react';
+import { Fragment, useCallback, useEffect, useState, useRef } from 'react';
 import PageHeader from './ui/PageHeader';
 import { useScmActor } from '../context/ScmActorContext';
 import {
@@ -31,17 +33,147 @@ function KgRows({ items }) {
   </Table></TableContainer>;
 }
 
+function potentialCause(reason) {
+  return {
+    SIN_BOM_APROBADA: 'Sin BOM aprobada',
+    SIN_REFERENCIA_PESO: 'Sin referencia de peso',
+    BOM_SIN_COMPONENTES: 'La BOM no tiene componentes',
+  }[reason] || 'Potencial no calculable';
+}
+
+function pieceLabel(component) {
+  const identity = component.identidad_pieza;
+  if (!identity) return component.articulo.nombre || component.articulo.codigo;
+  return `${identity.nombre || component.articulo.nombre || component.articulo.codigo}${identity.color_nombre ? ` · ${identity.color_nombre}` : ''}`;
+}
+
+function componentStatus(component) {
+  if (component.estado !== 'CALCULABLE') return { label: 'Sin referencia de peso', color: 'default' };
+  if (component.es_limitante) return { label: 'Limitante', color: 'warning' };
+  if (Number(component.faltante_kg) > 0) return { label: 'Faltante', color: 'warning' };
+  return { label: 'Disponible', color: 'success' };
+}
+
+function componentType(component) {
+  return component.naturaleza === 'SUBENSAMBLE_WIP' ? 'WIP' : 'Pieza';
+}
+
+function principalRestriction(item, components) {
+  return components.find((component) => component.es_limitante)
+    || (item.potencial_estado === 'CALCULABLE'
+      ? components.find((component) => Number(component.faltante_kg) > 0)
+      : components.find((component) => component.estado !== 'CALCULABLE'));
+}
+
 function PtRows({ items }) {
+  const theme = useTheme();
+  const narrow = useMediaQuery(theme.breakpoints.down('md'));
+  const [expanded, setExpanded] = useState(() => new Set());
   if (!items.length) return <Alert severity="info">No hay PT de catálogo ni saldos manuales para este alcance.</Alert>;
-  return <TableContainer><Table size="small" aria-label="Disponibilidad por producto terminado">
-    <TableHead><TableRow><TableCell>PT</TableCell><TableCell align="right">Kardex manual</TableCell><TableCell>Potencial según BOM</TableCell><TableCell>Componentes y faltantes</TableCell></TableRow></TableHead>
-    <TableBody>{items.map((item) => <TableRow key={item.pt.id}>
-      <TableCell><Typography fontWeight={700}>{item.pt.codigo}</Typography><Typography variant="caption" color="text.secondary">{item.pt.nombre}</Typography>{item.revision_bom && <Typography variant="caption" display="block">BOM revisión {item.revision_bom.numero}</Typography>}</TableCell>
-      <TableCell align="right">{item.saldo_manual_un} UN</TableCell>
-      <TableCell>{item.potencial_estado === 'CALCULABLE' ? `${item.potencial_un_estimado} UN estimadas` : <Chip size="small" label="No calculable" color="warning" />}</TableCell>
-      <TableCell>{item.componentes.length ? item.componentes.map((component) => <Typography variant="caption" display="block" key={component.articulo.id}>{component.articulo.codigo}: {component.kg_disponibles} KG {component.estado === 'NO_CALCULABLE' ? '· sin referencia de peso' : component.es_limitante ? '· limitante' : ''}{component.faltante_kg != null ? ` · faltante ${component.faltante_kg} KG` : ''} · saldo compartido no sumable</Typography>) : 'Sin BOM aprobada'}</TableCell>
-    </TableRow>)}</TableBody>
-  </Table></TableContainer>;
+  const toggle = (id) => setExpanded((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  if (narrow) return <>
+    <Alert severity="info" sx={{ mb: 1 }}>Stock compartido: las alternativas PT compiten por el mismo saldo; los potenciales no se suman.</Alert>
+    <Stack spacing={1.5} aria-label="Disponibilidad por producto terminado">{items.map((item) => {
+      const id = String(item.pt.id);
+      const components = item.componentes || [];
+      const limiting = principalRestriction(item, components);
+      const detailId = `pt-components-mobile-${id}`;
+      const isExpanded = expanded.has(id);
+      return <Paper key={id} variant="outlined" sx={{ p: 2 }}>
+        <Stack spacing={1.25}>
+          <Box>
+            <Typography fontWeight={700}>{item.pt.nombre}</Typography>
+            <Typography variant="caption" color="text.secondary">{item.pt.codigo}{item.revision_bom ? ` · BOM revisión ${item.revision_bom.numero}` : ''}</Typography>
+          </Box>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+            <Box><Typography variant="caption" color="text.secondary">Saldo PT</Typography><Typography>{item.saldo_manual_un} UN</Typography></Box>
+            <Box><Typography variant="caption" color="text.secondary">Potencial estimado</Typography><Typography>{item.potencial_estado === 'CALCULABLE' ? `${item.potencial_un_estimado} UN` : potentialCause(item.potencial_motivo)}</Typography></Box>
+          </Box>
+          <Divider />
+          <Box>
+            <Typography variant="caption" color="text.secondary">Restricción principal</Typography>
+            {limiting ? <Stack spacing={0.25} sx={{ mt: 0.25 }}>
+              <Typography>{pieceLabel(limiting)}</Typography>
+              <Typography variant="caption" color="text.secondary">{limiting.articulo.codigo}</Typography>
+              {limiting.es_limitante && <Chip size="small" label="Limitante" color="warning" sx={{ width: 'fit-content' }} />}
+              {Number(limiting.faltante_kg) > 0 && <Typography variant="caption">Faltante para 1 PT: {limiting.faltante_kg} KG</Typography>}
+            </Stack> : <Typography>{components.length ? 'Sin restricción de stock' : potentialCause(item.potencial_motivo || 'SIN_BOM_APROBADA')}</Typography>}
+          </Box>
+          {components.length > 0 && <Button variant="outlined" onClick={() => toggle(id)} aria-expanded={isExpanded} aria-controls={detailId} aria-label={`${isExpanded ? 'Ocultar' : 'Ver'} componentes de ${item.pt.nombre}`}>{isExpanded ? 'Ocultar' : 'Ver'} {components.length} componentes</Button>}
+          {isExpanded && <Stack id={detailId} spacing={1}>{components.map((component) => {
+            const status = componentStatus(component);
+            return <Paper key={component.articulo.id} variant="outlined" sx={{ p: 1.5 }}>
+              <Stack spacing={0.75}>
+                <Box><Typography fontWeight={600}>{pieceLabel(component)}</Typography><Typography variant="caption" color="text.secondary">{component.articulo.codigo} · {componentType(component)}</Typography></Box>
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                  <Box><Typography variant="caption" color="text.secondary">Disponible</Typography><Typography variant="body2">{component.kg_disponibles} KG</Typography></Box>
+                  <Box><Typography variant="caption" color="text.secondary">Requerido por 1 PT</Typography><Typography variant="body2">{component.kg_requeridos_por_un_pt ?? '—'} KG</Typography></Box>
+                  <Box><Typography variant="caption" color="text.secondary">Cobertura estimada</Typography><Typography variant="body2">{component.cobertura_un ?? '—'} UN</Typography></Box>
+                  <Box><Typography variant="caption" color="text.secondary">Estado</Typography><Chip size="small" label={status.label} color={status.color} /></Box>
+                </Box>
+                {Number(component.faltante_kg) > 0 && <Typography variant="caption">Faltante para 1 PT: {component.faltante_kg} KG</Typography>}
+              </Stack>
+            </Paper>;
+          })}</Stack>}
+        </Stack>
+      </Paper>;
+    })}</Stack>
+  </>;
+  return <>
+    <Alert severity="info" sx={{ mb: 1 }}>Stock compartido: las alternativas PT compiten por el mismo saldo; los potenciales no se suman.</Alert>
+    <TableContainer sx={{ overflowX: 'auto' }}><Table size="small" aria-label="Disponibilidad por producto terminado" sx={{ minWidth: { xs: 680, md: 'auto' } }}>
+      <TableHead><TableRow><TableCell>Producto terminado</TableCell><TableCell>Saldo</TableCell><TableCell>Potencial estimado</TableCell><TableCell>Restricción principal</TableCell></TableRow></TableHead>
+      <TableBody>{items.map((item) => {
+        const id = String(item.pt.id);
+        const components = item.componentes || [];
+        const limiting = principalRestriction(item, components);
+        const detailId = `pt-components-${id}`;
+        const isExpanded = expanded.has(id);
+        return <Fragment key={id}>
+          <TableRow>
+            <TableCell>
+              <Typography fontWeight={700}>{item.pt.nombre}</Typography>
+              <Typography variant="caption" color="text.secondary" display="block">{item.pt.codigo}{item.revision_bom ? ` · BOM revisión ${item.revision_bom.numero}` : ''}</Typography>
+              {components.length > 0 && <Button size="small" sx={{ mt: 0.5, px: 0 }} onClick={() => toggle(id)} aria-expanded={isExpanded} aria-controls={detailId} aria-label={`${isExpanded ? 'Ocultar' : 'Ver'} componentes de ${item.pt.nombre}`}>{isExpanded ? 'Ocultar' : 'Ver'} {components.length} componentes</Button>}
+            </TableCell>
+            <TableCell><Typography variant="body2">Saldo PT: {item.saldo_manual_un} UN</Typography></TableCell>
+            <TableCell>
+              {item.potencial_estado === 'CALCULABLE' ? <Typography variant="body2">{item.potencial_un_estimado} UN estimadas</Typography> : <Typography variant="body2">{potentialCause(item.potencial_motivo)}</Typography>}
+            </TableCell>
+            <TableCell>
+              {limiting ? <Stack spacing={0.25}>
+                <Typography variant="body2">{pieceLabel(limiting)}</Typography>
+                <Typography variant="caption" color="text.secondary">{limiting.articulo.codigo}</Typography>
+                {limiting.es_limitante && <Chip size="small" label="Limitante" color="warning" sx={{ width: 'fit-content' }} />}
+                {Number(limiting.faltante_kg) > 0 && <Typography variant="caption">Faltante para 1 PT: {limiting.faltante_kg} KG</Typography>}
+              </Stack> : <Typography variant="body2">{components.length ? 'Sin restricción de stock' : potentialCause(item.potencial_motivo || 'SIN_BOM_APROBADA')}</Typography>}
+            </TableCell>
+          </TableRow>
+          {isExpanded && <TableRow id={detailId}>
+            <TableCell colSpan={4} sx={{ p: 0 }}>
+              <TableContainer sx={{ overflowX: 'auto' }}><Table size="small" aria-label={`Componentes de ${item.pt.nombre}`}><TableHead><TableRow><TableCell>Componente</TableCell><TableCell>Código / tipo</TableCell><TableCell align="right">Disponible</TableCell><TableCell align="right">Requerido por 1 PT</TableCell><TableCell align="right">Cobertura</TableCell><TableCell>Estado / faltante</TableCell></TableRow></TableHead>
+                <TableBody>{components.map((component) => {
+                  const status = componentStatus(component);
+                  return <TableRow key={component.articulo.id} aria-label={pieceLabel(component)}>
+                  <TableCell>{pieceLabel(component)}</TableCell>
+                  <TableCell><Typography variant="caption">{component.articulo.codigo}</Typography><Typography variant="caption" display="block" color="text.secondary">{componentType(component)}</Typography></TableCell>
+                  <TableCell align="right">Disponible: {component.kg_disponibles} KG</TableCell>
+                  <TableCell align="right">Requerido por 1 PT: {component.kg_requeridos_por_un_pt ?? '—'} KG</TableCell>
+                  <TableCell align="right">Cobertura estimada: {component.cobertura_un ?? '—'} UN</TableCell>
+                  <TableCell><Chip size="small" label={status.label} color={status.color} />{Number(component.faltante_kg) > 0 && <Typography variant="caption" display="block">Faltante para 1 PT: {component.faltante_kg} KG</Typography>}</TableCell>
+                </TableRow>;
+                })}</TableBody>
+              </Table></TableContainer>
+            </TableCell>
+          </TableRow>}
+        </Fragment>;
+      })}</TableBody>
+    </Table></TableContainer>
+  </>;
 }
 
 function ManualRows({ items, history, onHistory }) {
@@ -101,7 +233,7 @@ export default function KgPtAvailabilityScm() {
       if (requestSequence === sequence.current) setState('error');
       return false;
     }
-  }, [canView, query, actorId]);
+  }, [canView, query]);
   useEffect(() => { refresh(); return () => { sequence.current += 1; }; }, [refresh]);
 
   const locations = (warehouses.items || []).flatMap((warehouse) => warehouse.ubicaciones || [])
@@ -114,7 +246,7 @@ export default function KgPtAvailabilityScm() {
 
   const review = (event) => {
     event.preventDefault();
-    if (locked || !selectedProduct || !selectedLocation || !(Number(form.cantidad) > 0)) return;
+    if (locked || !selectedProduct || !selectedLocation || !(Number(form.cantidad) > 0) || !form.referencia.trim()) return;
     if (!(adjustment ? canAdjust : canRoutine)) return;
     setConfirmation({
       key: crypto.randomUUID(),
@@ -194,10 +326,10 @@ export default function KgPtAvailabilityScm() {
               <TextField required select SelectProps={{ native: true }} label="Movimiento" value={form.tipo} onChange={update('tipo')}>{(adjustment ? ['AJUSTE_POSITIVO', 'AJUSTE_NEGATIVO'] : ['ENTRADA', 'SALIDA']).map((type) => <option key={type} value={type}>{typeLabels[type]}</option>)}</TextField>
               <TextField required type="number" inputProps={{ min: 0.001, step: 0.001 }} label="Cantidad UN" value={form.cantidad} onChange={update('cantidad')} />
               <TextField required type="date" label="Fecha operativa" InputLabelProps={{ shrink: true }} value={form.fecha_operativa} onChange={update('fecha_operativa')} />
-              <TextField label="Referencia" value={form.referencia} onChange={update('referencia')} inputProps={{ maxLength: 120 }} />
+              <TextField required label="Referencia" value={form.referencia} onChange={update('referencia')} inputProps={{ maxLength: 120 }} helperText="Documento o sustento del movimiento (máximo 120 caracteres)." />
               <TextField required label="Motivo" value={form.motivo} onChange={update('motivo')} inputProps={{ maxLength: 500 }} sx={{ gridColumn: '1 / -1' }} />
               <Typography>Saldo actual: {selectedBalance?.saldo_un || '0.000'} UN. Registrar PT no descuenta automáticamente las piezas.</Typography>
-              <Button type="submit" variant="contained" disabled={locked || !selectedProduct || !selectedLocation}>Revisar movimiento</Button>
+              <Button type="submit" variant="contained" disabled={locked || !selectedProduct || !selectedLocation || !form.referencia.trim()}>Revisar movimiento</Button>
             </Box>
           </Box>}
         </Stack>}

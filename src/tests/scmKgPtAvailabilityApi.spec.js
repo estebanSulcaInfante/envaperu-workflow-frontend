@@ -30,11 +30,11 @@ describe('contrato de disponibilidad KG/PT', () => {
   it('envía fecha operativa y clave idempotente al Kardex PT manual', async () => {
     api.post.mockResolvedValue({ data: { movement: { id: 'm1' } } });
     await registrarMovimientoPtManual({
-      tipo: 'ENTRADA', cantidad: 3, fecha_operativa: '2026-09-19', motivo: 'Acta',
+      tipo: 'ENTRADA', cantidad: 3, fecha_operativa: '2026-09-19', motivo: 'Acta', referencia: 'ACTA-PT-01',
     });
     expect(api.post).toHaveBeenCalledWith(
       '/scm/v1/inventario/pt/movimientos',
-      expect.objectContaining({ fecha_operativa: '2026-09-19' }),
+      expect.objectContaining({ fecha_operativa: '2026-09-19', referencia: 'ACTA-PT-01' }),
       expect.objectContaining({ headers: expect.objectContaining({ 'X-Actor-Id': '7', 'Idempotency-Key': expect.any(String) }) }),
     );
   });
