@@ -2,15 +2,15 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import KgPtAvailabilityScm from '../components/KgPtAvailabilityScm';
 
-const mocks = vi.hoisted(() => ({ pieces: vi.fn(), pt: vi.fn(), balances: vi.fn(), post: vi.fn(), history: vi.fn(), warehouses: vi.fn() }));
-vi.mock('../context/ScmActorContext', () => ({ useScmActor: () => ({ actorId: 7, can: () => true }) }));
+const mocks = vi.hoisted(() => ({ pieces: vi.fn(), pt: vi.fn(), balances: vi.fn(), post: vi.fn(), history: vi.fn(), warehouses: vi.fn(), actor: { id: 7 } }));
+vi.mock('../context/ScmActorContext', () => ({ useScmActor: () => ({ actorId: mocks.actor.id, can: () => true }) }));
 vi.mock('../services/scmKgPtAvailabilityApi', () => ({ consultarDisponibilidadPiezasKg: mocks.pieces, consultarDisponibilidadPt: mocks.pt, listarKardexPtManual: mocks.balances, registrarMovimientoPtManual: mocks.post, listarMovimientosPtManual: mocks.history }));
 vi.mock('../services/scmWarehouseOperationsApi', () => ({ listarAlmacenesScm: mocks.warehouses }));
 const product = { id: 11, codigo: 'PT-11', nombre: 'Balde completo' };
 const location = { id: 8, codigo: 'PT-GEN', nombre: 'Almacén PT', activo: true, clases_articulo: ['PRODUCTO_TERMINADO'] };
 const balance = (version = 2) => ({ id: 'saldo-pt', articulo: product, ubicacion: location, saldo_un: '5.000', version });
 beforeEach(() => {
-  vi.clearAllMocks(); sessionStorage.clear();
+  vi.clearAllMocks(); sessionStorage.clear(); mocks.actor.id = 7;
   mocks.pieces.mockResolvedValue({ items: [], fuente_vigente: [] });
   mocks.pt.mockResolvedValue({ items: [{ pt: product, revision_bom: { numero: 2 }, componentes: [], potencial_estado: 'NO_CALCULABLE', potencial_motivo: 'SIN_BOM_APROBADA', saldo_manual_un: '5.000' }] });
   mocks.balances.mockResolvedValue({ items: [balance()] });
@@ -29,6 +29,21 @@ async function fillEntry() {
   fireEvent.click(screen.getByRole('button', { name: 'Revisar movimiento' }));
 }
 describe('Kardex PT operativo', () => {
+  it('vacía el alcance anterior y vuelve a consultar al cambiar de actor', async () => {
+    const { rerender } = render(<KgPtAvailabilityScm />);
+    await screen.findByText('No hay piezas medidas en las ubicaciones consultables.');
+    fireEvent.click(screen.getByRole('tab', { name: 'Por PT' }));
+    expect(screen.getByText('Balde completo')).toBeInTheDocument();
+
+    mocks.pt.mockResolvedValueOnce({ items: [] });
+    mocks.actor.id = 8;
+    rerender(<KgPtAvailabilityScm />);
+
+    expect(screen.queryByText('Balde completo')).toBeNull();
+    await waitFor(() => expect(mocks.pt).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('No hay PT de catálogo ni saldos manuales para este alcance.')).toBeInTheDocument();
+  });
+
   it('exige referencia antes de abrir la revisión del movimiento', async () => {
     render(<KgPtAvailabilityScm />);
     await screen.findByText('No hay piezas medidas en las ubicaciones consultables.');

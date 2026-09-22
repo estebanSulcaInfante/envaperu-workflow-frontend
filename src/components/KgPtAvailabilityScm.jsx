@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { Fragment, useCallback, useEffect, useState, useRef } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useState, useRef } from 'react';
 import PageHeader from './ui/PageHeader';
 import { useScmActor } from '../context/ScmActorContext';
 import {
@@ -209,6 +209,18 @@ export default function KgPtAvailabilityScm() {
   activeActor.current = actorId;
   const storageKey = `scm-pt-manual-intent:${actorId}`;
 
+  useLayoutEffect(() => {
+    sequence.current += 1;
+    setPieces({ items: [] });
+    setPt({ items: [] });
+    setManual({ items: [] });
+    setWarehouses({ items: [] });
+    setConsultedAt(null);
+    setHistory({});
+    setConfirmation(null);
+    setState('loading');
+  }, [actorId]);
+
   useEffect(() => {
     try { setPending(JSON.parse(sessionStorage.getItem(storageKey) || 'null')); }
     catch { setError('No se pudo recuperar la solicitud guardada. Revisa el historial antes de continuar.'); }
@@ -217,6 +229,7 @@ export default function KgPtAvailabilityScm() {
 
   const refresh = useCallback(async () => {
     if (!canView) return false;
+    const requestedActor = actorId;
     const requestSequence = ++sequence.current;
     setState('loading');
     try {
@@ -225,7 +238,7 @@ export default function KgPtAvailabilityScm() {
         consultarDisponibilidadPt({ q: query || undefined }),
         listarKardexPtManual(), listarAlmacenesScm(),
       ]);
-      if (requestSequence !== sequence.current) return false;
+      if (requestSequence !== sequence.current || activeActor.current !== requestedActor) return false;
       setPieces(kgPayload); setPt(ptPayload); setManual(manualPayload); setWarehouses(warehousePayload);
       setConsultedAt(kgPayload.as_of ? new Date(kgPayload.as_of) : null); setState('ready');
       return true;
@@ -233,7 +246,7 @@ export default function KgPtAvailabilityScm() {
       if (requestSequence === sequence.current) setState('error');
       return false;
     }
-  }, [canView, query]);
+  }, [actorId, canView, query]);
   useEffect(() => { refresh(); return () => { sequence.current += 1; }; }, [refresh]);
 
   const locations = (warehouses.items || []).flatMap((warehouse) => warehouse.ubicaciones || [])
