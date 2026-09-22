@@ -219,7 +219,7 @@ export default function ExceptionalFabricationOrderDialog({
               </Select>
             </FormControl>
             <FormControl fullWidth>
-              <InputLabel id="exceptional-of-machine-label">Máquina sugerida (opcional)</InputLabel>
+              <InputLabel shrink id="exceptional-of-machine-label">Máquina sugerida (opcional)</InputLabel>
               <Select
                 id="exceptional-of-machine"
                 labelId="exceptional-of-machine-label"

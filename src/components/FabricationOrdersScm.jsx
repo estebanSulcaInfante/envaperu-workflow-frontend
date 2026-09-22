@@ -567,7 +567,7 @@ export default function FabricationOrdersScm() {
                 </Select>
               </FormControl>
               <FormControl>
-                <InputLabel>Máquina sugerida (opcional)</InputLabel>
+                <InputLabel shrink>Máquina sugerida (opcional)</InputLabel>
                 <Select
                   label="Máquina sugerida (opcional)"
                   value={form.maquina_prevista_id}

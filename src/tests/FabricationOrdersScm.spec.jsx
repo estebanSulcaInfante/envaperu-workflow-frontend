@@ -458,6 +458,8 @@ describe('Órdenes de fabricación', () => {
     const [, mold, machine] = screen.getAllByRole('combobox');
     expect(mold).toHaveTextContent('ML-CORRECTO');
     expect(machine).toHaveTextContent('Sin sugerencia');
+    expect(screen.getByText('Máquina sugerida (opcional)', { selector: 'label' }))
+      .toHaveAttribute('data-shrink', 'true');
     expect(screen.getByText(/Se muestran moldes compatibles con SOPLADO/))
       .toBeVisible();
 
