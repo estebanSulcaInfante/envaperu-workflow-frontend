@@ -354,7 +354,7 @@ export default function FabricationOrdersScm() {
     <Stack spacing={2.5}>
       <PageHeader
         title="Órdenes de fabricación"
-        description="Completa molde, máquina y parámetros físicos de las OF planificadas antes de liberarlas hacia OT y mangas."
+        description="Configura el molde, las corridas y los parámetros físicos de cada OF antes de liberarla hacia OT y mangas."
         actions={(
           <Stack direction="row" spacing={1}>
             {canCreateExceptional && (
