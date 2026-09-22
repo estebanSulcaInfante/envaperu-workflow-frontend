@@ -3,6 +3,7 @@ import api from '../services/api';
 import {
   consultarDisponibilidadPiezasKg,
   consultarDisponibilidadPt,
+  descargarDisponibilidadPtExcel,
   registrarMovimientoPtManual,
 } from '../services/scmKgPtAvailabilityApi';
 
@@ -25,6 +26,19 @@ describe('contrato de disponibilidad KG/PT', () => {
     api.get.mockResolvedValue({ data: { items: [] } });
     const payload = await consultarDisponibilidadPt();
     expect(payload.items).toEqual([]);
+  });
+
+  it('descarga Excel con el filtro de la consulta actual', async () => {
+    api.get.mockResolvedValue({
+      data: new Blob(['xlsx']),
+      headers: { 'content-disposition': 'attachment; filename="disponibilidad-pt-20260922-1030.xlsx"' },
+    });
+    const workbook = await descargarDisponibilidadPtExcel({ q: 'PT-01', ubicacion: 'PT-LOC' });
+    expect(workbook.blob).toBeInstanceOf(Blob);
+    expect(workbook.filename).toBe('disponibilidad-pt-20260922-1030.xlsx');
+    expect(api.get).toHaveBeenCalledWith('/scm/v1/disponibilidad/productos-terminados/export.xlsx', expect.objectContaining({
+      params: { q: 'PT-01', ubicacion: 'PT-LOC' }, responseType: 'blob',
+    }));
   });
 
   it('envía fecha operativa y clave idempotente al Kardex PT manual', async () => {

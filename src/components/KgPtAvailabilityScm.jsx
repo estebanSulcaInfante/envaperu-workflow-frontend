@@ -12,6 +12,7 @@ import { useScmActor } from '../context/ScmActorContext';
 import {
   consultarDisponibilidadPiezasKg,
   consultarDisponibilidadPt,
+  descargarDisponibilidadPtExcel,
   listarKardexPtManual,
   listarMovimientosPtManual,
   registrarMovimientoPtManual,
@@ -201,6 +202,7 @@ export default function KgPtAvailabilityScm() {
   const [notice, setNotice] = useState('');
   const [history, setHistory] = useState({});
   const [consultedAt, setConsultedAt] = useState(null);
+  const [exportState, setExportState] = useState('ready');
   const [confirmation, setConfirmation] = useState(null);
   const [pending, setPending] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -217,6 +219,7 @@ export default function KgPtAvailabilityScm() {
     setManual({ items: [] });
     setWarehouses({ items: [] });
     setConsultedAt(null);
+    setExportState('ready');
     setHistory({});
     setForm(emptyManualForm());
     setAdjustment(false);
@@ -244,6 +247,7 @@ export default function KgPtAvailabilityScm() {
       ]);
       if (requestSequence !== sequence.current || activeActor.current !== requestedActor) return false;
       setPieces(kgPayload); setPt(ptPayload); setManual(manualPayload); setWarehouses(warehousePayload);
+      setExportState((ptPayload.items || []).length ? 'ready' : 'empty');
       setConsultedAt(kgPayload.as_of ? new Date(kgPayload.as_of) : null); setState('ready');
       return true;
     } catch {
@@ -310,6 +314,33 @@ export default function KgPtAvailabilityScm() {
     } catch { setError('No se pudo consultar el historial. Vuelve a intentarlo.'); }
   };
 
+  const exportPt = async () => {
+    if (exportState === 'generating') return;
+    if (!(pt.items || []).length) {
+      setExportState('empty');
+      return;
+    }
+    const requestedActor = actorId;
+    setExportState('generating');
+    setNotice('');
+    try {
+      const workbook = await descargarDisponibilidadPtExcel({ q: query || undefined });
+      if (activeActor.current !== requestedActor) return;
+      const url = window.URL.createObjectURL(workbook.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = workbook.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setExportState('ready');
+      setNotice('Excel de disponibilidad PT descargado. El archivo indica cuándo se generó la consulta.');
+    } catch {
+      if (activeActor.current === requestedActor) setExportState('error');
+    }
+  };
+
   if (!canView) return <Alert severity="warning">Tu perfil no tiene acceso a disponibilidad de inventario.</Alert>;
   const typeLabels = { ENTRADA: 'Entrada', SALIDA: 'Salida', AJUSTE_POSITIVO: 'Ajuste positivo', AJUSTE_NEGATIVO: 'Ajuste negativo' };
   return <Stack spacing={2.5}>
@@ -330,7 +361,17 @@ export default function KgPtAvailabilityScm() {
       <Divider />
       <Box sx={{ p: 2 }}>
         {tab === 0 && <KgRows items={pieces.items || []} />}
-        {tab === 1 && <PtRows items={pt.items || []} />}
+        {tab === 1 && <Stack spacing={1.5}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'stretch', sm: 'center' }} justifyContent="space-between" spacing={1}>
+            <Typography variant="body2" color="text.secondary">Exporta la consulta actual con el detalle de componentes de la BOM.</Typography>
+            <Button variant="outlined" onClick={exportPt} disabled={exportState === 'generating' || exportState === 'empty'}>
+              {exportState === 'generating' ? 'Generando Excel…' : 'Exportar a Excel'}
+            </Button>
+          </Stack>
+          {exportState === 'error' && <Alert severity="error" action={<Button color="inherit" size="small" onClick={exportPt}>Reintentar</Button>}>No se pudo generar el Excel. La tabla sigue disponible para consulta.</Alert>}
+          {exportState === 'empty' && <Alert severity="info">No hay PT en la consulta actual para exportar.</Alert>}
+          <PtRows items={pt.items || []} />
+        </Stack>}
         {tab === 2 && <Stack spacing={2}>
           <ManualRows items={manual.items || []} history={history} onHistory={loadHistory} />
           {canAdjust && <Button variant="text" disabled={locked} onClick={() => { const next = !adjustment; setAdjustment(next); setForm((current) => ({ ...current, tipo: next ? 'AJUSTE_POSITIVO' : 'ENTRADA' })); }}>{adjustment ? 'Volver a entradas y salidas' : 'Registrar ajuste excepcional'}</Button>}

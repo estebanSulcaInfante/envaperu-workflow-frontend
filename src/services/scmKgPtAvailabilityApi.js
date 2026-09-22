@@ -18,6 +18,19 @@ export const consultarDisponibilidadPt = (params = {}) => data(
   () => api.get('/scm/v1/disponibilidad/productos-terminados', { ...headers(), params }),
 );
 
+export const descargarDisponibilidadPtExcel = async (params = {}) => {
+  const response = await api.get('/scm/v1/disponibilidad/productos-terminados/export.xlsx', {
+    ...headers(), params, responseType: 'blob',
+  });
+  const disposition = response.headers?.['content-disposition'] || '';
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const quoted = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+  return {
+    blob: response.data,
+    filename: encoded ? decodeURIComponent(encoded) : (quoted || 'disponibilidad-productos-terminados.xlsx'),
+  };
+};
+
 export const listarKardexPtManual = (params = {}) => data(
   () => api.get('/scm/v1/inventario/pt', { ...headers(), params }),
 );

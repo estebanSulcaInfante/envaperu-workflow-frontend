@@ -2,9 +2,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import KgPtAvailabilityScm from '../components/KgPtAvailabilityScm';
 
-const mocks = vi.hoisted(() => ({ pieces: vi.fn(), pt: vi.fn(), balances: vi.fn(), post: vi.fn(), history: vi.fn(), warehouses: vi.fn(), actor: { id: 7 } }));
+const mocks = vi.hoisted(() => ({ pieces: vi.fn(), pt: vi.fn(), balances: vi.fn(), post: vi.fn(), history: vi.fn(), warehouses: vi.fn(), exportPt: vi.fn(), actor: { id: 7 } }));
 vi.mock('../context/ScmActorContext', () => ({ useScmActor: () => ({ actorId: mocks.actor.id, can: () => true }) }));
-vi.mock('../services/scmKgPtAvailabilityApi', () => ({ consultarDisponibilidadPiezasKg: mocks.pieces, consultarDisponibilidadPt: mocks.pt, listarKardexPtManual: mocks.balances, registrarMovimientoPtManual: mocks.post, listarMovimientosPtManual: mocks.history }));
+vi.mock('../services/scmKgPtAvailabilityApi', () => ({ consultarDisponibilidadPiezasKg: mocks.pieces, consultarDisponibilidadPt: mocks.pt, descargarDisponibilidadPtExcel: mocks.exportPt, listarKardexPtManual: mocks.balances, registrarMovimientoPtManual: mocks.post, listarMovimientosPtManual: mocks.history }));
 vi.mock('../services/scmWarehouseOperationsApi', () => ({ listarAlmacenesScm: mocks.warehouses }));
 const product = { id: 11, codigo: 'PT-11', nombre: 'Balde completo' };
 const location = { id: 8, codigo: 'PT-GEN', nombre: 'Almacén PT', activo: true, clases_articulo: ['PRODUCTO_TERMINADO'] };
@@ -16,6 +16,7 @@ beforeEach(() => {
   mocks.balances.mockResolvedValue({ items: [balance()] });
   mocks.warehouses.mockResolvedValue({ items: [{ ubicaciones: [location] }] });
   mocks.history.mockResolvedValue({ items: [] });
+  mocks.exportPt.mockResolvedValue({ blob: new Blob(['xlsx']), filename: 'disponibilidad-pt-20260922-1030.xlsx' });
   mocks.post.mockResolvedValue({ saldo: balance(3) });
 });
 async function fillEntry() {
@@ -148,6 +149,46 @@ describe('Kardex PT operativo', () => {
     expect(screen.getByText('Cobertura estimada: 0.000 UN')).toBeInTheDocument();
     expect(screen.getAllByText('Limitante').length).toBeGreaterThan(1);
     expect(screen.getByText('Stock compartido: las alternativas PT compiten por el mismo saldo; los potenciales no se suman.')).toBeInTheDocument();
+  });
+
+  it('exporta la consulta PT actual y muestra el estado de generación', async () => {
+    render(<KgPtAvailabilityScm />);
+    await screen.findByText('No hay piezas medidas en las ubicaciones consultables.');
+    fireEvent.click(screen.getByRole('tab', { name: 'Por PT' }));
+    const exportButton = screen.getByRole('button', { name: 'Exportar a Excel' });
+    expect(exportButton).toBeEnabled();
+    fireEvent.click(exportButton);
+    expect(await screen.findByRole('button', { name: 'Exportar a Excel' })).toBeEnabled();
+    expect(mocks.exportPt).toHaveBeenCalledWith({ q: undefined });
+    expect(screen.getByText(/indica cuándo se generó la consulta/)).toBeInTheDocument();
+  });
+
+  it('deshabilita exportación cuando la consulta no tiene resultados', async () => {
+    mocks.pt.mockResolvedValue({ items: [] });
+    render(<KgPtAvailabilityScm />);
+    await screen.findByText('No hay piezas medidas en las ubicaciones consultables.');
+    fireEvent.click(screen.getByRole('tab', { name: 'Por PT' }));
+    expect(screen.getByRole('button', { name: 'Exportar a Excel' })).toBeDisabled();
+    expect(screen.getByText('No hay PT en la consulta actual para exportar.')).toBeInTheDocument();
+  });
+
+  it('descarta una exportación en vuelo cuando cambia el actor', async () => {
+    let finishExport;
+    mocks.exportPt.mockReturnValueOnce(new Promise((resolve) => { finishExport = resolve; }));
+    const createObjectUrl = vi.spyOn(window.URL, 'createObjectURL');
+    const { rerender } = render(<KgPtAvailabilityScm />);
+    await screen.findByText('No hay piezas medidas en las ubicaciones consultables.');
+    fireEvent.click(screen.getByRole('tab', { name: 'Por PT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Exportar a Excel' }));
+    expect(screen.getByRole('button', { name: 'Generando Excel…' })).toBeDisabled();
+
+    mocks.actor.id = 8;
+    rerender(<KgPtAvailabilityScm />);
+    finishExport({ blob: new Blob(['actor-7']), filename: 'actor-7.xlsx' });
+
+    await waitFor(() => expect(mocks.pt).toHaveBeenCalledTimes(2));
+    expect(createObjectUrl).not.toHaveBeenCalled();
+    createObjectUrl.mockRestore();
   });
 
   it('mantiene potencial y restricción visibles como tarjeta en ancho estrecho', async () => {
