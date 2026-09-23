@@ -26,6 +26,8 @@ import RecepcionMateriales from './components/RecepcionMateriales';
 import ScmGuide from './components/ScmGuide';
 import ProductionProgressDashboard from './components/ProductionProgressDashboard';
 import ProductionSupervisionScm from './components/ProductionSupervisionScm';
+import ProductionOrderProgressScm from './components/ProductionOrderProgressScm';
+import ProductionHistoryScm from './components/ProductionHistoryScm';
 import PrintJobsControlScm from './components/PrintJobsControlScm';
 import LegacyProductionOrders from './components/LegacyProductionOrders';
 import MasterDataHub from './components/MasterDataHub';
@@ -165,6 +167,8 @@ function App() {
                 <Route path="/produccion/talonarios" element={workspace('control.talonarios', <TalonariosAdmin />)} />
                 <Route path="/control" element={<WorkspaceAreaRedirect areaKey="control" />} />
                 <Route path="/control/supervision-produccion" element={workspace('control.productionSupervision', <ProductionSupervisionScm />)} />
+                <Route path="/control/avance-of" element={workspace('control.productionProgress', <ProductionOrderProgressScm />)} />
+                <Route path="/control/historico-produccion" element={workspace('control.productionHistory', <ProductionHistoryScm />)} />
                 <Route path="/control/inventario" element={workspace('control.inventory', <WarehouseOperationsScm control />)} />
                 <Route path="/control/impresion-etiquetas" element={workspace('control.printJobs', <PrintJobsControlScm />)} />
                 <Route path="/control/auditoria-hojas" element={workspace('control.sheetAudit', null)} />
