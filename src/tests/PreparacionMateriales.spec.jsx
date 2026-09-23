@@ -13,10 +13,10 @@ vi.mock('../context/ScmActorContext', () => ({
 vi.mock('../services/preparacionMateriales', () => ({
   obtenerPreparacionMateriales: vi.fn(async () => structuredClone(preparacionMaterialesMock)),
   generarRequerimientosMaterial: vi.fn(),
-  reservarMaterialesCorrida: vi.fn(),
+  reservarMaterialesObjetivo: vi.fn(),
   emitirReservaMaterial: vi.fn(),
   devolverEmisionMaterial: vi.fn(),
-  confirmarPremezclaCorrida: vi.fn(),
+  confirmarPremezclaObjetivo: vi.fn(),
 }));
 
 vi.mock('../services/opmPreparationApi', () => ({
@@ -60,7 +60,7 @@ describe('US-010B: Preparación trazable de materiales', () => {
     renderPage('/materiales/preparaciones');
 
     expect(await screen.findByRole('heading', { name: 'Preparación almacenable · OPM' })).toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: 'Legacy · premezcla por corrida' }));
+    await user.click(screen.getByRole('tab', { name: 'Legacy · premezcla por objetivo' }));
     expect(await screen.findByRole('heading', { name: 'Reservas y entregas a producción' })).toBeInTheDocument();
     const search = screen.getByLabelText('Omnibúsqueda');
     await user.type(search, 'OP-B-TEST-001');

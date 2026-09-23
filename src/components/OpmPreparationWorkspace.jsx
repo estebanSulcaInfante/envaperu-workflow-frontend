@@ -593,7 +593,7 @@ function CoverageSection({
       {deliveryDestinations.length > 0 && <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}><Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>Destinos canónicos publicados:</Typography>{deliveryDestinations.map((location) => <Chip key={location.id} size="small" label={`${location.codigo}${location.almacen ? ` · ${location.almacen.codigo}` : ' · punto global'}`} />)}</Stack>}
       <TableContainer>
         <Table size="small" aria-label="Cobertura por TrabajoColor">
-          <TableHead><TableRow><TableCell>TrabajoColor / corrida</TableCell><TableCell>Fuente</TableCell><TableCell align="right">Planificado</TableCell><TableCell align="right">Comprometido</TableCell><TableCell align="right">Consumido</TableCell><TableCell align="right">Reserva física</TableCell></TableRow></TableHead>
+          <TableHead><TableRow><TableCell>Trabajo de color / objetivo</TableCell><TableCell>Fuente</TableCell><TableCell align="right">Planificado</TableCell><TableCell align="right">Comprometido</TableCell><TableCell align="right">Consumido</TableCell><TableCell align="right">Reserva física</TableCell></TableRow></TableHead>
           <TableBody>
             {detail.coverage.map((coverage) => {
               const assignmentReservations = reservationsByAssignment.get(coverage.assignmentId) || [];
@@ -604,7 +604,7 @@ function CoverageSection({
                 ? (coverage.bag && !unavailableBagIds.has(coverage.bag.id) ? [coverage.bag] : [])
                 : detail.bags.filter((bag) => bag.status === 'DISPONIBLE' && !unavailableBagIds.has(bag.id));
               const reserveReason = !coverage.workColorId
-                ? 'La corrida todavía no tiene TrabajoColor.'
+                ? 'El objetivo todavía no tiene Trabajo de color.'
                 : coverage.status !== 'COMPROMETIDA'
                   ? `La asignación está ${statusLabel(coverage.status)}.`
                   : linkedKg >= coverage.committedKg
@@ -1241,7 +1241,7 @@ function OpmPreparationWorkspace() {
       </Stack>
 
       <Alert severity="info" icon={<ScienceOutlinedIcon />}>
-        Este es el flujo canónico OPM: una preparación puede cubrir varios Trabajos de color. La molienda (OM) permanece aguas arriba y entrega insumos identificados; no sustituye la OPM. La premezcla ligada a una sola corrida permanece disponible abajo como flujo legacy temporal y no crea stock reutilizable.
+        Este es el flujo canónico OPM: una preparación puede cubrir varios Trabajos de color. La molienda (OM) permanece aguas arriba y entrega insumos identificados; no sustituye la OPM. La premezcla ligada a un solo objetivo permanece disponible abajo como flujo legacy temporal y no crea stock reutilizable.
       </Alert>
       {feedback && <Alert severity="success" onClose={() => setFeedback('')}>{feedback}</Alert>}
       {error && (
@@ -1266,8 +1266,8 @@ function OpmPreparationWorkspace() {
         </Grid>
         {queue.eligibleRuns.length > 0 && (
           <Paper variant="outlined" sx={{ p: 2.25, borderRadius: 2 }}>
-            <Typography variant="h6" sx={{ fontWeight: 850 }}>Corridas listas para originar una necesidad</Typography>
-            <Typography variant="body2" color="text.secondary">La necesidad nace de una corrida liberada con receta aprobada; después se agrupa por compatibilidad exacta.</Typography>
+            <Typography variant="h6" sx={{ fontWeight: 850 }}>Objetivos listos para originar una necesidad</Typography>
+            <Typography variant="body2" color="text.secondary">La necesidad nace de un objetivo liberado con receta aprobada; después se agrupa por compatibilidad exacta.</Typography>
             <Stack spacing={1} sx={{ mt: 1.5 }}>
               {queue.eligibleRuns.map((run) => (
                 <Stack key={run.id} direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ md: 'center' }} spacing={1} sx={{ p: 1.25, bgcolor: '#F7F9FC', borderRadius: 1 }}>
@@ -1285,7 +1285,7 @@ function OpmPreparationWorkspace() {
           onOpen={openDetail}
           onStock={(need) => loadCompatibleStock(need)}
         />
-        {queue.items.length === 0 && queue.eligibleRuns.length === 0 && <Paper variant="outlined" sx={{ p: 5, textAlign: 'center' }}><Inventory2OutlinedIcon color="disabled" sx={{ fontSize: 42 }} /><Typography variant="h6">No hay necesidades pendientes ni corridas elegibles.</Typography></Paper>}
+        {queue.items.length === 0 && queue.eligibleRuns.length === 0 && <Paper variant="outlined" sx={{ p: 5, textAlign: 'center' }}><Inventory2OutlinedIcon color="disabled" sx={{ fontSize: 42 }} /><Typography variant="h6">No hay necesidades pendientes ni objetivos elegibles.</Typography></Paper>}
         {queue.nextCursor && <Button disabled={loading} onClick={() => loadQueue({ cursor: queue.nextCursor, append: true })}>Cargar siguientes {PAGE_SIZE}</Button>}
       </>}
 

@@ -32,12 +32,13 @@ const normalizePreparedQueue = ({ requirementsPage, ordersPage, eligiblePage }) 
 
   requirementsPage.items.forEach((requirement) => {
     const key = `${requirement.receta_revision_id}:${requirement.composicion_hash}`;
+    const objective = requirement.corrida;
     const need = {
       id: requirement.id,
-      runId: requirement.corrida.id,
-      runCode: requirement.corrida.codigo,
+      runId: objective.id,
+      runCode: objective.codigo,
       workColorId: requirement.trabajo_color?.id || '',
-      workColorCode: requirement.trabajo_color?.codigo || requirement.corrida.codigo,
+      workColorCode: requirement.trabajo_color?.codigo || objective.codigo,
       requiredKg: number(requirement.cantidad_requerida_kg),
       coveredKg: number(requirement.cubierta_kg),
       plannedKg: number(requirement.planificada_kg),

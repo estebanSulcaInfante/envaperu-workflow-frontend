@@ -354,7 +354,7 @@ export default function FabricationOrdersScm() {
     <Stack spacing={2.5}>
       <PageHeader
         title="Órdenes de fabricación"
-        description="Configura el molde, las corridas y los parámetros físicos de cada OF antes de liberarla hacia OT y mangas."
+        description="Configura el molde, los objetivos por color y los parámetros físicos de cada OF antes de liberarla hacia OT y mangas."
         actions={(
           <Stack direction="row" spacing={1}>
             {canCreateExceptional && (
@@ -479,8 +479,8 @@ export default function FabricationOrdersScm() {
         </Alert>}
         {selected.estado === 'BORRADOR' ? (
           <Alert severity="warning">
-            La OPM todavía no debe existir. Primero guarda y libera esta OF; luego la corrida
-            aparecerá en Materiales → Preparaciones para generar su necesidad.
+            La OPM todavía no debe existir. Primero guarda y libera esta OF; luego cada objetivo
+            de fabricación aparecerá en Materiales → Preparaciones para generar su necesidad.
           </Alert>
         ) : (
           <Alert

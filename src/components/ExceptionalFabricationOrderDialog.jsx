@@ -148,7 +148,7 @@ export default function ExceptionalFabricationOrderDialog({
 
   const submit = async () => {
     if (!canSubmit) {
-      setError('Completa el motivo, molde, objetivo de cada corrida y variantes PiezaColor antes de crear la OF.');
+      setError('Completa el motivo, molde, cada objetivo por color y sus variantes PiezaColor antes de crear la OF.');
       return;
     }
     setBusy(true);
@@ -244,8 +244,8 @@ export default function ExceptionalFabricationOrderDialog({
           <Divider />
           <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={1}>
             <Box>
-              <Typography variant="h6" component="h3" fontWeight={800}>Corridas de color</Typography>
-              <Typography variant="body2" color="text.secondary">Cada corrida produce todas las formas activas del molde en ese color.</Typography>
+              <Typography variant="h6" component="h3" fontWeight={800}>Objetivos por color</Typography>
+              <Typography variant="body2" color="text.secondary">Cada objetivo produce todas las formas activas del molde en el color seleccionado.</Typography>
             </Box>
             <Button
               startIcon={<AddOutlinedIcon />}
@@ -262,12 +262,12 @@ export default function ExceptionalFabricationOrderDialog({
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
                   <FormControl fullWidth required>
                     <InputLabel id={`exceptional-of-run-${run.key}-color-label`}>
-                      {`Color corrida ${runIndex + 1}`}
+                      {`Color del objetivo ${runIndex + 1}`}
                     </InputLabel>
                     <Select
                       id={`exceptional-of-run-${run.key}-color`}
                       labelId={`exceptional-of-run-${run.key}-color-label`}
-                      label={`Color corrida ${runIndex + 1}`}
+                      label={`Color del objetivo ${runIndex + 1}`}
                       value={run.color_produccion_id}
                       onChange={(event) => updateRun(runIndex, {
                         color_produccion_id: event.target.value,
@@ -286,7 +286,7 @@ export default function ExceptionalFabricationOrderDialog({
                   <TextField
                     fullWidth
                     type="number"
-                    label={`Ciclos objetivo corrida ${runIndex + 1}`}
+                    label={`Ciclos del objetivo ${runIndex + 1}`}
                     value={run.ciclos_objetivo}
                     onChange={(event) => updateRun(runIndex, { ciclos_objetivo: event.target.value })}
                     slotProps={{ htmlInput: { min: 1, step: 1 } }}
@@ -294,14 +294,14 @@ export default function ExceptionalFabricationOrderDialog({
                   <TextField
                     fullWidth
                     type="number"
-                    label={`Objetivo neto corrida ${runIndex + 1} (kg)`}
+                    label={`Peso neto del objetivo ${runIndex + 1} (kg)`}
                     value={run.objetivo_neto_kg}
                     onChange={(event) => updateRun(runIndex, { objetivo_neto_kg: event.target.value })}
                     slotProps={{ htmlInput: { min: 0, step: 0.001 } }}
                     helperText="Se cubre cualquier cantidad mínima y se redondea a ciclos completos; los kg reales vienen del pesaje."
                   />
                   <IconButton
-                    aria-label={`Eliminar corrida ${runIndex + 1}`}
+                    aria-label={`Eliminar objetivo de color ${runIndex + 1}`}
                     disabled={runs.length === 1}
                     onClick={() => setRuns((current) => current.filter((_, index) => index !== runIndex))}
                   >
@@ -335,7 +335,7 @@ export default function ExceptionalFabricationOrderDialog({
               </Stack>
             </Paper>
           ))}
-          {duplicateColors && <Alert severity="warning">No repitas el mismo color en dos corridas.</Alert>}
+          {duplicateColors && <Alert severity="warning">No repitas el mismo color en dos objetivos.</Alert>}
         </Stack>
       </DialogContent>
       <DialogActions>

@@ -111,11 +111,11 @@ export const crearTrabajoColorScm = (otId, payload) => body(() => api.post(
   { headers: headers(true) },
 ));
 export const listarContinuidadesMangaPendientesScm = (
-  otId, corridaFabricacionId,
+  otId, objetivoFabricacionId,
 ) => body(() => api.get(
   `/scm/v1/ots/${encodeURIComponent(otId)}/continuidades-pendientes`,
   {
-    params: { corrida_fabricacion_id: corridaFabricacionId },
+    params: { corrida_fabricacion_id: objetivoFabricacionId },
     headers: headers(),
   },
 ));

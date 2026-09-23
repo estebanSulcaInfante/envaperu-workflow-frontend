@@ -146,7 +146,7 @@ describe('contrato HTTP de OPM y material preparado', () => {
     });
   });
 
-  it('no consulta corridas elegibles cuando el actor carece de OPM_CREAR', async () => {
+  it('no consulta objetivos elegibles cuando el actor carece de OPM_CREAR', async () => {
     await obtenerColaPreparacionMaterial({ limit: 25, includeEligible: false });
 
     expect(getMock).toHaveBeenCalledTimes(2);
@@ -156,7 +156,7 @@ describe('contrato HTTP de OPM y material preparado', () => {
     ]);
   });
 
-  it('calcula la necesidad desde una corrida mediante el contrato canónico real', async () => {
+  it('calcula la necesidad desde un objetivo mediante el contrato canónico real', async () => {
     await generarNecesidadMaterialPreparado('run-uuid-9', {
       idempotencyKey: 'calculate-run-9',
     });
@@ -194,11 +194,11 @@ describe('contrato HTTP de OPM y material preparado', () => {
 
   it('libera una cobertura de stock equivocada sin mover Kardex', async () => {
     await liberarAsignacionStockMaterialPreparado('assignment-stock-7', {
-      motivo: 'La cobertura corresponde a otra corrida',
+      motivo: 'La cobertura corresponde a otro objetivo',
     }, { idempotencyKey: 'release-stock-7' });
 
     expect(postMock).toHaveBeenCalledWith('/scm/v1/asignaciones-stock-material-preparado/assignment-stock-7/liberar', {
-      motivo: 'La cobertura corresponde a otra corrida',
+      motivo: 'La cobertura corresponde a otro objetivo',
     }, {
       headers: { 'X-Actor-Id': '17', 'Idempotency-Key': 'release-stock-7' },
     });
@@ -286,7 +286,7 @@ describe('contrato HTTP de OPM y material preparado', () => {
       bruto_kg: '15.120',
       tara_kg: '0.120',
       neto_kg: '15.000',
-      motivo: 'Bolsa completa para corrida 52',
+      motivo: 'Bolsa completa para objetivo 52',
       evidencia_ref: 'UAT-OPM-BOLSA-15',
     }, { idempotencyKey: 'bag-reading-15' });
 
@@ -297,7 +297,7 @@ describe('contrato HTTP de OPM y material preparado', () => {
       bruto_kg: '15.120',
       tara_kg: '0.120',
       neto_kg: '15.000',
-      motivo: 'Bolsa completa para corrida 52',
+      motivo: 'Bolsa completa para objetivo 52',
       evidencia_ref: 'UAT-OPM-BOLSA-15',
       metodo: 'CONTINGENCIA_MANUAL',
     }, {

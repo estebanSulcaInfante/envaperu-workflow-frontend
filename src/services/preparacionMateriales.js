@@ -60,14 +60,15 @@ const mapRun = (item) => {
   const emitted = requirements.reduce((sum, value) => sum + value.emitidoKg, 0);
   const premix = item.premezclas?.at(-1);
   const stageIndex = premix ? 3 : requirements.length === 0 ? 0 : emitted >= planned ? 2 : reserved >= planned ? 1 : 0;
-  const output = item.corrida.salidas?.[0];
+  const objective = item.corrida;
+  const output = objective.salidas?.[0];
   return {
-    id: item.corrida.codigo,
-    runId: item.corrida.id,
+    id: objective.codigo,
+    runId: objective.id,
     orderId: item.orden_fabricacion.id,
-    color: item.corrida.color || 'Color por configurar',
-    receta: item.corrida.receta_revision_id || 'Sin requerimientos',
-    metaKg: item.corrida.salidas?.reduce((sum, value) => sum + number(value.kg_estandar_objetivo), 0) || planned,
+    color: objective.color || 'Color por configurar',
+    receta: objective.receta_revision_id || 'Sin requerimientos',
+    metaKg: objective.salidas?.reduce((sum, value) => sum + number(value.kg_estandar_objetivo), 0) || planned,
     etapa: premix ? 'PREMEZCLA_CONFIRMADA' : requirements.length === 0 ? 'REQUERIMIENTO_PENDIENTE' : emitted >= planned ? 'EMITIDA' : reserved >= planned ? 'RESERVADA' : 'PLANIFICADA',
     etapaIndex: stageIndex,
     requerimientos: requirements,
@@ -100,7 +101,7 @@ const mapRun = (item) => {
       formula: requirements.find((value) => value.tipo === 'COLORANTE')?.codigo || 'Se mostrará al generar requerimientos',
       planKg: requirements.find((value) => value.tipo === 'COLORANTE')?.planKg || 0,
     },
-    producto: output?.nombre || item.corrida.codigo,
+    producto: output?.nombre || objective.codigo,
   };
 };
 
@@ -135,7 +136,7 @@ export const generarRequerimientosMaterial = (orderId) => requestData(
   () => api.post(`/scm/v1/ordenes-fabricacion/${orderId}/requerimientos-material/generar`, {}, config(true)),
 );
 
-export const reservarMaterialesCorrida = (runId) => requestData(
+export const reservarMaterialesObjetivo = (runId) => requestData(
   () => api.post(`/scm/v1/corridas-fabricacion/${runId}/materiales/reservar`, {}, config(true)),
 );
 
@@ -147,6 +148,6 @@ export const devolverEmisionMaterial = (emissionId, payload) => requestData(
   () => api.post(`/scm/v1/emisiones-material/${emissionId}/devolver`, payload, config(true)),
 );
 
-export const confirmarPremezclaCorrida = (runId, payload) => requestData(
+export const confirmarPremezclaObjetivo = (runId, payload) => requestData(
   () => api.post(`/scm/v1/corridas-fabricacion/${runId}/premezclas`, payload, config(true)),
 );

@@ -49,12 +49,12 @@ import PageHeader from './ui/PageHeader';
 import OpmPreparationWorkspace from './OpmPreparationWorkspace';
 import { useScmActor } from '../context/ScmActorContext';
 import {
-  confirmarPremezclaCorrida,
+  confirmarPremezclaObjetivo,
   devolverEmisionMaterial,
   emitirReservaMaterial,
   generarRequerimientosMaterial,
   obtenerPreparacionMateriales,
-  reservarMaterialesCorrida,
+  reservarMaterialesObjetivo,
 } from '../services/preparacionMateriales';
 import { matchesOmniSearch, uniqueOptions } from '../utils/tableSearch';
 
@@ -543,7 +543,7 @@ function LegacyPreparacionMateriales() {
     const payload = premixDialog;
     setPremixDialog(null);
     command(
-      () => confirmarPremezclaCorrida(lote.runId, {
+      () => confirmarPremezclaObjetivo(lote.runId, {
         motivo: payload.motivo,
         genealogia_tipo: payload.genealogiaTipo,
       }),
@@ -628,8 +628,8 @@ function LegacyPreparacionMateriales() {
                   variant="contained"
                   disabled={commandBusy || reservations.length > 0}
                   onClick={() => command(
-                    () => reservarMaterialesCorrida(lote.runId),
-                    'Saldo libre reservado para la corrida.',
+                    () => reservarMaterialesObjetivo(lote.runId),
+                    'Saldo libre reservado para el objetivo.',
                   )}
                 >Reservar materiales</Button>
               )}
@@ -827,7 +827,7 @@ function PreparacionMateriales() {
             value="LEGACY"
             icon={<WarningAmberOutlinedIcon />}
             iconPosition="start"
-            label="Legacy · premezcla por corrida"
+            label="Legacy · premezcla por objetivo"
           />
         </Tabs>
       </Paper>
@@ -835,7 +835,7 @@ function PreparacionMateriales() {
       {flow === 'OPM' ? <OpmPreparationWorkspace /> : (
         <Stack spacing={1.5}>
           <Alert severity="warning">
-            Flujo legacy temporal: queda ligado a una sola corrida y no genera un lote de material preparado reutilizable entre Trabajos de color.
+            Flujo legacy temporal: queda ligado a un solo objetivo y no genera un lote de material preparado reutilizable entre Trabajos de color.
           </Alert>
           <LegacyPreparacionMateriales />
         </Stack>

@@ -321,9 +321,9 @@ describe('Órdenes de fabricación', () => {
     await user.click(screen.getByLabelText(/Máquina sugerida/));
     expect(screen.queryByRole('option', { name: /SOP-01/ })).not.toBeInTheDocument();
     await user.click(await screen.findByRole('option', { name: /INY-01/ }));
-    await user.click(screen.getByLabelText(/Color corrida 1/));
+    await user.click(screen.getByLabelText(/Color del objetivo 1/));
     await user.click(await screen.findByRole('option', { name: 'ROJO' }));
-    await user.type(screen.getByLabelText(/Ciclos objetivo corrida 1/), '250');
+    await user.type(screen.getByLabelText(/Ciclos del objetivo 1/), '250');
 
     expect(screen.getByRole('combobox', { name: /Formulación de material/ }))
       .toHaveTextContent(/Rojo reposición.*Predeterminada/);

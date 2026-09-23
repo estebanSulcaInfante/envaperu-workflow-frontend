@@ -96,7 +96,7 @@ describe('contratos OT de máquina y Trabajo de color', () => {
     });
   });
 
-  it('crea la cabecera en el endpoint independiente de OF/corrida', async () => {
+  it('crea la cabecera en el endpoint independiente de OF/objetivo', async () => {
     const payload = {
       maquina_id: 4,
       fecha_operativa: '2026-08-10',
@@ -129,7 +129,7 @@ describe('contratos OT de máquina y Trabajo de color', () => {
     );
   });
 
-  it('consulta continuidades por OT y corrida sin ampliar el payload', async () => {
+  it('consulta continuidades por OT y objetivo sin ampliar el payload', async () => {
     await listarContinuidadesMangaPendientesScm('ot-1', 'run-1');
 
     expect(getMock).toHaveBeenCalledWith('/scm/v1/ots/ot-1/continuidades-pendientes', {

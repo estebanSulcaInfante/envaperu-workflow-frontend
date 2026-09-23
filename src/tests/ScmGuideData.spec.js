@@ -50,7 +50,7 @@ describe('guía oficial de OT de máquina y Trabajo de color', () => {
     const production = textOf(stage('produccion'));
 
     expect(production).toContain('máquina, fecha y turno');
-    expect(production).toContain('OF + corrida + color');
+    expect(production).toContain('OF + objetivo por color');
     expect(production).toContain('solamente uno puede permanecer En ejecución');
     expect(production).toContain('A → B → A');
     expect(production).toContain('reanuda el mismo Trabajo de color');

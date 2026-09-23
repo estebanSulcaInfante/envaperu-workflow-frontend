@@ -348,7 +348,7 @@ describe('Piloto OPM: preparación almacenable consolidada', () => {
     await user.type(within(dialog).getByLabelText('Peso bruto (kg)'), '15.120');
     await user.type(within(dialog).getByLabelText('Tara (kg)'), '0.120');
     await user.type(within(dialog).getByLabelText('Peso neto (kg)'), '15');
-    await user.type(within(dialog).getByLabelText('Motivo de contingencia'), 'Bolsa completa para corrida 52');
+    await user.type(within(dialog).getByLabelText('Motivo de contingencia'), 'Bolsa completa para objetivo 52');
     await user.type(within(dialog).getByLabelText('Referencia de evidencia'), 'UAT-BOLSA-15');
     await user.click(within(dialog).getByRole('button', { name: 'Registrar provisional' }));
 
@@ -359,7 +359,7 @@ describe('Piloto OPM: preparación almacenable consolidada', () => {
       bruto_kg: '15.120',
       tara_kg: '0.120',
       neto_kg: '15.000',
-      motivo: 'Bolsa completa para corrida 52',
+      motivo: 'Bolsa completa para objetivo 52',
       evidencia_ref: 'UAT-BOLSA-15',
     }, { idempotencyKey: expect.any(String) });
   });
@@ -438,7 +438,7 @@ describe('Piloto OPM: preparación almacenable consolidada', () => {
     expect(await screen.findByRole('button', { name: 'Conciliar balance' })).toBeEnabled();
   });
 
-  it('permite iniciar una cola vacía generando la necesidad de una corrida elegible', async () => {
+  it('permite iniciar una cola vacía generando la necesidad de un objetivo elegible', async () => {
     const user = userEvent.setup();
     obtenerColaPreparacionMaterial
       .mockResolvedValueOnce({
@@ -615,7 +615,7 @@ describe('Piloto OPM: preparación almacenable consolidada', () => {
     renderPage();
 
     expect(await screen.findByText('No se pudo cargar la cola resumida de preparación.')).toBeInTheDocument();
-    expect(screen.getByText('No hay necesidades pendientes ni corridas elegibles.')).toBeInTheDocument();
+    expect(screen.getByText('No hay necesidades pendientes ni objetivos elegibles.')).toBeInTheDocument();
   });
 
   it('recibe una bolsa en una ubicación física autorizada y conserva la custodia canónica', async () => {
@@ -798,11 +798,11 @@ describe('Piloto OPM: preparación almacenable consolidada', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Liberar cobertura de stock' }));
     const dialog = screen.getByRole('dialog', { name: 'Liberar cobertura de stock · TC-000041' });
-    await user.type(within(dialog).getByLabelText('Motivo'), 'La bolsa corresponde a otra corrida');
+    await user.type(within(dialog).getByLabelText('Motivo'), 'La bolsa corresponde a otro objetivo');
     await user.click(within(dialog).getByRole('button', { name: 'Liberar cobertura de stock' }));
 
     expect(liberarAsignacionStockMaterialPreparado).toHaveBeenCalledWith('assignment-7', {
-      motivo: 'La bolsa corresponde a otra corrida',
+      motivo: 'La bolsa corresponde a otro objetivo',
     }, { idempotencyKey: expect.any(String) });
   });
 

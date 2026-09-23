@@ -483,7 +483,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     expect(screen.queryByLabelText('OT de máquina')).not.toBeInTheDocument();
   });
 
-  it('crea una cabecera OT de máquina sin OF, corrida ni color', async () => {
+  it('crea una cabecera OT de máquina sin OF ni objetivo de fabricación', async () => {
     const user = userEvent.setup();
     renderSubject();
 

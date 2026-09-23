@@ -76,9 +76,9 @@ export default function FabricationRecipeSelector({
         <Alert severity="warning">
           {editable
             ? (onOpenWorkspace
-              ? 'Este color no tiene una formulación aprobada compatible con la corrida. Crea o aprueba una aquí antes de liberar la OF. '
+              ? 'Este color no tiene una formulación aprobada compatible con el objetivo. Crea o aprueba una aquí antes de liberar la OF. '
               : 'Este color no tiene una formulación aprobada compatible. Tu perfil no puede crearla; solicita administración de artículos. ')
-            : 'Esta corrida no conserva una formulación visible. Revísala en Datos maestros. '}
+            : 'Este objetivo no conserva una formulación visible. Revísalo en Datos maestros. '}
           <Link component={RouterLink} to="/datos-maestros/colores" fontWeight={700}>
             Abrir Colores y recetas
           </Link>
@@ -86,7 +86,7 @@ export default function FabricationRecipeSelector({
       )}
       {editable && selected && !catalogSelected && (
         <Alert severity="warning">
-          La formulación asociada ya no está aprobada o no es compatible con esta corrida.
+          La formulación asociada ya no está aprobada o no es compatible con este objetivo.
           Selecciona una variante vigente antes de liberar.
         </Alert>
       )}

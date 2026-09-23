@@ -204,7 +204,7 @@ export default function FabricationContextualRecipePanel({
             <MenuItem value="EXISTENTE">Color existente</MenuItem>
             <MenuItem value="NUEVO">Crear color</MenuItem>
           </TextField>
-          {fixedColor && <Alert severity="info">El color de esta corrida ya está fijado por sus salidas PiezaColor.</Alert>}
+          {fixedColor && <Alert severity="info">El color de este objetivo ya está fijado por sus salidas PiezaColor.</Alert>}
           {colorMode === 'EXISTENTE' ? (
             <TextField select fullWidth label="Color" value={selectedColorId} onChange={(event) => setSelectedColorId(event.target.value)} disabled={busy || fixedColor}>
               {colors.filter((item) => item.activo !== false).map((item) => <MenuItem key={item.id} value={item.id}>{item.nombre || item.color_base_nombre}</MenuItem>)}
@@ -225,7 +225,7 @@ export default function FabricationContextualRecipePanel({
           <Grid container spacing={1.5}>
             <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Nombre de variante" value={variant} onChange={(event) => setVariant(event.target.value)} /></Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField select fullWidth label="Alcance de la receta" value={productSku} onChange={(event) => setProductSku(event.target.value)} helperText="General sirve para las salidas compatibles de esta corrida.">
+              <TextField select fullWidth label="Alcance de la receta" value={productSku} onChange={(event) => setProductSku(event.target.value)} helperText="General sirve para las salidas compatibles de este objetivo.">
                 <MenuItem value="">General</MenuItem>
                 {productScopes.map((sku) => <MenuItem key={sku} value={sku}>Producto {sku}</MenuItem>)}
               </TextField>
