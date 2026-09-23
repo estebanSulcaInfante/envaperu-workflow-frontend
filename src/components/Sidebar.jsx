@@ -26,6 +26,7 @@ import EventNoteOutlinedIcon from '@mui/icons-material/EventNoteOutlined';
 import FactoryOutlinedIcon from '@mui/icons-material/FactoryOutlined';
 import HelpOutlineOutlinedIcon from '@mui/icons-material/HelpOutlineOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import MenuIcon from '@mui/icons-material/Menu';
 import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
@@ -181,6 +182,9 @@ function NavigationList({
                         component={RouterLink}
                         to={item.path}
                         selected={childActive}
+                        aria-label={item.placeholder
+                          ? `${item.label} · fuera del piloto`
+                          : undefined}
                         aria-current={childActive ? 'page' : undefined}
                         onClick={onNavigate}
                         sx={navButtonSx(childActive, true)}
@@ -189,6 +193,13 @@ function NavigationList({
                           primary={item.label}
                           primaryTypographyProps={{ fontSize: 12.5, fontWeight: childActive ? 750 : 500 }}
                         />
+                        {item.placeholder && (
+                          <LockOutlinedIcon
+                            fontSize="small"
+                            aria-hidden="true"
+                            sx={{ ml: 1, color: 'rgba(255,255,255,0.72)' }}
+                          />
+                        )}
                       </ListItemButton>
                     </Box>
                   );

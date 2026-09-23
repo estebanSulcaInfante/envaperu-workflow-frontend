@@ -1,6 +1,8 @@
 import {
   defaultWorkspaceRuntimeFlags,
-  featureIsAvailable,
+  featureIsDiscoverable,
+  featureIsExecutable,
+  featureIsPlaceholder,
   workspaceAreas,
   workspaceFeatures,
 } from '../config/workspaceRegistry';
@@ -25,6 +27,8 @@ export const WORKSPACE_FEATURE_KEY_ALIASES = Object.freeze({
 export const normalizeWorkspaceFeatureKey = (featureKey) => (
   WORKSPACE_FEATURE_KEY_ALIASES[featureKey] || featureKey
 );
+
+export const isWorkspacePlaceholder = featureIsPlaceholder;
 
 const normalizePreference = (item = {}) => ({
   featureKey: normalizeWorkspaceFeatureKey(item.feature_key || item.featureKey || ''),
@@ -59,6 +63,12 @@ const uniqueWarnings = (items) => [...new Map(
   items.map((item) => [`${item.code}:${item.featureKey || ''}`, item]),
 ).values()];
 
+const featureNotExecutableMessage = (feature, placeholderFallback, standardFallback) => (
+  featureIsPlaceholder(feature)
+    ? `La función «${feature.label}» está fuera del piloto y no es ejecutable; ${placeholderFallback}.`
+    : standardFallback
+);
+
 export function buildActorWorkspace({
   registry = workspaceFeatures,
   areas = workspaceAreas,
@@ -84,7 +94,7 @@ export function buildActorWorkspace({
   }
 
   const isEligible = (item) => (
-    featureIsAvailable(item, runtimeFlags)
+    featureIsDiscoverable(item, runtimeFlags)
     && (!(item.requiredAny || []).length
       || (item.requiredAny || []).some((code) => capabilities.has(code)))
   );
@@ -95,8 +105,10 @@ export function buildActorWorkspace({
     const preference = preferencesByKey.get(item.key);
     eligibleByKey.set(item.key, {
       ...item,
-      pinned: preference?.pinned || false,
-      preferencePriority: preference?.priority ?? null,
+      // Placeholders are discoverable in their area, but never become a
+      // shortcut, homepage task or role-pinned command.
+      pinned: isWorkspacePlaceholder(item) ? false : (preference?.pinned || false),
+      preferencePriority: isWorkspacePlaceholder(item) ? null : (preference?.priority ?? null),
       areaLabel: areas.find((area) => area.key === item.areaKey)?.label || item.areaKey,
     });
   });
@@ -111,10 +123,15 @@ export function buildActorWorkspace({
       ));
       return;
     }
-    if (!eligibleByKey.has(preference.featureKey) || registered.navigation === false) {
+    if (!eligibleByKey.has(preference.featureKey) || registered.navigation === false
+      || !featureIsExecutable(registered, runtimeFlags)) {
       warnings.push(warning(
         WORKSPACE_WARNING.PREFERENCE_INELIGIBLE,
-        `La función configurada «${registered.label}» no está disponible con las capacidades actuales.`,
+        featureNotExecutableMessage(
+          registered,
+          'se ignoró la preferencia',
+          `La función configurada «${registered.label}» no está disponible con las capacidades actuales`,
+        ),
         preference.featureKey,
       ));
     }
@@ -144,7 +161,8 @@ export function buildActorWorkspace({
     || featureComparator(left, right)
   ));
   const homeFeatures = features
-    .filter((item) => item.task === true && item.key !== 'home.workspace' && item.navigation !== false)
+    .filter((item) => item.task === true && item.key !== 'home.workspace'
+      && item.navigation !== false && featureIsExecutable(item, runtimeFlags))
     .sort(featureComparator);
 
   const requestedStartKey = normalizeWorkspaceFeatureKey(primaryRole?.workspace_start_feature || '');
@@ -158,10 +176,14 @@ export function buildActorWorkspace({
         requestedStartKey,
       ));
     } else if (!eligibleByKey.has(requestedStartKey) || registered.navigation === false
-      || requestedStartKey === 'home.workspace') {
+      || requestedStartKey === 'home.workspace' || !featureIsExecutable(registered, runtimeFlags)) {
       warnings.push(warning(
         WORKSPACE_WARNING.START_FEATURE_INELIGIBLE,
-        `El acceso principal «${registered.label}» no está disponible con las capacidades actuales; se aplicó un acceso seguro.`,
+        featureNotExecutableMessage(
+          registered,
+          'se aplicó un acceso seguro',
+          `El acceso principal «${registered.label}» no está disponible con las capacidades actuales; se aplicó un acceso seguro`,
+        ),
         requestedStartKey,
       ));
     } else {
@@ -171,7 +193,8 @@ export function buildActorWorkspace({
 
   if (!startFeature) {
     startFeature = homeFeatures[0]
-      || features.find((item) => item.navigation !== false && item.key !== 'home.workspace')
+      || features.find((item) => item.navigation !== false
+        && item.key !== 'home.workspace' && featureIsExecutable(item, runtimeFlags))
       || eligibleByKey.get('guide.scm')
       || null;
   }

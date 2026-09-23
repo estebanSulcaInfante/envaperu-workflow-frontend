@@ -302,4 +302,41 @@ describe('TS-010N2: proyección única del workspace', () => {
     expect(workspace.configurationWarnings.map((item) => item.code))
       .toContain(WORKSPACE_WARNING.START_FEATURE_INELIGIBLE);
   });
+
+  it('no convierte un placeholder en tarea, fijado ni acceso principal', () => {
+    const workspace = project({
+      capacidades_efectivas: ['OT_VER'],
+      rol_principal: {
+        id: 31,
+        codigo: 'SUPERVISOR',
+        nombre: 'Supervisor',
+        workspace_start_feature: 'control.sheetAudit',
+        workspace_preferencias: [
+          { feature_key: 'control.sheetAudit', prioridad: 1, fijada: true },
+        ],
+      },
+    });
+
+    expect(workspace.features.find((item) => item.key === 'control.sheetAudit'))
+      .toMatchObject({ task: false, pinned: false });
+    expect(workspace.homeFeatures.map((item) => item.key)).not.toContain('control.sheetAudit');
+    expect(workspace.startFeature.key).not.toBe('control.sheetAudit');
+    expect(workspace.configurationWarnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: WORKSPACE_WARNING.PREFERENCE_INELIGIBLE,
+        featureKey: 'control.sheetAudit',
+      }),
+      expect.objectContaining({
+        code: WORKSPACE_WARNING.START_FEATURE_INELIGIBLE,
+        featureKey: 'control.sheetAudit',
+      }),
+    ]));
+    const warningMessages = workspace.configurationWarnings
+      .filter((item) => item.featureKey === 'control.sheetAudit')
+      .map((item) => item.message)
+      .join(' ');
+    expect(warningMessages).toMatch(/fuera del piloto/i);
+    expect(warningMessages).toMatch(/no es ejecutable/i);
+    expect(warningMessages).not.toMatch(/capacidades actuales/i);
+  });
 });

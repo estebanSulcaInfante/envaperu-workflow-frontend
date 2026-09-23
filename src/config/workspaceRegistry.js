@@ -32,6 +32,7 @@ const feature = ({
   aliases = [],
   requiredAny = [],
   maturity = 'PILOTO',
+  placeholder = null,
   task = false,
   navigation = true,
   defaultPriority = 100,
@@ -51,6 +52,7 @@ const feature = ({
   aliases,
   requiredAny,
   maturity,
+  placeholder,
   task,
   navigation,
   defaultPriority,
@@ -100,6 +102,31 @@ export const workspaceFeatures = [
   feature({ key: 'control.progress', areaKey: 'control', sectionKey: 'progress', label: 'Avance de planta · legacy', description: 'Seguimiento de cumplimiento y producción desde reportes locales legacy.', path: '/produccion/avance', aliases: ['/pesaje/avance'], requiredAny: ['WIP_VER'], icon: 'progress', defaultPriority: 10, task: true }),
   feature({ key: 'control.alerts', areaKey: 'control', sectionKey: 'alerts', label: 'Alertas operativas', description: 'Excepciones que requieren atención.', path: '/produccion/alertas', requiredAny: ['ALERTA_VER'], icon: 'alerts', defaultPriority: 20, task: true }),
   feature({ key: 'control.weighings', areaKey: 'control', sectionKey: 'weighings', label: 'Pesajes y correcciones · legacy', description: 'Histórico, conciliación y anulaciones de la fuente local legacy.', path: '/produccion/pesajes', aliases: ['/pesaje/ordenes'], requiredAny: ['MANGA_PESAJE_VER'], icon: 'weighing', defaultPriority: 30, task: true }),
+  feature({
+    key: 'control.sheetAudit',
+    areaKey: 'control',
+    sectionKey: 'sheet-audit',
+    label: 'Auditoría de hojas',
+    description: 'Placeholder informativo fuera del piloto para una futura conciliación OCR por OT.',
+    path: '/control/auditoria-hojas',
+    requiredAny: ['OT_VER'],
+    maturity: 'FUERA_PILOTO',
+    placeholder: {
+      summary: 'El OCR futuro de Auditoría de hojas podrá apoyar la lectura de hojas físicas, conservando los códigos visibles y la conciliación por OT para revisión humana.',
+      reason: 'Esta reserva comunica madurez; no habilita permisos ni una API.',
+      areaLabel: 'Control',
+      contextLabel: 'función informativa',
+      limitations: 'Todavía no carga fotos, ejecuta OCR ni registra cambios en el sistema.',
+      returnPath: '/control/supervision-produccion',
+      returnLabel: 'Volver a Supervisión de producción',
+      guidePath: '/guia/scm',
+      guideLabel: 'Consultar la guía del piloto',
+    },
+    icon: 'documents',
+    defaultPriority: 40,
+    task: false,
+    keywords: ['OCR', 'hojas', 'auditoría', 'OT'],
+  }),
   feature({ key: 'control.legacyOrders', areaKey: 'control', sectionKey: 'white-run', label: 'Órdenes legacy', description: 'Compatibilidad temporal de marcha blanca.', path: '/produccion/ordenes', aliases: ['/ordenes'], requiredAny: ['OP_VER'], maturity: 'LEGACY_MARCHA_BLANCA', icon: 'orders', task: false }),
   feature({ key: 'control.dailyRecords', areaKey: 'control', sectionKey: 'white-run', label: 'Registro diario legacy', description: 'Registro paralelo de marcha blanca.', path: '/produccion/registros', aliases: ['/registros'], requiredAny: ['OT_VER'], maturity: 'LEGACY_MARCHA_BLANCA', icon: 'records', task: false }),
   feature({ key: 'control.talonarios', areaKey: 'control', sectionKey: 'white-run', label: 'Talonarios OT', description: 'Control físico de contingencia.', path: '/produccion/talonarios', aliases: ['/registros/talonarios'], requiredAny: ['OT_CREAR'], maturity: 'LEGACY_MARCHA_BLANCA', icon: 'documents', task: false }),
@@ -142,13 +169,24 @@ export const defaultWorkspaceRuntimeFlags = {
     && String(import.meta.env.VITE_SCM_ENABLE_OUT_OF_PILOT || '').toLowerCase() === 'true',
 };
 
+export const featureIsPlaceholder = (item) => Boolean(item?.placeholder);
+
 export const featureIsAvailable = (item, runtimeFlags = defaultWorkspaceRuntimeFlags) => {
+  if (featureIsPlaceholder(item)) return false;
   if (!item?.maturity || ['PILOTO', 'DISPONIBLE'].includes(item.maturity)) return true;
   if (item.maturity === 'LEGACY_MARCHA_BLANCA') return runtimeFlags.showLegacy === true;
   if (item.maturity === 'PROTOTIPO') return runtimeFlags.allowPrototype === true;
   if (item.maturity === 'FUERA_PILOTO') return runtimeFlags.allowOutOfPilot === true;
   return false;
 };
+
+export const featureIsDiscoverable = (item, runtimeFlags = defaultWorkspaceRuntimeFlags) => (
+  featureIsPlaceholder(item) || featureIsAvailable(item, runtimeFlags)
+);
+
+export const featureIsExecutable = (item, runtimeFlags = defaultWorkspaceRuntimeFlags) => (
+  !featureIsPlaceholder(item) && featureIsAvailable(item, runtimeFlags)
+);
 
 export const featureMatches = (value, item) => {
   const pathname = pathnameOf(value);
@@ -177,7 +215,7 @@ export const visibleWorkspaceFeatures = ({
 } = {}) => workspaceFeatures.filter((item) => (
   (!areaKey || item.areaKey === areaKey)
   && item.navigation !== false
-  && featureIsAvailable(item, runtimeFlags)
+  && featureIsDiscoverable(item, runtimeFlags)
   && (!canAny || canAny(item.requiredAny || []))
 ));
 

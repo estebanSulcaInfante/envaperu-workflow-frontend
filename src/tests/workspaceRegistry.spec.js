@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAreaNavigation,
   featureIsAvailable,
+  featureIsDiscoverable,
+  featureIsExecutable,
   getFeatureByKey,
   getWorkspaceFeature,
   visibleWorkspaceFeatures,
@@ -88,6 +90,54 @@ describe('US-010N1: registro único del workspace', () => {
     }).find((item) => item.key === 'control');
     expect(control?.features[0].key).toBe('control.productionSupervision');
     expect(control?.path).toBe('/control/supervision-produccion');
+  });
+
+  it('registra Auditoría de hojas como placeholder fuera del piloto opt-in', () => {
+    const feature = getFeatureByKey('control.sheetAudit');
+
+    expect(feature).toMatchObject({
+      areaKey: 'control',
+      path: '/control/auditoria-hojas',
+      requiredAny: ['OT_VER'],
+      maturity: 'FUERA_PILOTO',
+      task: false,
+      placeholder: expect.objectContaining({
+        summary: expect.stringContaining('OCR futuro'),
+        reason: expect.stringContaining('madurez'),
+        returnPath: '/control/supervision-produccion',
+        returnLabel: 'Volver a Supervisión de producción',
+      }),
+    });
+    expect(featureIsAvailable(feature, {
+      showLegacy: false,
+      allowPrototype: false,
+      allowOutOfPilot: true,
+    })).toBe(false);
+    expect(featureIsDiscoverable(feature, {
+      showLegacy: false,
+      allowPrototype: false,
+      allowOutOfPilot: false,
+    })).toBe(true);
+    expect(featureIsExecutable(feature, {
+      showLegacy: false,
+      allowPrototype: false,
+      allowOutOfPilot: false,
+    })).toBe(false);
+    expect(getWorkspaceFeature('/control/auditoria-hojas')?.key).toBe('control.sheetAudit');
+  });
+
+  it('mantiene ocultas las funciones externas aunque el placeholder esté opt-in', () => {
+    const control = buildAreaNavigation({
+      canAny: (required) => required.includes('OT_VER'),
+      runtimeFlags: { showLegacy: false, allowPrototype: false, allowOutOfPilot: false },
+    }).find((item) => item.key === 'control');
+
+    expect(control?.features.map((item) => item.key)).toContain('control.sheetAudit');
+    expect(buildAreaNavigation({
+      canAny: (required) => required.includes('OC_CREAR'),
+      runtimeFlags: { showLegacy: false, allowPrototype: false, allowOutOfPilot: false },
+    }).some((item) => item.features.some((feature) => feature.key === 'external.purchases')))
+      .toBe(false);
   });
 
   it('separa el catálogo de moldes de su detalle editable', () => {

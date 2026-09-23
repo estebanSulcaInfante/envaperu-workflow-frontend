@@ -102,4 +102,19 @@ describe('US-010N1: shell de navegación', () => {
     expect(screen.queryByText('CRUD externo montado')).not.toBeInTheDocument();
     expect(screen.getByText(/no está habilitada en el piloto/i)).toBeVisible();
   });
+
+  it('muestra Auditoría de hojas con nombre accesible y candado decorativo', async () => {
+    const user = userEvent.setup();
+    renderWithShell(<Sidebar />, '/control/supervision-produccion');
+
+    const control = screen.getByRole('button', { name: /Control/i });
+    if (control.getAttribute('aria-expanded') !== 'true') await user.click(control);
+
+    const auditLink = screen.getByRole('link', {
+      name: 'Auditoría de hojas · fuera del piloto',
+    });
+    expect(auditLink).toHaveAttribute('href', '/control/auditoria-hojas');
+    expect(auditLink).not.toHaveAttribute('aria-disabled');
+    expect(auditLink.querySelector('[data-testid="LockOutlinedIcon"]')).toBeTruthy();
+  });
 });

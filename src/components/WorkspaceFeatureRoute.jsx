@@ -1,6 +1,7 @@
 import CapabilityRoute from './CapabilityRoute';
 import FeatureAvailabilityRoute from './FeatureAvailabilityRoute';
-import { getFeatureByKey } from '../config/workspaceRegistry';
+import WorkspacePlaceholderRoute from './WorkspacePlaceholderRoute';
+import { featureIsPlaceholder, getFeatureByKey } from '../config/workspaceRegistry';
 
 function WorkspaceFeatureRoute({
   featureKey,
@@ -8,6 +9,10 @@ function WorkspaceFeatureRoute({
   children,
 }) {
   const feature = getFeatureByKey(featureKey);
+
+  if (featureIsPlaceholder(feature)) {
+    return <WorkspacePlaceholderRoute featureKey={featureKey} />;
+  }
 
   return (
     <FeatureAvailabilityRoute featureKey={featureKey} runtimeFlags={runtimeFlags}>

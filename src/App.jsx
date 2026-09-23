@@ -167,6 +167,7 @@ function App() {
                 <Route path="/control/supervision-produccion" element={workspace('control.productionSupervision', <ProductionSupervisionScm />)} />
                 <Route path="/control/inventario" element={workspace('control.inventory', <WarehouseOperationsScm control />)} />
                 <Route path="/control/impresion-etiquetas" element={workspace('control.printJobs', <PrintJobsControlScm />)} />
+                <Route path="/control/auditoria-hojas" element={workspace('control.sheetAudit', null)} />
                 <Route path="/produccion/supervision" element={<Navigate to="/control/supervision-produccion" replace />} />
                 <Route path="/produccion/avance" element={workspace('control.progress', <ProductionProgressDashboard />)} />
                 <Route path="/produccion/pesajes" element={workspace('control.weighings', <LegacyProductionOrders />)} />
