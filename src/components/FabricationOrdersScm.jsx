@@ -339,7 +339,7 @@ export default function FabricationOrdersScm() {
         !run.legacyWithoutNetTarget && !(Number(run.objetivo_neto_kg) > 0)
       ));
       if (missingObjective) {
-        setError('Completa el objetivo neto en kg de cada corrida nueva para calcular sus ciclos antes de guardar.');
+        setError('Completa el objetivo neto en kg de cada objetivo de color nuevo para calcular sus ciclos antes de guardar.');
         return;
       }
     }
@@ -784,7 +784,7 @@ export default function FabricationOrdersScm() {
                   })}
                   slotProps={{ htmlInput: { min: 0, step: 0.001 } }}
                   helperText={objectiveRequired && !metrics.hasObjective
-                    ? 'Obligatorio para esta corrida nueva: indica kg netos para calcular ciclos antes de guardar.'
+                    ? 'Obligatorio para este objetivo de color nuevo: indica kg netos para calcular ciclos antes de guardar.'
                     : 'Se cubre la demanda y se redondea a ciclos completos; los kg reales vienen del pesaje.'}
                   sx={{ width: 230 }}
                 />

@@ -19,6 +19,8 @@ describe('reportes de control de producción', () => {
     renderInRouter(<ProductionOrderProgressScm />);
     expect(await screen.findByText('Avance de OF')).toBeInTheDocument();
     expect(await screen.findByText('OF-1')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Objetivo de color' })).toBeInTheDocument();
+    expect(screen.queryByText('Corrida')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Expandir OF-1' }));
     expect(screen.getByText('Criterio de uniformidad no definido')).toBeInTheDocument();
     expect(screen.queryByText(/parejo/i)).not.toBeInTheDocument();
@@ -31,6 +33,20 @@ describe('reportes de control de producción', () => {
     await waitFor(() => expect(screen.getByText('No hay producción en el rango seleccionado.')).toBeInTheDocument());
     expect(screen.getByText('Exportar')).toBeInTheDocument();
     expect(screen.getByLabelText('Desde')).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Agrupar' }));
+    expect(await screen.findByText('Objetivo de color')).toBeInTheDocument();
+    expect(screen.queryByText('CORRIDA')).not.toBeInTheDocument();
+  });
+
+  it('vuelve a consultar cuando cambia la agrupación', async () => {
+    listarProduccionHistoricaScm.mockResolvedValue({ items: [] });
+    renderInRouter(<ProductionHistoryScm />);
+    await screen.findByText('Histórico de producción');
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Agrupar' }));
+    fireEvent.click(await screen.findByText('Objetivo de color'));
+    await waitFor(() => expect(listarProduccionHistoricaScm).toHaveBeenLastCalledWith(
+      expect.objectContaining({ agrupaciones: 'DIA,CORRIDA' }),
+    ));
   });
 
   it('lee q de la URL para solicitar avance al servidor', async () => {

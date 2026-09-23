@@ -562,7 +562,7 @@ describe('Órdenes de fabricación', () => {
     expect(screen.getByText(/0\.07 kg alcanzables/)).toBeVisible();
   });
 
-  it('exige objetivo kg en una corrida nueva', async () => {
+  it('exige objetivo kg en un objetivo de color nuevo', async () => {
     const user = userEvent.setup();
     const order = {
       id: 'of-required-target', codigo: 'OF-REQUIRED-TARGET', estado: 'BORRADOR', version: 1,
@@ -578,9 +578,9 @@ describe('Órdenes de fabricación', () => {
 
     const target = await screen.findByRole('spinbutton', { name: /Objetivo neto \(kg\)/ });
     expect(target).toBeRequired();
-    expect(screen.getByText(/Obligatorio para esta corrida nueva/)).toBeVisible();
+    expect(screen.getByText(/Obligatorio para este objetivo de color nuevo/)).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
-    expect(await screen.findByText(/Completa el objetivo neto en kg de cada corrida nueva/)).toBeVisible();
+    expect(await screen.findByText(/Completa el objetivo neto en kg de cada objetivo de color nuevo/)).toBeVisible();
     expect(configurarOrdenFabricacionScm).not.toHaveBeenCalled();
   });
 
