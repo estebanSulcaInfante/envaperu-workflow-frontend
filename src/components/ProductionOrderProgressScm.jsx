@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Alert, Box, Button, Chip, CircularProgress, Collapse, IconButton, LinearProgress,
   Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -11,14 +12,15 @@ import { listarAvanceOfScm } from '../services/scmProductionObservabilityApi';
 const number = (value, suffix = '') => value === null || value === undefined ? '—' : `${Number(value).toFixed(3)}${suffix}`;
 
 export default function ProductionOrderProgressScm() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState([]);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(() => searchParams.get('q') || '');
   const [expanded, setExpanded] = useState({});
   const [state, setState] = useState('loading');
   const [error, setError] = useState('');
   const load = async () => {
     setState('loading'); setError('');
-    try { const payload = await listarAvanceOfScm({ q: query }); setItems(payload.items || []); setState('ready'); }
+    try { setSearchParams(query ? { q: query } : {}, { replace: true }); const payload = await listarAvanceOfScm({ q: query }); setItems(payload.items || []); setState('ready'); }
     catch (cause) { setError(cause?.response?.data?.error?.message || cause?.response?.data?.message || 'No se pudo cargar el avance de OF.'); setState('error'); }
   };
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps

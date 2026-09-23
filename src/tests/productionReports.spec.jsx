@@ -11,7 +11,7 @@ vi.mock('../services/scmProductionObservabilityApi', () => ({
   exportarProduccionHistoricaScm: vi.fn(),
 }));
 
-const renderInRouter = (element) => render(<MemoryRouter>{element}</MemoryRouter>);
+const renderInRouter = (element, initialEntries = ['/']) => render(<MemoryRouter initialEntries={initialEntries}>{element}</MemoryRouter>);
 
 describe('reportes de control de producción', () => {
   it('muestra avance jerárquico y cobertura sin criterio parejo', async () => {
@@ -31,5 +31,12 @@ describe('reportes de control de producción', () => {
     await waitFor(() => expect(screen.getByText('No hay producción en el rango seleccionado.')).toBeInTheDocument());
     expect(screen.getByText('Exportar')).toBeInTheDocument();
     expect(screen.getByLabelText('Desde')).toBeInTheDocument();
+  });
+
+  it('lee q de la URL para solicitar avance al servidor', async () => {
+    listarAvanceOfScm.mockResolvedValue({ items: [] });
+    renderInRouter(<ProductionOrderProgressScm />, ['/control/avance-of?q=OF-URL']);
+    await screen.findByText('Avance de OF');
+    await waitFor(() => expect(listarAvanceOfScm).toHaveBeenCalledWith({ q: 'OF-URL' }));
   });
 });
