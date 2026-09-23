@@ -51,6 +51,30 @@ const exceptionalOutputsForRun = (mold, articles, colorId) => {
   });
 };
 
+const formatKg = (value) => {
+  if (!Number.isFinite(Number(value))) return '—';
+  return Number(Number(value).toFixed(3)).toString();
+};
+
+const ceilDecimalRatio = (numerator, denominator) => {
+  const ratio = Number(numerator) / Number(denominator);
+  if (!Number.isFinite(ratio) || ratio <= 0) return 0;
+  const nearestInteger = Math.round(ratio);
+  const tolerance = Number.EPSILON * Math.max(1, Math.abs(ratio)) * 32;
+  return Math.abs(ratio - nearestInteger) <= tolerance
+    ? nearestInteger
+    : Math.ceil(ratio);
+};
+
+const resourceOption = (resource) => (
+  <Box sx={{ minWidth: 0 }}>
+    <Typography noWrap fontWeight={750}>{resource.nombre}</Typography>
+    <Typography noWrap variant="caption" color="text.secondary">
+      {resource.codigo}
+    </Typography>
+  </Box>
+);
+
 export default function ExceptionalFabricationOrderDialog({
   open,
   molds,
@@ -114,6 +138,27 @@ export default function ExceptionalFabricationOrderDialog({
   const outputGroups = useMemo(() => runs.map((run) => (
     exceptionalOutputsForRun(mold, articles, run.color_produccion_id)
   )), [articles, mold, runs]);
+  const runMetrics = useMemo(() => outputGroups.map((outputs, index) => {
+    const kgPerCycle = outputs.every((output) => (
+      output.cantidad_por_ciclo > 0 && output.peso_unitario_g > 0
+    ))
+      ? outputs.reduce((total, output) => total
+        + (output.cantidad_por_ciclo * output.peso_unitario_g) / 1000, 0)
+      : null;
+    const objective = Number(runs[index]?.objetivo_neto_kg || 0);
+    const cyclesFromKg = objective > 0 && kgPerCycle > 0
+      ? ceilDecimalRatio(objective, kgPerCycle)
+      : null;
+    const cycles = objective > 0 ? Math.max(1, cyclesFromKg || 0) : 0;
+    const reachableKg = kgPerCycle > 0 && cycles > 0 ? cycles * kgPerCycle : null;
+    return {
+      objective,
+      kgPerCycle,
+      cycles,
+      reachableKg,
+      roundingKg: reachableKg != null && objective > 0 ? reachableKg - objective : null,
+    };
+  }), [outputGroups, runs]);
   const suggestedMachines = machines.filter(isInjectionMachine);
 
   const selectedColorIds = runs.map((run) => Number(run.color_produccion_id)).filter(Boolean);
@@ -135,7 +180,7 @@ export default function ExceptionalFabricationOrderDialog({
     && Number(runnerWeight) >= 0
     && runs.length > 0
     && runs.every((run) => Number(run.color_produccion_id) > 0
-      && (Number(run.ciclos_objetivo) > 0 || Number(run.objetivo_neto_kg) > 0))
+      && Number(run.objetivo_neto_kg) > 0)
     && !duplicateColors
     && outputsComplete
     && !busy
@@ -148,7 +193,7 @@ export default function ExceptionalFabricationOrderDialog({
 
   const submit = async () => {
     if (!canSubmit) {
-      setError('Completa el motivo, molde, cada objetivo por color y sus variantes PiezaColor antes de crear la OF.');
+      setError('Completa el motivo, molde, color, objetivo neto en kg y sus variantes PiezaColor antes de crear la OF.');
       return;
     }
     setBusy(true);
@@ -166,7 +211,6 @@ export default function ExceptionalFabricationOrderDialog({
           ...(run.receta_revision_id
             ? { receta_revision_id: Number(run.receta_revision_id) }
             : {}),
-          ...(Number(run.ciclos_objetivo) > 0 ? { ciclos_objetivo: Number(run.ciclos_objetivo) } : {}),
           ...(Number(run.objetivo_neto_kg) > 0 ? { objetivo_neto_kg: Number(run.objetivo_neto_kg) } : {}),
           salidas: outputGroups[runIndex].map((output) => ({
             articulo_scm_id: output.article.id,
@@ -214,7 +258,7 @@ export default function ExceptionalFabricationOrderDialog({
                 onChange={(event) => chooseMold(event.target.value)}
               >
                 {molds.map((item) => (
-                  <MenuItem key={item.codigo} value={item.codigo}>{item.codigo} - {item.nombre}</MenuItem>
+                  <MenuItem key={item.codigo} value={item.codigo}>{resourceOption(item)}</MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -229,7 +273,7 @@ export default function ExceptionalFabricationOrderDialog({
               >
                 <MenuItem value="">Sin sugerencia</MenuItem>
                 {suggestedMachines.map((item) => (
-                  <MenuItem key={item.id} value={item.id}>{item.codigo} - {item.nombre}</MenuItem>
+                  <MenuItem key={item.id} value={item.id}>{resourceOption(item)}</MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -286,20 +330,23 @@ export default function ExceptionalFabricationOrderDialog({
                   <TextField
                     fullWidth
                     type="number"
-                    label={`Ciclos del objetivo ${runIndex + 1}`}
-                    value={run.ciclos_objetivo}
-                    onChange={(event) => updateRun(runIndex, { ciclos_objetivo: event.target.value })}
-                    slotProps={{ htmlInput: { min: 1, step: 1 } }}
-                  />
-                  <TextField
-                    fullWidth
-                    type="number"
-                    label={`Peso neto del objetivo ${runIndex + 1} (kg)`}
+                    label={`Objetivo ${runIndex + 1} (kg netos)`}
+                    required
                     value={run.objetivo_neto_kg}
                     onChange={(event) => updateRun(runIndex, { objetivo_neto_kg: event.target.value })}
                     slotProps={{ htmlInput: { min: 0, step: 0.001 } }}
-                    helperText="Se cubre cualquier cantidad mínima y se redondea a ciclos completos; los kg reales vienen del pesaje."
+                    helperText="Obligatorio: indica kg netos para calcular ciclos completos; los kg reales vienen del pesaje."
                   />
+                  <Box sx={{ alignSelf: 'center', minWidth: 180 }}>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Ciclos calculados
+                    </Typography>
+                    <Typography fontWeight={800}>
+                      {runMetrics[runIndex]?.cycles > 0
+                        ? `${runMetrics[runIndex].cycles} ciclos calculados`
+                        : 'Se calculará al indicar kg'}
+                    </Typography>
+                  </Box>
                   <IconButton
                     aria-label={`Eliminar objetivo de color ${runIndex + 1}`}
                     disabled={runs.length === 1}
@@ -308,6 +355,15 @@ export default function ExceptionalFabricationOrderDialog({
                     <DeleteOutlineIcon />
                   </IconButton>
                 </Stack>
+                {runMetrics[runIndex]?.cycles > 0 && (
+                  <Alert severity="info">
+                    {`Objetivo ${formatKg(runMetrics[runIndex].objective)} kg netos · `
+                      + `${runMetrics[runIndex].cycles} ciclos calculados · `
+                      + `${formatKg(runMetrics[runIndex].reachableKg)} kg alcanzables · `
+                      + `redondeo de ${formatKg(runMetrics[runIndex].roundingKg)} kg.`}
+                    {' '}La producción real se registra con pesajes.
+                  </Alert>
+                )}
                 {run.color_produccion_id && (
                   <FabricationRecipeSelector
                     idPrefix={`exceptional-run-${run.key}`}

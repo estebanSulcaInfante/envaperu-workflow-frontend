@@ -159,6 +159,7 @@ describe('Órdenes de fabricación', () => {
       snapshot_peso_colada_gr: '2',
       corridas: [{
         id: 'run-recipe', codigo: 'OF-000021-C01', color_produccion_id: 5,
+        objetivo_neto_kg: '1.000',
         receta_revision_id: 31,
         salidas: [{
           id: 'out-recipe', cantidad_objetivo: '100.000', excedente_objetivo: '0.000',
@@ -315,20 +316,21 @@ describe('Órdenes de fabricación', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Nueva OF de reposición' }));
     await user.type(screen.getByLabelText(/Motivo de reposición/), 'Stock de asas para prearmado');
-    await user.click(screen.getByLabelText(/^Molde/));
-    await user.click(await screen.findByRole('option', { name: /ML-ASA/ }));
+    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    await user.click(await screen.findByRole('option', { name: /Molde Asa.*ML-ASA/ }));
     await screen.findByDisplayValue('20');
-    await user.click(screen.getByLabelText(/Máquina sugerida/));
+    await user.click(screen.getByRole('combobox', { name: 'Máquina sugerida (opcional)' }));
     expect(screen.queryByRole('option', { name: /SOP-01/ })).not.toBeInTheDocument();
     await user.click(await screen.findByRole('option', { name: /INY-01/ }));
-    await user.click(screen.getByLabelText(/Color del objetivo 1/));
+    await user.click(screen.getByRole('combobox', { name: 'Color del objetivo 1' }));
     await user.click(await screen.findByRole('option', { name: 'ROJO' }));
-    await user.type(screen.getByLabelText(/Ciclos del objetivo 1/), '250');
+    await user.type(screen.getByLabelText(/Objetivo 1 \(kg netos\)/), '12');
 
     expect(screen.getByRole('combobox', { name: /Formulación de material/ }))
       .toHaveTextContent(/Rojo reposición.*Predeterminada/);
     expect(screen.getByText('110 g / 25 kg virgen')).toBeVisible();
     expect(screen.getByText(/PC-ASA-ROJO - 4 un\/ciclo - 12 g/)).toBeVisible();
+    expect(screen.getAllByText(/250 ciclos calculados/)[0]).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Crear OF en borrador' }));
 
     expect(crearOrdenFabricacionExcepcionalScm).toHaveBeenCalledWith({
@@ -341,7 +343,7 @@ describe('Órdenes de fabricación', () => {
       corridas: [{
         color_produccion_id: 5,
         receta_revision_id: 51,
-        ciclos_objetivo: 250,
+        objetivo_neto_kg: 12,
         salidas: [{
           articulo_scm_id: 91,
           cantidad_por_ciclo: 4,
@@ -455,7 +457,8 @@ describe('Órdenes de fabricación', () => {
     );
 
     await screen.findByText('Configuración del recurso');
-    const [, mold, machine] = screen.getAllByRole('combobox');
+    const mold = screen.getByRole('combobox', { name: 'Molde' });
+    const machine = screen.getByRole('combobox', { name: 'Máquina sugerida (opcional)' });
     expect(mold).toHaveTextContent('ML-CORRECTO');
     expect(machine).toHaveTextContent('Sin sugerencia');
     expect(screen.getByText('Máquina sugerida (opcional)', { selector: 'label' }))
@@ -468,8 +471,142 @@ describe('Órdenes de fabricación', () => {
     expect(screen.queryByRole('option', { name: /ML-AJENO/ })).not.toBeInTheDocument();
     await user.keyboard('{Escape}');
     await user.click(machine);
-    expect(screen.getByRole('option', { name: /MAQ-SOP/ })).toBeVisible();
+    expect(screen.getByRole('option', { name: /Sopladora.*MAQ-SOP/ })).toBeVisible();
     expect(screen.queryByRole('option', { name: /MAQ-INY/ })).not.toBeInTheDocument();
+  });
+
+  it('prioriza kg netos, calcula ciclos con techo y conserva el mínimo de demanda', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-kg-target', codigo: 'OF-KG-TARGET', estado: 'BORRADOR', version: 4,
+      molde_id: 'ML-ASA', maquina_prevista_id: 8,
+      snapshot_tiempo_ciclo_seg: '20', snapshot_horas_turno: '8', snapshot_peso_colada_gr: '2',
+      corridas: [{
+        id: 'run-kg-target', codigo: 'OF-KG-TARGET-C01', color_produccion_id: 5,
+        ciclos_objetivo: 3, salidas: [{
+          id: 'out-kg-target', cantidad_objetivo: '10.000', excedente_objetivo: '0.000',
+          cantidad_por_ciclo_snapshot: '4.0000', peso_unitario_snapshot_g: '12.0000',
+          articulo: { codigo: 'PC-ASA-ROJO', nombre: 'Asa ROJO', clase: 'PIEZA_COLOR', pieza_id: 31 },
+        }, {
+          id: 'out-kg-target-2', cantidad_objetivo: '5.000', excedente_objetivo: '0.000',
+          cantidad_por_ciclo_snapshot: '2.0000', peso_unitario_snapshot_g: '30.0000',
+          articulo: { codigo: 'PC-TAPA-ROJO', nombre: 'Tapa ROJO', clase: 'PIEZA_COLOR', pieza_id: 32 },
+        }],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    obtenerMoldes.mockResolvedValue([{
+      codigo: 'ML-ASA', nombre: 'Molde Asa', activo: true,
+      formas: [
+        { pieza_id: 31, activo: true, cavidades: 4, peso_unitario_gr: 12 },
+        { pieza_id: 32, activo: true, cavidades: 2, peso_unitario_gr: 30 },
+      ],
+    }]);
+    obtenerMaquinas.mockResolvedValue([{ id: 8, codigo: 'INY-01', nombre: 'Inyectora 1', activo: true, estado: 'OPERATIVA' }]);
+    obtenerColores.mockResolvedValue([{ id: 5, nombre: 'ROJO', activo: true }]);
+    configurarOrdenFabricacionScm.mockResolvedValue({ codigo: order.codigo });
+
+    render(<ThemeProvider theme={createTheme()}><MemoryRouter><FabricationOrdersScm /></MemoryRouter></ThemeProvider>);
+
+    await screen.findByText('Configuración del recurso');
+    const mold = screen.getByRole('combobox', { name: 'Molde' });
+    expect(mold).toHaveTextContent('Molde Asa');
+    expect(mold).toHaveTextContent('ML-ASA');
+    await user.click(mold);
+    expect(screen.getByRole('option', { name: /Molde Asa.*ML-ASA/ })).toBeVisible();
+    await user.keyboard('{Escape}');
+
+    const target = screen.getByLabelText(/Objetivo neto \(kg\)/);
+    await user.type(target, '0.05');
+    expect(screen.getAllByText(/3 ciclos calculados/)[0]).toBeVisible();
+    expect(screen.getByText(/0\.324 kg alcanzables/)).toBeVisible();
+    expect(screen.getByText(/redondeo de 0\.274 kg/)).toBeVisible();
+    expect(screen.queryByLabelText(/Ciclos del objetivo 1/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
+    expect(configurarOrdenFabricacionScm).toHaveBeenCalledWith(order.id, expect.objectContaining({
+      corridas: [expect.objectContaining({
+        objetivo_neto_kg: 0.05,
+        salidas: expect.arrayContaining([expect.objectContaining({ id: 'out-kg-target' })]),
+      })],
+    }));
+    expect(configurarOrdenFabricacionScm.mock.calls[0][1].corridas[0]).not.toHaveProperty('ciclos_objetivo');
+  });
+
+  it('calcula 7 ciclos para 0.07 kg con 0.01 kg netos por ciclo', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-decimal-target', codigo: 'OF-DECIMAL-TARGET', estado: 'BORRADOR', version: 1,
+      molde_id: 'ML-DECIMAL',
+      corridas: [{
+        id: 'run-decimal-target', codigo: 'OF-DECIMAL-TARGET-C01', color_produccion_id: 5,
+        salidas: [{
+          id: 'out-decimal-target', cantidad_objetivo: '1.000', excedente_objetivo: '0.000',
+          cantidad_por_ciclo_snapshot: '1.0000', peso_unitario_snapshot_g: '10.0000',
+          articulo: { codigo: 'PC-DECIMAL', nombre: 'Pieza decimal', clase: 'PIEZA_COLOR', pieza_id: 99 },
+        }],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    obtenerMoldes.mockResolvedValue([{
+      codigo: 'ML-DECIMAL', nombre: 'Molde decimal', activo: true,
+      formas: [{ pieza_id: 99, activo: true, cavidades: 1, peso_unitario_gr: 10 }],
+    }]);
+    obtenerColores.mockResolvedValue([{ id: 5, nombre: 'ROJO', activo: true }]);
+
+    render(<ThemeProvider theme={createTheme()}><MemoryRouter><FabricationOrdersScm /></MemoryRouter></ThemeProvider>);
+
+    const target = await screen.findByRole('spinbutton', { name: /Objetivo neto \(kg\)/ });
+    await user.type(target, '0.07');
+    expect(screen.getByText('7 ciclos calculados')).toBeVisible();
+    expect(screen.getByText(/0\.07 kg alcanzables/)).toBeVisible();
+  });
+
+  it('exige objetivo kg en una corrida nueva', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-required-target', codigo: 'OF-REQUIRED-TARGET', estado: 'BORRADOR', version: 1,
+      molde_id: 'ML-REQUIRED',
+      corridas: [{
+        id: 'run-required', codigo: 'OF-REQUIRED-TARGET-C01', ciclos_objetivo: 4, salidas: [],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    obtenerMoldes.mockResolvedValue([{ codigo: 'ML-REQUIRED', nombre: 'Molde requerido', activo: true, formas: [] }]);
+
+    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+
+    const target = await screen.findByRole('spinbutton', { name: /Objetivo neto \(kg\)/ });
+    expect(target).toBeRequired();
+    expect(screen.getByText(/Obligatorio para esta corrida nueva/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
+    expect(await screen.findByText(/Completa el objetivo neto en kg de cada corrida nueva/)).toBeVisible();
+    expect(configurarOrdenFabricacionScm).not.toHaveBeenCalled();
+  });
+
+  it('conserva una orden legacy cargada sin objetivo kg y envía sus ciclos de referencia', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-legacy', codigo: 'OF-LEGACY', estado: 'BORRADOR', version: 2,
+      molde_id: 'ML-LEGACY',
+      corridas: [{
+        id: 'run-legacy', codigo: 'OF-LEGACY-C01', ciclos_objetivo: 4,
+        lote_color_legacy_id: 44, meta_kg_legacy: '12.000', salidas: [],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    obtenerMoldes.mockResolvedValue([{ codigo: 'ML-LEGACY', nombre: 'Molde legacy', activo: true, formas: [] }]);
+    configurarOrdenFabricacionScm.mockResolvedValue({ codigo: order.codigo });
+
+    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+
+    const target = await screen.findByRole('spinbutton', { name: /Objetivo neto \(kg\)/ });
+    expect(target).not.toBeRequired();
+    expect(screen.getByText('4 ciclos calculados')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
+    expect(configurarOrdenFabricacionScm).toHaveBeenCalledWith(order.id, expect.objectContaining({
+      corridas: [expect.objectContaining({ ciclos_objetivo: 4 })],
+    }));
   });
 
   it('deriva cavidades y peso neto para un PT monopieza sin pedir datos manuales', async () => {

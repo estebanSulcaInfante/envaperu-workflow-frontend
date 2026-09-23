@@ -82,6 +82,84 @@ const compatibleMachinesForOrder = (order, machines) => {
   });
 };
 
+const formatKg = (value) => {
+  if (!Number.isFinite(Number(value))) return '—';
+  return Number(Number(value).toFixed(3)).toString();
+};
+
+const outputNetSpec = (output, mold) => {
+  const shape = (mold?.formas || []).find((item) => (
+    item.activo !== false && item.pieza_id === output.articulo?.pieza_id
+  ));
+  const quantity = Number(
+    output.cantidad_por_ciclo_snapshot
+      ?? output.cantidad_por_ciclo
+      ?? shape?.cavidades,
+  );
+  const unitWeight = Number(
+    output.peso_unitario_snapshot_g
+      ?? output.peso_unitario_g
+      ?? shape?.peso_unitario_gr,
+  );
+  if (!(quantity > 0) || !(unitWeight > 0)) return null;
+  return { quantity, unitWeight };
+};
+
+const ceilDecimalRatio = (numerator, denominator) => {
+  const ratio = Number(numerator) / Number(denominator);
+  if (!Number.isFinite(ratio) || ratio <= 0) return 0;
+  const nearestInteger = Math.round(ratio);
+  const tolerance = Number.EPSILON * Math.max(1, Math.abs(ratio)) * 32;
+  return Math.abs(ratio - nearestInteger) <= tolerance
+    ? nearestInteger
+    : Math.ceil(ratio);
+};
+
+const runNetMetrics = (run, draftRun, mold) => {
+  const outputs = run?.salidas || [];
+  const specs = outputs.map((output) => outputNetSpec(output, mold));
+  const kgPerCycle = specs.every(Boolean)
+    ? specs.reduce((total, spec) => total + (spec.quantity * spec.unitWeight) / 1000, 0)
+    : null;
+  const minimumCycles = outputs.reduce((minimum, output, index) => {
+    const spec = specs[index];
+    const required = Number(output.cantidad_objetivo || 0)
+      - Number(output.excedente_objetivo || 0);
+    if (!spec || !(required > 0)) return minimum;
+    return Math.max(minimum, ceilDecimalRatio(required, spec.quantity));
+  }, 1);
+  const objective = Number(draftRun?.objetivo_neto_kg ?? '');
+  const hasObjective = objective > 0;
+  const legacyCycles = Number(draftRun?.ciclos_objetivo || run?.ciclos_objetivo || 0);
+  const cyclesFromKg = hasObjective && kgPerCycle > 0
+    ? ceilDecimalRatio(objective, kgPerCycle)
+    : null;
+  const cycles = hasObjective
+    ? Math.max(minimumCycles, cyclesFromKg || 0)
+    : Math.max(minimumCycles, legacyCycles);
+  const reachableKg = kgPerCycle > 0 && cycles > 0 ? cycles * kgPerCycle : null;
+  const roundingKg = hasObjective && reachableKg != null ? reachableKg - objective : null;
+  return {
+    hasObjective,
+    objective,
+    kgPerCycle,
+    minimumCycles,
+    cycles,
+    cyclesFromKg,
+    reachableKg,
+    roundingKg,
+  };
+};
+
+const resourceOption = (resource) => (
+  <Box sx={{ minWidth: 0 }}>
+    <Typography noWrap fontWeight={750}>{resource.nombre}</Typography>
+    <Typography noWrap variant="caption" color="text.secondary">
+      {resource.codigo}
+    </Typography>
+  </Box>
+);
+
 const formFromOrder = (order, recipes = []) => ({
   molde_id: order?.molde_id || '',
   maquina_prevista_id: order?.maquina_prevista_id || '',
@@ -98,6 +176,8 @@ const formFromOrder = (order, recipes = []) => ({
       || '',
     ciclos_objetivo: run.ciclos_objetivo || '',
     objetivo_neto_kg: run.objetivo_neto_kg ?? '',
+    legacyWithoutNetTarget: (run.lote_color_legacy_id != null || run.meta_kg_legacy != null)
+      && run.objetivo_neto_kg == null,
     salidas: run.salidas.map((output) => ({
       id: output.id,
       cantidad_por_ciclo: output.cantidad_por_ciclo_snapshot || '',
@@ -254,6 +334,15 @@ export default function FabricationOrdersScm() {
       setError('Selecciona un molde.');
       return;
     }
+    if (selected.origen_demanda !== 'REEMPLAZO_OF' && selected.estado === 'BORRADOR') {
+      const missingObjective = form.corridas.some((run) => (
+        !run.legacyWithoutNetTarget && !(Number(run.objetivo_neto_kg) > 0)
+      ));
+      if (missingObjective) {
+        setError('Completa el objetivo neto en kg de cada corrida nueva para calcular sus ciclos antes de guardar.');
+        return;
+      }
+    }
     setBusy(true);
     setError('');
     try {
@@ -274,25 +363,26 @@ export default function FabricationOrdersScm() {
           snapshot_horas_turno: Number(form.snapshot_horas_turno),
           snapshot_peso_colada_gr: Number(form.snapshot_peso_colada_gr),
           corridas: form.corridas.map((run, runIndex) => ({
-          id: run.id,
-          color_produccion_id: run.color_produccion_id
-            ? Number(run.color_produccion_id) : null,
-          receta_revision_id: run.receta_revision_id
-            ? Number(run.receta_revision_id) : null,
-          ...(Number(run.ciclos_objetivo) > 0
-            ? { ciclos_objetivo: Number(run.ciclos_objetivo) } : {}),
-          ...(Number(run.objetivo_neto_kg) > 0
-            ? { objetivo_neto_kg: Number(run.objetivo_neto_kg) } : {}),
-          salidas: run.salidas.map((output, outputIndex) => {
-            const source = selected.corridas[runIndex].salidas[outputIndex];
-            return {
-              id: output.id,
-              ...(source.articulo?.pieza_id != null ? {} : {
-                cantidad_por_ciclo: Number(output.cantidad_por_ciclo),
-                peso_unitario_g: Number(output.peso_unitario_g),
-              }),
-            };
-          }),
+            id: run.id,
+            color_produccion_id: run.color_produccion_id
+              ? Number(run.color_produccion_id) : null,
+            receta_revision_id: run.receta_revision_id
+              ? Number(run.receta_revision_id) : null,
+            ...(Number(run.objetivo_neto_kg) > 0
+              ? { objetivo_neto_kg: Number(run.objetivo_neto_kg) }
+              : Number(run.ciclos_objetivo) > 0
+                ? { ciclos_objetivo: Number(run.ciclos_objetivo) }
+                : {}),
+            salidas: run.salidas.map((output, outputIndex) => {
+              const source = selected.corridas[runIndex].salidas[outputIndex];
+              return {
+                id: output.id,
+                ...(source.articulo?.pieza_id != null ? {} : {
+                  cantidad_por_ciclo: Number(output.cantidad_por_ciclo),
+                  peso_unitario_g: Number(output.peso_unitario_g),
+                }),
+              };
+            }),
           })),
         };
       const result = await configurarOrdenFabricacionScm(selected.id, payload);
@@ -540,35 +630,32 @@ export default function FabricationOrdersScm() {
               gap: 2,
             }}>
               <FormControl>
-                <InputLabel>Molde</InputLabel>
+                <InputLabel id="of-mold-label">Molde</InputLabel>
                 <Select
+                  id="of-mold"
+                  labelId="of-mold-label"
                   label="Molde"
                   value={form.molde_id}
                   disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
                   onChange={(event) => chooseMold(event.target.value)}
                   renderValue={(value) => {
                     const mold = compatibleMolds.find((item) => item.codigo === value);
-                    return mold ? (
-                      <Box title={`${mold.codigo} · ${mold.nombre}`} sx={{ minWidth: 0 }}>
-                        <Typography noWrap fontWeight={750}>{mold.codigo}</Typography>
-                        <Typography noWrap variant="caption" color="text.secondary">
-                          {mold.nombre}
-                        </Typography>
-                      </Box>
-                    ) : value;
+                    return mold ? resourceOption(mold) : value;
                   }}
                   sx={{ '& .MuiSelect-select': { py: 1 } }}
                 >
                   {compatibleMolds.map((mold) => (
                     <MenuItem key={mold.codigo} value={mold.codigo}>
-                      {mold.codigo} · {mold.nombre}
+                      {resourceOption(mold)}
                     </MenuItem>
                   ))}
                 </Select>
               </FormControl>
               <FormControl>
-                <InputLabel shrink>Máquina sugerida (opcional)</InputLabel>
+                <InputLabel id="of-machine-label" shrink>Máquina sugerida (opcional)</InputLabel>
                 <Select
+                  id="of-machine"
+                  labelId="of-machine-label"
                   label="Máquina sugerida (opcional)"
                   value={form.maquina_prevista_id}
                   displayEmpty
@@ -579,21 +666,14 @@ export default function FabricationOrdersScm() {
                   renderValue={(value) => {
                     if (!value) return 'Sin sugerencia';
                     const machine = compatibleMachines.find((item) => item.id === value);
-                    return machine ? (
-                      <Box title={`${machine.codigo} · ${machine.nombre}`} sx={{ minWidth: 0 }}>
-                        <Typography noWrap fontWeight={750}>{machine.codigo}</Typography>
-                        <Typography noWrap variant="caption" color="text.secondary">
-                          {machine.nombre}
-                        </Typography>
-                      </Box>
-                    ) : value;
+                    return machine ? resourceOption(machine) : value;
                   }}
                   sx={{ '& .MuiSelect-select': { py: 1 } }}
                 >
                   <MenuItem value="">Sin sugerencia</MenuItem>
                   {compatibleMachines.map((machine) => (
                     <MenuItem key={machine.id} value={machine.id}>
-                      {machine.codigo} · {machine.nombre}
+                      {resourceOption(machine)}
                     </MenuItem>
                   ))}
                 </Select>
@@ -643,8 +723,14 @@ export default function FabricationOrdersScm() {
             </Box>
           </Paper>
 
-          {selected.corridas.map((run, runIndex) => (
-            <Paper key={run.id} variant="outlined">
+          {selected.corridas.map((run, runIndex) => {
+            const metrics = runNetMetrics(run, form.corridas[runIndex], selectedMold);
+            const draftRun = form.corridas[runIndex];
+            const objectiveRequired = selected.estado === 'BORRADOR'
+              && selected.origen_demanda !== 'REEMPLAZO_OF'
+              && !draftRun?.legacyWithoutNetTarget;
+            return (
+              <Paper key={run.id} variant="outlined">
               <Stack
                 direction={{ xs: 'column', md: 'row' }}
                 spacing={1}
@@ -658,8 +744,10 @@ export default function FabricationOrdersScm() {
                   {run.codigo}
                 </Typography>
                 <FormControl size="small" sx={{ minWidth: 230 }}>
-                  <InputLabel>Color de producción</InputLabel>
+                  <InputLabel id={`of-${selected.id}-run-${run.id}-color-label`}>Color de producción</InputLabel>
                   <Select
+                    id={`of-${selected.id}-run-${run.id}-color`}
+                    labelId={`of-${selected.id}-run-${run.id}-color-label`}
                     label="Color de producción"
                     value={form.corridas[runIndex]?.color_produccion_id || ''}
                     disabled={
@@ -687,36 +775,38 @@ export default function FabricationOrdersScm() {
                 <TextField
                   size="small"
                   type="number"
-                  label="Ciclos (vacío = mínimo)"
-                  value={form.corridas[runIndex]?.ciclos_objetivo || ''}
-                disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
-                  onChange={(event) => changeRun(runIndex, {
-                    ciclos_objetivo: event.target.value,
-                  })}
-                  sx={{ width: 210 }}
-                />
-                <TextField
-                  size="small"
-                  type="number"
                   label="Objetivo neto (kg)"
+                  required={objectiveRequired}
                   value={form.corridas[runIndex]?.objetivo_neto_kg ?? ''}
                   disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
                   onChange={(event) => changeRun(runIndex, {
                     objetivo_neto_kg: event.target.value,
                   })}
                   slotProps={{ htmlInput: { min: 0, step: 0.001 } }}
-                  helperText="Se cubre la demanda y se redondea a ciclos completos; los kg reales vienen del pesaje."
+                  helperText={objectiveRequired && !metrics.hasObjective
+                    ? 'Obligatorio para esta corrida nueva: indica kg netos para calcular ciclos antes de guardar.'
+                    : 'Se cubre la demanda y se redondea a ciclos completos; los kg reales vienen del pesaje.'}
                   sx={{ width: 230 }}
                 />
+                <Box sx={{ minWidth: 210, alignSelf: 'center' }}>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Ciclos calculados
+                  </Typography>
+                  <Typography fontWeight={800}>
+                    {metrics.hasObjective || draftRun?.legacyWithoutNetTarget
+                      ? `${metrics.cycles} ciclos calculados`
+                      : 'Se calculará al indicar kg'}
+                  </Typography>
+                </Box>
               </Stack>
-              {run.objetivo_neto_kg != null && (
+              {metrics.hasObjective || (metrics.cycles && draftRun?.legacyWithoutNetTarget) ? (
                 <Alert severity="info" sx={{ mx: 2, mb: 1 }}>
-                  Objetivo guardado: {run.objetivo_neto_kg} kg netos · {run.ciclos_objetivo} ciclos completos ·
-                  {' '}alcanzable estimado {run.kg_neto_alcanzable} kg
-                  {run.redondeo_kg != null && ` · diferencia ${run.redondeo_kg} kg`}.
-                  {' '}La producción real se registra con pesajes.
+                  {metrics.hasObjective
+                    ? `Objetivo ${formatKg(metrics.objective)} kg netos · ${metrics.cycles} ciclos calculados · ${formatKg(metrics.reachableKg)} kg alcanzables · redondeo de ${formatKg(metrics.roundingKg)} kg.`
+                    : `Orden legacy: ${metrics.cycles} ciclos conservados como referencia técnica.`}
+                  {' '}El resultado real se registra con pesajes.
                 </Alert>
-              )}
+              ) : null}
               <FabricationRecipeSelector
                 idPrefix={`of-${selected.id}-run-${run.id}`}
                 run={run}
@@ -820,8 +910,9 @@ export default function FabricationOrdersScm() {
                   })}</TableBody>
                 </Table>
               </TableContainer>
-            </Paper>
-          ))}
+              </Paper>
+            );
+          })}
 
           {canEdit && selected.estado === 'BORRADOR' && (
             <Stack direction="row" justifyContent="flex-end">
