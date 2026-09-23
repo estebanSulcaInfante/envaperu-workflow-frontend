@@ -648,10 +648,13 @@ export default function FabricationOrdersScm() {
               <Stack
                 direction={{ xs: 'column', md: 'row' }}
                 spacing={1}
-                alignItems={{ md: 'center' }}
+                alignItems={{ md: 'flex-start' }}
                 sx={{ p: 2 }}
               >
-                <Typography fontWeight={800} sx={{ flex: 1 }}>
+                <Typography
+                  fontWeight={800}
+                  sx={{ flex: 1, alignSelf: { md: 'center' } }}
+                >
                   {run.codigo}
                 </Typography>
                 <FormControl size="small" sx={{ minWidth: 230 }}>
