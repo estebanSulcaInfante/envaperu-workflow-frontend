@@ -22,6 +22,18 @@ const groupLabels = {
   RESPONSABLE: 'Responsable',
   ARTICULO: 'Artículo',
 };
+const renderGroupValue = (item, group) => {
+  if (group !== 'ARTICULO') return item[group] || '—';
+  const name = item.ARTICULO_NOMBRE;
+  const code = item.ARTICULO_CODIGO || item.ARTICULO;
+  if (!name && !code) return '—';
+  return (
+    <Stack spacing={0.25}>
+      <Typography variant="body2" fontWeight={700}>{name || 'Artículo sin nombre'}</Typography>
+      {code && <Typography variant="caption" color="text.secondary">{code}</Typography>}
+    </Stack>
+  );
+};
 const measures = ['PESO_KG', 'MANGAS', 'P_UNITARIO_G', 'P_TEORICO_KG'];
 const limaToday = () => {
   const parts = new Intl.DateTimeFormat('en', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
@@ -96,6 +108,6 @@ export default function ProductionHistoryScm() {
     {error && <Alert severity="error" action={<Button color="inherit" onClick={() => load()}>Reintentar</Button>} sx={{ mb: 2 }}>{error}</Alert>}
     {state === 'loading' && !items.length && <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}><CircularProgress aria-label="Cargando histórico" /></Paper>}
     {state !== 'loading' && !items.length && visibility?.pesaje !== false && <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>No hay producción en el rango seleccionado.</Paper>}
-    {items.length > 0 && <TableContainer component={Paper} variant="outlined"><Table size="small"><TableHead><TableRow>{appliedGroups.map((group) => <TableCell key={group}>{groupLabels[group] || group}</TableCell>)}{appliedMeasures.includes('PESO_KG') && <TableCell align="right">Peso efectivo (kg)</TableCell>}{appliedMeasures.includes('MANGAS') && <TableCell align="right">Mangas</TableCell>}{appliedMeasures.includes('P_UNITARIO_G') && <TableCell align="right">P. unitario prom. (g)</TableCell>}{appliedMeasures.includes('P_TEORICO_KG') && <TableCell align="right">Peso teórico según unidades (kg)</TableCell>}<TableCell align="right">Subtotal conocido (kg)</TableCell><TableCell>Cobertura</TableCell></TableRow></TableHead><TableBody>{items.map((item, index) => <TableRow key={`${index}-${appliedGroups.map((group) => item[group]).join('-')}`}>{appliedGroups.map((group) => <TableCell key={group}>{item[group] || '—'}</TableCell>)}{appliedMeasures.includes('PESO_KG') && <TableCell align="right">{item.PESO_KG == null ? '—' : Number(item.PESO_KG).toFixed(3)}</TableCell>}{appliedMeasures.includes('MANGAS') && <TableCell align="right">{item.MANGAS ?? '—'}</TableCell>}{appliedMeasures.includes('P_UNITARIO_G') && <TableCell align="right">{item.P_UNITARIO_G == null ? '—' : Number(item.P_UNITARIO_G).toFixed(1)}</TableCell>}{appliedMeasures.includes('P_TEORICO_KG') && <TableCell align="right">{item.P_TEORICO_KG == null ? '—' : Number(item.P_TEORICO_KG).toFixed(3)}</TableCell>}<TableCell align="right">{item.SUBTOTAL_CONOCIDO_KG == null ? '—' : Number(item.SUBTOTAL_CONOCIDO_KG).toFixed(3)}</TableCell><TableCell><Chip size="small" variant="outlined" label={item.coverage || 'INCOMPLETA'} color={item.coverage === 'COMPLETA' ? 'success' : 'warning'} /></TableCell></TableRow>)}</TableBody></Table></TableContainer>}
+    {items.length > 0 && <TableContainer component={Paper} variant="outlined"><Table size="small"><TableHead><TableRow>{appliedGroups.map((group) => <TableCell key={group}>{groupLabels[group] || group}</TableCell>)}{appliedMeasures.includes('PESO_KG') && <TableCell align="right">Peso efectivo (kg)</TableCell>}{appliedMeasures.includes('MANGAS') && <TableCell align="right">Mangas</TableCell>}{appliedMeasures.includes('P_UNITARIO_G') && <TableCell align="right">P. unitario prom. (g)</TableCell>}{appliedMeasures.includes('P_TEORICO_KG') && <TableCell align="right">Peso teórico según unidades (kg)</TableCell>}<TableCell align="right">Subtotal conocido (kg)</TableCell><TableCell>Cobertura</TableCell></TableRow></TableHead><TableBody>{items.map((item, index) => <TableRow key={`${index}-${appliedGroups.map((group) => item[group]).join('-')}`}>{appliedGroups.map((group) => <TableCell key={group}>{renderGroupValue(item, group)}</TableCell>)}{appliedMeasures.includes('PESO_KG') && <TableCell align="right">{item.PESO_KG == null ? '—' : Number(item.PESO_KG).toFixed(3)}</TableCell>}{appliedMeasures.includes('MANGAS') && <TableCell align="right">{item.MANGAS ?? '—'}</TableCell>}{appliedMeasures.includes('P_UNITARIO_G') && <TableCell align="right">{item.P_UNITARIO_G == null ? '—' : Number(item.P_UNITARIO_G).toFixed(1)}</TableCell>}{appliedMeasures.includes('P_TEORICO_KG') && <TableCell align="right">{item.P_TEORICO_KG == null ? '—' : Number(item.P_TEORICO_KG).toFixed(3)}</TableCell>}<TableCell align="right">{item.SUBTOTAL_CONOCIDO_KG == null ? '—' : Number(item.SUBTOTAL_CONOCIDO_KG).toFixed(3)}</TableCell><TableCell><Chip size="small" variant="outlined" label={item.coverage || 'INCOMPLETA'} color={item.coverage === 'COMPLETA' ? 'success' : 'warning'} /></TableCell></TableRow>)}</TableBody></Table></TableContainer>}
   </Box>;
 }

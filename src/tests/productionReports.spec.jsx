@@ -49,6 +49,25 @@ describe('reportes de control de producción', () => {
     ));
   });
 
+  it('muestra el nombre del artículo como identificación principal y el código como referencia', async () => {
+    listarProduccionHistoricaScm.mockResolvedValue({
+      items: [{
+        ARTICULO: 'PC-000153', ARTICULO_CODIGO: 'PC-000153',
+        ARTICULO_NOMBRE: 'COLADOR #4 CREMA SÓLIDO', PESO_KG: 39.5,
+        MANGAS: 2, P_UNITARIO_G: null, P_TEORICO_KG: null,
+        SUBTOTAL_CONOCIDO_KG: 39.5, coverage: 'COMPLETA',
+      }],
+      visibilidad: { pesaje: true },
+    });
+    renderInRouter(
+      <ProductionHistoryScm />,
+      ['/control/historico-produccion?desde=2026-09-01&hasta=2026-09-23&agrupaciones=ARTICULO'],
+    );
+    expect(await screen.findByText('COLADOR #4 CREMA SÓLIDO')).toBeInTheDocument();
+    expect(screen.getByText('PC-000153')).toBeInTheDocument();
+    expect(screen.getByText('COLADOR #4 CREMA SÓLIDO').compareDocumentPosition(screen.getByText('PC-000153')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('lee q de la URL para solicitar avance al servidor', async () => {
     listarAvanceOfScm.mockResolvedValue({ items: [] });
     renderInRouter(<ProductionOrderProgressScm />, ['/control/avance-of?q=OF-URL']);
