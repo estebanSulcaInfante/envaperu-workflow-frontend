@@ -63,6 +63,7 @@ const normalizeWorkspacePreferences = (preferences = []) => {
 const normalizeRole = (role = EMPTY_ROLE) => ({
   ...EMPTY_ROLE,
   ...role,
+  workspace_focus: role.workspace_focus ?? '',
   workspace_start_feature: normalizeWorkspaceFeatureKey(role.workspace_start_feature || ''),
   capacidad_codigos: capabilityCodes(role),
   workspace_preferencias: normalizeWorkspacePreferences(role.workspace_preferencias),
@@ -267,17 +268,17 @@ export default function RolesCapabilitiesAdmin() {
     setSaving(true);
     setError('');
     setNotice('');
-    const payload = {
-      codigo: form.codigo.trim().toUpperCase(),
-      nombre: form.nombre.trim(),
-      activo: form.activo,
-      capacidad_codigos: form.capacidad_codigos,
-      workspace_focus: form.workspace_focus.trim() || null,
-      workspace_start_feature: form.workspace_start_feature || null,
-      workspace_preferencias: form.workspace_preferencias,
-      ...(form.id ? { expected_version: form.version } : {}),
-    };
     try {
+      const payload = {
+        codigo: form.codigo.trim().toUpperCase(),
+        nombre: form.nombre.trim(),
+        activo: form.activo,
+        capacidad_codigos: form.capacidad_codigos,
+        workspace_focus: form.workspace_focus.trim() || null,
+        workspace_start_feature: form.workspace_start_feature || null,
+        workspace_preferencias: form.workspace_preferencias,
+        ...(form.id ? { expected_version: form.version } : {}),
+      };
       const saved = form.id
         ? await actualizarRolWorkspace(form.id, payload)
         : await crearRolWorkspace(payload);

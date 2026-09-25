@@ -139,6 +139,63 @@ describe('TS-010N2: administración de roles y capacidades', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar rol' }));
 
     expect(await screen.findByText(/El rol cambió en otra sesión/i)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Guardar rol' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Guardando…' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Foco del rol')).toHaveValue(auditorRole.workspace_focus);
+  });
+
+  it.each([null, undefined])('guarda permisos con foco opcional %s sin dejar el formulario bloqueado', async (focus) => {
+    const gerente = {
+      id: 15,
+      codigo: 'GERENTE_GENERAL',
+      nombre: 'Gerente General',
+      activo: true,
+      capacidad_codigos: ['INVENTARIO_VER', 'MANGA_FINALIZAR_PARCIAL'],
+      workspace_focus: focus,
+      workspace_start_feature: null,
+      workspace_preferencias: [],
+      version: 1,
+    };
+    const savedRole = {
+      ...gerente,
+      capacidad_codigos: ['INVENTARIO_VER', 'FORMULACION_PUBLICAR_DIRECTO'],
+      workspace_focus: null,
+      version: 2,
+    };
+    listarRolesWorkspace.mockResolvedValueOnce([gerente]).mockResolvedValue([savedRole]);
+    listarCapacidadesWorkspace.mockResolvedValue([
+      { codigo: 'INVENTARIO_VER', nombre: 'Consultar inventario', activo: true },
+      { codigo: 'MANGA_FINALIZAR_PARCIAL', nombre: 'Finalizar manga parcial', activo: false },
+      { codigo: 'FORMULACION_PUBLICAR_DIRECTO', nombre: 'Aprobar receta', activo: true },
+    ]);
+    let finishSave;
+    actualizarRolWorkspace.mockImplementation(() => new Promise((resolve) => { finishSave = resolve; }));
+    const user = userEvent.setup();
+    renderAdmin();
+    await screen.findByDisplayValue('Gerente General');
+    expect(screen.getByLabelText('Foco del rol')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Guardar rol' })).toBeDisabled();
+    await user.click(screen.getByRole('checkbox', { name: /Finalizar manga parcial/ }));
+    await user.click(screen.getByRole('checkbox', { name: /Aprobar receta/ }));
+    await user.click(screen.getByRole('button', { name: 'Guardar rol' }));
+
+    await waitFor(() => expect(actualizarRolWorkspace).toHaveBeenCalledWith(15, {
+      codigo: 'GERENTE_GENERAL',
+      nombre: 'Gerente General',
+      activo: true,
+      capacidad_codigos: ['INVENTARIO_VER', 'FORMULACION_PUBLICAR_DIRECTO'],
+      workspace_focus: null,
+      workspace_start_feature: null,
+      workspace_preferencias: [],
+      expected_version: 1,
+    }));
+    expect(screen.getByRole('button', { name: 'Guardando…' })).toBeDisabled();
+    finishSave(savedRole);
+    expect(await screen.findByText(/Rol y experiencia actualizados/)).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Guardar rol' })).toBeEnabled());
+    expect(screen.getByRole('checkbox', { name: /Aprobar receta/ })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Finalizar manga parcial/ })).not.toBeChecked();
+    expect(actualizarRolWorkspace).toHaveBeenCalledTimes(1);
   });
 
   it('permite definir el principal de una persona multirrol', async () => {
