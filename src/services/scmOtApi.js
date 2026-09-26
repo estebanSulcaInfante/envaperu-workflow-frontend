@@ -1,9 +1,9 @@
 import api from './api';
 import { obtenerActorScm } from './scmEngineeringApi';
 
-const headers = (idempotent = false) => ({
+const headers = (idempotent = false, operationId = '') => ({
   'X-Actor-Id': String(obtenerActorScm()),
-  ...(idempotent ? { 'Idempotency-Key': crypto.randomUUID() } : {}),
+  ...(idempotent ? { 'Idempotency-Key': operationId || crypto.randomUUID() } : {}),
 });
 const body = async (request) => (await request()).data;
 
@@ -27,11 +27,11 @@ export const obtenerOrdenFabricacionScm = (id) => body(() => api.get(
   `/scm/v1/ordenes-fabricacion/${encodeURIComponent(id)}`,
   { headers: headers() },
 ));
-export const crearOrdenFabricacionExcepcionalScm = (payload) => body(
+export const crearOrdenFabricacionExcepcionalScm = (payload, operationId = '') => body(
   () => api.post(
     '/scm/v1/ordenes-fabricacion/excepcionales',
     payload,
-    { headers: headers(true) },
+    { headers: headers(true, operationId) },
   ),
 );
 export const configurarOrdenFabricacionScm = (ofId, payload) => body(

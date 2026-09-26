@@ -466,6 +466,51 @@ describe('Ingeniería SCM R-core', () => {
     ));
   });
 
+  it('ofrece PiezaColor como objetivo de ruta y conserva su salida terminal', async () => {
+    window.history.replaceState({}, '', '/datos-maestros/ingenieria-scm?tab=rutas&articulo=1');
+    listarCentrosTrabajoScm.mockResolvedValue([{
+      id: 8,
+      codigo: 'CT-000008',
+      nombre: 'Inyectora de piezas',
+      tipo: 'INYECCION',
+      activo: true,
+    }]);
+    crearRutaArticuloScm.mockResolvedValue({ id: 92 });
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await waitFor(() => expect(
+      screen.getByRole('combobox', { name: 'Artículo objetivo' }).value,
+    ).toMatch(/PC-000001.*Asa azul/));
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(1));
+
+    await user.click(screen.getByRole('button', { name: 'Nueva ruta' }));
+    const dialog = screen.getByRole('dialog', { name: /Nueva ruta.*PC-000001/i });
+    expect(within(dialog).getByLabelText('Salida terminal (bloqueada)'))
+      .toHaveValue('PC-000001 · Asa azul');
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Centro de trabajo' }));
+    await user.click(screen.getByRole('option', { name: /CT-000008.*Inyectora de piezas/ }));
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Nombre de la operación' }),
+      'Inyectar pieza color',
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Crear borrador' }));
+
+    await waitFor(() => expect(crearRutaArticuloScm).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        operaciones: [expect.objectContaining({
+          tipo: 'INYECCION',
+          executor_kind: 'OP_OT',
+          centro_trabajo_id: 8,
+          articulo_salida_id: 1,
+        })],
+      }),
+    ));
+  });
+
   it('deriva ARMADO y selecciona solamente la BOM aprobada compatible con la salida', async () => {
     const approvedStructure = {
       id: 41,

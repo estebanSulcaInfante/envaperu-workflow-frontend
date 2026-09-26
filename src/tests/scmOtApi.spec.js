@@ -48,6 +48,15 @@ describe('contratos OT de máquina y Trabajo de color', () => {
     );
   });
 
+  it('acepta una clave estable del intento para reintentar el mismo payload', async () => {
+    const payload = { motivo: 'Reintento controlado', corridas: [] };
+    await crearOrdenFabricacionExcepcionalScm(payload, 'of-intento-1');
+    expect(postMock).toHaveBeenCalledWith(
+      '/scm/v1/ordenes-fabricacion/excepcionales', payload,
+      { headers: { 'X-Actor-Id': '42', 'Idempotency-Key': 'of-intento-1' } },
+    );
+  });
+
   it('envía fecha, turno y máquina al consultar el tablero de OT', async () => {
     await listarOtScm(undefined, 'FABRICACION', {
       fecha_operativa: '2026-08-10',

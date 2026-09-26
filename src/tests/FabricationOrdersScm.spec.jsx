@@ -1,5 +1,5 @@
 import { createTheme, ThemeProvider } from '@mui/material';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import {
@@ -37,6 +37,7 @@ vi.mock('../services/scmOtApi', () => ({
 vi.mock('../services/scmEngineeringApi', () => ({
   obtenerActorScm: () => 1,
   listarArticulosScm: vi.fn().mockResolvedValue([]),
+  listarRutasArticuloScm: vi.fn().mockResolvedValue([]),
   mensajeErrorScm: (error, fallback) => error?.message || fallback,
 }));
 
@@ -52,48 +53,107 @@ import {
   obtenerColores, obtenerMaquinas, obtenerMolde, obtenerMoldes,
   obtenerRecetasColorMaestras,
 } from '../services/api';
-import { listarArticulosScm } from '../services/scmEngineeringApi';
+import { listarArticulosScm, listarRutasArticuloScm } from '../services/scmEngineeringApi';
 import {
   cerrarOrdenFabricacionScm,
   anularOrdenFabricacionScm,
   configurarOrdenFabricacionScm, crearOrdenFabricacionExcepcionalScm,
-  listarOrdenesFabricacionScm,
+  listarOrdenesFabricacionScm, obtenerOrdenFabricacionScm,
 } from '../services/scmOtApi';
 
+const renderDetail = (order, detailResponses = [order]) => {
+  detailResponses.map((detail) => ({
+    ...detail,
+    // Existing OF fixtures predate the explicit process contract. Keep their
+    // scenarios focused on their original behavior while new cases exercise
+    // the unresolved legacy draft guard directly.
+    ...(detail.corridas?.length ? {
+      snapshot_proceso: detail.snapshot_proceso || (detail.plan_produccion_id ? detail.proceso_requerido : 'INYECCION'),
+    } : {}),
+  })).forEach((detail, index) => {
+    if (index === detailResponses.length - 1) {
+      obtenerOrdenFabricacionScm.mockResolvedValue(detail);
+    } else {
+      obtenerOrdenFabricacionScm.mockResolvedValueOnce(detail);
+    }
+  });
+  return render(
+    <ThemeProvider theme={createTheme()}>
+      <MemoryRouter initialEntries={[`/produccion/ordenes-fabricacion?of=${order.id}`]}>
+        <FabricationOrdersScm />
+      </MemoryRouter>
+    </ThemeProvider>,
+  );
+};
+
 describe('Órdenes de fabricación', () => {
+  it('envía la precisión completa de kg y gramos, y conserva la edición si falla guardar', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'precision', codigo: 'OF-PRECISION', estado: 'BORRADOR', version: 1,
+      molde_id: 'M-1', snapshot_peso_colada_gr: '5.1234', snapshot_horas_turno: '8', snapshot_tiempo_ciclo_seg: '30',
+      corridas: [{ id: 'r1', codigo: 'C01', objetivo_neto_kg: '12.3456', salidas: [] }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    obtenerMoldes.mockResolvedValue([{ codigo: 'M-1', nombre: 'Molde precisión', activo: true, formas: [] }]);
+    configurarOrdenFabricacionScm.mockRejectedValue(new Error('Error de prueba: conserva borrador'));
+    renderDetail(order);
+    let target = await screen.findByRole('spinbutton', { name: /Objetivo neto/ });
+    expect(target).toHaveValue(12.35);
+    await user.click(target);
+    expect(target).toHaveValue(12.3456);
+    await user.tab();
+    await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
+    expect(configurarOrdenFabricacionScm).toHaveBeenLastCalledWith('precision', expect.objectContaining({
+      snapshot_peso_colada_gr: 5.1234,
+      corridas: [expect.objectContaining({ objetivo_neto_kg: 12.3456 })],
+    }));
+    expect(await screen.findByText('Error de prueba: conserva borrador')).toBeVisible();
+    target = await screen.findByRole('spinbutton', { name: /Objetivo neto/ });
+    await user.clear(target);
+    await user.type(target, '13.1234');
+    await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
+    expect(configurarOrdenFabricacionScm).toHaveBeenLastCalledWith('precision', expect.objectContaining({
+      corridas: [expect.objectContaining({ objetivo_neto_kg: 13.1234 })],
+    }));
+    target = await screen.findByRole('spinbutton', { name: /Objetivo neto/ });
+    expect(target).toHaveValue(13.12);
+    await user.click(target);
+    expect(target).toHaveValue(13.1234);
+  });
   it('abre la formulación en un panel sin abandonar la OF', async () => {
     const user = userEvent.setup();
-    listarOrdenesFabricacionScm.mockResolvedValue({ items: [{
+    const order = {
       id: 'of-contexto', codigo: 'OF-CONTEXTO', estado: 'BORRADOR', version: 1,
       corridas: [{ id: 'run-1', codigo: 'OF-CONTEXTO-C01', color_produccion_id: 7, salidas: [] }],
-    }] });
-    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    renderDetail(order);
     await user.click(await screen.findByRole('button', { name: 'Crear o editar aquí' }));
     expect(await screen.findByText('OF-CONTEXTO · OF-CONTEXTO-C01 · formulación')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Volver a la OF' })).toBeVisible();
   });
   it('advierte antes de descartar una formulación sin guardar', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
-    listarOrdenesFabricacionScm.mockResolvedValue({ items: [{
+    const order = {
       id: 'of-dirty', codigo: 'OF-DIRTY', estado: 'BORRADOR', version: 1,
       corridas: [{ id: 'run-dirty', codigo: 'OF-DIRTY-C01', color_produccion_id: 7, salidas: [] }],
-    }] });
-    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    renderDetail(order);
     await user.click(await screen.findByRole('button', { name: 'Crear o editar aquí' }));
     await user.type(screen.getByLabelText('Nombre de variante'), 'Rojo piloto');
     await user.click(screen.getByRole('button', { name: 'Volver a la OF' }));
-    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('dialog', { name: 'Cambios sin guardar' })).toBeVisible();
     expect(screen.getByLabelText('Nombre de variante')).toHaveValue('Rojo piloto');
-    await user.click(screen.getByRole('button', { name: 'Volver a la OF' }));
-    expect(confirm).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByRole('button', { name: 'Descartar cambios' }));
     expect(screen.queryByLabelText('Nombre de variante')).not.toBeInTheDocument();
-    confirm.mockRestore();
   });
   it('distingue fabricación concurrente estimada de pesajes directos de la OF', async () => {
-    listarOrdenesFabricacionScm.mockResolvedValue({ items: [{ id: 'of-source', codigo: 'OF-FUENTE', estado: 'CERRADA', version: 3, corridas: [], cierre_kg: { kg_medido: '0.000', kg_fabricacion_estimado: '10.000' } }] });
-    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
-    expect(await screen.findByText(/Cierre documental: 0.000 kg pesados directamente/)).toHaveTextContent('Aporte de fabricación estimado: 10.000 kg');
+    const order = { id: 'of-source', codigo: 'OF-FUENTE', estado: 'CERRADA', version: 3, corridas: [], cierre_kg: { kg_medido: '0.000', kg_fabricacion_estimado: '10.000' } };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    renderDetail(order);
+    expect(await screen.findByText(/Cierre documental: 0\.00 kg pesados directamente/)).toHaveTextContent('Aporte de fabricación estimado: 10.00 kg');
     expect(screen.getByText(/medición y estimación no se suman como stock/)).toBeVisible();
   });
   it('presenta cierre KG con el contrato real sin código ni estado en la respuesta', async () => {
@@ -101,9 +161,9 @@ describe('Órdenes de fabricación', () => {
     listarOrdenesFabricacionScm.mockResolvedValue({ items: [kgOrder] });
     cerrarOrdenFabricacionScm.mockResolvedValue({ kg_medido: '12.000', un_confirmadas: false, cierre: { kg_medido: '12.000' } });
     const user = userEvent.setup();
-    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+    renderDetail(kgOrder);
     await user.click(await screen.findByRole('button', { name: 'Cerrar OF' }));
-    expect(await screen.findByText('OF-KG-01 cerrada: 12.000 kg medidos, sin movimiento de stock por el cierre.')).toBeVisible();
+    expect(await screen.findByText('OF-KG-01 cerrada: 12.00 kg medidos, sin movimiento de stock por el cierre.')).toBeVisible();
     expect(cerrarOrdenFabricacionScm).toHaveBeenCalledWith('of-kg', { version: 2 });
   });
   it('anula el borrador con motivo y permite volver a ocultar las anuladas', async () => {
@@ -115,15 +175,19 @@ describe('Órdenes de fabricación', () => {
       listarOrdenesFabricacionScm.mockResolvedValue({ items: [annulled] });
       return annulled;
     });
-    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+    renderDetail(draft, [draft, annulled]);
+    await user.click(await screen.findByRole('button', { name: 'Mostrar acciones' }));
     await user.click(await screen.findByRole('button', { name: 'Anular borrador' }));
     await user.type(screen.getByLabelText('Motivo de anulación'), 'Duplicada');
     await user.click(screen.getByText('Confirmar anulación'));
     expect(await screen.findByText(/Anulada · Duplicada/)).toBeVisible();
     expect(anularOrdenFabricacionScm).toHaveBeenCalledWith(draft, 'Duplicada');
-    expect(screen.getByLabelText('Mostrar anuladas')).toBeChecked();
-    await user.click(screen.getByLabelText('Mostrar anuladas'));
-    expect(await screen.findByText(/Aún no hay/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Volver a bandeja' }));
+    const stateFilter = await screen.findByRole('combobox', { name: 'Estado' });
+    expect(stateFilter).toHaveTextContent('Todos los estados');
+    await user.click(stateFilter);
+    await user.click(screen.getByRole('option', { name: 'Sin anuladas' }));
+    expect(await screen.findByText('Sin coincidencias en la consulta')).toBeVisible();
   });
   beforeEach(() => {
     auth.article = true;
@@ -133,7 +197,9 @@ describe('Órdenes de fabricación', () => {
     obtenerMoldes.mockResolvedValue([]);
     obtenerRecetasColorMaestras.mockResolvedValue({ items: [] });
     obtenerMolde.mockReset();
+    obtenerOrdenFabricacionScm.mockReset();
     listarArticulosScm.mockResolvedValue([]);
+    listarRutasArticuloScm.mockResolvedValue([]);
     crearOrdenFabricacionExcepcionalScm.mockReset();
     configurarOrdenFabricacionScm.mockReset();
     cerrarOrdenFabricacionScm.mockReset();
@@ -141,18 +207,19 @@ describe('Órdenes de fabricación', () => {
 
   it('explica el permiso faltante sin ofrecer alta contextual falsa', async () => {
     auth.article = false;
-    listarOrdenesFabricacionScm.mockResolvedValue({ items: [{
+    const order = {
       id: 'of-limited', codigo: 'OF-LIMITED', estado: 'BORRADOR', version: 1,
       corridas: [{ id: 'run-limited', codigo: 'OF-LIMITED-C01', color_produccion_id: 7, salidas: [] }],
-    }] });
-    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    renderDetail(order);
     expect(await screen.findByText(/solicita administración de artículos/)).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Crear o editar aquí' })).not.toBeInTheDocument();
   });
 
   it('muestra la formulacion del color y permite elegir otra variante aprobada en borrador', async () => {
     const user = userEvent.setup();
-    listarOrdenesFabricacionScm.mockResolvedValue({ items: [{
+    const order = {
       id: 'of-recipe', codigo: 'OF-000021', estado: 'BORRADOR', version: 3,
       molde_id: 'ML-RECETA', maquina_prevista_id: 8,
       snapshot_tiempo_ciclo_seg: '20', snapshot_horas_turno: '8',
@@ -167,7 +234,8 @@ describe('Órdenes de fabricación', () => {
           articulo: { codigo: 'PC-ASA-ROJO', nombre: 'Asa ROJO', clase: 'PIEZA_COLOR', pieza_id: 31 },
         }],
       }],
-    }] });
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
     obtenerMoldes.mockResolvedValue([{
       codigo: 'ML-RECETA', nombre: 'Molde Asa', activo: true,
       formas: [{ pieza_id: 31, activo: true, cavidades: 4, peso_unitario_gr: 12 }],
@@ -205,14 +273,11 @@ describe('Órdenes de fabricación', () => {
     ] });
     configurarOrdenFabricacionScm.mockResolvedValue({ codigo: 'OF-000021' });
 
-    render(
-      <ThemeProvider theme={createTheme()}>
-        <MemoryRouter><FabricationOrdersScm /></MemoryRouter>
-      </ThemeProvider>,
-    );
+    renderDetail(order);
 
     const recipeSelect = await screen.findByRole('combobox', { name: /Formulación de material/ });
-    expect(recipeSelect).toHaveTextContent(/Rojo estándar.*Rev. 1.*Predeterminada/);
+    expect(recipeSelect).toHaveValue('Rojo estándar');
+    expect(screen.getAllByText('Rev. 1 · Predeterminada').length).toBeGreaterThan(0);
     expect(screen.getByText('PP Virgen')).toBeVisible();
     expect(screen.getByText('80% de la mezcla')).toBeVisible();
     expect(screen.getByText('120 g / 25 kg virgen')).toBeVisible();
@@ -235,7 +300,7 @@ describe('Órdenes de fabricación', () => {
   });
 
   it('mantiene visible y bloqueada la formulacion congelada de una OF liberada', async () => {
-    listarOrdenesFabricacionScm.mockResolvedValue({ items: [{
+    const order = {
       id: 'of-frozen', codigo: 'OF-000022', estado: 'LIBERADA', version: 4,
       corridas: [{
         id: 'run-frozen', codigo: 'OF-000022-C01', color_produccion_id: 5,
@@ -250,18 +315,15 @@ describe('Órdenes de fabricación', () => {
         },
         salidas: [],
       }],
-    }] });
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
     obtenerColores.mockResolvedValue([{ id: 5, nombre: 'ROJO', activo: true }]);
 
-    render(
-      <ThemeProvider theme={createTheme()}>
-        <MemoryRouter><FabricationOrdersScm /></MemoryRouter>
-      </ThemeProvider>,
-    );
+    renderDetail(order);
 
     const recipeSelect = await screen.findByRole('combobox', { name: /Formulación de material/ });
     expect(recipeSelect).toHaveAttribute('aria-disabled', 'true');
-    expect(screen.getByText('Congelada al liberar')).toBeVisible();
+    expect(screen.getAllByText('Congelada al liberar')[0]).toBeVisible();
     expect(screen.getByText('140 g / 25 kg virgen')).toBeVisible();
   });
 
@@ -319,6 +381,8 @@ describe('Órdenes de fabricación', () => {
     await user.click(screen.getByRole('combobox', { name: 'Molde' }));
     await user.click(await screen.findByRole('option', { name: /Molde Asa.*ML-ASA/ }));
     await screen.findByDisplayValue('20');
+    await user.click(screen.getByRole('combobox', { name: 'Proceso de fabricación' }));
+    await user.click(screen.getByRole('option', { name: 'Inyección' }));
     await user.click(screen.getByRole('combobox', { name: 'Máquina sugerida (opcional)' }));
     expect(screen.queryByRole('option', { name: /SOP-01/ })).not.toBeInTheDocument();
     await user.click(await screen.findByRole('option', { name: /INY-01/ }));
@@ -327,13 +391,16 @@ describe('Órdenes de fabricación', () => {
     await user.type(screen.getByLabelText(/Objetivo 1 \(kg netos\)/), '12');
 
     expect(screen.getByRole('combobox', { name: /Formulación de material/ }))
-      .toHaveTextContent(/Rojo reposición.*Predeterminada/);
+      .toHaveValue('Rojo reposición');
     expect(screen.getByText('110 g / 25 kg virgen')).toBeVisible();
-    expect(screen.getByText(/PC-ASA-ROJO - 4 un\/ciclo - 12 g/)).toBeVisible();
+    expect(screen.getByText('Asa de balde')).toBeVisible();
+    expect(screen.getByText(/PZ-ASA/)).toBeVisible();
+    expect(screen.getByText(/PC-ASA-ROJO/)).toBeVisible();
+    expect(screen.getByText(/4 un\/ciclo/)).toBeVisible();
     expect(screen.getAllByText(/250 ciclos calculados/)[0]).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Crear OF en borrador' }));
 
-    expect(crearOrdenFabricacionExcepcionalScm).toHaveBeenCalledWith({
+    expect(crearOrdenFabricacionExcepcionalScm).toHaveBeenCalledWith(expect.objectContaining({
       motivo: 'Stock de asas para prearmado',
       molde_id: 'ML-ASA',
       maquina_prevista_id: 8,
@@ -350,11 +417,13 @@ describe('Órdenes de fabricación', () => {
           peso_unitario_g: 12,
         }],
       }],
-    });
+    }), expect.any(String));
     expect(await screen.findByText(/OF-000010 creada como reposición/)).toBeVisible();
   });
 
   it('explica el siguiente paso cuando Planificación todavía no generó OF', async () => {
+    listarOrdenesFabricacionScm.mockReset();
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [] });
     render(
       <ThemeProvider theme={createTheme()}>
         <MemoryRouter>
@@ -366,8 +435,8 @@ describe('Órdenes de fabricación', () => {
     expect(await screen.findByText('Aún no hay órdenes de fabricación')).toBeVisible();
     expect(screen.queryByRole('combobox', { name: 'Orden de fabricación' }))
       .not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Ir a Planificación' }))
-      .toHaveAttribute('href', '/planificacion');
+    expect(screen.queryByRole('link', { name: 'Ir a Planificación' }))
+      .not.toBeInTheDocument();
   });
 
   it('no confunde un fallo de carga con una colección vacía', async () => {
@@ -387,8 +456,7 @@ describe('Órdenes de fabricación', () => {
 
   it('filtra el recurso y mantiene opcional la sugerencia de máquina', async () => {
     const user = userEvent.setup();
-    listarOrdenesFabricacionScm.mockResolvedValue({
-      items: [{
+    const order = {
         id: 'of-1',
         codigo: 'OF-000001',
         estado: 'BORRADOR',
@@ -409,9 +477,10 @@ describe('Órdenes de fabricación', () => {
             cantidad_objetivo: '2400.000',
             excedente_objetivo: '0.000',
           }],
-        }],
-      }],
-    });
+        },
+      ],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
     obtenerMoldes.mockResolvedValue([
       {
         codigo: 'ML-CORRECTO',
@@ -448,23 +517,18 @@ describe('Órdenes de fabricación', () => {
     ]);
     obtenerColores.mockResolvedValue([{ id: 1, nombre: 'VERDE', activo: true }]);
 
-    render(
-      <ThemeProvider theme={createTheme()}>
-        <MemoryRouter>
-          <FabricationOrdersScm />
-        </MemoryRouter>
-      </ThemeProvider>,
-    );
+    renderDetail(order);
 
     await screen.findByText('Configuración del recurso');
     const mold = screen.getByRole('combobox', { name: 'Molde' });
     const machine = screen.getByRole('combobox', { name: 'Máquina sugerida (opcional)' });
-    expect(mold).toHaveTextContent('ML-CORRECTO');
-    expect(machine).toHaveTextContent('Sin sugerencia');
-    expect(screen.getByText('Máquina sugerida (opcional)', { selector: 'label' }))
-      .toHaveAttribute('data-shrink', 'true');
+    expect(mold).toHaveValue('Molde Alcancía');
+    expect(mold).toHaveAttribute('title', 'Molde Alcancía · ML-CORRECTO');
+    expect(machine).toHaveValue('');
+    expect(screen.getByText('Máquina sugerida (opcional)', { selector: 'label' })).toBeVisible();
     expect(screen.getByText(/Se muestran moldes compatibles con SOPLADO/))
       .toBeVisible();
+    expect(screen.getByRole('spinbutton', { name: 'Horas efectivas' })).toBeValid();
 
     await user.click(mold);
     expect(screen.getByRole('option', { name: /ML-CORRECTO/ })).toBeVisible();
@@ -506,12 +570,11 @@ describe('Órdenes de fabricación', () => {
     obtenerColores.mockResolvedValue([{ id: 5, nombre: 'ROJO', activo: true }]);
     configurarOrdenFabricacionScm.mockResolvedValue({ codigo: order.codigo });
 
-    render(<ThemeProvider theme={createTheme()}><MemoryRouter><FabricationOrdersScm /></MemoryRouter></ThemeProvider>);
+    renderDetail(order);
 
     await screen.findByText('Configuración del recurso');
     const mold = screen.getByRole('combobox', { name: 'Molde' });
-    expect(mold).toHaveTextContent('Molde Asa');
-    expect(mold).toHaveTextContent('ML-ASA');
+    expect(mold).toHaveValue('Molde Asa');
     await user.click(mold);
     expect(screen.getByRole('option', { name: /Molde Asa.*ML-ASA/ })).toBeVisible();
     await user.keyboard('{Escape}');
@@ -519,8 +582,9 @@ describe('Órdenes de fabricación', () => {
     const target = screen.getByLabelText(/Objetivo neto \(kg\)/);
     await user.type(target, '0.05');
     expect(screen.getAllByText(/3 ciclos calculados/)[0]).toBeVisible();
-    expect(screen.getByText(/0\.324 kg alcanzables/)).toBeVisible();
-    expect(screen.getByText(/redondeo de 0\.274 kg/)).toBeVisible();
+    expect(screen.getByText(/0\.32 kg alcanzables/)).toBeVisible();
+    expect(screen.getByText(/0\.32 kg alcanzables/)).toHaveAttribute('title', '0.324 kg (valor original)');
+    expect(screen.getByText(/redondeo de 0\.27 kg/)).toBeVisible();
     expect(screen.queryByLabelText(/Ciclos del objetivo 1/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
@@ -554,7 +618,7 @@ describe('Órdenes de fabricación', () => {
     }]);
     obtenerColores.mockResolvedValue([{ id: 5, nombre: 'ROJO', activo: true }]);
 
-    render(<ThemeProvider theme={createTheme()}><MemoryRouter><FabricationOrdersScm /></MemoryRouter></ThemeProvider>);
+    renderDetail(order);
 
     const target = await screen.findByRole('spinbutton', { name: /Objetivo neto \(kg\)/ });
     await user.type(target, '0.07');
@@ -574,7 +638,7 @@ describe('Órdenes de fabricación', () => {
     listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
     obtenerMoldes.mockResolvedValue([{ codigo: 'ML-REQUIRED', nombre: 'Molde requerido', activo: true, formas: [] }]);
 
-    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+    renderDetail(order);
 
     const target = await screen.findByRole('spinbutton', { name: /Objetivo neto \(kg\)/ });
     expect(target).toBeRequired();
@@ -598,11 +662,15 @@ describe('Órdenes de fabricación', () => {
     obtenerMoldes.mockResolvedValue([{ codigo: 'ML-LEGACY', nombre: 'Molde legacy', activo: true, formas: [] }]);
     configurarOrdenFabricacionScm.mockResolvedValue({ codigo: order.codigo });
 
-    render(<MemoryRouter><FabricationOrdersScm /></MemoryRouter>);
+    renderDetail(order);
 
     const target = await screen.findByRole('spinbutton', { name: /Objetivo neto \(kg\)/ });
     expect(target).not.toBeRequired();
     expect(screen.getByText('4 ciclos calculados')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
+    expect(configurarOrdenFabricacionScm).not.toHaveBeenCalled();
+    expect(screen.getByText(/usa 0 si no corresponde/)).toBeVisible();
+    await user.type(screen.getByRole('spinbutton', { name: 'Material no neto/ciclo (g)' }), '0');
     await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
     expect(configurarOrdenFabricacionScm).toHaveBeenCalledWith(order.id, expect.objectContaining({
       corridas: [expect.objectContaining({ ciclos_objetivo: 4 })],
@@ -610,8 +678,7 @@ describe('Órdenes de fabricación', () => {
   });
 
   it('deriva cavidades y peso neto para un PT monopieza sin pedir datos manuales', async () => {
-    listarOrdenesFabricacionScm.mockResolvedValue({
-      items: [{
+    const order = {
         id: 'of-jarra',
         codigo: 'OF-000001',
         estado: 'BORRADOR',
@@ -634,8 +701,8 @@ describe('Órdenes de fabricación', () => {
             excedente_objetivo: '0.000',
           }],
         }],
-      }],
-    });
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
     obtenerMoldes.mockResolvedValue([{
       codigo: 'ML-JARRA-REAL-6L',
       nombre: 'Molde Jarra Real 6 L',
@@ -662,26 +729,23 @@ describe('Órdenes de fabricación', () => {
     }]);
     obtenerColores.mockResolvedValue([{ id: 1, nombre: 'TRANSPARENTE', activo: true }]);
 
-    render(
-      <ThemeProvider theme={createTheme()}>
-        <MemoryRouter><FabricationOrdersScm /></MemoryRouter>
-      </ThemeProvider>,
-    );
+    renderDetail(order);
 
     const row = await screen.findByRole('row', { name: /Jarra Real 6 L Transparente/ });
     expect(within(row).getByText('PT monopieza · derivado')).toBeVisible();
     expect(within(row).getByText('Componente único del PT')).toBeVisible();
     expect(within(row).getByText('Neto de una unidad')).toBeVisible();
     expect(within(row).getByText('1')).toBeVisible();
-    expect(within(row).getByText('240')).toBeVisible();
+    expect(within(row).getByText('240.0 g')).toBeVisible();
     expect(within(row).queryByRole('spinbutton')).not.toBeInTheDocument();
     expect(screen.getByText(/240\.0 g netos\/ciclo y 250\.0 g totales\/ciclo/)).toBeVisible();
     expect(screen.getByText(/10\.0 g es material no neto/)).toBeVisible();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Ver ayuda' }));
     expect(screen.getByText(/La OPM todavía no debe existir/)).toBeVisible();
   });
 
   it('prefiere el contexto temporal canónico y muestra un rango de necesidad', async () => {
-    listarOrdenesFabricacionScm.mockResolvedValue({ items: [{
+    const order = {
       id: 'of-date', codigo: 'OF-000010', estado: 'LIBERADA', version: 1,
       fecha_necesidad: '2026-08-15',
       fecha_necesidad_fuente: { tipo: 'OP', id: 'op-1', codigo: 'OP-000001' },
@@ -696,13 +760,10 @@ describe('Órdenes de fabricación', () => {
         cantidad_ot: 2,
       },
       corridas: [{ id: 'run-date', codigo: 'C01', salidas: [] }],
-    }] });
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
 
-    render(
-      <ThemeProvider theme={createTheme()}>
-        <MemoryRouter><FabricationOrdersScm /></MemoryRouter>
-      </ThemeProvider>,
-    );
+    renderDetail(order);
 
     const strip = await screen.findByTestId('order-schedule-strip');
     expect(strip).toHaveTextContent(/Necesidad.*15\/08\/2026.*17\/08\/2026/);
@@ -728,11 +789,7 @@ describe('Órdenes de fabricación', () => {
       },
     });
 
-    render(
-      <ThemeProvider theme={createTheme()}>
-        <MemoryRouter><FabricationOrdersScm /></MemoryRouter>
-      </ThemeProvider>,
-    );
+    renderDetail(running);
 
     await user.type(
       await screen.findByLabelText(/Motivo de diferencia/),
@@ -745,5 +802,113 @@ describe('Órdenes de fabricación', () => {
       motivo: 'Cierre conciliado del turno',
     });
     expect(await screen.findByText(/OP: OP-000010 COMPLETADA/)).toBeVisible();
+  });
+
+  it('preserva una referencia de ruta sin reenviarla si no cambió', async () => {
+    const order = {
+      id: 'of-route-preserve', codigo: 'OF-ROUTE-PRESERVE', estado: 'BORRADOR', version: 2,
+      fuente_proceso: 'EXPLICITO', snapshot_proceso: 'INYECCION', molde_id: 'M-ROUTE',
+      snapshot_tiempo_ciclo_seg: '20', snapshot_horas_turno: '8', snapshot_peso_colada_gr: '2',
+      corridas: [{ id: 'run-route', codigo: 'C01', objetivo_neto_kg: '1', operacion_ruta_revision_id: 77, salidas: [] }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    obtenerMoldes.mockResolvedValue([{ codigo: 'M-ROUTE', nombre: 'Molde route', activo: true, formas: [] }]);
+    configurarOrdenFabricacionScm.mockResolvedValue(order);
+    renderDetail(order);
+    await screen.findByText('Configuración del recurso');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
+    await waitFor(() => expect(configurarOrdenFabricacionScm).toHaveBeenCalled());
+    expect(configurarOrdenFabricacionScm.mock.calls[0][1].corridas[0]).not.toHaveProperty('operacion_ruta_revision_id');
+  });
+
+  it('deja readonly la ruta planificada y omite su referencia al guardar', async () => {
+    const order = {
+      id: 'of-route-planned', codigo: 'OF-ROUTE-PLANNED', estado: 'BORRADOR', version: 3,
+      plan_produccion_id: 'plan-1', proceso_requerido: 'SOPLADO', molde_id: 'M-PLAN',
+      snapshot_tiempo_ciclo_seg: '20', snapshot_horas_turno: '8', snapshot_peso_colada_gr: '2',
+      corridas: [{ id: 'run-plan', codigo: 'C01', objetivo_neto_kg: '1', operacion_ruta_revision_id: 88, salidas: [] }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    obtenerMoldes.mockResolvedValue([{ codigo: 'M-PLAN', nombre: 'Molde plan', activo: true, formas: [] }]);
+    configurarOrdenFabricacionScm.mockResolvedValue(order);
+    renderDetail(order);
+    const route = await screen.findByRole('combobox', { name: 'Operación de ruta (opcional)' });
+    expect(route).toBeDisabled();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
+    await waitFor(() => expect(configurarOrdenFabricacionScm).toHaveBeenCalled());
+    expect(configurarOrdenFabricacionScm.mock.calls[0][1].corridas[0]).not.toHaveProperty('operacion_ruta_revision_id');
+  });
+
+  it('envía null al retirar explícitamente un override y derivar rutas aprobadas', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-route-derive', codigo: 'OF-ROUTE-DERIVE', estado: 'BORRADOR', version: 4,
+      fuente_proceso: 'EXPLICITO', snapshot_proceso: 'INYECCION', molde_id: 'M-DERIVE',
+      snapshot_tiempo_ciclo_seg: '20', snapshot_horas_turno: '8', snapshot_peso_colada_gr: '2',
+      corridas: [{
+        id: 'run-derive', codigo: 'C01', objetivo_neto_kg: '1', operacion_ruta_revision_id: 88,
+        salidas: [{ id: 'out-derive', articulo: { id: 5, pieza_id: 5, nombre: 'Pieza 5', codigo: 'PC-5' } }],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarRutasArticuloScm.mockResolvedValue([{
+      id: 1, numero_revision: 1, estado: 'APROBADA', content_hash: 'hash', operaciones: [{
+        id: 88, executor_kind: 'OP_OT', tipo: 'INYECCION', nombre: 'Inyectar pieza', articulo_salida: { id: 5, codigo: 'PC-5' },
+      }],
+    }]);
+    obtenerMoldes.mockResolvedValue([{ codigo: 'M-DERIVE', nombre: 'Molde derive', activo: true, formas: [{ pieza_id: 5, activo: true }] }]);
+    configurarOrdenFabricacionScm.mockResolvedValue(order);
+    renderDetail(order);
+    await screen.findByText('Configuración del recurso');
+    await user.click(screen.getByRole('combobox', { name: 'Proceso de fabricación' }));
+    await user.click(await screen.findByRole('option', { name: 'Derivar de rutas — Inyección' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
+    await waitFor(() => expect(configurarOrdenFabricacionScm).toHaveBeenCalled());
+    expect(configurarOrdenFabricacionScm.mock.calls[0][1]).toHaveProperty('proceso', null);
+  });
+
+  it('serializa null al limpiar una referencia de ruta existente', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-route-clear', codigo: 'OF-ROUTE-CLEAR', estado: 'BORRADOR', version: 5,
+      fuente_proceso: 'EXPLICITO', snapshot_proceso: 'INYECCION', molde_id: 'M-CLEAR',
+      snapshot_tiempo_ciclo_seg: '20', snapshot_horas_turno: '8', snapshot_peso_colada_gr: '2',
+      corridas: [{ id: 'run-clear', codigo: 'C01', objetivo_neto_kg: '1', operacion_ruta_revision_id: 77, operacion_ruta: { id: 77, tipo: 'INYECCION', nombre: 'Ruta vieja' }, salidas: [] }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    obtenerMoldes.mockResolvedValue([{ codigo: 'M-CLEAR', nombre: 'Molde clear', activo: true, formas: [] }]);
+    configurarOrdenFabricacionScm.mockResolvedValue(order);
+    renderDetail(order);
+    const route = await screen.findByRole('combobox', { name: 'Operación de ruta (opcional)' });
+    await user.click(within(route.closest('.MuiFormControl-root')).getByRole('button', { name: 'Limpiar selección' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
+    await waitFor(() => expect(configurarOrdenFabricacionScm).toHaveBeenCalled());
+    expect(configurarOrdenFabricacionScm.mock.calls[0][1].corridas[0]).toHaveProperty('operacion_ruta_revision_id', null);
+  });
+
+  it('serializa el nuevo ID de ruta cuando cambia el vínculo', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-route-change', codigo: 'OF-ROUTE-CHANGE', estado: 'BORRADOR', version: 6,
+      fuente_proceso: 'EXPLICITO', snapshot_proceso: 'INYECCION', molde_id: 'M-CHANGE',
+      snapshot_tiempo_ciclo_seg: '20', snapshot_horas_turno: '8', snapshot_peso_colada_gr: '2',
+      corridas: [{ id: 'run-change', codigo: 'C01', objetivo_neto_kg: '1', operacion_ruta_revision_id: 77,
+        salidas: [{ id: 'out-change', articulo: { id: 5, pieza_id: 5, nombre: 'Pieza 5', codigo: 'PC-5' } }] }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarRutasArticuloScm.mockResolvedValue([{
+      id: 2, numero_revision: 2, estado: 'APROBADA', content_hash: 'hash-2', operaciones: [{
+        id: 88, executor_kind: 'OP_OT', tipo: 'INYECCION', nombre: 'Inyectar nueva', articulo_salida: { id: 5, codigo: 'PC-5' },
+      }],
+    }]);
+    obtenerMoldes.mockResolvedValue([{ codigo: 'M-CHANGE', nombre: 'Molde change', activo: true, formas: [{ pieza_id: 5, activo: true }] }]);
+    configurarOrdenFabricacionScm.mockResolvedValue(order);
+    renderDetail(order);
+    const route = await screen.findByRole('combobox', { name: 'Operación de ruta (opcional)' });
+    await user.click(route);
+    await user.click(await screen.findByRole('option', { name: /Inyectar nueva.*Inyección/ }));
+    await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
+    await waitFor(() => expect(configurarOrdenFabricacionScm).toHaveBeenCalled());
+    expect(configurarOrdenFabricacionScm.mock.calls[0][1].corridas[0]).toHaveProperty('operacion_ruta_revision_id', 88);
   });
 });

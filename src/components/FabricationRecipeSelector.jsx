@@ -1,15 +1,15 @@
 import {
-  Alert, Box, Button, Chip, FormControl, InputLabel, Link, MenuItem, Paper, Select,
+  Alert, Box, Button, Chip, Link, Paper,
   Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Typography,
 } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import { approvedRecipesForRun } from './fabricationRecipeOptions';
+import SearchableCatalogAutocomplete from './ui/SearchableCatalogAutocomplete';
 
 const recipeName = (recipe) => recipe?.nombre_variante || recipe?.nombre || `Receta ${recipe?.id}`;
 
 const recipeLabel = (recipe) => [
-  recipeName(recipe),
   `Rev. ${recipe.revision}`,
   recipe.es_default ? 'Predeterminada' : null,
 ].filter(Boolean).join(' · ');
@@ -32,6 +32,7 @@ export default function FabricationRecipeSelector({
   editable,
   onChange,
   onOpenWorkspace,
+  compact = false,
 }) {
   const approved = approvedRecipesForRun(recipes, run, colorId);
   const catalogSelected = approved.find((recipe) => Number(recipe.id) === Number(value));
@@ -40,39 +41,32 @@ export default function FabricationRecipeSelector({
   const selectable = selected && !approved.some((recipe) => recipe.id === selected.id)
     ? [selected, ...approved]
     : approved;
-  const labelId = `${idPrefix}-recipe-label`;
 
   return (
-    <Stack spacing={1.25} sx={{ px: 2, pb: 2 }}>
+    <Stack spacing={1.25} sx={compact ? undefined : { px: 2, pb: 2 }}>
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} alignItems={{ md: 'center' }}>
-        <FormControl fullWidth size="small">
-          <InputLabel id={labelId}>Formulación de material</InputLabel>
-          <Select
-            labelId={labelId}
-            label="Formulación de material"
-            value={selected?.id || ''}
-            disabled={!editable}
-            onChange={(event) => onChange(event.target.value)}
-            renderValue={() => (selected ? recipeLabel(selected) : 'Selecciona una formulación')}
-          >
-            {selectable.map((recipe) => (
-              <MenuItem
-                key={recipe.id}
-                value={recipe.id}
-                disabled={!approved.some((option) => Number(option.id) === Number(recipe.id))}
-              >
-                {recipeLabel(recipe)}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        {!editable && selected && (
+        <SearchableCatalogAutocomplete
+          id={`${idPrefix}-recipe`}
+          label="Formulación de material"
+          options={selectable}
+          value={selected}
+          disabled={!editable}
+          onChange={(option) => onChange(option?.id || '')}
+          getOptionKey={(option) => option?.id}
+          getOptionDisabled={(option) => !approved.some((recipe) => Number(recipe.id) === Number(option.id))}
+          getPrimary={recipeName}
+          getSecondary={recipeLabel}
+          getSearchText={(option) => [recipeName(option), recipeLabel(option), option?.revision, option?.codigo, option?.color_nombre].filter(Boolean).join(' ')}
+          getColorHex={(option) => option?.hex_referencia || option?.color_hex || option?.color_produccion?.hex_referencia}
+          noOptionsText="No hay formulaciones aprobadas compatibles"
+        />
+        {!compact && !editable && selected && (
           <Chip size="small" color="success" variant="outlined" label="Congelada al liberar" />
         )}
-        {editable && onOpenWorkspace && <Button variant="outlined" onClick={onOpenWorkspace}>Crear o editar aquí</Button>}
+        {!compact && editable && onOpenWorkspace && <Button variant="outlined" onClick={onOpenWorkspace}>Crear o editar aquí</Button>}
       </Stack>
 
-      {!selected && (
+      {!compact && !selected && (
         <Alert severity="warning">
           {editable
             ? (onOpenWorkspace
@@ -84,13 +78,13 @@ export default function FabricationRecipeSelector({
           </Link>
         </Alert>
       )}
-      {editable && selected && !catalogSelected && (
+      {!compact && editable && selected && !catalogSelected && (
         <Alert severity="warning">
           La formulación asociada ya no está aprobada o no es compatible con este objetivo.
           Selecciona una variante vigente antes de liberar.
         </Alert>
       )}
-      {selected && (
+      {!compact && selected && (
         <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
           <Box sx={{ px: 1.5, py: 1, bgcolor: 'action.hover' }}>
             <Typography variant="body2" fontWeight={800}>{recipeName(selected)}</Typography>

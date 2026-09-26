@@ -134,6 +134,12 @@ function RouteRevisionEditor({
         <strong>{targetArticle?.codigo || 'objetivo no resuelto'}</strong>. La salida terminal no
         se puede sustituir desde este editor.
       </Alert>
+      {targetArticle?.clase === 'PIEZA_COLOR' && (
+        <Alert severity="info">
+          La fabricación terminal de una Pieza-color usa una operación OP_OT de INYECCIÓN o
+          SOPLADO y sus entradas de receta/molde; no requiere una BOM terminal.
+        </Alert>
+      )}
       {policy.guidance && <Alert severity="warning">{policy.guidance}</Alert>}
       <TextField
         label="Notas de revisión"
@@ -153,8 +159,22 @@ function RouteRevisionEditor({
           item.estado === 'APROBADA'
           && Number(item.articulo_resultado_id) === Number(outputArticle?.id)
         ));
+        const terminalPieceColor = terminal && targetArticle?.clase === 'PIEZA_COLOR';
+        const operationTypes = terminalPieceColor
+          ? ['INYECCION', 'SOPLADO']
+          : OPERATION_TYPES;
+        const operationCenters = activeCenters.filter((center) => {
+          if (!terminalPieceColor) return true;
+          if (!['INYECCION', 'SOPLADO'].includes(center.tipo)) return false;
+          const selectedManufacturingType = ['INYECCION', 'SOPLADO'].includes(operation.tipo)
+            ? operation.tipo
+            : '';
+          return !selectedManufacturingType || center.tipo === selectedManufacturingType;
+        });
         const inputLabel = index === 0
-          ? 'Entradas definidas por la BOM'
+          ? terminalPieceColor || operation.executor_kind === 'OP_OT'
+            ? 'Entradas definidas por receta/molde'
+            : 'Entradas definidas por la BOM'
           : previousOutput
             ? `${previousOutput.codigo} · ${previousOutput.nombre}`
             : `Salida pendiente del Paso ${index}`;
@@ -279,7 +299,7 @@ function RouteRevisionEditor({
                       });
                     }}
                   >
-                    {OPERATION_TYPES.map((type) => (
+                    {operationTypes.map((type) => (
                       <MenuItem key={type} value={type}>{OPERATION_TYPE_LABEL[type]}</MenuItem>
                     ))}
                   </Select>
@@ -308,7 +328,9 @@ function RouteRevisionEditor({
                     }}
                   >
                     <MenuItem value="OP_OT">{EXECUTOR_LABEL.OP_OT}</MenuItem>
-                    <MenuItem value="ORDEN_OPERACION">{EXECUTOR_LABEL.ORDEN_OPERACION}</MenuItem>
+                    {!terminalPieceColor && (
+                      <MenuItem value="ORDEN_OPERACION">{EXECUTOR_LABEL.ORDEN_OPERACION}</MenuItem>
+                    )}
                   </Select>
                 </FormControl>
               </Stack>
@@ -340,7 +362,7 @@ function RouteRevisionEditor({
                       });
                     }}
                   >
-                    {activeCenters.map((center) => (
+                    {operationCenters.map((center) => (
                       <MenuItem key={center.id} value={String(center.id)}>
                         {center.codigo} · {center.nombre}
                       </MenuItem>
@@ -397,7 +419,7 @@ function RouteRevisionEditor({
                   </FormControl>
                 )}
               </Stack>
-              {operation.executor_kind === 'ORDEN_OPERACION'
+              {!terminalPieceColor && operation.executor_kind === 'ORDEN_OPERACION'
                 && outputArticle
                 && compatibleStructures.length === 0 && (
                 <Alert

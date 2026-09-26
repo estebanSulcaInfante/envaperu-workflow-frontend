@@ -149,6 +149,82 @@ describe('editores compartidos de Ingenieria SCM', () => {
     expect(buildRoutePayload(value, targetProduct).operaciones[0].articulo_salida_id).toBe(30);
   });
 
+  it.each([
+    ['INYECCION', 'INYECCIÓN', '5', 'INY-01', 'Inyectora'],
+    ['SOPLADO', 'SOPLADO', '6', 'SOP-01', 'Sopladora'],
+  ])('guía una terminal PC a %s mediante OP_OT sin BOM', async (
+    operationType,
+    operationLabel,
+    centerId,
+    centerCode,
+    centerName,
+  ) => {
+    const user = userEvent.setup();
+    renderEditor(
+      <RouteRevisionEditor
+        targetArticle={piece}
+        articles={[piece, wip, targetProduct]}
+        centers={[
+          { id: 5, codigo: 'INY-01', nombre: 'Inyectora', tipo: 'INYECCION', activo: true },
+          { id: 6, codigo: 'SOP-01', nombre: 'Sopladora', tipo: 'SOPLADO', activo: true },
+          { id: 7, codigo: 'ARM-01', nombre: 'Mesa de armado', tipo: 'ENSAMBLE', activo: true },
+        ]}
+        structures={[]}
+        value={{
+          notas: '',
+          operaciones: [{
+            clave: 'OP1', secuencia_visible: '1', nombre: 'Fabricación PC',
+            tipo: operationType, executor_kind: 'OP_OT', centro_trabajo_id: centerId,
+            articulo_salida_id: piece.id, estructura_revision_id: '', permite_concurrente: false,
+          }],
+        }}
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        onNavigateStructure={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/entradas de receta\/molde/i)).toBeVisible();
+    expect(screen.queryByText(/No existe una BOM aprobada/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Ir a Estructuras BOM/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Tipo de operación'));
+    expect(screen.getByRole('option', { name: operationLabel })).toBeVisible();
+    expect(screen.queryByRole('option', { name: 'ARMADO' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Prearmado o armado/i })).not.toBeInTheDocument();
+    await user.keyboard('{Escape}');
+
+    await user.click(screen.getByLabelText('Centro de trabajo'));
+    expect(screen.getByRole('option', { name: new RegExp(`${centerCode} · ${centerName}`) }))
+      .toBeVisible();
+    expect(screen.queryByRole('option', { name: /ARM-01 · Mesa de armado/i }))
+      .not.toBeInTheDocument();
+    await user.keyboard('{Escape}');
+  });
+
+  it('muestra receta/molde desde el inicio en una terminal PC aún sin tipo elegido', () => {
+    renderEditor(
+      <RouteRevisionEditor
+        targetArticle={piece}
+        articles={[piece]}
+        centers={[{ id: 5, codigo: 'INY-01', nombre: 'Inyectora', tipo: 'INYECCION', activo: true }]}
+        structures={[]}
+        value={{
+          notas: '',
+          operaciones: [{
+            clave: 'OP1', secuencia_visible: '1', nombre: '', tipo: '', executor_kind: '',
+            centro_trabajo_id: '', articulo_salida_id: piece.id,
+            estructura_revision_id: '', permite_concurrente: false,
+          }],
+        }}
+        onChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/entradas de receta\/molde/i)).toBeVisible();
+    expect(screen.queryByText(/Entradas definidas por la BOM/i)).not.toBeInTheDocument();
+  });
+
   it('permite actualizar estructuras aprobadas sin abandonar la ruta', async () => {
     const user = userEvent.setup();
     const onRefreshStructures = vi.fn().mockResolvedValue(undefined);

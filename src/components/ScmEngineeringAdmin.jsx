@@ -143,7 +143,7 @@ const requestedPackagingArticleId = () => (
 
 const isRoutableArticle = (item) => (
   item.activo !== false
-  && ['SUBENSAMBLE_WIP', 'PRODUCTO_TERMINADO'].includes(item.clase)
+  && ['PIEZA_COLOR', 'SUBENSAMBLE_WIP', 'PRODUCTO_TERMINADO'].includes(item.clase)
 );
 
 const statusChip = (state) => (
@@ -463,7 +463,7 @@ function ScmEngineeringAdmin() {
   );
   const routesForSelection = routes;
   const newRouteDisabledReason = !selectedRouteArticleId
-    ? 'Selecciona un artículo objetivo WIP o producto terminado antes de crear una ruta.'
+    ? 'Selecciona un artículo objetivo PiezaColor, WIP o producto terminado antes de crear una ruta.'
     : routesLoading
       ? 'Espera mientras se cargan las rutas del artículo seleccionado.'
     : activeCenters.length === 0
