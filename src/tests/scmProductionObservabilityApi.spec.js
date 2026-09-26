@@ -12,6 +12,7 @@ import {
   listarSupervisionOtsScm,
   obtenerDetalleSupervisionOtScm,
   obtenerResumenSupervisionOtsScm,
+  listarAvanceOfScm,
 } from '../services/scmProductionObservabilityApi';
 
 describe('contrato frontend de observabilidad de OT', () => {
@@ -150,6 +151,14 @@ describe('contrato frontend de observabilidad de OT', () => {
         limit: 25,
       },
       signal,
+    });
+  });
+
+  it('pasa AbortSignal a Axios sin serializarlo como filtro del reporte OF', async () => {
+    const signal = new AbortController().signal;
+    await listarAvanceOfScm({ signal, q: 'OF-1' });
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/observabilidad/avance-of', {
+      headers: { 'X-Actor-Id': '7' }, params: { q: 'OF-1' }, signal,
     });
   });
 });

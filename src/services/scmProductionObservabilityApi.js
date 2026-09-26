@@ -71,10 +71,12 @@ export const obtenerDetalleSupervisionOtScm = (publicId, options = {}) => get(
   { signal: options.signal },
 );
 
-export const listarAvanceOfScm = (filters = {}) => get(
-  '/scm/v1/observabilidad/avance-of',
-  { params: definedEntries(filters), signal: filters.signal },
-);
+export const listarAvanceOfScm = (filters = {}) => {
+  const { signal, ...params } = filters;
+  return get('/scm/v1/observabilidad/avance-of', {
+    params: definedEntries(params), signal,
+  });
+};
 
 export const listarProduccionHistoricaScm = (filters = {}) => get(
   '/scm/v1/observabilidad/produccion-historica',
