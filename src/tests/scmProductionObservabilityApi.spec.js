@@ -13,6 +13,10 @@ import {
   obtenerDetalleSupervisionOtScm,
   obtenerResumenSupervisionOtsScm,
   listarAvanceOfScm,
+  listarProduccionHistoricaScm,
+  exportarProduccionHistoricaScm,
+  listarMangasHistoricoScm,
+  obtenerDetalleMangaScm,
 } from '../services/scmProductionObservabilityApi';
 
 describe('contrato frontend de observabilidad de OT', () => {
@@ -159,6 +163,56 @@ describe('contrato frontend de observabilidad de OT', () => {
     await listarAvanceOfScm({ signal, q: 'OF-1' });
     expect(getMock).toHaveBeenCalledWith('/scm/v1/observabilidad/avance-of', {
       headers: { 'X-Actor-Id': '7' }, params: { q: 'OF-1' }, signal,
+    });
+  });
+
+  it('preserva arrays vacíos explícitos del histórico y excluye signal', async () => {
+    const signal = new AbortController().signal;
+    await listarProduccionHistoricaScm({
+      desde: '2026-09-01', hasta: '2026-09-26', agrupaciones: [], medidas: [], signal,
+    });
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/observabilidad/produccion-historica', {
+      headers: { 'X-Actor-Id': '7' },
+      params: {
+        desde: '2026-09-01', hasta: '2026-09-26', agrupaciones: '', medidas: '', incluir_jerarquia: 1,
+      },
+      signal,
+    });
+  });
+
+  it('exporta con los filtros aplicados, incluidos agrupadores explícitamente vacíos', async () => {
+    await exportarProduccionHistoricaScm({ desde: '2026-09-01', hasta: '2026-09-26', agrupaciones: [], medidas: ['PESO_KG'] });
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/observabilidad/produccion-historica/export.xlsx', {
+      headers: { 'X-Actor-Id': '7' },
+      params: { desde: '2026-09-01', hasta: '2026-09-26', agrupaciones: '', medidas: 'PESO_KG' },
+      responseType: 'blob',
+    });
+  });
+
+  it('pasa AbortSignal de exportación sin serializarlo como filtro', async () => {
+    const signal = new AbortController().signal;
+    await exportarProduccionHistoricaScm({ medidas: ['MANGAS'], signal });
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/observabilidad/produccion-historica/export.xlsx', expect.objectContaining({
+      params: { medidas: 'MANGAS' }, signal,
+    }));
+  });
+
+  it('consulta mangas con grupo JSON exacto y conserva señal de cancelación', async () => {
+    const signal = new AbortController().signal;
+    await listarMangasHistoricoScm(
+      { desde: '2026-09-01', hasta: '2026-09-26', agrupaciones: ['OF', 'ARTICULO'], medidas: ['PESO_KG'], signal },
+      [{ dimension: 'OF', value: 'OF-1' }],
+    );
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/observabilidad/produccion-historica/mangas', expect.objectContaining({
+      params: expect.objectContaining({ grupo: '[{"dimension":"OF","value":"OF-1"}]' }), signal,
+    }));
+  });
+
+  it('obtiene la ficha por identidad pública sin enviar filtros de reporte', async () => {
+    const signal = new AbortController().signal;
+    await obtenerDetalleMangaScm('manga-publica', { signal });
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/observabilidad/mangas/manga-publica', {
+      headers: { 'X-Actor-Id': '7' }, signal,
     });
   });
 });

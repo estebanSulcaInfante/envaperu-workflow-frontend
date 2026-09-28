@@ -11,6 +11,20 @@ const definedEntries = (value) => Object.fromEntries(
   )),
 );
 
+const productionHistoryParams = (filters = {}, { includeHierarchy = false } = {}) => {
+  const {
+    signal: _signal, agrupaciones, medidas, incluir_jerarquia: requestedHierarchy, ...rest
+  } = filters;
+  return {
+    ...definedEntries(rest),
+    ...(agrupaciones !== undefined ? { agrupaciones: Array.isArray(agrupaciones) ? agrupaciones.join(',') : agrupaciones } : {}),
+    ...(medidas !== undefined ? { medidas: Array.isArray(medidas) ? medidas.join(',') : medidas } : {}),
+    ...(includeHierarchy || requestedHierarchy !== undefined
+      ? { incluir_jerarquia: requestedHierarchy ?? 1 }
+      : {}),
+  };
+};
+
 const filterParams = (filters = {}, { paginated = true } = {}) => definedEntries({
   fecha_desde: filters.desde,
   fecha_hasta: filters.hasta,
@@ -80,12 +94,31 @@ export const listarAvanceOfScm = (filters = {}) => {
 
 export const listarProduccionHistoricaScm = (filters = {}) => get(
   '/scm/v1/observabilidad/produccion-historica',
-  { params: definedEntries(filters), signal: filters.signal },
+  { params: productionHistoryParams(filters, { includeHierarchy: true }), signal: filters.signal },
+);
+
+export const listarMangasHistoricoScm = (filters = {}, group = []) => get(
+  '/scm/v1/observabilidad/produccion-historica/mangas',
+  {
+    params: {
+      ...productionHistoryParams(filters),
+      grupo: JSON.stringify(Array.isArray(group) ? group : []),
+    },
+    signal: filters.signal,
+  },
+);
+
+export const obtenerDetalleMangaScm = (publicId, options = {}) => get(
+  `/scm/v1/observabilidad/mangas/${encodeURIComponent(publicId)}`,
+  { signal: options.signal },
 );
 
 export const exportarProduccionHistoricaScm = (filters = {}) => api.get(
   '/scm/v1/observabilidad/produccion-historica/export.xlsx',
-  { headers: headers(), params: definedEntries(filters), responseType: 'blob' },
+  {
+    headers: headers(), params: productionHistoryParams(filters), responseType: 'blob',
+    ...(filters.signal ? { signal: filters.signal } : {}),
+  },
 );
 
 export { filterParams as construirFiltrosObservabilidadOt };
