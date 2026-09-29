@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
+  Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel,
   Divider, FormControl, IconButton, InputLabel, MenuItem, Paper, Select,
   Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography,
 } from '@mui/material';
@@ -8,6 +8,7 @@ import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import {
   buscarPiezasGlobales, crearMolde, habilitarColorMolde, obtenerMolde, obtenerMoldes,
+  obtenerColores, obtenerRecetasColorMaestras,
 } from '../services/api';
 import * as scmEngineeringApi from '../services/scmEngineeringApi';
 import { crearOrdenFabricacionExcepcionalScm } from '../services/scmOtApi';
@@ -27,6 +28,11 @@ import {
   resolveFabricationProcess,
   routeOptionsForRun,
 } from './fabricationRoutes';
+import {
+  buildExceptionalDuplicateDraft,
+  compareMoldComposition,
+  resolveCurrentApprovedRecipe,
+} from './duplicateDraft';
 
 const emptyRun = (key = 'run-1') => ({
   key,
@@ -102,6 +108,8 @@ const ceilDecimalRatio = (numerator, denominator) => {
     : Math.ceil(ratio);
 };
 
+const catalogItems = (response) => (Array.isArray(response) ? response : response?.items || []);
+
 export default function ExceptionalFabricationOrderDialog({
   open,
   molds,
@@ -110,6 +118,7 @@ export default function ExceptionalFabricationOrderDialog({
   recipes = [],
   onClose,
   onCreated,
+  initialSource = null,
 }) {
   const [reason, setReason] = useState('');
   const [moldId, setMoldId] = useState('');
@@ -120,6 +129,8 @@ export default function ExceptionalFabricationOrderDialog({
   const [runs, setRuns] = useState([emptyRun()]);
   const [mold, setMold] = useState(null);
   const [articles, setArticles] = useState([]);
+  const [articleCatalogState, setArticleCatalogState] = useState('idle');
+  const [articleCatalogError, setArticleCatalogError] = useState('');
   const [localColors, setLocalColors] = useState(colors || []);
   const [localRecipes, setLocalRecipes] = useState(recipes || []);
   const [moldWorkspace, setMoldWorkspace] = useState('select');
@@ -136,6 +147,7 @@ export default function ExceptionalFabricationOrderDialog({
   const [masterDirty, setMasterDirty] = useState(false);
   const [routesByArticle, setRoutesByArticle] = useState({});
   const [routeLoading, setRouteLoading] = useState(false);
+  const [routeCatalogState, setRouteCatalogState] = useState('idle');
   const [routeError, setRouteError] = useState('');
   const [process, setProcess] = useState('');
   const [busy, setBusy] = useState(false);
@@ -143,9 +155,15 @@ export default function ExceptionalFabricationOrderDialog({
   const [error, setError] = useState('');
   const [uncertainAttempt, setUncertainAttempt] = useState(null);
   const [moldUncertainAttempt, setMoldUncertainAttempt] = useState(null);
+  const [duplicateReviewConfirmed, setDuplicateReviewConfirmed] = useState(false);
+  const [duplicateComparison, setDuplicateComparison] = useState({ changed: false, messages: [] });
+  const [duplicateCatalogState, setDuplicateCatalogState] = useState('idle');
+  const [duplicateCatalogError, setDuplicateCatalogError] = useState('');
   const idempotencyRef = useRef({ fingerprint: '', key: '' });
   const routeGenerationRef = useRef(0);
+  const articleGenerationRef = useRef(0);
   const moldGenerationRef = useRef(0);
+  const catalogGenerationRef = useRef(0);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -154,14 +172,18 @@ export default function ExceptionalFabricationOrderDialog({
     setMoldId('');
     setMachineId('');
     setCycleSeconds('');
-    setShiftHours('8');
+    setShiftHours(initialSource ? '' : '8');
     setRunnerWeight('0');
     setRuns([emptyRun()]);
     setLoadingMold(false);
     setProcess('');
     setRoutesByArticle({});
     setRouteLoading(false);
+    setRouteCatalogState(initialSource ? 'loading' : 'idle');
     setRouteError('');
+    setArticles([]);
+    setArticleCatalogState('loading');
+    setArticleCatalogError('');
     setMold(null);
     setMoldWorkspace('select');
     setMoldCatalog(molds || []);
@@ -179,17 +201,86 @@ export default function ExceptionalFabricationOrderDialog({
     setError('');
     setUncertainAttempt(null);
     setMoldUncertainAttempt(null);
+    setDuplicateReviewConfirmed(false);
+    setDuplicateComparison({ changed: false, messages: [] });
+    setDuplicateCatalogState(initialSource ? 'loading' : 'ready');
+    setDuplicateCatalogError('');
     idempotencyRef.current = { fingerprint: '', key: '' };
+    const catalogGeneration = ++catalogGenerationRef.current;
+    if (initialSource) {
+      setLocalColors([]);
+      setLocalRecipes([]);
+      Promise.all([
+        obtenerColores({ include_inactive: true }),
+        obtenerRecetasColorMaestras({ include_inactive: true }),
+      ])
+        .then(([colorResponse, recipeResponse]) => {
+          if (!active || catalogGenerationRef.current !== catalogGeneration) return;
+          setLocalColors(catalogItems(colorResponse));
+          setLocalRecipes(catalogItems(recipeResponse));
+          setDuplicateCatalogState('ready');
+        })
+        .catch((requestError) => {
+          if (!active || catalogGenerationRef.current !== catalogGeneration) return;
+          setLocalColors([]);
+          setLocalRecipes([]);
+          const message = scmEngineeringApi.mensajeErrorScm(requestError, 'No se pudo cargar el catálogo vigente de colores y recetas.');
+          setDuplicateCatalogError(message);
+          setDuplicateCatalogState('error');
+          setError(message);
+        });
+    } else {
+      setLocalColors(colors || []);
+      setLocalRecipes(recipes || []);
+    }
+    if (initialSource) {
+      const draft = buildExceptionalDuplicateDraft(initialSource);
+      setReason(draft.motivo);
+      setMoldId(draft.molde_id);
+      setMachineId('');
+      setCycleSeconds('');
+      setShiftHours('');
+      setRunnerWeight('');
+      setProcess('');
+      setRuns((draft.corridas || []).map((run, index) => ({ ...run, key: `duplicate-run-${index + 1}` })));
+      if (draft.molde_id) {
+        const generation = ++moldGenerationRef.current;
+        setLoadingMold(true);
+        obtenerMolde(draft.molde_id)
+          .then((detail) => {
+            if (!active || moldGenerationRef.current !== generation) return;
+            setMold(detail);
+            setCycleSeconds(String(detail.tiempo_ciclo_std ?? ''));
+            setRunnerWeight(String(Math.max(Number(detail.peso_colada_gr ?? 0), 0)));
+            setDuplicateComparison(compareMoldComposition(initialSource, detail));
+          })
+          .catch((requestError) => {
+            if (active) setError(scmEngineeringApi.mensajeErrorScm(requestError, 'No se pudo leer el molde actual para comparar la copia.'));
+          })
+          .finally(() => { if (active && moldGenerationRef.current === generation) setLoadingMold(false); });
+      }
+    }
+    const articleGeneration = ++articleGenerationRef.current;
     scmEngineeringApi.listarArticulosScm()
-      .then((items) => { if (active) setArticles(items); })
+      .then((items) => {
+        if (!active || articleGenerationRef.current !== articleGeneration) return;
+        setArticles(catalogItems(items));
+        setArticleCatalogState('ready');
+        setArticleCatalogError('');
+      })
       .catch((requestError) => {
-        if (active) setError(scmEngineeringApi.mensajeErrorScm(requestError, 'No se pudieron cargar los artículos SCM.'));
+        if (!active || articleGenerationRef.current !== articleGeneration) return;
+        const message = scmEngineeringApi.mensajeErrorScm(requestError, 'No se pudieron cargar los artículos SCM.');
+        setArticles([]);
+        setArticleCatalogState('error');
+        setArticleCatalogError(message);
+        setError(message);
       });
     return () => { active = false; };
-  }, [molds, open]);
+  }, [colors, initialSource, molds, open, recipes]);
 
-  useEffect(() => { setLocalColors(colors || []); }, [colors]);
-  useEffect(() => { setLocalRecipes(recipes || []); }, [recipes]);
+  useEffect(() => { if (!initialSource) setLocalColors(colors || []); }, [colors, initialSource]);
+  useEffect(() => { if (!initialSource) setLocalRecipes(recipes || []); }, [initialSource, recipes]);
   useEffect(() => {
     if (open) setMoldCatalog((current) => current.length ? current : (molds || []));
   }, [molds, open]);
@@ -203,14 +294,29 @@ export default function ExceptionalFabricationOrderDialog({
   )], [articles, mold, runs]);
 
   useEffect(() => {
-    if (!open || !routeArticleIds.length) {
+    if (!open) {
       setRoutesByArticle({});
       setRouteLoading(false);
+      setRouteCatalogState('idle');
+      return undefined;
+    }
+    if (initialSource && articleCatalogState !== 'ready') {
+      setRoutesByArticle({});
+      setRouteLoading(articleCatalogState === 'loading');
+      setRouteCatalogState(articleCatalogState === 'error' ? 'error' : 'loading');
+      return undefined;
+    }
+    if (!routeArticleIds.length) {
+      setRoutesByArticle({});
+      setRouteLoading(false);
+      setRouteCatalogState('ready');
+      setRouteError('');
       return undefined;
     }
     const generation = ++routeGenerationRef.current;
     let active = true;
     setRouteLoading(true);
+    setRouteCatalogState('loading');
     setRouteError('');
     let listRoutes;
     try {
@@ -224,17 +330,37 @@ export default function ExceptionalFabricationOrderDialog({
       .then((entries) => {
         if (!active || routeGenerationRef.current !== generation) return;
         setRoutesByArticle(Object.fromEntries(entries));
+        setRouteCatalogState('ready');
+        setRouteError('');
       })
       .catch((requestError) => {
         if (!active || routeGenerationRef.current !== generation) return;
         setRoutesByArticle({});
-        setRouteError(scmEngineeringApi.mensajeErrorScm(requestError, 'No se pudieron cargar las rutas compatibles.'));
+        const message = scmEngineeringApi.mensajeErrorScm(requestError, 'No se pudieron cargar las rutas compatibles.');
+        setRouteError(message);
+        if (initialSource) setError(message);
+        setRouteCatalogState('error');
       })
       .finally(() => {
         if (active && routeGenerationRef.current === generation) setRouteLoading(false);
       });
     return () => { active = false; };
-  }, [open, routeArticleIds]);
+  }, [articleCatalogState, initialSource, open, routeArticleIds]);
+
+  useEffect(() => {
+    if (!initialSource || duplicateCatalogState !== 'ready') return;
+    setRuns((current) => current.map((run) => {
+      if (run.recipe_selection_touched) return run;
+      const resolution = resolveCurrentApprovedRecipe(localRecipes, {
+        ...run,
+        receta: run.source_receta,
+      });
+      return {
+        ...run,
+        receta_revision_id: resolution.status === 'resolved' ? resolution.recipe.id : '',
+      };
+    }));
+  }, [duplicateCatalogState, initialSource, localRecipes]);
 
   const chooseMold = async (nextMoldId, { preserveMetrics = false } = {}) => {
     const previousCycleSeconds = cycleSeconds;
@@ -244,10 +370,17 @@ export default function ExceptionalFabricationOrderDialog({
     const generation = ++moldGenerationRef.current;
     setMoldId(nextMoldId);
     setMold(null);
+    if (initialSource) {
+      setDuplicateReviewConfirmed(false);
+      setDuplicateComparison({ changed: false, messages: [] });
+    }
     setMachineId(preserveMetrics ? previousMachineId : '');
     setRuns((current) => current.map((run, index) => ({
       ...run,
       operacion_ruta_revision_id: preserveMetrics ? (previousRouteIds[index] || '') : '',
+      ...(initialSource && !preserveMetrics
+        ? { source_route_selection_touched: true, source_route_decision: '' }
+        : {}),
     })));
     setError('');
     if (!nextMoldId) {
@@ -259,6 +392,7 @@ export default function ExceptionalFabricationOrderDialog({
       const detail = await obtenerMolde(nextMoldId);
       if (moldGenerationRef.current !== generation) return;
       setMold(detail);
+      if (initialSource) setDuplicateComparison(compareMoldComposition(initialSource, detail));
       if (!preserveMetrics) {
         setCycleSeconds(String(detail.tiempo_ciclo_std ?? ''));
         setRunnerWeight(String(Math.max(Number(detail.peso_colada_gr || 0), 0)));
@@ -277,6 +411,37 @@ export default function ExceptionalFabricationOrderDialog({
   const outputGroups = useMemo(() => runs.map((run) => (
     exceptionalOutputsForRun(mold, articles, run.color_produccion_id)
   )), [articles, mold, runs]);
+  const sourceRouteId = (sourceRoute) => sourceRoute?.operacion_ruta_revision_id
+    ?? sourceRoute?.operacion_id
+    ?? sourceRoute?.id
+    ?? '';
+
+  useEffect(() => {
+    if (!initialSource || duplicateCatalogState !== 'ready' || routeCatalogState !== 'ready') return;
+    setRuns((current) => {
+      let changed = false;
+      const nextRuns = current.map((run, runIndex) => {
+        if (!run.source_ruta || run.source_route_selection_touched || run.operacion_ruta_revision_id) return run;
+      const sourceId = sourceRouteId(run.source_ruta);
+      const options = routeOptionsForRun(
+        { ...run, salidas: outputGroups[runIndex].map((output) => ({ articulo: output.article })) },
+        routesByArticle,
+      );
+      const currentOption = options.find((option) => String(option.operacion_ruta_revision_id) === String(sourceId));
+        const next = currentOption
+        ? {
+          ...run,
+          operacion_ruta_revision_id: currentOption.operacion_ruta_revision_id,
+          source_route_decision: 'selected',
+        }
+        : { ...run, source_route_decision: 'pending' };
+        if (next.operacion_ruta_revision_id !== run.operacion_ruta_revision_id
+          || next.source_route_decision !== run.source_route_decision) changed = true;
+        return next;
+      });
+      return changed ? nextRuns : current;
+    });
+  }, [duplicateCatalogState, initialSource, outputGroups, routeCatalogState, routesByArticle]);
   const runMetrics = useMemo(() => outputGroups.map((outputs, index) => {
     const kgPerCycle = outputs.every((output) => (
       output.cantidad_por_ciclo > 0 && output.peso_unitario_g > 0
@@ -323,6 +488,74 @@ export default function ExceptionalFabricationOrderDialog({
     && linkedProcesses.length > 0
     && linkedProcesses.some((value) => value !== processResolution.explicit);
 
+  const colorOptions = useMemo(() => {
+    if (initialSource) return localColors || [];
+    const byId = new Map((colors || []).map((item) => [String(item.id), item]));
+    (localColors || []).forEach((item) => byId.set(String(item.id), item));
+    return [...byId.values()];
+  }, [colors, initialSource, localColors]);
+  const recipeOptions = useMemo(() => {
+    if (initialSource) return localRecipes || [];
+    const byId = new Map((recipes || []).map((item) => [String(item.id), item]));
+    (localRecipes || []).forEach((item) => byId.set(String(item.id), item));
+    return [...byId.values()];
+  }, [initialSource, localRecipes, recipes]);
+
+  const duplicateRecipeResolutions = useMemo(() => (
+    initialSource
+      ? runs.map((run) => resolveCurrentApprovedRecipe(recipeOptions, {
+        ...run,
+        receta: run.source_receta,
+      }))
+      : []
+  ), [initialSource, recipeOptions, runs]);
+
+  const duplicateRoutePending = useMemo(() => {
+    if (!initialSource || routeCatalogState !== 'ready') return [];
+    return runs.flatMap((run, index) => (
+      run.source_ruta
+      && !run.operacion_ruta_revision_id
+      && run.source_route_decision !== 'without'
+      && run.source_route_decision !== 'selected'
+        ? [`La ruta vigente del objetivo ${index + 1} no coincide con la ruta fuente; selecciona una ruta actual o continúa sin ruta de forma explícita.`]
+        : []
+    ));
+  }, [initialSource, routeCatalogState, runs]);
+
+  const duplicateReferenceIssues = useMemo(() => {
+    if (!initialSource) return [];
+    const issues = [];
+    if (mold?.activo === false) {
+      issues.push('El molde de la copia está inactivo. Selecciona un molde vigente.');
+    }
+    runs.forEach((run, runIndex) => {
+      if (!colorOptions.some((item) => String(item.id) === String(run.color_produccion_id) && item.activo !== false)) {
+        issues.push(`Color del objetivo ${runIndex + 1} ausente o inactivo.`);
+      }
+      if (run.receta_revision_id && !recipeOptions.some((item) => String(item.id) === String(run.receta_revision_id) && item.estado === 'APROBADA')) {
+        issues.push(`La receta del objetivo ${runIndex + 1} no está disponible como APROBADA.`);
+      }
+      if (run.operacion_ruta_revision_id && routeCatalogState === 'ready') {
+        const options = routeOptionsForRun(
+          { ...run, salidas: outputGroups[runIndex].map((output) => ({ articulo: output.article })) },
+          routesByArticle,
+        );
+        if (!options.some((item) => String(item.operacion_ruta_revision_id) === String(run.operacion_ruta_revision_id))) {
+          issues.push(`La ruta del objetivo ${runIndex + 1} ya no está disponible.`);
+        }
+      }
+    });
+    return issues;
+  }, [colorOptions, initialSource, mold, outputGroups, recipeOptions, routeCatalogState, routesByArticle, runs]);
+  const duplicatePendingReferences = useMemo(() => {
+    if (!initialSource || duplicateCatalogState !== 'ready') return [];
+    return duplicateRecipeResolutions.flatMap((resolution, index) => {
+      if (resolution.status === 'ambiguous') return [`La receta vigente del objetivo ${index + 1} tiene revisiones aprobadas ambiguas; selecciona una explícitamente.`];
+      if (resolution.status === 'missing') return [`No hay una receta APROBADA vigente inequívoca para el objetivo ${index + 1}; puedes continuar sin receta y resolverla después.`];
+      return [];
+    });
+  }, [duplicateCatalogState, duplicateRecipeResolutions, initialSource]);
+
   const selectedColorIds = runs.map((run) => Number(run.color_produccion_id)).filter(Boolean);
   const duplicateColors = new Set(selectedColorIds).size !== selectedColorIds.length;
   const outputsComplete = Boolean(mold) && outputGroups.every((outputs) => (
@@ -348,8 +581,18 @@ export default function ExceptionalFabricationOrderDialog({
     && !duplicateColors
     && outputsComplete
     && !uncertainAttempt
+    && (!initialSource || duplicateReviewConfirmed)
+    && (!initialSource || (
+      articleCatalogState === 'ready'
+      && routeCatalogState === 'ready'
+      && !routeError
+      && !routeLoading
+      && duplicateReferenceIssues.length === 0
+      && duplicateRoutePending.length === 0
+    ))
     && !busy
     && !loadingMold
+    && (!initialSource || duplicateCatalogState === 'ready')
   );
   const allBusy = busy || loadingMold || moldMutationBusy || colorMutationBusy
     || masterBusy || Boolean(uncertainAttempt) || Boolean(moldUncertainAttempt);
@@ -358,17 +601,6 @@ export default function ExceptionalFabricationOrderDialog({
     0,
   );
   const parentFormVisible = moldWorkspace === 'select' && !masterPanel;
-  const colorOptions = useMemo(() => {
-    const byId = new Map((colors || []).map((item) => [String(item.id), item]));
-    (localColors || []).forEach((item) => byId.set(String(item.id), item));
-    return [...byId.values()];
-  }, [colors, localColors]);
-  const recipeOptions = useMemo(() => {
-    const byId = new Map((recipes || []).map((item) => [String(item.id), item]));
-    (localRecipes || []).forEach((item) => byId.set(String(item.id), item));
-    return [...byId.values()];
-  }, [localRecipes, recipes]);
-
   const buildPayload = () => ({
     motivo: reason.trim(),
     // A process inferred from linked route operations is response context,
@@ -390,10 +622,10 @@ export default function ExceptionalFabricationOrderDialog({
         : {}),
       ...(Number(run.objetivo_neto_kg) > 0 ? { objetivo_neto_kg: Number(run.objetivo_neto_kg) } : {}),
       salidas: outputGroups[runIndex].map((output) => ({
-        articulo_scm_id: output.article.id,
-        cantidad_por_ciclo: output.cantidad_por_ciclo,
-        peso_unitario_g: output.peso_unitario_g,
-      })),
+          articulo_scm_id: output.article.id,
+          cantidad_por_ciclo: output.cantidad_por_ciclo,
+          peso_unitario_g: output.peso_unitario_g,
+        })),
     })),
   });
 
@@ -550,6 +782,19 @@ export default function ExceptionalFabricationOrderDialog({
     const next = { ...run, ...changes };
     if (Object.prototype.hasOwnProperty.call(changes, 'color_produccion_id')) {
       next.operacion_ruta_revision_id = '';
+      if (initialSource) {
+        next.source_route_selection_touched = true;
+        next.source_route_decision = '';
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(changes, 'receta_revision_id') && initialSource) {
+      next.recipe_selection_touched = true;
+    }
+    if (Object.prototype.hasOwnProperty.call(changes, 'operacion_ruta_revision_id') && initialSource) {
+      next.source_route_selection_touched = true;
+      if (!Object.prototype.hasOwnProperty.call(changes, 'source_route_decision')) {
+        next.source_route_decision = changes.operacion_ruta_revision_id ? 'selected' : '';
+      }
     }
     return next;
   }));
@@ -636,7 +881,7 @@ export default function ExceptionalFabricationOrderDialog({
           : moldWorkspace === 'create'
             ? 'Crear molde para esta OF'
             : moldWorkspace === 'catalog' ? 'Catálogo de moldes'
-            : moldWorkspace === 'detail' ? 'Ficha del molde' : 'Nueva OF de reposición'}
+            : moldWorkspace === 'detail' ? 'Ficha del molde' : initialSource ? 'Duplicar OF como borrador' : 'Nueva OF de reposición'}
       </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
@@ -645,6 +890,33 @@ export default function ExceptionalFabricationOrderDialog({
             en borrador y debe liberarse antes de crear OT y mangas.
           </Alert>
           {error && <Alert severity="error">{error}</Alert>}
+          {initialSource && (
+            <Alert severity={duplicateComparison.changed ? 'warning' : 'info'}>
+              <Typography variant="body2" fontWeight={750}>
+                Fuente: {initialSource.codigo || initialSource.id} · la copia se prepara en memoria y no modifica la OF original.
+              </Typography>
+              {duplicateComparison.changed
+                ? <Typography variant="body2">{duplicateComparison.messages.join(' ')} Revisa explícitamente la composición antes de crear el borrador.</Typography>
+                : <Typography variant="body2">El molde actual coincide con la composición guardada. Confirma la revisión antes de crear el borrador.</Typography>}
+              {duplicateCatalogState === 'loading' && <Typography variant="body2">Cargando colores y recetas vigentes…</Typography>}
+              {duplicateCatalogState === 'error' && <Typography variant="body2" color="error">{duplicateCatalogError || 'No se puede crear con datos de catálogo anteriores. Corrige la consulta y vuelve a abrir la copia.'}</Typography>}
+              {initialSource && articleCatalogState === 'loading' && <Typography variant="body2">Cargando artículos SCM actuales para validar salidas y rutas…</Typography>}
+              {initialSource && articleCatalogState === 'error' && <Typography variant="body2" color="error">{articleCatalogError || 'No se puede crear con artículos anteriores. Reintenta la carga del catálogo.'}</Typography>}
+              {mold && <Typography variant="body2">Maestro vigente regenerado: ciclo {cycleSeconds || '—'} s · colada {runnerWeight || '—'} g. Las horas de turno no vienen del maestro; ingrésalas para esta planificación.</Typography>}
+              {duplicateRecipeResolutions.map((resolution, index) => resolution.status === 'resolved' && (
+                <Typography variant="body2" key={`duplicate-recipe-current-${index}`}>
+                  Receta vigente del objetivo {index + 1}: {resolution.recipe.nombre_variante} · revisión {resolution.recipe.revision}.
+                </Typography>
+              ))}
+              {duplicateReferenceIssues.length > 0 && <Typography variant="body2" color="error">{duplicateReferenceIssues.join(' ')} Resuelve estas referencias antes de guardar.</Typography>}
+              {duplicatePendingReferences.length > 0 && <Typography variant="body2" color="warning.main">{duplicatePendingReferences.join(' ')}</Typography>}
+              {duplicateRoutePending.length > 0 && <Typography variant="body2" color="warning.main">{duplicateRoutePending.join(' ')}</Typography>}
+              <FormControlLabel
+                control={<Checkbox checked={duplicateReviewConfirmed} onChange={(event) => setDuplicateReviewConfirmed(event.target.checked)} disabled={allBusy} />}
+                label="He revisado la fuente y la composición actual"
+              />
+            </Alert>
+          )}
           {uncertainAttempt && (
             <Alert
               severity="warning"
@@ -894,6 +1166,12 @@ export default function ExceptionalFabricationOrderDialog({
               noOptionsText="No hay máquinas compatibles"
               sx={{ display: parentFormVisible ? undefined : 'none' }}
             />
+            {initialSource && !selectedMachineCompatible && (
+              <Alert severity="warning" sx={{ gridColumn: '1 / -1', display: parentFormVisible ? undefined : 'none' }}
+                action={<Button color="inherit" disabled={allBusy} onClick={() => setMachineId('')}>Dejar sin máquina sugerida</Button>}>
+                La máquina sugerida de la fuente ya no está disponible o es incompatible. Selecciona otra o deja la copia sin sugerencia.
+              </Alert>
+            )}
             <Alert severity={processResolution.valid ? 'info' : 'warning'} sx={{ gridColumn: '1 / -1', display: parentFormVisible ? undefined : 'none' }}>
               {processConflict
                 ? `Las rutas seleccionadas son ${linkedProcesses.map(fabricationProcessLabel).join(' y ')} y no coinciden con ${fabricationProcessLabel(processResolution.explicit)}. Cambia el proceso explícito o retira las referencias incompatibles.`
@@ -903,7 +1181,7 @@ export default function ExceptionalFabricationOrderDialog({
             </Alert>
             {routeError && (
               <Alert severity="warning" sx={{ gridColumn: '1 / -1', display: parentFormVisible ? undefined : 'none' }}>
-                {routeError} Puedes continuar con proceso explícito o reintentar al cambiar el molde/color.
+                {routeError} La copia queda bloqueada hasta consultar las rutas actuales correctamente; reintenta al cambiar el molde o el color.
               </Alert>
             )}
             <TextField required type="number" label="Tiempo de ciclo (s)" value={cycleSeconds} onChange={(event) => setCycleSeconds(event.target.value)} disabled={busy || Boolean(uncertainAttempt)} sx={{ display: parentFormVisible ? undefined : 'none' }} slotProps={{ htmlInput: { min: 0.001, step: 'any' } }} />
@@ -1046,6 +1324,22 @@ export default function ExceptionalFabricationOrderDialog({
                     helperText="Sólo se muestran revisiones APROBADA / OP_OT con salida exacta del objetivo."
                   />
                 )}
+                {initialSource && run.source_ruta && !run.operacion_ruta_revision_id
+                  && run.source_route_decision !== 'without'
+                  && routeCatalogState === 'ready' && !routeError && (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => updateRun(runIndex, {
+                        operacion_ruta_revision_id: '',
+                        source_route_selection_touched: true,
+                        source_route_decision: 'without',
+                      })}
+                      disabled={allBusy}
+                    >
+                      Continuar sin ruta para objetivo {runIndex + 1}
+                    </Button>
+                  )}
                 {run.color_produccion_id && outputGroups[runIndex].map((output) => (
                   <Alert
                     key={output.pieza_id}

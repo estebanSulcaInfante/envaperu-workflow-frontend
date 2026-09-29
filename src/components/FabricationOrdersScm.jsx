@@ -54,6 +54,7 @@ import {
 import {
   fabricationProcessLabel, normalizeFabricationProcess, resolveFabricationProcess,
 } from './fabricationRoutes';
+import { duplicateEligibility } from './duplicateDraft';
 
 const statusColor = {
   BORRADOR: 'default',
@@ -251,6 +252,7 @@ export default function FabricationOrdersScm() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [exceptionalOpen, setExceptionalOpen] = useState(false);
+  const [duplicateSource, setDuplicateSource] = useState(null);
   const [formulaRunIndex, setFormulaRunIndex] = useState(null);
   const [formulaDirty, setFormulaDirty] = useState(false);
   const [formulaBusy, setFormulaBusy] = useState(false);
@@ -319,6 +321,10 @@ export default function FabricationOrdersScm() {
   const selected = useMemo(
     () => requestedOrderId ? detailOrder : null,
     [detailOrder, requestedOrderId],
+  );
+  const selectedDuplicateEligibility = useMemo(
+    () => duplicateEligibility(selected),
+    [selected],
   );
   const compatibleMolds = useMemo(
     () => compatibleMoldsForOrder(selected, molds),
@@ -946,7 +952,7 @@ export default function FabricationOrdersScm() {
               <Button
                 startIcon={<AddOutlinedIcon />}
                 variant="contained"
-                onClick={() => setExceptionalOpen(true)}
+                onClick={() => { setDuplicateSource(null); setExceptionalOpen(true); }}
               >
               Nueva OF de reposición
               </Button>
@@ -1178,7 +1184,7 @@ export default function FabricationOrdersScm() {
                   Guarda los cambios pendientes antes de liberar.
                 </Typography>
               )}
-              {can('OF_ANULAR') && (
+              {(can('OF_ANULAR') || canCreateExceptional) && (
               <Button
                 size="small"
                 aria-expanded={moreActionsOpen}
@@ -1192,9 +1198,37 @@ export default function FabricationOrdersScm() {
             </>
           )}
         />
-        {(can('OF_ANULAR') || (can('OF_ANULAR') && can('OF_EDITAR_BORRADOR'))) && (
+        {(can('OF_ANULAR') || canCreateExceptional) && (
             <Collapse id="of-secondary-actions" in={moreActionsOpen}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              {canCreateExceptional && (
+                <Stack spacing={0.25}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    aria-describedby={!selectedDuplicateEligibility.eligible ? 'duplicate-eligibility-reason' : undefined}
+                    disabled={busy || formulaBusy || draftDirty || formulaDirty || !selectedDuplicateEligibility.eligible}
+                    title={draftDirty || formulaDirty
+                      ? 'Guarda o descarta los cambios antes de duplicar.'
+                      : selectedDuplicateEligibility.eligible
+                      ? 'Abrir una copia editable en memoria'
+                      : selectedDuplicateEligibility.reason}
+                    onClick={() => { setDuplicateSource(selected); setExceptionalOpen(true); }}
+                  >
+                    Duplicar como borrador
+                  </Button>
+                  {!selectedDuplicateEligibility.eligible && !draftDirty && !formulaDirty && (
+                    <Typography id="duplicate-eligibility-reason" variant="caption" color="text.secondary">
+                      {selectedDuplicateEligibility.reason}
+                    </Typography>
+                  )}
+                </Stack>
+              )}
+              {canCreateExceptional && (draftDirty || formulaDirty) && (
+                <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center' }}>
+                  Guarda o descarta los cambios antes de duplicar.
+                </Typography>
+              )}
               <DraftOrderAnnulment key={selected.id} order={selected} allowed={can('OF_ANULAR')} disabled={busy}
                 onSubmit={anularOrdenFabricacionScm} onSuccess={async () => {
                   setNotice(`${selected.codigo} anulada. Se conserva el historial.`);
@@ -1513,11 +1547,12 @@ export default function FabricationOrdersScm() {
 
       <ExceptionalFabricationOrderDialog
         open={exceptionalOpen}
+        initialSource={duplicateSource}
         molds={molds}
         machines={machines.filter((machine) => machine.estado === 'OPERATIVA')}
         colors={colors}
         recipes={recipes}
-        onClose={() => setExceptionalOpen(false)}
+        onClose={() => { setExceptionalOpen(false); setDuplicateSource(null); }}
         onCreated={async (created) => {
           await Promise.all([
             loadCatalog('moldes'),
@@ -1525,7 +1560,8 @@ export default function FabricationOrdersScm() {
             loadCatalog('recetas'),
           ]);
           setExceptionalOpen(false);
-          setNotice(`${created.codigo} creada como reposición en borrador. Revísala y libérala para continuar con OT y mangas.`);
+          setNotice(`${created.codigo} ${duplicateSource ? 'creada como copia' : 'creada como reposición'} en borrador. Revísala y libérala para continuar con OT y mangas.`);
+          setDuplicateSource(null);
           updateQuery({ of: created.id });
         }}
       />

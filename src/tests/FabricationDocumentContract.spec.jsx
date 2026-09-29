@@ -75,6 +75,25 @@ describe('contrato de documento OF DS02', () => {
     expect(screen.getByText(/Guarda los cambios pendientes antes de liberar/)).toBeVisible();
   });
 
+  it('explica por qué no puede duplicarse una fuente con cambios sin guardar', async () => {
+    const user = userEvent.setup();
+    const source = { ...order, origen_demanda: 'EXCEPCIONAL', snapshot_proceso: 'INYECCION', corridas: runs.map((run) => ({
+      ...run, salidas: [{ articulo: { id: 1, clase: 'PIEZA_COLOR' } }],
+    })) };
+    api.list.mockResolvedValue({ items: [source] });
+    api.detail.mockResolvedValue(source);
+    render(<ThemeProvider theme={theme}><MemoryRouter initialEntries={['/produccion/ordenes-fabricacion?of=of-1']}><FabricationOrdersScm /></MemoryRouter></ThemeProvider>);
+    await screen.findByRole('heading', { level: 1, name: 'OF-DS02' });
+    await user.click(screen.getByRole('button', { name: 'Mostrar acciones' }));
+    const duplicate = screen.getByRole('button', { name: 'Duplicar como borrador' });
+    expect(duplicate).toBeEnabled();
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Objetivo neto (kg) · 1' }), { target: { value: '120' } });
+    expect(duplicate).toBeDisabled();
+    expect(screen.getByText('Guarda o descarta los cambios antes de duplicar.')).toBeVisible();
+    fireEvent.click(duplicate);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('conserva el avance por color y su meta guardada cuando otra fila carece de pesajes', () => {
     const items = [
       { corrida_id: 'r1', objetivo_neto_kg: '100', kg_medidos_efectivos: '85', kg_finalizados_efectivos: '80', kg_medidos_en_abiertas: '5', coverage: { estado: 'COMPLETA' }, mangas: { total: 2 } },

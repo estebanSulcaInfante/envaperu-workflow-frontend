@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -31,6 +31,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import PowerSettingsNewOutlinedIcon from '@mui/icons-material/PowerSettingsNewOutlined';
 import ScienceOutlinedIcon from '@mui/icons-material/ScienceOutlined';
+import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
 import {
   actualizarColor,
   actualizarFamiliaColor,
@@ -51,6 +52,7 @@ import MaterialQuickCreateDialog from './MaterialQuickCreateDialog';
 import { matchesOmniSearch } from '../utils/tableSearch';
 import { listarCategoriasRecepcionScm } from '../services/scmCatalogApi';
 import { useScmActor } from '../context/ScmActorContext';
+import { buildRecipeDuplicateDraft } from './duplicateDraft';
 
 const emptyColor = {
   nombre: '',
@@ -83,6 +85,60 @@ const apiError = (error, fallback) => (
 );
 
 const asItems = (response) => (Array.isArray(response) ? response : response?.items || []);
+
+const normalizeRecipeValue = (value) => {
+  if (value === null || value === undefined || value === '') return '';
+  const number = Number(value);
+  return Number.isFinite(number) ? number : String(value).trim();
+};
+
+const recipeLinesFingerprint = (lines = []) => lines.map((line) => ({
+  material_id: String(line.material_id ?? ''),
+  tipo_componente: line.tipo_componente || '',
+  cantidad: normalizeRecipeValue(line.cantidad),
+  base_kg: normalizeRecipeValue(line.base_kg),
+}));
+
+const normalizeRecipeNotes = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+
+const recipeContentMatches = (candidate, payload) => (
+  String(candidate?.color_produccion_id ?? '') === String(payload.color_produccion_id ?? '')
+  && String(candidate?.nombre_variante ?? '').trim() === String(payload.nombre_variante ?? '').trim()
+  && String(candidate?.producto_sku ?? '') === String(payload.producto_sku ?? '')
+  && normalizeRecipeValue(candidate?.base_virgen_kg) === normalizeRecipeValue(payload.base_virgen_kg)
+  && normalizeRecipeNotes(candidate?.notas) === normalizeRecipeNotes(payload?.notas)
+  && recipeLinesFingerprint(candidate?.lineas).length === recipeLinesFingerprint(payload.lineas).length
+  && recipeLinesFingerprint(candidate?.lineas).every((line, index) => {
+    const expected = recipeLinesFingerprint(payload.lineas)[index];
+    return expected && JSON.stringify(line) === JSON.stringify(expected);
+  })
+);
+
+const sourceNoteMatches = (candidate, source) => {
+  const notes = String(candidate?.notas || '').toLocaleLowerCase();
+  const sourceId = String(source?.id ?? '').toLocaleLowerCase();
+  const sourceName = String(source?.nombre_variante || '').trim().toLocaleLowerCase();
+  const revision = source?.revision == null ? '' : String(source.revision).toLocaleLowerCase();
+  const escapedId = sourceId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const idMarker = sourceId && new RegExp(`fuente\\s+receta\\s+${escapedId}(?:\\D|$)`).test(notes);
+  return Boolean(idMarker
+    && sourceName && notes.includes(sourceName)
+    && (!revision || notes.includes(revision)));
+};
+
+const ensureRecipeSourceNote = (notes, source) => {
+  const current = String(notes || '').trim();
+  const sourceId = String(source?.id ?? '').trim();
+  const sourceName = String(source?.nombre_variante || '').trim();
+  const revision = source?.revision == null ? '' : ` · rev. ${source.revision}`;
+  const marker = `Fuente receta ${sourceId}${revision} · Copia de ${sourceName}`;
+  const normalized = current.toLocaleLowerCase();
+  if (sourceId && sourceName
+    && normalized.includes(`fuente receta ${sourceId.toLocaleLowerCase()}`)
+    && normalized.includes(`copia de ${sourceName.toLocaleLowerCase()}`)
+    && (!revision || normalized.includes(`rev. ${String(source.revision).toLocaleLowerCase()}`))) return current;
+  return [current, marker].filter(Boolean).join(' · ');
+};
 
 function ColorSwatch({ hex, size = 28 }) {
   return (
@@ -124,15 +180,33 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
   const [editingFamily, setEditingFamily] = useState(null);
   const [recipeDialog, setRecipeDialog] = useState({ open: false, item: null });
   const [recipeForm, setRecipeForm] = useState(emptyRecipe);
+  const [uncertainRecipeAttempt, setUncertainRecipeAttempt] = useState(null);
+  const [reconcilingRecipe, setReconcilingRecipe] = useState(false);
+  const [duplicateRecipeLoading, setDuplicateRecipeLoading] = useState(false);
+  const [duplicateRecipeLoadError, setDuplicateRecipeLoadError] = useState('');
+  const duplicateRecipeRequest = useRef(0);
+  const saveRecipeInFlight = useRef(false);
   const [materialDialog, setMaterialDialog] = useState({ open: false, lineIndex: null, role: 'MATERIA_PRIMA' });
+  const recipeInputsLocked = saving || reconcilingRecipe || duplicateRecipeLoading || Boolean(uncertainRecipeAttempt);
 
   const selectedColor = colors.find((item) => item.id === selectedColorId) || null;
+  const selectedColorInactive = selectedColor?.activo === false;
   const visibleColors = useMemo(() => colors.filter((item) => (
     (includeInactive || item.activo !== false) && matchesOmniSearch(item, search)
   )), [colors, includeInactive, search]);
   const visibleRecipes = useMemo(() => recipes.filter(
     (item) => includeInactive || item.estado !== 'INACTIVA',
   ), [recipes, includeInactive]);
+  const duplicateReferenceIssues = useMemo(() => {
+    if (!recipeDialog.duplicateSource) return [];
+    return recipeForm.lineas.flatMap((line, index) => {
+      const material = ingredients.find((item) => String(item.id) === String(line.material_id));
+      if (!line.material_id) return [`Componente ${index + 1}: selecciona un material de reemplazo.`];
+      if (!material) return [`Componente ${index + 1}: el material original ya no existe en el catálogo.`];
+      if (material.activo === false) return [`Componente ${index + 1}: el material ${material.nombre || material.codigo || line.material_id} está inactivo; reemplázalo.`];
+      return [];
+    });
+  }, [ingredients, recipeDialog.duplicateSource, recipeForm.lineas]);
 
   const loadCatalog = async () => {
     setLoading(true);
@@ -343,13 +417,13 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
   };
 
   const openNewRecipe = () => {
-    setRecipeDialog({ open: true, item: null });
+    setRecipeDialog({ open: true, item: null, duplicateSource: null });
     setRecipeForm({ ...emptyRecipe, lineas: [] });
     setError('');
   };
 
   const openEditRecipe = (item) => {
-    setRecipeDialog({ open: true, item });
+    setRecipeDialog({ open: true, item, duplicateSource: null });
     setRecipeForm({
       nombre_variante: item.nombre_variante,
       producto_sku: item.producto_sku || '',
@@ -368,7 +442,72 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
     setError('');
   };
 
+  const openDuplicateRecipe = async (item) => {
+    if (!can('ARTICULO_ADMINISTRAR')) return;
+    const requestId = duplicateRecipeRequest.current + 1;
+    duplicateRecipeRequest.current = requestId;
+    const colorId = item?.color_produccion_id ?? selectedColorId;
+    setDuplicateRecipeLoading(true);
+    setDuplicateRecipeLoadError('');
+    setError('');
+    setRecipeDialog({ open: true, item: null, duplicateSource: item });
+    setRecipeForm({ ...emptyRecipe, estado: 'BORRADOR', es_default: false, lineas: [] });
+    try {
+      const [colorRows, ingredientRows, recipeResponse] = await Promise.all([
+        obtenerColores({ include_inactive: true }),
+        obtenerIngredientesRecetaColor({ include_inactive: true }),
+        obtenerRecetasColorMaestras({ color_produccion_id: colorId, include_inactive: true }),
+      ]);
+      if (duplicateRecipeRequest.current !== requestId) return;
+      const freshColors = asItems(colorRows);
+      const freshIngredients = asItems(ingredientRows);
+      const freshRecipes = asItems(recipeResponse);
+      const freshColor = freshColors.find((candidate) => String(candidate?.id) === String(colorId));
+      const freshSource = freshRecipes.find((candidate) => String(candidate?.id) === String(item?.id));
+      if (!freshColor || !freshSource) {
+        throw new Error('La receta fuente ya no está disponible en el catálogo vigente.');
+      }
+      if (freshSource.estado === 'INACTIVA') {
+        throw new Error('La receta fuente está inactiva en el catálogo vigente y no se puede duplicar.');
+      }
+      setColors(freshColors);
+      setIngredients(freshIngredients);
+      setRecipes(freshRecipes);
+      setSelectedColorId(freshColor.id);
+      const draft = buildRecipeDuplicateDraft(freshSource, freshRecipes, `receta ${freshSource.id}`);
+      setRecipeDialog({ open: true, item: null, duplicateSource: freshSource });
+      setRecipeForm({
+        nombre_variante: draft.nombre_variante,
+        producto_sku: draft.producto_sku || '',
+        estado: 'BORRADOR',
+        es_default: false,
+        base_virgen_kg: draft.base_virgen_kg,
+        notas: draft.notas,
+        lineas: draft.lineas.map((line) => ({
+          ...line,
+          cantidad: line.tipo_componente === 'MATERIA_PRIMA' ? Number(line.cantidad) * 100 : line.cantidad,
+          base_kg: line.base_kg || draft.base_virgen_kg,
+        })),
+      });
+    } catch (requestError) {
+      if (duplicateRecipeRequest.current !== requestId) return;
+      const message = requestError?.message || apiError(requestError, 'No se pudieron consultar los maestros vigentes para la copia.');
+      setDuplicateRecipeLoadError(message);
+      setError(message);
+    } finally {
+      if (duplicateRecipeRequest.current === requestId) setDuplicateRecipeLoading(false);
+    }
+  };
+
+  const cancelRecipeDialog = () => {
+    duplicateRecipeRequest.current += 1;
+    setDuplicateRecipeLoading(false);
+    setDuplicateRecipeLoadError('');
+    setRecipeDialog({ open: false, item: null, duplicateSource: null });
+  };
+
   const addRecipeLine = () => {
+    if (recipeInputsLocked) return;
     setRecipeForm((current) => ({
       ...current,
       lineas: [...current.lineas, {
@@ -381,6 +520,7 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
   };
 
   const updateRecipeLine = (index, field, value) => {
+    if (recipeInputsLocked) return;
     setRecipeForm((current) => ({
       ...current,
       lineas: current.lineas.map((line, lineIndex) => {
@@ -398,6 +538,7 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
   };
 
   const removeRecipeLine = (index) => {
+    if (recipeInputsLocked) return;
     setRecipeForm((current) => ({
       ...current,
       lineas: current.lineas.filter((_, lineIndex) => lineIndex !== index),
@@ -408,51 +549,142 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
     .filter((line) => line.tipo_componente === 'MATERIA_PRIMA')
     .reduce((sum, line) => sum + (Number(line.cantidad) || 0), 0);
 
-  const saveRecipe = async () => {
-    if (recipeForm.estado === 'APROBADA' && !canPublishRecipe) {
-      setError('Tu perfil puede guardar borradores, pero no aprobar formulaciones.');
-      return;
-    }
-    if (!selectedColorId || !recipeForm.nombre_variante.trim()) {
-      setError('Selecciona un color e ingresa el nombre de la variante.');
-      return;
-    }
-    if (recipeForm.lineas.some((line) => !line.material_id || Number(line.cantidad) <= 0)) {
-      setError('Completa el material y una cantidad positiva en cada línea.');
-      return;
-    }
-    if (recipeForm.estado === 'APROBADA' && Math.abs(resinFraction - 100) > 0.000001) {
-      setError('Para aprobar, los porcentajes de materia prima deben sumar 100%.');
-      return;
-    }
-    setSaving(true);
+  const buildRecipePayload = () => {
+    const payload = {
+      color_produccion_id: selectedColorId,
+      nombre_variante: recipeForm.nombre_variante.trim(),
+      producto_sku: recipeForm.producto_sku.trim() || null,
+      estado: recipeDialog.duplicateSource ? 'BORRADOR' : recipeForm.estado,
+      es_default: recipeDialog.duplicateSource ? false : recipeForm.estado === 'APROBADA' && recipeForm.es_default,
+      base_virgen_kg: Number(recipeForm.base_virgen_kg),
+      notas: recipeDialog.duplicateSource
+        ? ensureRecipeSourceNote(recipeForm.notas, recipeDialog.duplicateSource)
+        : recipeForm.notas.trim() || null,
+      lineas: recipeForm.lineas.map((line) => ({
+        material_id: Number(line.material_id),
+        tipo_componente: line.tipo_componente,
+        cantidad: line.tipo_componente === 'MATERIA_PRIMA'
+          ? Number(line.cantidad) / 100 : Number(line.cantidad),
+        base_kg: line.tipo_componente === 'MATERIA_PRIMA'
+          ? null
+          : Number(line.base_kg || recipeForm.base_virgen_kg),
+      })),
+    };
+    return recipeDialog.duplicateSource
+      ? { ...payload, exigir_variante_nueva: true }
+      : payload;
+  };
+
+  const reconcileRecipeAttempt = async () => {
+    if (!uncertainRecipeAttempt || reconcilingRecipe) return;
+    const queryColorId = uncertainRecipeAttempt.payload?.color_produccion_id;
+    setReconcilingRecipe(true);
     setError('');
     try {
-      const payload = {
-        color_produccion_id: selectedColorId,
-        nombre_variante: recipeForm.nombre_variante.trim(),
-        producto_sku: recipeForm.producto_sku.trim() || null,
-        estado: recipeForm.estado,
-        es_default: recipeForm.estado === 'APROBADA' && recipeForm.es_default,
-        base_virgen_kg: Number(recipeForm.base_virgen_kg),
-        notas: recipeForm.notas.trim() || null,
-        lineas: recipeForm.lineas.map((line) => ({
-          material_id: Number(line.material_id),
-          tipo_componente: line.tipo_componente,
-          cantidad: line.tipo_componente === 'MATERIA_PRIMA'
-            ? Number(line.cantidad) / 100 : Number(line.cantidad),
-          base_kg: line.tipo_componente === 'MATERIA_PRIMA'
-            ? null
-            : Number(line.base_kg || recipeForm.base_virgen_kg),
-        })),
-      };
-      const result = recipeDialog.item
+      const response = await obtenerRecetasColorMaestras({
+        color_produccion_id: queryColorId,
+        include_inactive: true,
+      });
+      const rows = asItems(response);
+      if (String(selectedColorId ?? '') === String(queryColorId ?? '')) setRecipes(rows);
+      const confirmed = rows.find((candidate) => (
+        candidate?.estado === 'BORRADOR'
+        && candidate?.es_default !== true
+        && recipeContentMatches(candidate, uncertainRecipeAttempt.payload)
+        && sourceNoteMatches(candidate, uncertainRecipeAttempt.source)
+      ));
+      if (confirmed) {
+        setNotice(`Copia confirmada: ${confirmed.nombre_variante} (id ${confirmed.id}, revisión ${confirmed.revision || '—'}).`);
+        setRecipeDialog({ open: false, item: null, duplicateSource: null });
+        setUncertainRecipeAttempt(null);
+      } else {
+        const sameIdentity = rows.some((candidate) => (
+          String(candidate?.color_produccion_id ?? '') === String(uncertainRecipeAttempt.payload.color_produccion_id ?? '')
+          && String(candidate?.nombre_variante ?? '').trim() === String(uncertainRecipeAttempt.payload.nombre_variante ?? '').trim()
+          && String(candidate?.producto_sku ?? '') === String(uncertainRecipeAttempt.payload.producto_sku ?? '')
+        ));
+        setUncertainRecipeAttempt((current) => ({
+          ...current,
+          recoveryAllowed: !sameIdentity,
+          collision: sameIdentity,
+        }));
+        setError(sameIdentity
+          ? 'Existe una variante con el mismo color, alcance y nombre, pero su contenido o fuente no coincide. No se reintentará a ciegas.'
+          : 'La consulta no encontró la copia. Puedes reintentar el guardado de forma explícita; no se enviará automáticamente.');
+      }
+    } catch (requestError) {
+      setError(apiError(requestError, 'No se pudo consultar el catálogo para reconciliar la copia.'));
+    } finally {
+      setReconcilingRecipe(false);
+    }
+  };
+
+  const reopenUncertainRecipe = () => {
+    if (!uncertainRecipeAttempt) return;
+    const colorId = uncertainRecipeAttempt.payload?.color_produccion_id;
+    if (colorId != null) setSelectedColorId(colorId);
+    setRecipeDialog({ open: true, item: null, duplicateSource: uncertainRecipeAttempt.source });
+    setRecipeForm(uncertainRecipeAttempt.form);
+    setError('');
+  };
+
+  const saveRecipe = async () => {
+    const isDuplicate = Boolean(recipeDialog.duplicateSource);
+    if (isDuplicate && (duplicateRecipeLoading || duplicateRecipeLoadError)) return;
+    const isUncertainDuplicateRetry = Boolean(isDuplicate && uncertainRecipeAttempt?.recoveryAllowed);
+    if (isDuplicate && uncertainRecipeAttempt && !uncertainRecipeAttempt.recoveryAllowed) return;
+    if (!isUncertainDuplicateRetry) {
+      if (recipeForm.estado === 'APROBADA' && !canPublishRecipe) {
+        setError('Tu perfil puede guardar borradores, pero no aprobar formulaciones.');
+        return;
+      }
+      const recipeName = recipeForm.nombre_variante.trim();
+      if (!selectedColorId || !recipeName) {
+        setError('Selecciona un color e ingresa el nombre de la variante.');
+        return;
+      }
+      if (recipeName.length > 120) {
+        setError('El nombre de variante no puede superar 120 caracteres.');
+        return;
+      }
+      if (isDuplicate && duplicateReferenceIssues.length) {
+        setError('Resuelve las referencias de materiales inactivas o ausentes antes de guardar.');
+        return;
+      }
+      if (isDuplicate && selectedColorInactive) {
+        setError('El color fuente está inactivo. Reactívalo o selecciona un color activo antes de duplicar.');
+        return;
+      }
+      if (isDuplicate && recipes.some((item) => (
+        String(item.nombre_variante || '').trim().toLocaleLowerCase() === recipeName.toLocaleLowerCase()
+      ))) {
+        setError('El nombre de variante ya existe para este color y alcance. Elige otro.');
+        return;
+      }
+      if (recipeForm.lineas.some((line) => !line.material_id || Number(line.cantidad) <= 0)) {
+        setError('Completa el material y una cantidad positiva en cada línea.');
+        return;
+      }
+      if (recipeForm.estado === 'APROBADA' && Math.abs(resinFraction - 100) > 0.000001) {
+        setError('Para aprobar, los porcentajes de materia prima deben sumar 100%.');
+        return;
+      }
+    }
+    if (saveRecipeInFlight.current) return;
+    saveRecipeInFlight.current = true;
+    setSaving(true);
+    setError('');
+    let payload;
+    try {
+      payload = isUncertainDuplicateRetry ? uncertainRecipeAttempt.payload : buildRecipePayload();
+      const result = recipeDialog.item && !recipeDialog.duplicateSource
         ? await actualizarRecetaColorMaestra(recipeDialog.item.id, {
           ...payload,
           version: recipeDialog.item.version,
         })
         : await crearRecetaColorMaestra(payload);
       setRecipeDialog({ open: false, item: null });
+      if (recipeDialog.duplicateSource) setUncertainRecipeAttempt(null);
       setNotice(result.reemplaza_receta_id
         ? `Se creó la revisión ${result.revision}; la anterior quedó histórica.`
         : 'Receta guardada correctamente.');
@@ -460,8 +692,19 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
       onRecipeSaved?.(result);
     } catch (requestError) {
       setError(apiError(requestError, 'No se pudo guardar la receta.'));
+      const status = requestError?.response?.status || requestError?.status;
+      if (!(Number.isInteger(status) && status >= 400 && status < 500) && recipeDialog.duplicateSource) {
+        setUncertainRecipeAttempt({
+          source: recipeDialog.duplicateSource,
+          form: recipeForm,
+          payload,
+          recoveryAllowed: false,
+          collision: false,
+        });
+      }
     } finally {
       setSaving(false);
+      saveRecipeInFlight.current = false;
     }
   };
 
@@ -494,6 +737,11 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
 
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {uncertainRecipeAttempt && !recipeDialog.open && (
+        <Alert severity="warning" action={<Stack direction="row" spacing={1}><Button color="inherit" onClick={reopenUncertainRecipe}>Reabrir copia</Button><Button color="inherit" onClick={reconcileRecipeAttempt} disabled={reconcilingRecipe}>{reconcilingRecipe ? 'Consultando…' : 'Revisar catálogo'}</Button></Stack>}>
+          Hay un guardado de copia sin confirmar. Revisa el catálogo antes de volver a duplicar; puedes restaurar el formulario original.
+        </Alert>
+      )}
 
       <Alert severity="info">
         El HEX es solo una referencia visual. La dosis aprobada se expresa contra kg de material virgen; la materia de segunda no aumenta esa base.
@@ -564,8 +812,9 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
                 <ColorSwatch hex={selectedColor?.hex_referencia} size={36} />
                 <Box><Typography variant="h6" sx={{ fontWeight: 800 }}>{selectedColor?.nombre || 'Seleccione un color'}</Typography><Typography variant="caption" color="text.secondary">Recetas propias y revisiones históricas</Typography></Box>
               </Stack>
-              <Button variant="contained" disabled={!selectedColor || selectedColor.activo === false} startIcon={<ScienceOutlinedIcon />} onClick={openNewRecipe}>Nueva receta</Button>
+              <Button variant="contained" disabled={!selectedColor || selectedColorInactive} startIcon={<ScienceOutlinedIcon />} onClick={openNewRecipe}>Nueva receta</Button>
             </Stack>
+            {selectedColorInactive && <Alert severity="warning" sx={{ mx: 2, mb: 1 }}>Este color está inactivo. No se pueden crear ni duplicar recetas hasta reactivarlo.</Alert>}
             {recipeLoading ? (
               <Stack alignItems="center" sx={{ py: 7 }}><CircularProgress size={28} /></Stack>
             ) : (
@@ -589,6 +838,7 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
                         <TableCell><Chip size="small" label={item.estado} color={item.estado === 'APROBADA' ? 'success' : item.estado === 'BORRADOR' ? 'warning' : 'default'} variant="outlined" /></TableCell>
                         <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                           <Tooltip title={item.estado === 'APROBADA' ? 'Editar crea una nueva revisión' : 'Editar borrador'}><IconButton aria-label={`Editar receta ${item.nombre_variante}`} size="small" onClick={() => openEditRecipe(item)}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip>
+                          <Tooltip title={selectedColorInactive ? 'El color fuente está inactivo' : !can('ARTICULO_ADMINISTRAR') ? 'No tienes permiso para duplicar recetas' : uncertainRecipeAttempt ? 'Revisa primero el guardado incierto' : 'Duplicar como borrador'}><span><IconButton aria-label={`Duplicar receta ${item.nombre_variante} como borrador`} size="small" disabled={item.estado === 'INACTIVA' || selectedColorInactive || !can('ARTICULO_ADMINISTRAR') || Boolean(uncertainRecipeAttempt)} onClick={() => openDuplicateRecipe(item)}><ContentCopyOutlinedIcon fontSize="small" /></IconButton></span></Tooltip>
                           {item.estado !== 'INACTIVA' && <IconButton aria-label={`Inactivar receta ${item.nombre_variante}`} size="small" onClick={() => deactivateRecipe(item)}><PowerSettingsNewOutlinedIcon fontSize="small" /></IconButton>}
                         </TableCell>
                       </TableRow>
@@ -678,18 +928,26 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
         <DialogActions><Button onClick={() => setFamilyDialogOpen(false)} disabled={saving}>Cerrar</Button></DialogActions>
       </Dialog>
 
-      <Dialog open={recipeDialog.open} onClose={() => !saving && setRecipeDialog({ open: false, item: null })} maxWidth="md" fullWidth>
-        <DialogTitle>{recipeDialog.item ? `${recipeDialog.item.estado === 'APROBADA' ? 'Nueva revisión de' : 'Editar'} ${recipeDialog.item.nombre_variante}` : `Nueva receta para ${selectedColor?.nombre || ''}`}</DialogTitle>
+      <Dialog open={recipeDialog.open} onClose={() => !saving && !reconcilingRecipe && cancelRecipeDialog()} maxWidth="md" fullWidth>
+        <DialogTitle>{recipeDialog.duplicateSource ? `Duplicar como borrador · ${recipeDialog.duplicateSource.nombre_variante}` : recipeDialog.item ? `${recipeDialog.item.estado === 'APROBADA' ? 'Nueva revisión de' : 'Editar'} ${recipeDialog.item.nombre_variante}` : `Nueva receta para ${selectedColor?.nombre || ''}`}</DialogTitle>
         <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
+          {error && <Alert severity="error">{error}</Alert>}
+          {recipeDialog.duplicateSource && duplicateRecipeLoading && <Alert severity="info">Consultando colores, materiales y recetas vigentes… El guardado está bloqueado hasta completar la consulta.</Alert>}
+          {recipeDialog.duplicateSource && duplicateRecipeLoadError && <Alert severity="error" action={<Button color="inherit" onClick={() => openDuplicateRecipe(recipeDialog.duplicateSource)}>Reintentar consulta</Button>}>No se pudo preparar la copia con los maestros vigentes.</Alert>}
+          {recipeDialog.duplicateSource && <Alert severity="info">Fuente: {recipeDialog.duplicateSource.nombre_variante} · revisión {recipeDialog.duplicateSource.revision || '—'}. Se guardará una variante nueva BORRADOR y no predeterminada; aprobar es una acción posterior.</Alert>}
+          {recipeDialog.duplicateSource && selectedColorInactive && <Alert severity="error">El color fuente está inactivo. Reactívalo o selecciona un color activo para habilitar la copia.</Alert>}
+          {duplicateReferenceIssues.length > 0 && <Alert severity="error">La copia está bloqueada hasta resolver las referencias:<Box component="ul" sx={{ m: 0, pl: 2 }}>{duplicateReferenceIssues.map((issue) => <li key={issue}>{issue}</li>)}</Box></Alert>}
+          {uncertainRecipeAttempt && <Alert severity="warning" action={<Button color="inherit" onClick={reconcileRecipeAttempt} disabled={reconcilingRecipe}>{reconcilingRecipe ? 'Consultando…' : 'Revisar catálogo'}</Button>}>{uncertainRecipeAttempt.collision ? 'Hay una variante con el mismo nombre, pero su contenido o fuente no coincide. No se reintentará a ciegas.' : uncertainRecipeAttempt.recoveryAllowed ? 'La consulta no encontró la copia. Puedes reintentar explícitamente; no se enviará automáticamente.' : 'No se pudo confirmar el guardado de esta copia. Revisa el catálogo antes de reintentar.'}</Alert>}
           {recipeDialog.item?.estado === 'APROBADA' && <Alert severity="info">La revisión aprobada no será sobrescrita: se conservará inactiva y se creará la siguiente revisión.</Alert>}
+          <Box component="fieldset" disabled={saving || reconcilingRecipe || Boolean(uncertainRecipeAttempt)} sx={{ border: 0, p: 0, m: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <Grid container spacing={1.5}>
-            <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Nombre de variante" value={recipeForm.nombre_variante} onChange={(event) => setRecipeForm((current) => ({ ...current, nombre_variante: event.target.value }))} /></Grid>
-            <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Producto SKU (opcional)" value={recipeForm.producto_sku} onChange={(event) => setRecipeForm((current) => ({ ...current, producto_sku: event.target.value }))} helperText="Vacío = receta general del color" /></Grid>
-            <Grid size={{ xs: 12, md: 4 }}><TextField select fullWidth label="Estado" value={recipeForm.estado} onChange={(event) => setRecipeForm((current) => ({ ...current, estado: event.target.value, es_default: event.target.value === 'APROBADA' ? current.es_default : false }))}><MenuItem value="BORRADOR">BORRADOR</MenuItem>{canPublishRecipe && <MenuItem value="APROBADA">APROBADA</MenuItem>}</TextField></Grid>
-            <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth type="number" label="Base virgen (kg)" value={recipeForm.base_virgen_kg} onChange={(event) => setRecipeForm((current) => ({ ...current, base_virgen_kg: event.target.value }))} slotProps={{ htmlInput: { min: 0.001, step: 0.001 } }} /></Grid>
-            <Grid size={{ xs: 12, md: 4 }}><FormControlLabel control={<Switch disabled={recipeForm.estado !== 'APROBADA'} checked={recipeForm.es_default} onChange={(event) => setRecipeForm((current) => ({ ...current, es_default: event.target.checked }))} />} label="Predeterminada" /></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Nombre de variante" value={recipeForm.nombre_variante} onChange={(event) => { if (!recipeInputsLocked) setRecipeForm((current) => ({ ...current, nombre_variante: event.target.value })); }} helperText="Máximo 120 caracteres" slotProps={{ htmlInput: { maxLength: 120 } }} /></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Producto SKU (opcional)" value={recipeForm.producto_sku} onChange={(event) => { if (!recipeInputsLocked) setRecipeForm((current) => ({ ...current, producto_sku: event.target.value })); }} helperText="Vacío = receta general del color" /></Grid>
+            <Grid size={{ xs: 12, md: 4 }}><TextField select fullWidth label="Estado" value={recipeForm.estado} disabled={Boolean(recipeDialog.duplicateSource)} onChange={(event) => { if (!recipeInputsLocked) setRecipeForm((current) => ({ ...current, estado: event.target.value, es_default: event.target.value === 'APROBADA' ? current.es_default : false })); }}><MenuItem value="BORRADOR">BORRADOR</MenuItem>{canPublishRecipe && !recipeDialog.duplicateSource && <MenuItem value="APROBADA">APROBADA</MenuItem>}</TextField></Grid>
+            <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth type="number" label="Base virgen (kg)" value={recipeForm.base_virgen_kg} onChange={(event) => { if (!recipeInputsLocked) setRecipeForm((current) => ({ ...current, base_virgen_kg: event.target.value })); }} slotProps={{ htmlInput: { min: 0.001, step: 0.001 } }} /></Grid>
+            <Grid size={{ xs: 12, md: 4 }}><FormControlLabel control={<Switch disabled={recipeForm.estado !== 'APROBADA'} checked={recipeForm.es_default} onChange={(event) => { if (!recipeInputsLocked) setRecipeForm((current) => ({ ...current, es_default: event.target.checked })); }} />} label="Predeterminada" /></Grid>
           </Grid>
-          <TextField fullWidth multiline minRows={2} label="Notas" value={recipeForm.notas} onChange={(event) => setRecipeForm((current) => ({ ...current, notas: event.target.value }))} />
+          <TextField fullWidth multiline minRows={2} label="Notas" value={recipeForm.notas} onChange={(event) => { if (!recipeInputsLocked) setRecipeForm((current) => ({ ...current, notas: event.target.value })); }} />
           <Stack direction="row" justifyContent="space-between" alignItems="center"><Box><Typography variant="h6" sx={{ fontWeight: 750 }}>Componentes</Typography><Typography variant="caption" color={recipeForm.estado === 'APROBADA' && Math.abs(resinFraction - 100) > 0.000001 ? 'error.main' : 'text.secondary'}>Total materias primas: {resinFraction.toFixed(2)}%</Typography></Box><Button startIcon={<AddOutlinedIcon />} onClick={addRecipeLine}>Agregar componente</Button></Stack>
           {ingredients.filter((item) => item.activo !== false).length === 0 && (
             <Alert severity="info">No hay materiales activos disponibles para esta formulación. Agrega un componente y créalo aquí mismo.</Alert>
@@ -710,8 +968,9 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
             );
           })}
           {recipeForm.lineas.length === 0 && <Alert severity="warning">Esta formulación todavía no tiene componentes. Puede guardar el borrador vacío; para aprobarlo, los porcentajes de materia prima deben sumar 100%.</Alert>}
+          </Box>
         </Stack></DialogContent>
-        <DialogActions><Button onClick={() => setRecipeDialog({ open: false, item: null })} disabled={saving}>Cancelar</Button><Button variant="contained" onClick={saveRecipe} disabled={saving}>{saving ? 'Guardando…' : recipeForm.estado === 'APROBADA' ? embedded ? 'Aprobar y seleccionar' : 'Aprobar receta' : recipeDialog.item?.estado === 'APROBADA' ? 'Crear revisión' : 'Guardar receta'}</Button></DialogActions>
+        <DialogActions><Button onClick={() => !saving && !reconcilingRecipe && cancelRecipeDialog()} disabled={saving || reconcilingRecipe}>Cancelar</Button><Button variant="contained" onClick={saveRecipe} disabled={saving || reconcilingRecipe || duplicateRecipeLoading || Boolean(duplicateRecipeLoadError) || (!uncertainRecipeAttempt && duplicateReferenceIssues.length > 0) || (Boolean(uncertainRecipeAttempt) && !uncertainRecipeAttempt.recoveryAllowed)}>{saving ? 'Guardando…' : recipeDialog.duplicateSource && uncertainRecipeAttempt?.recoveryAllowed ? 'Reintentar guardado' : recipeDialog.duplicateSource ? 'Guardar borrador' : recipeForm.estado === 'APROBADA' ? embedded ? 'Aprobar y seleccionar' : 'Aprobar receta' : recipeDialog.item?.estado === 'APROBADA' ? 'Crear revisión' : 'Guardar receta'}</Button></DialogActions>
       </Dialog>
       <MaterialQuickCreateDialog
         open={materialDialog.open}
