@@ -12,9 +12,7 @@ import {
 } from '@mui/material';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 
-const pieceLabel = (piece) => (
-  `${piece.codigo ? `${piece.codigo} · ` : ''}${piece.nombre || 'Pieza sin nombre'}`
-);
+const pieceLabel = (piece) => piece?.nombre || 'Pieza sin nombre';
 
 export default function PieceCompositionEditor({
   index,
@@ -25,6 +23,8 @@ export default function PieceCompositionEditor({
   onChange,
   onRemove,
   disabled = false,
+  weightLabel = 'Peso unitario operativo (g)',
+  weightHelperText = 'Peso de una unidad en este molde.',
 }) {
   const selectedPiece = piecesCatalog.find((item) => String(item.id) === String(piece.ref)) || null;
   const lockedAssociation = Boolean(piece.molde_pieza_ref);
@@ -62,7 +62,7 @@ export default function PieceCompositionEditor({
               {disabled && <Chip size="small" color="info" label="Aplicada" />}
             </Stack>
             <Typography variant="caption" color="text.secondary">
-              La cavidad y el peso son propios de esta relación MoldePieza.
+              La cavidad y el peso son propios de esta pieza en este molde.
             </Typography>
           </Box>
           <IconButton aria-label={`Eliminar pieza ${index + 1}`} color="error" onClick={onRemove}>
@@ -100,6 +100,19 @@ export default function PieceCompositionEditor({
             isOptionEqualToValue={(option, candidate) => option.id === candidate.id}
             onChange={(_, selected) => selectExisting(selected)}
             disabled={lockedAssociation}
+            renderOption={(props, option) => {
+              const { key, ...optionProps } = props;
+              return (
+                <Box component="li" key={key} {...optionProps}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography noWrap fontWeight={750}>{option.nombre || 'Pieza sin nombre'}</Typography>
+                    {option.codigo && (
+                      <Typography noWrap variant="caption" color="text.secondary">{option.codigo}</Typography>
+                    )}
+                  </Box>
+                </Box>
+              );
+            }}
             renderInput={(params) => (
               <TextField
                 {...params}
@@ -145,11 +158,11 @@ export default function PieceCompositionEditor({
               fullWidth
               required
               type="number"
-              label="Peso unitario operativo (g)"
+              label={weightLabel}
               value={piece.peso_unitario_gr}
               onChange={(event) => update('peso_unitario_gr', event.target.value)}
               error={Boolean(error('peso_unitario_gr'))}
-              helperText={error('peso_unitario_gr') || 'Peso de una unidad en este molde.'}
+              helperText={error('peso_unitario_gr') || weightHelperText}
               slotProps={{ htmlInput: { min: 0.001, step: 0.001 } }}
             />
           </Grid>

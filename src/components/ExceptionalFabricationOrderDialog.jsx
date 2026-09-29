@@ -2,17 +2,24 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, FormControl, IconButton, InputLabel, MenuItem, Paper, Select,
-  Stack, TextField, Typography,
+  Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography,
 } from '@mui/material';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import { obtenerMolde } from '../services/api';
+import {
+  buscarPiezasGlobales, crearMolde, habilitarColorMolde, obtenerMolde, obtenerMoldes,
+} from '../services/api';
 import * as scmEngineeringApi from '../services/scmEngineeringApi';
 import { crearOrdenFabricacionExcepcionalScm } from '../services/scmOtApi';
 import FabricationRecipeSelector from './FabricationRecipeSelector';
 import { defaultRecipeForRun } from './fabricationRecipeOptions';
 import SearchableCatalogAutocomplete from './ui/SearchableCatalogAutocomplete';
 import WeightInput from './ui/WeightInput';
+import PieceCompositionEditor from './productOnboarding/PieceCompositionEditor';
+import FirstOfMasterPanel from './firstOf/FirstOfMasterPanel';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import AddCircleOutlineOutlinedIcon from '@mui/icons-material/AddCircleOutlineOutlined';
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import {
   compatibleProcessMachines,
   fabricationProcessLabel,
@@ -27,6 +34,22 @@ const emptyRun = (key = 'run-1') => ({
   receta_revision_id: '',
   ciclos_objetivo: '',
   objetivo_neto_kg: '',
+});
+
+const emptyMoldPiece = () => ({
+  client_id: `of-piece-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  modo: 'NUEVA',
+  ref: null,
+  nombre: '',
+  cavidades: '1',
+  peso_unitario_gr: '',
+});
+
+const emptyMoldDraft = () => ({
+  nombre: '',
+  peso_tiro_gr: '',
+  tiempo_ciclo_std: '30',
+  piezas: [emptyMoldPiece()],
 });
 
 const colorLabel = (color) => color.nombre
@@ -64,6 +87,11 @@ const formatKg = (value) => {
   return Number(Number(value).toFixed(3)).toString();
 };
 
+const formatGrams = (value) => {
+  if (!Number.isFinite(Number(value))) return '—';
+  return Number(Number(value).toFixed(1)).toFixed(1);
+};
+
 const ceilDecimalRatio = (numerator, denominator) => {
   const ratio = Number(numerator) / Number(denominator);
   if (!Number.isFinite(ratio) || ratio <= 0) return 0;
@@ -92,6 +120,20 @@ export default function ExceptionalFabricationOrderDialog({
   const [runs, setRuns] = useState([emptyRun()]);
   const [mold, setMold] = useState(null);
   const [articles, setArticles] = useState([]);
+  const [localColors, setLocalColors] = useState(colors || []);
+  const [localRecipes, setLocalRecipes] = useState(recipes || []);
+  const [moldWorkspace, setMoldWorkspace] = useState('select');
+  const [moldCatalog, setMoldCatalog] = useState(molds || []);
+  const [moldCatalogQuery, setMoldCatalogQuery] = useState('');
+  const [moldCatalogPage, setMoldCatalogPage] = useState(0);
+  const [moldDraft, setMoldDraft] = useState(emptyMoldDraft);
+  const [pieceCatalog, setPieceCatalog] = useState([]);
+  const [moldMutationBusy, setMoldMutationBusy] = useState(false);
+  const [moldMutationError, setMoldMutationError] = useState('');
+  const [colorMutationBusy, setColorMutationBusy] = useState(false);
+  const [masterPanel, setMasterPanel] = useState(null);
+  const [masterBusy, setMasterBusy] = useState(false);
+  const [masterDirty, setMasterDirty] = useState(false);
   const [routesByArticle, setRoutesByArticle] = useState({});
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeError, setRouteError] = useState('');
@@ -100,6 +142,7 @@ export default function ExceptionalFabricationOrderDialog({
   const [loadingMold, setLoadingMold] = useState(false);
   const [error, setError] = useState('');
   const [uncertainAttempt, setUncertainAttempt] = useState(null);
+  const [moldUncertainAttempt, setMoldUncertainAttempt] = useState(null);
   const idempotencyRef = useRef({ fingerprint: '', key: '' });
   const routeGenerationRef = useRef(0);
   const moldGenerationRef = useRef(0);
@@ -120,9 +163,22 @@ export default function ExceptionalFabricationOrderDialog({
     setRouteLoading(false);
     setRouteError('');
     setMold(null);
+    setMoldWorkspace('select');
+    setMoldCatalog(molds || []);
+    setMoldCatalogQuery('');
+    setMoldCatalogPage(0);
+    setMoldDraft(emptyMoldDraft());
+    setPieceCatalog([]);
+    setMoldMutationBusy(false);
+    setMoldMutationError('');
+    setColorMutationBusy(false);
+    setMasterPanel(null);
+    setMasterBusy(false);
+    setMasterDirty(false);
     moldGenerationRef.current += 1;
     setError('');
     setUncertainAttempt(null);
+    setMoldUncertainAttempt(null);
     idempotencyRef.current = { fingerprint: '', key: '' };
     scmEngineeringApi.listarArticulosScm()
       .then((items) => { if (active) setArticles(items); })
@@ -130,7 +186,14 @@ export default function ExceptionalFabricationOrderDialog({
         if (active) setError(scmEngineeringApi.mensajeErrorScm(requestError, 'No se pudieron cargar los artículos SCM.'));
       });
     return () => { active = false; };
-  }, [open]);
+  }, [molds, open]);
+
+  useEffect(() => { setLocalColors(colors || []); }, [colors]);
+  useEffect(() => { setLocalRecipes(recipes || []); }, [recipes]);
+  useEffect(() => {
+    if (open) setMoldCatalog((current) => current.length ? current : (molds || []));
+  }, [molds, open]);
+
 
   const routeArticleIds = useMemo(() => [...new Set(
     outputGroupsForRoutes(mold, articles, runs).flatMap((outputs) => outputs
@@ -173,12 +236,19 @@ export default function ExceptionalFabricationOrderDialog({
     return () => { active = false; };
   }, [open, routeArticleIds]);
 
-  const chooseMold = async (nextMoldId) => {
+  const chooseMold = async (nextMoldId, { preserveMetrics = false } = {}) => {
+    const previousCycleSeconds = cycleSeconds;
+    const previousRunnerWeight = runnerWeight;
+    const previousMachineId = machineId;
+    const previousRouteIds = runs.map((run) => run.operacion_ruta_revision_id || '');
     const generation = ++moldGenerationRef.current;
     setMoldId(nextMoldId);
     setMold(null);
-    setMachineId('');
-    setRuns((current) => current.map((run) => ({ ...run, operacion_ruta_revision_id: '' })));
+    setMachineId(preserveMetrics ? previousMachineId : '');
+    setRuns((current) => current.map((run, index) => ({
+      ...run,
+      operacion_ruta_revision_id: preserveMetrics ? (previousRouteIds[index] || '') : '',
+    })));
     setError('');
     if (!nextMoldId) {
       setLoadingMold(false);
@@ -189,8 +259,13 @@ export default function ExceptionalFabricationOrderDialog({
       const detail = await obtenerMolde(nextMoldId);
       if (moldGenerationRef.current !== generation) return;
       setMold(detail);
-      setCycleSeconds(String(detail.tiempo_ciclo_std ?? ''));
-      setRunnerWeight(String(Math.max(Number(detail.peso_colada_gr || 0), 0)));
+      if (!preserveMetrics) {
+        setCycleSeconds(String(detail.tiempo_ciclo_std ?? ''));
+        setRunnerWeight(String(Math.max(Number(detail.peso_colada_gr || 0), 0)));
+      } else {
+        setCycleSeconds(previousCycleSeconds);
+        setRunnerWeight(previousRunnerWeight);
+      }
     } catch (requestError) {
       if (moldGenerationRef.current !== generation) return;
       setError(scmEngineeringApi.mensajeErrorScm(requestError, 'No se pudo cargar el molde y sus variantes.'));
@@ -276,6 +351,23 @@ export default function ExceptionalFabricationOrderDialog({
     && !busy
     && !loadingMold
   );
+  const allBusy = busy || loadingMold || moldMutationBusy || colorMutationBusy
+    || masterBusy || Boolean(uncertainAttempt) || Boolean(moldUncertainAttempt);
+  const moldNetWeight = (moldDraft.piezas || []).reduce(
+    (sum, piece) => sum + Number(piece.cavidades || 0) * Number(piece.peso_unitario_gr || 0),
+    0,
+  );
+  const parentFormVisible = moldWorkspace === 'select' && !masterPanel;
+  const colorOptions = useMemo(() => {
+    const byId = new Map((colors || []).map((item) => [String(item.id), item]));
+    (localColors || []).forEach((item) => byId.set(String(item.id), item));
+    return [...byId.values()];
+  }, [colors, localColors]);
+  const recipeOptions = useMemo(() => {
+    const byId = new Map((recipes || []).map((item) => [String(item.id), item]));
+    (localRecipes || []).forEach((item) => byId.set(String(item.id), item));
+    return [...byId.values()];
+  }, [localRecipes, recipes]);
 
   const buildPayload = () => ({
     motivo: reason.trim(),
@@ -318,6 +410,141 @@ export default function ExceptionalFabricationOrderDialog({
     setError(scmEngineeringApi.mensajeErrorScm(requestError, 'No se pudo crear la OF de reposición. Puedes corregir los datos e intentar de nuevo.'));
   };
 
+  const openMoldCreator = async () => {
+    setMoldWorkspace('create');
+    setMoldMutationError('');
+    if (typeof buscarPiezasGlobales !== 'function' || pieceCatalog.length) return;
+    try {
+      const rows = await buscarPiezasGlobales('', 300);
+      setPieceCatalog((Array.isArray(rows) ? rows : rows?.items || [])
+        .filter((item) => item?.activo !== false));
+    } catch (requestError) {
+      setMoldMutationError(scmEngineeringApi.mensajeErrorScm(
+        requestError,
+        'No se pudieron cargar las piezas reutilizables. Puedes crear piezas nuevas.',
+      ));
+    }
+  };
+
+  const openMoldCatalog = async () => {
+    setMoldWorkspace('catalog');
+    setMoldCatalogQuery('');
+    setMoldCatalogPage(0);
+    if (typeof obtenerMoldes !== 'function') return;
+    try {
+      const rows = await obtenerMoldes();
+      const items = Array.isArray(rows) ? rows : rows?.items || rows?.data || [];
+      if (items.length) setMoldCatalog(items.filter((item) => item?.activo !== false));
+    } catch (requestError) {
+      setMoldMutationError(scmEngineeringApi.mensajeErrorScm(
+        requestError,
+        'No se pudo actualizar el catálogo de moldes. Revisa los moldes cargados e intenta de nuevo.',
+      ));
+    }
+  };
+
+  const moldCatalogRows = useMemo(() => {
+    const query = moldCatalogQuery.trim().toLocaleUpperCase();
+    const rows = (moldCatalog || []).filter((item) => !query || [item.nombre, item.codigo, item.revision]
+      .filter(Boolean).join(' ').toLocaleUpperCase().includes(query));
+    return rows;
+  }, [moldCatalog, moldCatalogQuery]);
+  const moldCatalogPageSize = 6;
+  const moldCatalogPageCount = Math.max(1, Math.ceil(moldCatalogRows.length / moldCatalogPageSize));
+  const visibleMoldCatalogRows = moldCatalogRows.slice(
+    moldCatalogPage * moldCatalogPageSize,
+    (moldCatalogPage + 1) * moldCatalogPageSize,
+  );
+
+  const createContextualMold = async () => {
+    const name = moldDraft.nombre.trim();
+    const shotWeight = Number(moldDraft.peso_tiro_gr);
+    const cycle = Number(moldDraft.tiempo_ciclo_std);
+    const pieces = moldDraft.piezas || [];
+    const netWeight = pieces.reduce((sum, piece) => (
+      sum + Number(piece.cavidades || 0) * Number(piece.peso_unitario_gr || 0)
+    ), 0);
+    if (!name || !(shotWeight > 0) || !(cycle > 0) || !pieces.length
+      || pieces.some((piece) => !(Number.isInteger(Number(piece.cavidades)) && Number(piece.cavidades) > 0)
+        || !(Number(piece.peso_unitario_gr) > 0)
+        || (piece.modo === 'REUTILIZAR' ? !piece.ref : !piece.nombre.trim()))
+      || shotWeight < netWeight) {
+      setMoldMutationError('Completa nombre, peso de tiro, ciclo y piezas válidas; el peso de tiro debe cubrir el peso neto.');
+      return;
+    }
+    if (typeof crearMolde !== 'function') {
+      setMoldMutationError('El alta de moldes no está disponible en este entorno.');
+      return;
+    }
+    setMoldMutationBusy(true);
+    setMoldMutationError('');
+    const payload = {
+      nombre: name,
+      peso_tiro_gr: shotWeight,
+      tiempo_ciclo_std: cycle,
+      piezas: pieces.map((piece) => ({
+        ...(piece.modo === 'REUTILIZAR'
+          ? { pieza_id: Number(piece.ref) }
+          : { nombre: piece.nombre.trim(), peso_nominal_gr: Number(piece.peso_unitario_gr) }),
+        cavidades: Number(piece.cavidades),
+        peso_unitario_gr: Number(piece.peso_unitario_gr),
+      })),
+    };
+    try {
+      const created = await crearMolde(payload);
+      const createdCode = created?.codigo || created?.molde?.codigo;
+      if (!createdCode) {
+        const missingCode = new Error('El servidor confirmó una respuesta sin código automático del molde.');
+        missingCode.uncertainCreation = true;
+        throw missingCode;
+      }
+      setMoldCatalog((current) => [...current.filter((item) => String(item.codigo) !== String(createdCode)), {
+        ...(created.molde || created), codigo: createdCode,
+      }]);
+      setMoldWorkspace('select');
+      setMoldDraft(emptyMoldDraft());
+      await chooseMold(createdCode);
+    } catch (requestError) {
+      const status = requestError?.response?.status || requestError?.status;
+      const definitive = Number.isInteger(status) && status >= 400 && status < 500;
+      if (!definitive || requestError?.uncertainCreation) {
+        setMoldMutationError('No se pudo confirmar el alta del molde. El borrador quedó bloqueado para evitar un segundo molde; revisa el catálogo o reconcilia antes de continuar.');
+        setMoldUncertainAttempt((current) => current || { payload });
+      } else {
+        setMoldMutationError(scmEngineeringApi.mensajeErrorScm(
+          requestError,
+          'No se pudo crear el molde. Corrige los datos e intenta de nuevo.',
+        ));
+      }
+    } finally {
+      setMoldMutationBusy(false);
+    }
+  };
+
+  const enableColorForMold = async (colorId) => {
+    if (!moldId || !colorId || typeof habilitarColorMolde !== 'function') {
+      setError('No se puede habilitar el color hasta seleccionar un molde y un color.');
+      return;
+    }
+    setColorMutationBusy(true);
+    setError('');
+    try {
+      await habilitarColorMolde(moldId, Number(colorId));
+      if (typeof scmEngineeringApi.listarArticulosScm === 'function') {
+        const items = await scmEngineeringApi.listarArticulosScm();
+        setArticles(items || []);
+      }
+      await chooseMold(moldId, { preserveMetrics: true });
+    } catch (requestError) {
+      setError(scmEngineeringApi.mensajeErrorScm(
+        requestError,
+        'No se pudo habilitar el color en todas las piezas del molde.',
+      ));
+    } finally {
+      setColorMutationBusy(false);
+    }
+  };
+
   const updateRun = (index, changes) => setRuns((current) => current.map((run, runIndex) => {
     if (index !== runIndex) return run;
     const next = { ...run, ...changes };
@@ -326,6 +553,33 @@ export default function ExceptionalFabricationOrderDialog({
     }
     return next;
   }));
+
+  const openMasterPanel = (kind, runIndex, mode = 'catalog') => {
+    const run = runs[runIndex] || {};
+    setMasterPanel({
+      kind,
+      runIndex,
+      mode,
+      colorId: run.color_produccion_id || null,
+      selectedId: kind === 'recipe' ? (run.receta_revision_id || null) : (run.color_produccion_id || null),
+    });
+  };
+
+  const closeMasterPanel = () => {
+    if (masterBusy) return;
+    setMasterPanel(null);
+    setMasterDirty(false);
+  };
+  const selectMasterEntity = (entity) => {
+    if (!masterPanel || !entity) return;
+    if (masterPanel.kind === 'color') updateRun(masterPanel.runIndex, { color_produccion_id: entity.id, receta_revision_id: '' });
+    if (masterPanel.kind === 'recipe' && entity.estado === 'APROBADA') {
+      setLocalRecipes((current) => [...current.filter((item) => String(item.id) !== String(entity.id)), entity]);
+      updateRun(masterPanel.runIndex, { receta_revision_id: entity.id });
+      setError('');
+    }
+    setMasterPanel(null);
+  };
 
   const submit = async () => {
     if (!canSubmit) {
@@ -375,11 +629,18 @@ export default function ExceptionalFabricationOrderDialog({
   };
 
   return (
-    <Dialog open={open} onClose={busy || uncertainAttempt ? undefined : onClose} fullWidth maxWidth="md">
-      <DialogTitle>Nueva OF de reposición</DialogTitle>
+    <Dialog open={open} onClose={allBusy || masterDirty ? undefined : onClose} fullWidth maxWidth="md">
+      <DialogTitle>
+        {masterPanel
+          ? (masterPanel.kind === 'color' ? 'Administrar color de producción' : 'Administrar receta de color')
+          : moldWorkspace === 'create'
+            ? 'Crear molde para esta OF'
+            : moldWorkspace === 'catalog' ? 'Catálogo de moldes'
+            : moldWorkspace === 'detail' ? 'Ficha del molde' : 'Nueva OF de reposición'}
+      </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
-          <Alert severity="info">
+          <Alert severity="info" sx={{ display: parentFormVisible ? undefined : 'none' }}>
             Produce PiezaColor para stock sin inventar una OP ni un Producto Terminado. La OF queda
             en borrador y debe liberarse antes de crear OT y mangas.
           </Alert>
@@ -402,6 +663,49 @@ export default function ExceptionalFabricationOrderDialog({
               Verifica la bandeja antes de continuar.
             </Alert>
           )}
+          {masterPanel && (
+            <FirstOfMasterPanel
+              kind={masterPanel.kind}
+              mode={masterPanel.mode}
+              colorId={masterPanel.colorId}
+              selectedId={masterPanel.selectedId}
+              onBack={closeMasterPanel}
+              onSelect={selectMasterEntity}
+              onSaved={(entity, outcome = {}) => {
+                if (outcome.pending && masterPanel.kind === 'recipe' && entity?.id) {
+                  setLocalRecipes((current) => [...current.filter((item) => String(item.id) !== String(entity.id)), entity]);
+                  setError('Aún no puede usarse en la OF; falta aprobarla.');
+                  setMasterPanel({ ...masterPanel, mode: 'detail', selectedId: entity.id });
+                  setMasterDirty(false);
+                  return;
+                }
+                if (entity?.id && outcome.selectable === false && !outcome.pending) {
+                  setError('La formulación se guardó, pero todavía no es compatible con este color y objetivo. Revisa su ficha antes de seleccionarla.');
+                  setMasterPanel({ ...masterPanel, mode: 'detail', selectedId: entity.id });
+                  setMasterDirty(false);
+                  return;
+                }
+                if (outcome.selectable && entity?.id) {
+                  if (masterPanel.kind === 'color') {
+                    setLocalColors((current) => [
+                      ...current.filter((item) => String(item.id) !== String(entity.id)),
+                      entity,
+                    ]);
+                  }
+                  if (masterPanel.kind === 'color') updateRun(masterPanel.runIndex, { color_produccion_id: entity.id, receta_revision_id: '' });
+                  if (masterPanel.kind === 'recipe') {
+                    setLocalRecipes((current) => [...current.filter((item) => String(item.id) !== String(entity.id)), entity]);
+                    updateRun(masterPanel.runIndex, { receta_revision_id: entity.id });
+                    setError('');
+                  }
+                }
+                setMasterPanel(null);
+                setMasterDirty(false);
+              }}
+              onBusyChange={setMasterBusy}
+              onDirtyChange={setMasterDirty}
+            />
+          )}
           <TextField
             required
             fullWidth
@@ -411,10 +715,11 @@ export default function ExceptionalFabricationOrderDialog({
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             disabled={busy || Boolean(uncertainAttempt)}
+            sx={{ display: parentFormVisible ? undefined : 'none' }}
             helperText="Ej.: reposición autorizada de asas para futuros prearmados de balde."
           />
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
-            <FormControl fullWidth required={!processResolution.complete}>
+            <FormControl fullWidth required={!processResolution.complete} sx={{ display: parentFormVisible ? undefined : 'none' }}>
               <InputLabel id="exceptional-of-process-label">Proceso de fabricación</InputLabel>
               <Select
                 id="exceptional-of-process"
@@ -440,18 +745,143 @@ export default function ExceptionalFabricationOrderDialog({
                 <MenuItem value="SOPLADO">Soplado</MenuItem>
               </Select>
             </FormControl>
-            <SearchableCatalogAutocomplete
-              id="exceptional-of-mold"
-              label="Molde"
-              options={molds}
-              value={molds.find((item) => item.codigo === moldId) || (moldId ? { codigo: moldId, nombre: mold?.nombre || 'Molde seleccionado' } : null)}
-              onChange={(option) => chooseMold(option?.codigo || '')}
-              getOptionKey={(option) => option?.codigo}
-              getSearchText={(option) => [option?.nombre, option?.codigo, option?.revision].filter(Boolean).join(' ')}
-              disabled={busy || Boolean(uncertainAttempt)}
-              required
-              noOptionsText="No hay moldes"
-            />
+            <Box sx={{ gridColumn: '1 / -1' }}>
+              {moldWorkspace === 'select' && !masterPanel && (
+                <Stack spacing={1}>
+                  <SearchableCatalogAutocomplete
+                    id="exceptional-of-mold"
+                    label="Molde"
+                    options={moldCatalog}
+                    value={moldCatalog.find((item) => item.codigo === moldId) || (moldId ? { codigo: moldId, nombre: mold?.nombre || 'Molde seleccionado' } : null)}
+                    onChange={(option) => chooseMold(option?.codigo || '')}
+                    getOptionKey={(option) => option?.codigo}
+                    getSearchText={(option) => [option?.nombre, option?.codigo, option?.revision].filter(Boolean).join(' ')}
+                    disabled={busy || Boolean(uncertainAttempt) || moldMutationBusy || masterBusy || Boolean(moldUncertainAttempt) || Boolean(masterPanel)}
+                    required
+                    noOptionsText="No hay moldes"
+                    actions={[
+                      { label: 'Buscar en catálogo', icon: <SearchOutlinedIcon fontSize="small" />, onClick: openMoldCatalog },
+                      { label: 'Crear molde', icon: <AddCircleOutlineOutlinedIcon fontSize="small" />, onClick: openMoldCreator },
+                      { label: 'Ver ficha', icon: <InfoOutlinedIcon fontSize="small" />, onClick: () => setMoldWorkspace('detail'), disabled: !mold, ariaLabel: 'Ver ficha del molde' },
+                    ]}
+                  />
+                </Stack>
+              )}
+              {moldWorkspace === 'catalog' && !masterPanel && (
+                <Paper variant="outlined" sx={{ p: 2 }}>
+                  <Stack spacing={1.5}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                      <Box>
+                        <Typography component="h3" variant="h6" fontWeight={800}>Buscar molde en catálogo</Typography>
+                        <Typography variant="body2" color="text.secondary">Selecciona un molde existente para conservar el borrador de la OF.</Typography>
+                      </Box>
+                      <Button size="small" onClick={() => setMoldWorkspace('select')} disabled={allBusy}>Volver a OF</Button>
+                    </Stack>
+                    <TextField
+                      label="Buscar moldes"
+                      value={moldCatalogQuery}
+                      onChange={(event) => { setMoldCatalogQuery(event.target.value); setMoldCatalogPage(0); }}
+                      placeholder="Nombre o código"
+                      autoFocus
+                    />
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table size="small" aria-label="Catálogo de moldes">
+                        <TableHead><TableRow><TableCell>Molde</TableCell><TableCell>Código</TableCell><TableCell>Ciclo (s)</TableCell><TableCell>Composición</TableCell><TableCell align="right">Acción</TableCell></TableRow></TableHead>
+                        <TableBody>
+                          {visibleMoldCatalogRows.map((item) => (
+                            <TableRow key={item.codigo || item.id}>
+                              <TableCell><Typography fontWeight={750}>{item.nombre || 'Molde sin nombre'}</Typography></TableCell>
+                              <TableCell>{item.codigo || 'Sin código'}</TableCell>
+                              <TableCell>{item.tiempo_ciclo_std ?? '—'}</TableCell>
+                              <TableCell>
+                                {(item.formas || []).filter((shape) => shape.activo !== false).length
+                                  ? (item.formas || []).filter((shape) => shape.activo !== false).map((shape) => (
+                                  <Box key={shape.pieza_id || shape.id} sx={{ mb: 0.5 }}>
+                                    <Typography variant="body2" fontWeight={700}>{shape.nombre || 'Pieza sin nombre'}</Typography>
+                                    <Typography variant="caption" color="text.secondary">{shape.pieza_codigo || shape.pieza_id || 'Sin código'} · {shape.cavidades || 0} cavidades</Typography>
+                                  </Box>
+                                )) : '—'}
+                              </TableCell>
+                              <TableCell align="right"><Button size="small" variant="outlined" disabled={loadingMold || moldMutationBusy} onClick={() => { setMoldUncertainAttempt(null); setMoldMutationError(''); setMoldWorkspace('select'); chooseMold(item.codigo); }}>Seleccionar</Button></TableCell>
+                            </TableRow>
+                          ))}
+                          {!visibleMoldCatalogRows.length && <TableRow><TableCell colSpan={5}>No hay moldes que coincidan con la búsqueda.</TableCell></TableRow>}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Typography variant="caption" color="text.secondary">{moldCatalogRows.length} moldes</Typography>
+                      <Stack direction="row" spacing={1}>
+                        <Button size="small" disabled={moldCatalogPage <= 0} onClick={() => setMoldCatalogPage((page) => page - 1)}>Anterior</Button>
+                        <Typography variant="caption" sx={{ alignSelf: 'center' }}>Página {moldCatalogPage + 1} de {moldCatalogPageCount}</Typography>
+                        <Button size="small" disabled={moldCatalogPage >= moldCatalogPageCount - 1} onClick={() => setMoldCatalogPage((page) => page + 1)}>Siguiente</Button>
+                      </Stack>
+                    </Stack>
+                  </Stack>
+                </Paper>
+              )}
+              {moldWorkspace === 'create' && (
+                <Paper variant="outlined" sx={{ p: 2 }}>
+                  <Stack spacing={1.5}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">Configura las piezas, cavidades y pesos del molde.</Typography>
+                        <Typography variant="body2" color="text.secondary">El código y los SKU se asignan automáticamente al guardar.</Typography>
+                      </Box>
+                      <Button size="small" onClick={() => setMoldWorkspace('select')} disabled={moldMutationBusy || Boolean(moldUncertainAttempt)}>Volver a OF</Button>
+                    </Stack>
+                    {moldMutationError && <Alert severity="error">{moldMutationError}</Alert>}
+                    {moldUncertainAttempt && (
+                      <Alert severity="warning" action={<Button color="inherit" onClick={openMoldCatalog} disabled={moldMutationBusy}>Revisar catálogo</Button>}>
+                        Alta incierta: el borrador está conservado y no se enviará otro POST. Revisa el catálogo para reconciliar el molde antes de continuar.
+                      </Alert>
+                    )}
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1.5fr 1fr 1fr' }, gap: 1.5 }}>
+                      <TextField label="Nombre del molde" required value={moldDraft.nombre} onChange={(event) => setMoldDraft((current) => ({ ...current, nombre: event.target.value }))} disabled={moldMutationBusy || Boolean(moldUncertainAttempt)} />
+                      <TextField label="Peso de tiro (g)" required type="number" value={moldDraft.peso_tiro_gr} onChange={(event) => setMoldDraft((current) => ({ ...current, peso_tiro_gr: event.target.value }))} disabled={moldMutationBusy || Boolean(moldUncertainAttempt)} slotProps={{ htmlInput: { min: 0.001, step: 'any' } }} />
+                      <TextField label="Ciclo estándar (s)" required type="number" value={moldDraft.tiempo_ciclo_std} onChange={(event) => setMoldDraft((current) => ({ ...current, tiempo_ciclo_std: event.target.value }))} disabled={moldMutationBusy || Boolean(moldUncertainAttempt)} slotProps={{ htmlInput: { min: 0.001, step: 'any' } }} />
+                    </Box>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Box><Typography fontWeight={750}>Piezas del molde</Typography><Typography variant="caption" color="text.secondary">Cavidades y peso pertenecen a este molde.</Typography></Box>
+                      <Button startIcon={<AddOutlinedIcon />} size="small" onClick={() => setMoldDraft((current) => ({ ...current, piezas: [...current.piezas, emptyMoldPiece()] }))} disabled={moldMutationBusy || Boolean(moldUncertainAttempt)}>Añadir pieza</Button>
+                    </Stack>
+                    {(moldDraft.piezas || []).map((piece, index) => (
+                      <PieceCompositionEditor
+                        key={piece.client_id}
+                        index={index}
+                        piece={piece}
+                        piecesCatalog={pieceCatalog}
+                        onChange={(nextPiece) => setMoldDraft((current) => ({ ...current, piezas: current.piezas.map((item) => item.client_id === piece.client_id ? nextPiece : item) }))}
+                        onRemove={() => setMoldDraft((current) => ({ ...current, piezas: current.piezas.filter((item) => item.client_id !== piece.client_id) }))}
+                        disabled={moldMutationBusy}
+                        weightLabel="Peso neto por pieza (g)"
+                        weightHelperText="Peso neto de una unidad; el servidor asigna los códigos automáticamente."
+                      />
+                    ))}
+                    <Alert severity={Number(moldDraft.peso_tiro_gr) >= moldNetWeight ? 'info' : 'warning'}>
+                      Peso neto calculado: {moldNetWeight.toFixed(1)} g. El tiro debe ser igual o mayor.
+                    </Alert>
+                    <Button variant="contained" onClick={createContextualMold} disabled={moldMutationBusy || Boolean(moldUncertainAttempt)}>
+                      {moldMutationBusy ? 'Creando molde…' : 'Crear y usar este molde'}
+                    </Button>
+                  </Stack>
+                </Paper>
+              )}
+              {moldWorkspace === 'detail' && mold && (
+                <Paper variant="outlined" sx={{ p: 2 }}>
+                  <Stack spacing={1}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center"><Box><Typography component="h3" variant="h6" fontWeight={800}>{mold.nombre || moldId}</Typography><Typography variant="body2" color="text.secondary">Código {mold.codigo || moldId}</Typography></Box><Button size="small" onClick={() => setMoldWorkspace('select')}>Volver a OF</Button></Stack>
+                    <Typography variant="body2">Ciclo: {mold.tiempo_ciclo_std ?? '—'} s · Peso de tiro: {mold.peso_tiro_gr ?? mold.peso_colada_gr ?? '—'} g</Typography>
+                    {(mold.formas || []).filter((shape) => shape.activo !== false).map((shape) => (
+                      <Box key={shape.pieza_id || shape.id}>
+                        <Typography variant="body2" fontWeight={700}>{shape.nombre || 'Pieza sin nombre'}</Typography>
+                        <Typography variant="caption" color="text.secondary">{shape.pieza_codigo || shape.pieza_id || 'Sin código'} · {shape.cavidades || 0} cavidades · {formatGrams(shape.peso_unitario_gr)} g</Typography>
+                      </Box>
+                    ))}
+                  </Stack>
+                </Paper>
+              )}
+            </Box>
             <SearchableCatalogAutocomplete
               id="exceptional-of-machine"
               label="Máquina sugerida (opcional)"
@@ -462,8 +892,9 @@ export default function ExceptionalFabricationOrderDialog({
               getSearchText={(option) => [option?.nombre, option?.codigo, option?.revision].filter(Boolean).join(' ')}
               disabled={busy || Boolean(uncertainAttempt)}
               noOptionsText="No hay máquinas compatibles"
+              sx={{ display: parentFormVisible ? undefined : 'none' }}
             />
-            <Alert severity={processResolution.valid ? 'info' : 'warning'} sx={{ gridColumn: '1 / -1' }}>
+            <Alert severity={processResolution.valid ? 'info' : 'warning'} sx={{ gridColumn: '1 / -1', display: parentFormVisible ? undefined : 'none' }}>
               {processConflict
                 ? `Las rutas seleccionadas son ${linkedProcesses.map(fabricationProcessLabel).join(' y ')} y no coinciden con ${fabricationProcessLabel(processResolution.explicit)}. Cambia el proceso explícito o retira las referencias incompatibles.`
                 : processResolution.valid
@@ -471,17 +902,17 @@ export default function ExceptionalFabricationOrderDialog({
                 : 'Selecciona Inyección o Soplado. Si vinculas rutas, todas deben corresponder al mismo proceso.'}
             </Alert>
             {routeError && (
-              <Alert severity="warning" sx={{ gridColumn: '1 / -1' }}>
+              <Alert severity="warning" sx={{ gridColumn: '1 / -1', display: parentFormVisible ? undefined : 'none' }}>
                 {routeError} Puedes continuar con proceso explícito o reintentar al cambiar el molde/color.
               </Alert>
             )}
-            <TextField required type="number" label="Tiempo de ciclo (s)" value={cycleSeconds} onChange={(event) => setCycleSeconds(event.target.value)} disabled={busy || Boolean(uncertainAttempt)} slotProps={{ htmlInput: { min: 0.001, step: 'any' } }} />
-            <TextField required type="number" label="Horas de turno" value={shiftHours} onChange={(event) => setShiftHours(event.target.value)} disabled={busy || Boolean(uncertainAttempt)} slotProps={{ htmlInput: { min: 0.1, step: 'any' } }} />
-            <TextField type="number" label="Peso de colada (g)" value={runnerWeight} onChange={(event) => setRunnerWeight(event.target.value)} disabled={busy || Boolean(uncertainAttempt)} slotProps={{ htmlInput: { min: 0, step: 'any' } }} />
+            <TextField required type="number" label="Tiempo de ciclo (s)" value={cycleSeconds} onChange={(event) => setCycleSeconds(event.target.value)} disabled={busy || Boolean(uncertainAttempt)} sx={{ display: parentFormVisible ? undefined : 'none' }} slotProps={{ htmlInput: { min: 0.001, step: 'any' } }} />
+            <TextField required type="number" label="Horas de turno" value={shiftHours} onChange={(event) => setShiftHours(event.target.value)} disabled={busy || Boolean(uncertainAttempt)} sx={{ display: parentFormVisible ? undefined : 'none' }} slotProps={{ htmlInput: { min: 0.1, step: 'any' } }} />
+            <TextField type="number" label="Peso de colada (g)" value={runnerWeight} onChange={(event) => setRunnerWeight(event.target.value)} disabled={busy || Boolean(uncertainAttempt)} sx={{ display: parentFormVisible ? undefined : 'none' }} slotProps={{ htmlInput: { min: 0, step: 'any' } }} />
           </Box>
 
-          <Divider />
-          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={1}>
+          <Divider sx={{ display: parentFormVisible ? undefined : 'none' }} />
+          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={1} sx={{ display: parentFormVisible ? undefined : 'none' }}>
             <Box>
               <Typography variant="h6" component="h3" fontWeight={800}>Objetivos por color</Typography>
               <Typography variant="body2" color="text.secondary">Cada objetivo produce todas las formas activas del molde en el color seleccionado.</Typography>
@@ -498,34 +929,33 @@ export default function ExceptionalFabricationOrderDialog({
             </Button>
           </Stack>
 
-          {runs.map((run, runIndex) => (
+          {parentFormVisible && runs.map((run, runIndex) => (
             <Paper key={run.key} variant="outlined" sx={{ p: 2 }}>
               <Stack spacing={1.5}>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
-                  <FormControl fullWidth required>
-                    <InputLabel id={`exceptional-of-run-${run.key}-color-label`}>
-                      {`Color del objetivo ${runIndex + 1}`}
-                    </InputLabel>
-                    <Select
-                      id={`exceptional-of-run-${run.key}-color`}
-                      labelId={`exceptional-of-run-${run.key}-color-label`}
-                      label={`Color del objetivo ${runIndex + 1}`}
-                      value={run.color_produccion_id}
-                      onChange={(event) => updateRun(runIndex, {
-                        color_produccion_id: event.target.value,
-                        receta_revision_id: defaultRecipeForRun(
-                          recipes,
-                          { salidas: [] },
-                          event.target.value,
-                        )?.id || '',
-                      })}
-                      disabled={busy || Boolean(uncertainAttempt)}
-                    >
-                      {colors.map((color) => (
-                        <MenuItem key={color.id} value={color.id}>{colorLabel(color)}</MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                  <SearchableCatalogAutocomplete
+                    id={`exceptional-of-run-${run.key}-color`}
+                    label={`Color del objetivo ${runIndex + 1}`}
+                    options={colorOptions}
+                    value={colorOptions.find((color) => String(color.id) === String(run.color_produccion_id)) || null}
+                    onChange={(option) => updateRun(runIndex, {
+                      color_produccion_id: option?.id || '',
+                      receta_revision_id: defaultRecipeForRun(recipeOptions, { salidas: [] }, option?.id)?.id || '',
+                    })}
+                    getOptionKey={(option) => option?.id}
+                    getPrimary={colorLabel}
+                    getSecondary={(option) => [option?.codigo || option?.code, option?.hex_referencia || option?.color_hex].filter(Boolean).join(' · ')}
+                    getSearchText={(option) => [colorLabel(option), option?.codigo, option?.hex_referencia, option?.familia_color?.nombre].filter(Boolean).join(' ')}
+                    getColorHex={(option) => option?.hex_referencia || option?.color_hex}
+                    disabled={allBusy}
+                    required
+                    noOptionsText="No hay colores"
+                    actions={[
+                      { label: 'Buscar en catálogo', icon: <SearchOutlinedIcon fontSize="small" />, onClick: () => openMasterPanel('color', runIndex, 'catalog') },
+                      { label: 'Crear color', icon: <AddCircleOutlineOutlinedIcon fontSize="small" />, onClick: () => openMasterPanel('color', runIndex, 'create') },
+                      { label: 'Ver ficha', icon: <InfoOutlinedIcon fontSize="small" />, onClick: () => openMasterPanel('color', runIndex, 'detail'), disabled: !run.color_produccion_id },
+                    ]}
+                  />
                   <WeightInput
                     fullWidth
                     unit="kg"
@@ -573,12 +1003,13 @@ export default function ExceptionalFabricationOrderDialog({
                     idPrefix={`exceptional-run-${run.key}`}
                     run={{ salidas: [] }}
                     colorId={run.color_produccion_id}
-                    recipes={recipes}
+                    recipes={recipeOptions}
                     value={run.receta_revision_id}
                     editable={!busy && !uncertainAttempt}
                     onChange={(recipeId) => updateRun(runIndex, {
                       receta_revision_id: recipeId,
                     })}
+                    onOpenWorkspace={() => openMasterPanel('recipe', runIndex, 'catalog')}
                   />
                 )}
                 {run.color_produccion_id && (
@@ -633,15 +1064,27 @@ export default function ExceptionalFabricationOrderDialog({
                     )}
                   </Alert>
                 ))}
+                {run.color_produccion_id
+                  && outputGroups[runIndex].length > 0
+                  && outputGroups[runIndex].some((output) => !output.variant || !output.article)
+                  && (
+                    <Button
+                      variant="outlined"
+                      onClick={() => enableColorForMold(run.color_produccion_id)}
+                      disabled={busy || colorMutationBusy || Boolean(uncertainAttempt) || loadingMold}
+                    >
+                      {colorMutationBusy ? 'Habilitando color…' : 'Habilitar color en todo el molde'}
+                    </Button>
+                  )}
               </Stack>
             </Paper>
           ))}
-          {duplicateColors && <Alert severity="warning">No repitas el mismo color en dos objetivos.</Alert>}
+          {parentFormVisible && duplicateColors && <Alert severity="warning">No repitas el mismo color en dos objetivos.</Alert>}
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={busy || Boolean(uncertainAttempt)}>Cancelar</Button>
-        <Button variant="contained" onClick={submit} disabled={!canSubmit}>
+        <Button onClick={onClose} disabled={allBusy || masterDirty} sx={{ display: parentFormVisible || moldWorkspace === 'create' ? undefined : 'none' }}>Cancelar</Button>
+        <Button variant="contained" onClick={submit} disabled={!canSubmit} sx={{ display: parentFormVisible ? undefined : 'none' }}>
           {busy ? 'Creando...' : 'Crear OF en borrador'}
         </Button>
       </DialogActions>

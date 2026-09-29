@@ -1519,8 +1519,13 @@ export default function FabricationOrdersScm() {
         recipes={recipes}
         onClose={() => setExceptionalOpen(false)}
         onCreated={async (created) => {
+          await Promise.all([
+            loadCatalog('moldes'),
+            loadCatalog('colores'),
+            loadCatalog('recetas'),
+          ]);
           setExceptionalOpen(false);
-            setNotice(`${created.codigo} creada como reposición en borrador. Revísala y libérala para continuar con OT y mangas.`);
+          setNotice(`${created.codigo} creada como reposición en borrador. Revísala y libérala para continuar con OT y mangas.`);
           updateQuery({ of: created.id });
         }}
       />

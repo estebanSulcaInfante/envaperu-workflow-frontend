@@ -5,10 +5,21 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ExceptionalFabricationOrderDialog from '../components/ExceptionalFabricationOrderDialog';
 
-const api = vi.hoisted(() => ({ create: vi.fn(), mold: vi.fn(), articles: vi.fn(), routes: vi.fn() }));
+const api = vi.hoisted(() => ({
+  create: vi.fn(), mold: vi.fn(), articles: vi.fn(), routes: vi.fn(),
+  createMold: vi.fn(), pieces: vi.fn(), enableColor: vi.fn(),
+  molds: vi.fn(),
+}));
 
-vi.mock('../services/api', () => ({ obtenerMolde: api.mold }));
+vi.mock('../services/api', () => ({
+  obtenerMolde: api.mold,
+  crearMolde: api.createMold,
+  buscarPiezasGlobales: api.pieces,
+  habilitarColorMolde: api.enableColor,
+  obtenerMoldes: api.molds,
+}));
 vi.mock('../services/scmEngineeringApi', () => ({
+  obtenerActorScm: () => 1,
   listarArticulosScm: api.articles,
   listarRutasArticuloScm: api.routes,
   mensajeErrorScm: (error, fallback) => error?.message || fallback,
@@ -57,7 +68,130 @@ describe('alta de reposición: intento idempotente', () => {
       id: 99, codigo: 'ART-1', clase: 'PIEZA_COLOR', subtipo: { pieza_color_sku: 'SKU-1' },
     }]);
     api.routes.mockResolvedValue([]);
+    api.pieces.mockResolvedValue([]);
+    api.molds.mockResolvedValue([{ ...mold, nombre: 'Molde catálogo', formas: mold.formas }]);
+    api.createMold.mockReset();
+    api.enableColor.mockReset();
     api.create.mockReset();
+  });
+
+  it('expone acciones contextuales del molde dentro de la misma ventana', async () => {
+    renderDialog();
+    await userEvent.click(screen.getByRole('button', { name: 'Molde: acciones' }));
+    expect(screen.getByRole('menuitem', { name: 'Buscar en catálogo' })).toBeVisible();
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Crear molde' }));
+    expect(screen.getByRole('heading', { name: 'Crear molde para esta OF', level: 2 })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Volver a OF' })).toBeVisible();
+  });
+
+  it('crea el molde y sus piezas en un payload atómico sin identificadores manuales', async () => {
+    const user = userEvent.setup();
+    api.createMold.mockResolvedValue({ codigo: 'MOL-000123', nombre: 'Molde nuevo' });
+    renderDialog();
+    await user.click(screen.getByRole('button', { name: 'Molde: acciones' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Crear molde' }));
+    await user.type(screen.getByRole('textbox', { name: 'Nombre del molde' }), 'Molde nuevo');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso de tiro (g)' }), '120');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso neto por pieza (g)' }), '50');
+    await user.type(screen.getByRole('textbox', { name: 'Nombre de la pieza' }), 'Pieza técnica');
+    await user.click(screen.getByRole('button', { name: 'Crear y usar este molde' }));
+    await waitFor(() => expect(api.createMold).toHaveBeenCalledWith({
+      nombre: 'Molde nuevo',
+      peso_tiro_gr: 120,
+      tiempo_ciclo_std: 30,
+      piezas: [{ nombre: 'Pieza técnica', peso_nominal_gr: 50, cavidades: 1, peso_unitario_gr: 50 }],
+    }));
+    expect(api.createMold.mock.calls[0][0]).not.toHaveProperty('codigo');
+  });
+
+  it('libera los inputs tras un 4xx de molde y permite corregir el mismo borrador', async () => {
+    const user = userEvent.setup();
+    api.createMold.mockRejectedValueOnce({ response: { status: 422 }, message: 'nombre inválido' })
+      .mockResolvedValueOnce({ codigo: 'MOL-000124', nombre: 'Molde corregido' });
+    renderDialog();
+    await user.click(screen.getByRole('button', { name: 'Molde: acciones' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Crear molde' }));
+    await user.type(screen.getByRole('textbox', { name: 'Nombre del molde' }), 'Molde inicial');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso de tiro (g)' }), '120');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso neto por pieza (g)' }), '50');
+    await user.type(screen.getByRole('textbox', { name: 'Nombre de la pieza' }), 'Pieza técnica');
+    await user.click(screen.getByRole('button', { name: 'Crear y usar este molde' }));
+    expect(await screen.findByText('nombre inválido')).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Nombre del molde' })).not.toBeDisabled();
+    await user.clear(screen.getByRole('textbox', { name: 'Nombre del molde' }));
+    await user.type(screen.getByRole('textbox', { name: 'Nombre del molde' }), 'Molde corregido');
+    await user.click(screen.getByRole('button', { name: 'Crear y usar este molde' }));
+    await waitFor(() => expect(api.createMold).toHaveBeenCalledTimes(2));
+  });
+
+  it('bloquea un alta de molde con respuesta incierta y conserva el payload sin segundo POST', async () => {
+    const user = userEvent.setup();
+    api.createMold.mockResolvedValue({ nombre: 'Molde sin código' });
+    renderDialog();
+    await user.click(screen.getByRole('button', { name: 'Molde: acciones' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Crear molde' }));
+    await user.type(screen.getByRole('textbox', { name: 'Nombre del molde' }), 'Molde incierto');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso de tiro (g)' }), '120');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso neto por pieza (g)' }), '50');
+    await user.type(screen.getByRole('textbox', { name: 'Nombre de la pieza' }), 'Pieza técnica');
+    await user.click(screen.getByRole('button', { name: 'Crear y usar este molde' }));
+    expect(await screen.findByText(/Alta incierta/)).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Nombre del molde' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Crear y usar este molde' })).toBeDisabled();
+    expect(api.createMold).toHaveBeenCalledTimes(1);
+  });
+
+  it('mantiene abierta la ventana y bloquea Cancelar mientras el POST de molde está pendiente', async () => {
+    const user = userEvent.setup();
+    let resolveCreate;
+    api.createMold.mockImplementation(() => new Promise((resolve) => { resolveCreate = resolve; }));
+    renderDialog();
+    await user.click(screen.getByRole('button', { name: 'Molde: acciones' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Crear molde' }));
+    await user.type(screen.getByRole('textbox', { name: 'Nombre del molde' }), 'Molde pendiente');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso de tiro (g)' }), '120');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso neto por pieza (g)' }), '50');
+    await user.type(screen.getByRole('textbox', { name: 'Nombre de la pieza' }), 'Pieza técnica');
+    await user.click(screen.getByRole('button', { name: 'Crear y usar este molde' }));
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    resolveCreate({ codigo: 'MOL-000125', nombre: 'Molde pendiente' });
+    await waitFor(() => expect(api.createMold).toHaveBeenCalledTimes(1));
+  });
+
+  it('permite recuperar un alta incierta desde catálogo y volver a la OF', async () => {
+    const user = userEvent.setup();
+    api.createMold.mockResolvedValue({ nombre: 'Molde sin código' });
+    api.molds.mockResolvedValue([{ ...mold, nombre: 'Molde reconciliable' }]);
+    renderDialog();
+    await user.click(screen.getByRole('button', { name: 'Molde: acciones' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Crear molde' }));
+    await user.type(screen.getByRole('textbox', { name: 'Nombre del molde' }), 'Molde incierto');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso de tiro (g)' }), '120');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso neto por pieza (g)' }), '50');
+    await user.type(screen.getByRole('textbox', { name: 'Nombre de la pieza' }), 'Pieza técnica');
+    await user.click(screen.getByRole('button', { name: 'Crear y usar este molde' }));
+    await user.click(await screen.findByRole('button', { name: 'Revisar catálogo' }));
+    expect(await screen.findByRole('heading', { name: 'Catálogo de moldes' })).toBeVisible();
+    await user.click(await screen.findByRole('button', { name: 'Seleccionar' }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Molde' })).toHaveValue('Molde reconciliable'));
+    expect(screen.getByRole('button', { name: 'Cancelar' })).not.toBeDisabled();
+  });
+
+  it('habilita el color en todo el molde y refresca sus variantes', async () => {
+    const user = userEvent.setup();
+    api.mold
+      .mockResolvedValueOnce({ ...mold, formas: [{ ...mold.formas[0], variantes: [] }] })
+      .mockResolvedValueOnce(mold);
+    api.enableColor.mockResolvedValue({ variantes_creadas: [{ sku: 'SKU-1' }] });
+    renderDialog();
+    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    await user.click(screen.getByRole('option', { name: /Molde 1/ }));
+    await user.click(screen.getByRole('combobox', { name: 'Color del objetivo 1' }));
+    await user.click(screen.getByRole('option', { name: 'Rojo' }));
+    await user.click(await screen.findByRole('button', { name: 'Habilitar color en todo el molde' }));
+    await waitFor(() => expect(api.enableColor).toHaveBeenCalledWith('M-1', 1));
+    expect(api.mold.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 
   it('conserva payload y clave al reintentar un timeout de red', async () => {

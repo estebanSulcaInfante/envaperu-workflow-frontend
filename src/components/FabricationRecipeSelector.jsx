@@ -70,7 +70,9 @@ export default function FabricationRecipeSelector({
         <Alert severity="warning">
           {editable
             ? (onOpenWorkspace
-              ? 'Este color no tiene una formulación aprobada compatible con el objetivo. Crea o aprueba una aquí antes de liberar la OF. '
+              ? (approved.length
+                ? 'Hay formulaciones aprobadas compatibles. Selecciona una para asociarla a este objetivo o crea una nueva aquí. '
+                : 'Este color no tiene una formulación aprobada compatible con el objetivo. Crea o aprueba una aquí antes de liberar la OF. ')
               : 'Este color no tiene una formulación aprobada compatible. Tu perfil no puede crearla; solicita administración de artículos. ')
             : 'Este objetivo no conserva una formulación visible. Revísalo en Datos maestros. '}
           <Link component={RouterLink} to="/datos-maestros/colores" fontWeight={700}>

@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  Autocomplete, Box, CircularProgress, Stack, TextField, Typography,
+  Autocomplete, Box, CircularProgress, IconButton, Menu, MenuItem, Stack, TextField, Typography,
 } from '@mui/material';
+import MoreVertOutlinedIcon from '@mui/icons-material/MoreVertOutlined';
 
 const normalize = (value) => String(value ?? '')
   .normalize('NFD')
@@ -40,7 +41,10 @@ export default function SearchableCatalogAutocomplete({
   noOptionsText = 'Sin coincidencias',
   clearText = 'Limpiar selección',
   size = 'small',
+  sx,
+  actions = [],
 }) {
+  const [actionsAnchor, setActionsAnchor] = useState(null);
   const normalizedOptions = useMemo(() => options.filter(Boolean), [options]);
   const valueKey = value == null ? null : String(getOptionKey(value));
   const selectedValue = normalizedOptions.find((option) => String(getOptionKey(option)) === valueKey) || value;
@@ -92,12 +96,13 @@ export default function SearchableCatalogAutocomplete({
           </Box>
         );
       }}
-      renderInput={(params) => (
-        <TextField
+      renderInput={(params) => {
+        const input = (<TextField
           {...params}
           label={label}
           required={required}
           size={size}
+          sx={sx}
           placeholder={placeholder}
           error={error}
           helperText={helperText || (selectedValue ? getSecondary(selectedValue) : undefined)}
@@ -108,11 +113,52 @@ export default function SearchableCatalogAutocomplete({
               <>
                 {loading ? <CircularProgress color="inherit" size={18} /> : null}
                 {params.InputProps.endAdornment}
+                {actions.length > 0 && (
+                  <IconButton
+                    size="small"
+                    edge="end"
+                    aria-label={`${label}: acciones`}
+                    aria-haspopup="menu"
+                    aria-expanded={actionsAnchor ? 'true' : undefined}
+                    disabled={disabled}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => setActionsAnchor(event.currentTarget)}
+                  >
+                    <MoreVertOutlinedIcon fontSize="small" />
+                  </IconButton>
+                )}
               </>
             ),
           }}
-        />
-      )}
+        />);
+        if (!actions.length) return input;
+        return (
+          <>
+            {input}
+            <Menu
+              anchorEl={actionsAnchor}
+              open={Boolean(actionsAnchor)}
+              onClose={() => setActionsAnchor(null)}
+              MenuListProps={{ 'aria-label': `${label}: acciones` }}
+            >
+              {actions.map((action) => (
+                <MenuItem
+                  key={action.label}
+                  onClick={() => {
+                    setActionsAnchor(null);
+                    action.onClick?.();
+                  }}
+                  disabled={disabled || action.disabled}
+                  aria-label={action.ariaLabel || action.label}
+                >
+                  {action.icon && <Box component="span" sx={{ display: 'inline-flex', mr: 1 }}>{action.icon}</Box>}
+                  {action.label}
+                </MenuItem>
+              ))}
+            </Menu>
+          </>
+        );
+      }}
     />
   );
 }
