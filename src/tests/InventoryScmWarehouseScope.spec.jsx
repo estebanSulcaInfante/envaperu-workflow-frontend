@@ -1,6 +1,7 @@
 import { createTheme, ThemeProvider } from '@mui/material';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import InventoryScm from '../components/InventoryScm';
 
@@ -14,7 +15,7 @@ const inventoryApi = vi.hoisted(() => ({
   listarMovimientosInventarioScm: vi.fn(),
   registrarMovimientoInventarioScm: vi.fn(),
 }));
-const actorApi = vi.hoisted(() => ({ can: vi.fn() }));
+const actorApi = vi.hoisted(() => ({ actorId: 1, can: vi.fn() }));
 vi.mock('../services/scmWarehouseOperationsApi', () => warehouseApi);
 vi.mock('../services/scmInventoryApi', () => inventoryApi);
 vi.mock('../services/scmEngineeringApi', () => ({
@@ -23,18 +24,19 @@ vi.mock('../services/scmEngineeringApi', () => ({
 }));
 vi.mock('../services/scmCatalogApi', () => ({ listarMaterialesScm: vi.fn().mockResolvedValue([]) }));
 vi.mock('../context/ScmActorContext', () => ({
-  useScmActor: () => ({ can: actorApi.can }),
+  useScmActor: () => ({ actorId: actorApi.actorId, can: actorApi.can }),
 }));
 vi.mock('../components/InventoryOpeningScm', () => ({
   default: ({ onClose }) => onClose && <button type="button" onClick={onClose}>Cerrar apertura</button>,
 }));
 
-const renderView = () => render(<ThemeProvider theme={createTheme()}><InventoryScm /></ThemeProvider>);
+const renderView = (path = '/') => render(<ThemeProvider theme={createTheme()}><MemoryRouter initialEntries={[path]}><InventoryScm /></MemoryRouter></ThemeProvider>);
 
 describe('Kardex según alcance de almacén', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    actorApi.can.mockImplementation((code) => code === 'INVENTARIO_AJUSTAR');
+    actorApi.actorId = 1;
+    actorApi.can.mockImplementation((code) => ['INVENTARIO_VER', 'INVENTARIO_AJUSTAR'].includes(code));
     inventoryApi.explorarSaldosInventarioScm.mockResolvedValue({
       items: [], page: { total: 0, has_more: false, next_cursor: null, limit: 25 },
     });
@@ -87,6 +89,104 @@ describe('Kardex según alcance de almacén', () => {
     await userEvent.click(screen.getByRole('button', { name: /Más acciones/i }));
     expect(await screen.findByText('Apertura inicial')).toBeVisible();
     expect(screen.getByRole('menuitem', { name: /Registrar movimiento/i })).toBeVisible();
+  });
+
+  it('muestra Por almacén con familias separadas y abre existencias del almacén completo', async () => {
+    const user = userEvent.setup();
+    actorApi.can.mockImplementation((code) => (
+      ['INVENTARIO_VER', 'INVENTARIO_CONTROL_TRANSVERSAL'].includes(code)
+    ));
+    warehouseApi.obtenerAlcanceAlmacenScm.mockResolvedValue({
+      configurado: true, control_transversal: true, almacenes: [],
+    });
+    warehouseApi.obtenerResumenInventarioScm.mockResolvedValue({
+      items: [{ almacen_id: 'legacy', posiciones: 3, unidad: 'UN', fisico: '999.000', reservado: '0.000', no_disponible: '0.000' }],
+      materiales: [], piezas_kg: [],
+      familias: [
+        {
+          almacen_id: 'warehouse-1', almacen_codigo: 'ALM-PZ', almacen_nombre: 'Producción',
+          clase: 'PIEZA_COLOR', unidad: 'KG', posiciones: 2,
+          fisico: '18.700', reservado: '2.000', no_disponible: '0.000', libre: '16.700',
+        },
+        {
+          almacen_id: 'warehouse-1', almacen_codigo: 'ALM-PZ', almacen_nombre: 'Producción',
+          clase: 'PRODUCTO_TERMINADO', unidad: 'UN', posiciones: 1,
+          fisico: '4.000', reservado: '0.000', no_disponible: '0.000', libre: '4.000',
+        },
+        {
+          almacen_id: 'warehouse-1', almacen_codigo: 'ALM-PZ', almacen_nombre: 'Producción',
+          clase: 'PIEZA_COLOR', unidad: 'UN', posiciones: 1,
+          fisico: '20.000', reservado: '0.000', no_disponible: '0.000', libre: '20.000',
+        },
+      ],
+    });
+    inventoryApi.explorarSaldosInventarioScm.mockResolvedValue({
+      items: [], page: { total: 0, has_more: false, next_cursor: null, limit: 25 },
+    });
+
+    renderView();
+    await screen.findByRole('heading', { name: 'Kardex y existencias' });
+    await user.click(screen.getByRole('button', { name: 'Por almacén' }));
+    expect(await screen.findByRole('heading', { name: 'Existencias por almacén' })).toBeVisible();
+    expect(screen.getByText('Piezas y WIP · KG')).toBeVisible();
+    expect(screen.getByText('Producto terminado · UN')).toBeVisible();
+    expect(screen.getAllByText('16.70 KG').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('4 UN').length).toBeGreaterThan(0);
+    expect(screen.queryByText('999.000 UN')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Existencias' }));
+    await waitFor(() => expect(
+      screen.getAllByText(/Físico:/).map((element) => element.parentElement?.textContent),
+    ).toContain('Físico: 18.70 KG'));
+    expect(screen.getAllByText(/Físico:/).map((element) => element.parentElement?.textContent))
+      .not.toContain('Físico: 38.70 KG');
+    await user.click(screen.getByRole('button', { name: 'Por almacén' }));
+
+    await user.click(screen.getAllByRole('button', { name: 'Ver existencias' })[0]);
+    await waitFor(() => expect(inventoryApi.explorarSaldosInventarioScm).toHaveBeenLastCalledWith(
+      expect.objectContaining({ almacen_id: 'warehouse-1', kardex: 'PIEZAS_WIP', unidad: 'KG' }),
+    ));
+    expect(screen.getByRole('button', { name: 'Existencias' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Volver a almacenes' }));
+    await user.type(screen.getByRole('textbox', { name: 'Buscar almacén' }), 'Producción');
+    await user.click(screen.getAllByRole('button', { name: 'Ver existencias' })[2]);
+    await waitFor(() => expect(inventoryApi.explorarSaldosInventarioScm).toHaveBeenLastCalledWith(
+      expect.objectContaining({ almacen_id: 'warehouse-1', kardex: 'PIEZAS_WIP', unidad: 'UN' }),
+    ));
+    await user.click(screen.getByRole('button', { name: 'Volver a almacenes' }));
+    expect(screen.getByRole('textbox', { name: 'Buscar almacén' })).toHaveValue('Producción');
+  });
+
+  it('abre el enlace de almacenes y muestra recencia sin una segunda tabla de existencias', async () => {
+    actorApi.can.mockReturnValue(true);
+    warehouseApi.obtenerAlcanceAlmacenScm.mockResolvedValue({ configurado: true, control_transversal: true, almacenes: [] });
+    warehouseApi.obtenerResumenInventarioScm.mockResolvedValue({ as_of: '2026-09-29T17:00:00', familias: [] });
+    renderView('/almacen/kardex?vista=almacenes&q=Centro');
+    expect(await screen.findByRole('heading', { name: 'Existencias por almacén' })).toBeVisible();
+    expect(screen.getByText(/Consultado:.*12:00:00.*\(Lima\)/)).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Buscar almacén' })).toHaveValue('Centro');
+    expect(screen.queryByRole('table', { name: 'Saldos del Kardex' })).not.toBeInTheDocument();
+  });
+
+  it('un permiso transversal sin lectura no consulta ninguna fuente', () => {
+    actorApi.can.mockImplementation((code) => code === 'INVENTARIO_CONTROL_TRANSVERSAL');
+    renderView('/almacen/kardex?vista=almacenes');
+    expect(screen.getByText('No tienes permiso para consultar inventario.')).toBeVisible();
+    expect(warehouseApi.obtenerResumenInventarioScm).not.toHaveBeenCalled();
+    expect(inventoryApi.explorarSaldosInventarioScm).not.toHaveBeenCalled();
+  });
+
+  it('retira las filas de otro actor inmediatamente y descarta la respuesta tardía', async () => {
+    let resolveOld;
+    warehouseApi.obtenerAlcanceAlmacenScm.mockResolvedValue({ configurado: false, control_transversal: true, almacenes: [] });
+    inventoryApi.explorarSaldosInventarioScm.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    const mounted = renderView();
+    await screen.findByRole('heading', { name: 'Kardex y existencias' });
+    actorApi.actorId = 2;
+    mounted.rerender(<ThemeProvider theme={createTheme()}><MemoryRouter><InventoryScm /></MemoryRouter></ThemeProvider>);
+    await act(async () => resolveOld({ items: [{ id: 'old', articulo: { nombre: 'Saldo de otro actor', codigo: 'PC-OLD' }, ubicacion: {} }], page: { total: 1 } }));
+    expect(screen.queryByText('Saldo de otro actor')).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Kardex y existencias' })).toBeVisible();
   });
 
   it('permite cerrar Apertura inicial desde la pantalla secundaria', async () => {
@@ -289,7 +389,7 @@ describe('Kardex según alcance de almacén', () => {
     expect(screen.getByText('Producto terminado · UN')).toBeVisible();
     await waitFor(() => expect(
       screen.getAllByText(/Físico:/).map((element) => element.parentElement?.textContent),
-    ).toEqual(expect.arrayContaining(['Físico: 15 KG', 'Físico: 4 UN', 'Físico: 10 KG'])));
+    ).toEqual(expect.arrayContaining(['Físico: 15.00 KG', 'Físico: 4 UN', 'Físico: 10.00 KG'])));
   });
 
   it('no consulta ni muestra movimientos KG para un alcance solo PT', async () => {

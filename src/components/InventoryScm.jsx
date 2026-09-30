@@ -10,6 +10,8 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { warehouseFamilyRows, WAREHOUSE_FAMILIES, inventoryTimestamp } from './inventoryWarehouseModel';
 import PageHeader from './ui/PageHeader';
 import InventoryOpeningScm from './InventoryOpeningScm';
 import { useScmActor } from '../context/ScmActorContext';
@@ -23,6 +25,7 @@ import {
   registrarMovimientoInventarioScm,
 } from '../services/scmInventoryApi';
 import { listarMaterialesScm } from '../services/scmCatalogApi';
+import { formatKg } from '../utils/weightDisplay';
 import {
   obtenerAlcanceAlmacenScm,
   obtenerResumenInventarioScm,
@@ -209,12 +212,71 @@ function MovementGrid({ items, busy }) {
   );
 }
 
+function WarehouseFamilyGrid({ families, busy, onView }) {
+  return (
+    <TableContainer sx={{ maxHeight: 560 }}>
+      <Table size="small" stickyHeader aria-label="Resumen de existencias por almacén">
+        <TableHead><TableRow>
+          <TableCell>Almacén</TableCell><TableCell>Familia</TableCell><TableCell>Unidad</TableCell>
+          <TableCell align="right">Posiciones</TableCell><TableCell align="right">Físico</TableCell>
+          <TableCell align="right">Reservado</TableCell><TableCell align="right">No disponible</TableCell>
+          <TableCell align="right">Libre</TableCell><TableCell align="right">Consulta</TableCell>
+        </TableRow></TableHead>
+        <TableBody>
+          {families.map((family) => {
+            const kg = String(family.unidad || '').toUpperCase() === 'KG';
+            const display = (value) => value == null ? '—' : (kg
+              ? formatKg(value)
+              : Number(value || 0).toLocaleString('es-PE', { maximumFractionDigits: 3 }));
+            return (
+              <TableRow key={family.key}>
+                <TableCell>
+                  <Typography fontWeight={750}>{family.almacen_nombre || 'Almacén no informado'}</Typography>
+                  <Typography variant="caption" color="text.secondary">{family.almacen_codigo || 'Código no informado'}</Typography>
+                </TableCell>
+                <TableCell>{family.label}</TableCell>
+                <TableCell><Chip size="small" variant="outlined" label={family.unidad || 'UN'} /></TableCell>
+                <TableCell align="right">{family.posiciones ?? '—'}</TableCell>
+                <TableCell align="right">{display(family.fisico)} {family.unidad || 'UN'}</TableCell>
+                <TableCell align="right">{display(family.reservado)} {family.unidad || 'UN'}</TableCell>
+                <TableCell align="right">{display(family.no_disponible)} {family.unidad || 'UN'}</TableCell>
+                <TableCell align="right"><Chip size="small" color={Number(family.libre) > 0 ? 'success' : 'default'} label={`${display(family.libre)} ${family.unidad || 'UN'}`} /></TableCell>
+                <TableCell align="right"><Button size="small" onClick={() => onView(family)}>Ver existencias</Button></TableCell>
+              </TableRow>
+            );
+          })}
+          {!busy && families.length === 0 && (
+            <TableRow><TableCell colSpan={9}>
+              <Alert severity="info">El resumen por almacén no está disponible o no tiene saldos visibles.</Alert>
+            </TableCell></TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+}
+
 export default function InventoryScm() {
-  const { can } = useScmActor();
+  const { actorId, can } = useScmActor();
+  const permissions = ['INVENTARIO_VER', 'INVENTARIO_CONTROL_TRANSVERSAL', 'INVENTARIO_AJUSTAR', 'INVENTARIO_SALDO_INICIAL'].map((permission) => can(permission) ? '1' : '0').join('');
+  if (!can('INVENTARIO_VER')) return <Alert severity="warning">No tienes permiso para consultar inventario.</Alert>;
+  return <InventoryWorkspace key={`${actorId}:${permissions}`} />;
+}
+
+function InventoryWorkspace() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { actorId, can } = useScmActor();
+  const permissionKey = [
+    'INVENTARIO_VER', 'INVENTARIO_CONTROL_TRANSVERSAL', 'INVENTARIO_AJUSTAR',
+  ].map((capability) => `${capability}:${can(capability) ? '1' : '0'}`).join('|');
+  const identityKey = `${actorId}:${permissionKey}`;
   const canAdjust = can('INVENTARIO_AJUSTAR');
   const [rows, setRows] = useState([]);
   const [pageMeta, setPageMeta] = useState({ total: 0, has_more: false, next_cursor: null });
   const [summary, setSummary] = useState({ items: [], materiales: [], piezas_kg: [] });
+  const [summaryState, setSummaryState] = useState('loading');
+  const [summaryError, setSummaryError] = useState('');
+  const [loadedIdentityKey, setLoadedIdentityKey] = useState(identityKey);
   const [articles, setArticles] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [catalogsLoaded, setCatalogsLoaded] = useState(false);
@@ -237,6 +299,13 @@ export default function InventoryScm() {
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [pageCursors, setPageCursors] = useState({ 0: null });
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const inventoryView = searchParams.get('vista') === 'almacenes' ? 'almacenes' : 'existencias';
+  const setInventoryView = (value) => setSearchParams((current) => { const next = new URLSearchParams(current); next.set('vista', value); return next; }, { replace: true });
+  const [summaryQuery, setSummaryQuery] = useState(() => searchParams.get('q') || '');
+  const [summaryFamily, setSummaryFamily] = useState('all');
+  const [warehouseFilter, setWarehouseFilter] = useState('');
+  const [warehouseName, setWarehouseName] = useState('');
+  const [piecesUnit, setPiecesUnit] = useState('KG');
 
   const refresh = useCallback(() => {
     setPage(0);
@@ -256,17 +325,29 @@ export default function InventoryScm() {
 
   useEffect(() => {
     let alive = true;
+    setLoadedIdentityKey(null);
+    setSummaryState('loading');
+    setSummaryError('');
+    setWarehouseScope(null);
+    setSummary({ items: [], materiales: [], piezas_kg: [] });
     Promise.all([obtenerAlcanceAlmacenScm(), obtenerResumenInventarioScm()])
       .then(([scopePayload, summaryPayload]) => {
         if (!alive) return;
         setWarehouseScope(scopePayload);
         setSummary(summaryPayload || { items: [], materiales: [], piezas_kg: [] });
+        setLoadedIdentityKey(identityKey);
+        setSummaryState('ready');
       })
       .catch((requestError) => {
-        if (alive) setError(mensajeErrorScm(requestError, 'No se cargó el resumen del Kardex.'));
+        if (alive) {
+          setSummary({ items: [], materiales: [], piezas_kg: [] });
+          setLoadedIdentityKey(identityKey);
+          setSummaryState('error');
+          setSummaryError(mensajeErrorScm(requestError, 'No se cargó el resumen del Kardex.'));
+        }
       });
     return () => { alive = false; };
-  }, [refreshVersion]);
+  }, [identityKey, refreshVersion]);
 
   useEffect(() => {
     const timer = globalThis.setTimeout(() => {
@@ -279,6 +360,8 @@ export default function InventoryScm() {
 
   const familySummaries = useMemo(() => {
     const families = summary.familias || summary.families || {};
+    const warehouseFamilies = Array.isArray(summary.familias) ? summary.familias : [];
+    const familyUnit = (item) => String(item.unidad || item.unidad_inventario || '').toUpperCase();
     const detailedArticleItems = (summary.items || []).filter((item) => item?.articulo?.clase || item?.clase);
     const finishedItems = listFrom(
       summary.producto_terminado
@@ -289,13 +372,36 @@ export default function InventoryScm() {
       || families.finished,
     );
     return {
-      pieces: listFrom(summary.piezas_kg || summary.piezas_wip || families.piezas_wip || families.pieces),
-      finished: finishedItems.length > 0
-        ? finishedItems
-        : detailedArticleItems.filter((item) => (item.articulo?.clase || item.clase) === 'PRODUCTO_TERMINADO'),
-      materials: listFrom(summary.materiales || summary.materias_primas || families.materias_primas || families.materials),
+      pieces: warehouseFamilies.length > 0
+        ? warehouseFamilies.filter((item) => (
+          ['PIEZA_COLOR', 'SUBENSAMBLE_WIP'].includes(item.clase) && familyUnit(item) === 'KG'
+        ))
+        : listFrom(summary.piezas_kg || summary.piezas_wip || families.piezas_wip || families.pieces),
+      finished: warehouseFamilies.length > 0
+        ? warehouseFamilies.filter((item) => (
+          item.clase === 'PRODUCTO_TERMINADO' && familyUnit(item) === 'UN'
+        ))
+        : (finishedItems.length > 0
+          ? finishedItems
+          : detailedArticleItems.filter((item) => (item.articulo?.clase || item.clase) === 'PRODUCTO_TERMINADO')),
+      materials: warehouseFamilies.length > 0
+        ? warehouseFamilies.filter((item) => (
+          ['MATERIA_PRIMA', 'COLORANTE'].includes(item.clase) && familyUnit(item) === 'KG'
+        ))
+        : listFrom(summary.materiales || summary.materias_primas || families.materias_primas || families.materials),
     };
   }, [summary]);
+  const warehouseFamilies = useMemo(
+    () => warehouseFamilyRows(Array.isArray(summary.familias) ? summary.familias : []),
+    [summary],
+  );
+  const visibleWarehouseFamilies = useMemo(() => {
+    const normalize = (value) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es').trim();
+    return warehouseFamilies.filter((row) => (summaryFamily === 'all' || row.family === summaryFamily)
+      && normalize(`${row.almacen_nombre} ${row.almacen_codigo || ''} ${row.label}`).includes(normalize(summaryQuery)));
+  }, [summaryQuery, summaryFamily, warehouseFamilies]);
+  const hasFinishedSummary = Array.isArray(summary.familias) || ['producto_terminado', 'producto_terminado_un', 'finished', 'pt'].some((key) => summary[key] != null)
+    || (summary.items || []).some((row) => row.clase || row.articulo?.clase);
 
   const familyTotals = useMemo(() => ({
     pieces: totalsFor(familySummaries.pieces),
@@ -352,6 +458,8 @@ export default function InventoryScm() {
     setBusy(true);
     setError('');
     setWarning('');
+    setRows([]);
+    setPageMeta({ total: 0, has_more: false, next_cursor: null });
     if (isMovements && !warehouseScope) return undefined;
     const request = isMovements
       ? Promise.allSettled([
@@ -360,7 +468,8 @@ export default function InventoryScm() {
       ])
       : explorarSaldosInventarioScm({
         kardex: LEDGER_API_NAMES[effectiveLedger],
-        ...(isPiecesLedger ? { unidad: 'KG' } : {}),
+        ...(isPiecesLedger ? { unidad: piecesUnit } : {}),
+          ...(warehouseFilter ? { almacen_id: warehouseFilter } : {}),
         q: debouncedQuery || undefined,
         ubicacion: locationFilter === 'TODAS' ? undefined : locationFilter,
         disponibilidad: stockFilter,
@@ -404,16 +513,23 @@ export default function InventoryScm() {
         setRows(filtered.slice(page * rowsPerPage, (page + 1) * rowsPerPage));
         setPageMeta({ total: filtered.length, has_more: false, next_cursor: null });
       } else {
-        const nextRows = (payload.items || []).map((item) => (
-          isPiecesLedger ? { ...item, unidad: 'KG' } : item
-        ));
+        const nextRows = (payload.items || []).map((item) => ({
+          ...item,
+          // The ledger endpoint may contain legacy UN rows. Preserve the
+          // server unit; the tab request alone is not evidence of KG.
+          unidad: item.unidad || item.articulo?.unidad || item.articulo?.unidad_inventario,
+        }));
         setRows(nextRows);
         setPageMeta(payload.page || {
           total: nextRows.length, has_more: false, next_cursor: null,
         });
       }
     }).catch((requestError) => {
-      if (alive) setError(mensajeErrorScm(requestError, 'No se pudo cargar esta página del Kardex.'));
+      if (alive) {
+        setRows([]);
+        setPageMeta({ total: 0, has_more: false, next_cursor: null });
+        setError(mensajeErrorScm(requestError, 'No se pudo cargar esta página del Kardex.'));
+      }
     }).finally(() => {
       if (alive) setBusy(false);
     });
@@ -422,6 +538,7 @@ export default function InventoryScm() {
     debouncedQuery, effectiveLedger, effectiveSort, isMovements, isPiecesLedger,
     locationFilter, page, pageCursors, refreshVersion, rowsPerPage, showPiecesAndWip,
     stockFilter, warehouseScope,
+    warehouseFilter, piecesUnit,
   ]);
 
   const changeLedger = (_event, value) => {
@@ -432,6 +549,25 @@ export default function InventoryScm() {
     setLocationFilter('TODAS');
     setStockFilter('TODOS');
     setSortBy(value === 'movements' ? 'RECIENTES' : 'CODIGO');
+    setPage(0);
+    setPageCursors({ 0: null });
+  };
+
+  const showCrossWarehouse = can('INVENTARIO_VER') && can('INVENTARIO_CONTROL_TRANSVERSAL');
+  const viewWarehouseFamily = (family) => {
+    const nextLedger = family.family === 'finished'
+      ? 'finished'
+      : (family.family === 'materials' ? 'materials' : 'pieces');
+    setInventoryView('existencias');
+    setWarehouseFilter(family.almacen_id || 'SIN_ALMACEN');
+    setWarehouseName(family.almacen_nombre);
+    setPiecesUnit(family.unidad === 'UN' ? 'UN' : 'KG');
+    setActiveLedger(nextLedger);
+    setRows([]);
+    setPageMeta({ total: 0, has_more: false, next_cursor: null });
+    setLocationFilter('TODAS');
+    setStockFilter('TODOS');
+    setSortBy('CODIGO');
     setPage(0);
     setPageCursors({ 0: null });
   };
@@ -466,6 +602,16 @@ export default function InventoryScm() {
     setForm({ ...initialForm, tipo: 'AJUSTE_POSITIVO' });
     setOpen(true);
   };
+
+  if (String(loadedIdentityKey) !== String(identityKey)) {
+    return (
+      <Stack spacing={2.5}>
+        <Alert severity="info" role="status" aria-label="Cargando inventario">
+          Cargando existencias para el actor seleccionado…
+        </Alert>
+      </Stack>
+    );
+  }
 
   return (
     <Stack spacing={2.5}>
@@ -511,6 +657,7 @@ export default function InventoryScm() {
         )}
       />
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      {summaryError && <Alert severity="error" action={<Button color="inherit" onClick={refresh}>Reintentar</Button>}>{summaryError}</Alert>}
       {warning && <Alert severity="warning" onClose={() => setWarning('')}>{warning}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       {warehouseScope?.configurado && warehouseScope.control_transversal && (
@@ -541,30 +688,75 @@ export default function InventoryScm() {
         />
       )}
 
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-        {[
-          ...(showPiecesAndWip ? [{ key: 'pieces', label: 'Piezas y WIP', unit: 'KG' }] : []),
-          ...(showFinishedProducts ? [{ key: 'finished', label: 'Producto terminado', unit: 'UN' }] : []),
-          ...(showMaterials ? [{
-            key: 'materials', label: 'Materias primas', unit: 'KG',
-          }] : []),
-        ].map(({ key, label, unit }) => {
-          const values = familyTotals[key];
-          return (
-            <Paper key={key} variant="outlined" sx={{ p: 2, flex: 1, minWidth: 0 }}>
-              <Typography variant="overline" color="primary" fontWeight={900}>{label} · {unit}</Typography>
-              <Stack spacing={0.25}>
-                <Typography><strong>Físico:</strong> {values.physical.toLocaleString('es-PE')} {unit}</Typography>
-                <Typography><strong>Reservado:</strong> {values.reserved.toLocaleString('es-PE')} {unit}</Typography>
-                <Typography><strong>No disponible:</strong> {values.unavailable.toLocaleString('es-PE')} {unit}</Typography>
-                <Typography><strong>Libre:</strong> {values.free.toLocaleString('es-PE')} {unit}</Typography>
-              </Stack>
-            </Paper>
-          );
-        })}
+      <Stack direction="row" spacing={1} role="group" aria-label="Vista de inventario">
+        <Button
+          variant={inventoryView === 'existencias' ? 'contained' : 'outlined'}
+          onClick={() => setInventoryView('existencias')}
+        >
+          Existencias
+        </Button>
+        <Button
+          variant={inventoryView === 'almacenes' ? 'contained' : 'outlined'}
+          disabled={!showCrossWarehouse}
+          onClick={() => setInventoryView('almacenes')}
+        >
+          Por almacén
+        </Button>
       </Stack>
 
-      <Paper
+      {inventoryView === 'almacenes' && (
+        showCrossWarehouse ? (
+          <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+            <Box sx={{ p: 2 }}>
+              <Typography component="h2" variant="h5" fontWeight={900}>Existencias por almacén</Typography>
+              <Typography variant="caption" color="text.secondary">{summary.as_of ? `Consultado: ${inventoryTimestamp(summary.as_of)}` : 'Fecha de consulta no informada'}</Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} gap={2} sx={{ mt: 2 }}>
+                <TextField size="small" fullWidth label="Buscar almacén" value={summaryQuery} onChange={(event) => setSummaryQuery(event.target.value)} />
+                <TextField select size="small" label="Familia" value={summaryFamily} onChange={(event) => setSummaryFamily(event.target.value)} sx={{ minWidth: 250 }}>
+                  <MenuItem value="all">Todas las familias</MenuItem>
+                  {Object.entries(WAREHOUSE_FAMILIES).map(([key, label]) => <MenuItem key={key} value={key}>{label}</MenuItem>)}
+                </TextField>
+                <Button onClick={() => { setSummaryQuery(''); setSummaryFamily('all'); }}>Limpiar</Button>
+              </Stack>
+            </Box>
+            {summaryState === 'loading' ? <Typography role="status" sx={{ p: 2 }}>Cargando resumen…</Typography>
+              : summaryState === 'error' ? null
+                : !Array.isArray(summary.familias) ? <Alert severity="info">El servidor no ofrece todavía el desglose por familia. Consulta Existencias.</Alert>
+                  : <WarehouseFamilyGrid families={visibleWarehouseFamilies} busy={false} onView={viewWarehouseFamily} />}
+          </Paper>
+        ) : (
+          <Alert severity="warning">El resumen transversal requiere INVENTARIO_VER e INVENTARIO_CONTROL_TRANSVERSAL.</Alert>
+        )
+      )}
+
+      {inventoryView === 'existencias' && !warehouseFilter && summaryState === 'ready' && (
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+          {[
+            ...(showPiecesAndWip ? [{ key: 'pieces', label: 'Piezas y WIP', unit: 'KG' }] : []),
+            ...(showFinishedProducts ? [{ key: 'finished', label: 'Producto terminado', unit: 'UN' }] : []),
+            ...(showMaterials ? [{
+              key: 'materials', label: 'Materias primas', unit: 'KG',
+            }] : []),
+          ].map(({ key, label, unit }) => {
+            const values = familyTotals[key];
+            const display = (value) => key === 'finished' && !hasFinishedSummary ? '—' : unit === 'KG' ? formatKg(value) : value.toLocaleString('es-PE');
+            return (
+              <Paper key={key} variant="outlined" sx={{ p: 2, flex: 1, minWidth: 0 }}>
+                <Typography variant="overline" color="primary" fontWeight={900}>{label} · {unit}</Typography>
+                <Stack spacing={0.25}>
+                  <Typography><strong>Físico:</strong> {display(values.physical)} {unit}</Typography>
+                  <Typography><strong>Reservado:</strong> {display(values.reserved)} {unit}</Typography>
+                  <Typography><strong>No disponible:</strong> {display(values.unavailable)} {unit}</Typography>
+                  <Typography><strong>Libre:</strong> {display(values.free)} {unit}</Typography>
+                </Stack>
+              </Paper>
+            );
+          })}
+        </Stack>
+      )}
+
+      {inventoryView === 'existencias' && warehouseFilter && <Stack direction="row" spacing={1} alignItems="center"><Chip label={`${warehouseName} · ${isPiecesLedger ? piecesUnit : effectiveLedger === 'materials' ? 'KG' : 'UN'}`} onDelete={() => { setWarehouseFilter(''); setWarehouseName(''); setPiecesUnit('KG'); refresh(); }} /><Button onClick={() => setInventoryView('almacenes')}>Volver a almacenes</Button></Stack>}
+      {inventoryView === 'existencias' && <Paper
         variant="outlined"
         sx={{ overflow: 'hidden', borderRadius: 3, boxShadow: '0 14px 42px rgba(15, 39, 71, 0.08)' }}
       >
@@ -727,7 +919,7 @@ export default function InventoryScm() {
           labelRowsPerPage="Filas por página"
           labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
         />
-      </Paper>
+      </Paper>}
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Registrar movimiento de inventario</DialogTitle>

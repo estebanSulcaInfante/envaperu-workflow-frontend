@@ -16,11 +16,13 @@ const api = vi.hoisted(() => ({
   obtenerTrazabilidadUnidadScm: vi.fn(),
   prepararRetornoTransferenciaScm: vi.fn(),
 }));
+const actorState = vi.hoisted(() => ({ id: 7 }));
 
 vi.mock('../services/scmWarehouseOperationsApi', () => api);
 vi.mock('../context/ScmActorContext', () => ({
   useScmActor: () => ({
     actor: { id: 7, nombre_corto: 'Almacenera' },
+    actorId: actorState.id,
     can: (code) => ['INVENTARIO_VER', 'INVENTARIO_MOVILIZAR'].includes(code),
   }),
 }));
@@ -34,6 +36,7 @@ const renderView = (props = {}) => render(
 describe('workspace de almacenes y custodia', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    actorState.id = 7;
     api.listarAlmacenesScm.mockResolvedValue({ items: [{
       id: 'alm-1', codigo: 'ALM-PZ', nombre: 'Piezas', tipo: 'PIEZAS_WIP',
       ubicaciones: [
@@ -96,5 +99,64 @@ describe('workspace de almacenes y custodia', () => {
     expect(await screen.findByRole('heading', { name: /transferencias entre ubicaciones/i })).toBeVisible();
     expect(screen.getByRole('button', { name: /iniciar sesión qr/i })).toBeVisible();
     expect(screen.queryByRole('button', { name: /Ver custodia de piezas y WIP/i })).not.toBeInTheDocument();
+  });
+
+  it('separa piezas y WIP KG del ledger UN, resuelve almacén y enlaza al Kardex', async () => {
+    api.obtenerResumenInventarioScm.mockResolvedValue({
+      items: [{ fisico: '3', reservado: '1', no_disponible: '0', unidad: 'UN' }],
+      materiales: [{ fisico: '4', reservado: '0', no_disponible: '0', unidad: 'KG' }],
+      piezas_kg: [{
+        almacen_id: 'alm-1', posiciones: 1,
+        fisico: '12.345', reservado: '2.100', no_disponible: '1.005', libre: '9.240',
+      }],
+      as_of: '2026-08-11T12:00:00Z',
+    });
+    renderView({ control: true });
+    expect(await screen.findByText('Piezas')).toBeVisible();
+    expect(screen.getByText(/Código: ALM-PZ/)).toBeVisible();
+    expect(screen.getByText('12.35 KG')).toBeVisible();
+    expect(screen.getByText('9.24 KG')).toBeVisible();
+    expect(screen.getByRole('link', { name: /abrir kardex de piezas y wip/i })).toHaveAttribute('href', '/almacen/kardex');
+    expect(screen.getByText('4 KG')).toBeVisible();
+  });
+
+  it('descarta el resumen de un actor cuando llega tarde después de cambiar identidad', async () => {
+    let resolveNew;
+    api.obtenerResumenInventarioScm
+      .mockResolvedValueOnce({ piezas_kg: [{ almacen_id: 'alm-1', fisico: '99', reservado: '0', no_disponible: '0', libre: '99' }] })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveNew = resolve; }));
+    const view = renderView({ control: true });
+    expect((await screen.findAllByText('99.00 KG')).length).toBeGreaterThan(0);
+    actorState.id = 8;
+    view.rerender(<ThemeProvider theme={createTheme()}><MemoryRouter><WarehouseOperationsScm control /></MemoryRouter></ThemeProvider>);
+    expect(screen.queryByText('99.00 KG')).not.toBeInTheDocument();
+    resolveNew({ piezas_kg: [{ almacen_id: 'alm-1', fisico: '2', reservado: '0', no_disponible: '0', libre: '2' }] });
+    expect((await screen.findAllByText('2.00 KG')).length).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  it('respeta la granularidad real agregada por almacén cuando KG no trae artículo', async () => {
+    api.obtenerResumenInventarioScm.mockResolvedValue({
+      piezas_kg: [{ almacen_id: null, posiciones: 2, fisico: '3.200', reservado: '0.000', no_disponible: '0.000', libre: '3.200' }],
+    });
+    renderView({ control: true });
+    expect(await screen.findByText('Sin almacén asignado')).toBeVisible();
+    expect(screen.getByText('2')).toBeVisible();
+    expect(screen.getByRole('columnheader', { name: 'Almacén' })).toBeVisible();
+    expect(screen.queryByText('Piezas/WIP medido')).not.toBeInTheDocument();
+  });
+
+  it('descarta una trazabilidad tardía después de cambiar actor', async () => {
+    let resolveTrace;
+    api.obtenerTrazabilidadUnidadScm.mockImplementation(() => new Promise((resolve) => { resolveTrace = resolve; }));
+    const view = renderView({ control: true });
+    const input = await screen.findByLabelText(/código o uuid del qr/i);
+    fireEvent.change(input, { target: { value: 'MANGA-OLD' } });
+    fireEvent.click(screen.getByRole('button', { name: /ver trazabilidad/i }));
+    actorState.id = 8;
+    view.rerender(<ThemeProvider theme={createTheme()}><MemoryRouter><WarehouseOperationsScm control /></MemoryRouter></ThemeProvider>);
+    resolveTrace({ codigo: 'MANGA-OLD', estado_logistico: 'EN_TRANSITO', cantidad: '20', ubicacion: null, transferencias: [], movimientos: [] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText(/MANGA-OLD/)).not.toBeInTheDocument();
   });
 });

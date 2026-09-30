@@ -316,6 +316,31 @@ describe("ficha de manga del histórico", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("conserva el contexto aplicado de identidad mientras la lista falla", async () => {
+    listarMangasHistoricoScm.mockRejectedValueOnce(new Error("network"));
+    render(
+      <MangaHistoryDetailScm
+        open
+        onClose={vi.fn()}
+        filters={filters}
+        group={[{ dimension: "MOLDE", value: "ML-1" }]}
+        appliedContext={{
+          group: [{ dimension: "MOLDE", value: "ML-1" }],
+          groups: [
+            { dimension: "MOLDE", value: "ML-1", nombre: "Molde azul", codigo: "ML-1" },
+            { dimension: "PIEZA", value: "PZ-1", nombre: "Base", codigo: "PZ-1" },
+            { dimension: "COLOR", value: "Rojo", nombre: "Rojo", codigo: null },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByTestId("manga-applied-context")).toBeInTheDocument();
+    expect(screen.getByText("Molde azul")).toBeInTheDocument();
+    expect(screen.getByText("PZ-1")).toBeInTheDocument();
+    expect(await screen.findByText("No se pudo cargar la lista de mangas.")).toBeInTheDocument();
+    expect(screen.getByText("Molde azul")).toBeInTheDocument();
+  });
+
   it("separa recepción original histórica de custodia vigente y remanente desconocido", async () => {
     listarMangasHistoricoScm.mockResolvedValue({
       items: [{

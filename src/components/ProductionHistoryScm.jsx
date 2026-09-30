@@ -28,11 +28,14 @@ import DownloadIcon from "@mui/icons-material/Download";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import ViewListIcon from "@mui/icons-material/ViewList";
+import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
+import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import PageHeader from "./ui/PageHeader";
 import SearchableMultiSelect from "./ui/SearchableMultiSelect";
+import ProductionColorLabel from "./ui/ProductionColorLabel";
 import MangaHistoryDetailScm from "./MangaHistoryDetailScm";
 import { useScmActor } from "../context/ScmActorContext";
 import {
@@ -91,8 +94,19 @@ const displayArticle = (item = {}, showCode = true) => {
   );
 };
 
-const renderGroupValue = (item = {}, group, showCode = true) =>
-  group === "ARTICULO" ? displayArticle(item, showCode) : item[group] || "—";
+const displayIdentity = (item = {}, group, showCode = true) => {
+  const names = { MOLDE: item.MOLDE_NOMBRE, PIEZA: item.PIEZA_NOMBRE };
+  const code = { MOLDE: item.MOLDE_CODIGO || item.MOLDE, PIEZA: item.PIEZA_CODIGO || item.PIEZA }[group];
+  if (!names[group] && !code) return "Sin vínculo histórico";
+  return <Stack spacing={0.25}><Typography variant="body2" fontWeight={700}>{names[group] || "Identidad sin nombre"}</Typography>{showCode && code && <Typography variant="caption" color="text.secondary">{code}</Typography>}</Stack>;
+};
+
+const renderGroupValue = (item = {}, group, showCode = true) => {
+  if (group === "ARTICULO") return displayArticle(item, showCode);
+  if (group === "MOLDE" || group === "PIEZA") return displayIdentity(item, group, showCode);
+  if (group === "COLOR") return <ProductionColorLabel name={item.COLOR || "Color no indicado"} hex={item.COLOR_HEX} />;
+  return item[group] || "—";
+};
 
 const flattenHierarchy = (nodes, expanded, depth = 0) =>
   (nodes || []).flatMap((node) => [
@@ -122,6 +136,9 @@ const nodeLabel = (node, showCode = true) => {
       "ARTICULO",
       showCode,
     );
+  if (node.dimension === "MOLDE" || node.dimension === "PIEZA" || node.dimension === "COLOR") {
+    return renderGroupValue(node.item || { [node.dimension]: node.value }, node.dimension, showCode);
+  }
   return (
     <Stack spacing={0.25}>
       <Typography variant="body2" fontWeight={700}>
@@ -152,6 +169,16 @@ const mangaContextLabel = (node, item, groups) => {
     )
     .join(", ");
   return context || "total general";
+};
+
+const appliedMangaContext = (item, path = []) => {
+  return path.map(({ dimension, value }) => {
+    const name = item?.[`${dimension}_NOMBRE`] ??
+      (dimension === "COLOR" ? value : null);
+    const code = item?.[`${dimension}_CODIGO`] ??
+      (dimension === "MOLDE" || dimension === "PIEZA" ? value : null);
+    return { dimension, value, nombre: name, codigo: code };
+  });
 };
 
 const coverageLabel = (coverage) =>
@@ -256,7 +283,7 @@ export default function ProductionHistoryScm() {
     codes: true,
     quality: true,
   });
-  const [mangaDialog, setMangaDialog] = useState({ open: false, group: [] });
+  const [mangaDialog, setMangaDialog] = useState({ open: false, group: [], context: null });
   const requestSequence = useRef(0);
   const requestController = useRef(null);
   const exportSequence = useRef(0);
@@ -448,6 +475,13 @@ export default function ProductionHistoryScm() {
         ? current[key].filter((item) => item !== value)
         : "",
     }));
+  const moveGroup = (index, direction) => setFilters((current) => {
+    const next = [...current.agrupaciones];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return current;
+    [next[index], next[target]] = [next[target], next[index]];
+    return { ...current, agrupaciones: next };
+  });
 
   const appliedMeasures = useMemo(
     () => appliedFilters.medidas || [],
@@ -505,19 +539,30 @@ export default function ProductionHistoryScm() {
   const expandAll = () =>
     setExpandedIds(new Set(collectNodeIds(hierarchy || [])));
   const collapseAll = () => setExpandedIds(new Set());
-  const openMangaDialog = (node, item) =>
+  const openMangaDialog = (node, item) => {
+    const group =
+      !node && item === summary
+        ? []
+        : groupedVisible
+          ? nodeGroupPath(node)
+          : appliedGroups.map((dimension) => ({
+              dimension,
+              value: item?.[dimension] ?? null,
+            }));
     setMangaDialog({
       open: true,
-      group:
-        !node && item === summary
-          ? []
-          : groupedVisible
-            ? nodeGroupPath(node)
-            : appliedGroups.map((dimension) => ({
-                dimension,
-                value: item?.[dimension] ?? null,
-              })),
+      group,
+      context: {
+        group,
+        filters: {
+          ...appliedFilters,
+          agrupaciones: [...appliedFilters.agrupaciones],
+          medidas: [...appliedFilters.medidas],
+        },
+        groups: appliedMangaContext(item, group),
+      },
     });
+  };
   const renderMangaAccess = (node, item) => {
     const label = mangaCountLabel(item?.MANGAS);
     const context = mangaContextLabel(node, item, appliedGroups);
@@ -641,6 +686,19 @@ export default function ProductionHistoryScm() {
             ? "Hay cambios pendientes de aplicar. Pulsa Buscar para actualizar la consulta."
             : "La tabla y Excel usan la última consulta aplicada."}
         </Typography>
+        {filters.agrupaciones.length > 0 && (
+          <Stack spacing={0.5} sx={{ mt: 1 }} aria-label="Niveles de agrupación">
+            <Typography variant="caption" color="text.secondary">Orden de niveles (se aplica al pulsar Buscar)</Typography>
+            {filters.agrupaciones.map((value, index) => (
+              <Stack key={value} direction="row" alignItems="center" spacing={0.5}>
+                <Typography variant="body2" sx={{ minWidth: 68 }}>Nivel {index + 1}</Typography>
+                <Typography variant="body2" sx={{ flex: 1 }}>{GROUP_LABELS[value] || value}</Typography>
+                <Button size="small" onClick={() => moveGroup(index, -1)} disabled={index === 0} startIcon={<ArrowUpwardIcon />} aria-label={`Subir nivel ${GROUP_LABELS[value] || value}`}>Subir</Button>
+                <Button size="small" onClick={() => moveGroup(index, 1)} disabled={index === filters.agrupaciones.length - 1} startIcon={<ArrowDownwardIcon />} aria-label={`Bajar nivel ${GROUP_LABELS[value] || value}`}>Bajar</Button>
+              </Stack>
+            ))}
+          </Stack>
+        )}
       </Paper>
       {visibility?.pesaje === false && (
         <Alert severity="info" sx={{ mb: 2 }}>
@@ -995,8 +1053,9 @@ export default function ProductionHistoryScm() {
         onClose={() =>
           setMangaDialog((current) => ({ ...current, open: false }))
         }
-        filters={appliedFilters}
-        group={mangaDialog.group}
+        filters={mangaDialog.context?.filters || appliedFilters}
+        group={mangaDialog.context?.group || mangaDialog.group}
+        appliedContext={mangaDialog.context}
         actorId={actorId}
       />
     </Box>

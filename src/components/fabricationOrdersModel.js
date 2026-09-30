@@ -1,3 +1,5 @@
+import { getProgressState } from './productionOrderProgressModel';
+
 const toFiniteNumber = (value) => {
   if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null;
   const number = Number(value);
@@ -223,5 +225,103 @@ export const statusLabel = (status) => ({
   CERRADA: 'Cerrada',
   ANULADA: 'Anulada',
 }[status] || status || 'Sin estado');
+
+const validColorHex = (value) => (
+  typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value.trim())
+    ? value.trim().toUpperCase()
+    : null
+);
+
+const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
+
+const progressIdentifier = (item) => item?.corrida_id || item?.corrida?.id || item?.corrida;
+
+export const objectiveColorHex = (item = {}) => validColorHex(firstDefined(
+  item.color_hex,
+  item.hex_referencia,
+  item.color?.hex_referencia,
+  item.color?.hex,
+  item.color_produccion?.hex_referencia,
+  item.color_produccion?.hex,
+));
+
+export const objectiveComparisonStatus = (item = {}, visibility = {}) => {
+  const state = getProgressState(item, visibility);
+  return ({
+    RESTRINGIDO: { key: 'RESTRINGIDO', label: 'Avance restringido', color: 'default' },
+    META_AUSENTE: { key: 'SIN_META', label: 'Meta no registrada', color: 'warning' },
+    META_NO_POSITIVA: { key: 'META_NO_POSITIVA', label: 'Meta no positiva', color: 'warning' },
+    SIN_PESAJES: { key: 'SIN_PESAJES', label: 'Sin pesajes', color: 'default' },
+    INCOMPLETA: { key: 'PARCIAL', label: 'Avance parcial', color: 'warning' },
+    CALCULABLE: { key: 'LISTO', label: 'Avance calculable', color: 'success' },
+  }[state.key] || { key: 'PARCIAL', label: 'Avance parcial', color: 'warning' });
+};
+
+export const objectiveComparisonRows = (
+  items = [], { visibility = {}, orders = [] } = {},
+) => {
+  const byRunId = new Map(items.map((item) => [String(progressIdentifier(item) || ''), item]));
+  const source = orders.length
+    ? orders.flatMap((order) => {
+      const runs = order.corridas || [];
+      if (!runs.length) return [{ of: order.codigo, of_id: order.id, corrida_id: `${order.id}:summary`, _order: order }];
+      return runs.map((run) => {
+        const progress = byRunId.get(String(run.id)) || {};
+        return {
+          ...progress,
+          corrida_id: run.id,
+          of: progress.of || order.codigo,
+          of_id: order.id,
+          corrida: progress.corrida || run.codigo,
+          color: progress.color || run.color || run.color_nombre || run.color_produccion?.nombre,
+          color_hex: progress.color_hex || run.color_hex || run.color_produccion?.hex_referencia,
+          molde: progress.molde || order.molde || (order.molde_id ? { codigo: order.molde_id } : null),
+          salidas: progress.salidas || run.salidas || [],
+          objetivo_neto_kg: progress.objetivo_neto_kg ?? run.objetivo_neto_kg,
+          _order: order,
+        };
+      });
+    })
+    : items;
+  return source.map((item, index) => {
+    const status = objectiveComparisonStatus(item, visibility);
+    const progressState = getProgressState(item, visibility);
+    const target = progressState.target;
+    const final = progressState.final;
+    const open = progressState.opened;
+    const percentage = status.key === 'LISTO' && target > 0 && final !== null ? (final / target) * 100 : null;
+    return {
+      ...item,
+      id: String(progressIdentifier(item) || `${item.of || 'of'}-${index}`),
+      of: item.of || item.of_codigo || '—',
+      objective: item.corrida || item.corrida_codigo || '—',
+      color: item.color || item.color_nombre || '—',
+      colorHex: objectiveColorHex(item),
+      target,
+      final,
+      open,
+      percentage,
+      status,
+    };
+  });
+};
+
+export const groupObjectiveComparisonRows = (rows = []) => rows.reduce((groups, row) => {
+  const key = String(row.of || '—');
+  const current = groups.get(key) || { key, of: row.of || '—', rows: [] };
+  current.rows.push(row);
+  groups.set(key, current);
+  return groups;
+}, new Map());
+
+export const filterObjectiveComparisonItems = (items = [], query = '') => {
+  const needle = normalizeSearchText(query).trim();
+  if (!needle) return items;
+  const matchingOrders = new Set(items.filter((item) => normalizeSearchText([
+    item?.of, item?.of_codigo, item?.corrida, item?.corrida_codigo, item?.color,
+    item?.color_nombre, item?.ot, item?.ot_codigo,
+  ].filter(Boolean).join(' ')).includes(needle)).map((item) => String(item?.of || item?.of_codigo || '')));
+  return items.filter((item) => matchingOrders.has(String(item?.of || item?.of_codigo || '')));
+};
 
 export { toFiniteNumber };

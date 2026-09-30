@@ -13,9 +13,11 @@ import {
 } from '../services/scmProductionObservabilityApi';
 
 let actorCapabilities;
+let actorId;
 
 vi.mock('../context/ScmActorContext', () => ({
   useScmActor: () => ({
+    actorId,
     can: (capability) => actorCapabilities.has(capability),
     experience: { label: 'Gerente General' },
   }),
@@ -192,14 +194,15 @@ const setViewportWidth = (width) => {
   }));
 };
 
-const renderPage = (entry = '/control/supervision-produccion') => render(
+const pageUi = (entry = '/control/supervision-produccion') => (
   <ThemeProvider theme={createTheme()}>
     <MemoryRouter initialEntries={[entry]}>
       <ProductionSupervisionScm />
       <LocationProbe />
     </MemoryRouter>
-  </ThemeProvider>,
+  </ThemeProvider>
 );
+const renderPage = (entry = '/control/supervision-produccion') => render(pageUi(entry));
 
 describe('Control > Supervisión de producción', () => {
   beforeEach(() => {
@@ -208,6 +211,7 @@ describe('Control > Supervisión de producción', () => {
       'OT_VER', 'OF_VER', 'OA_VER', 'MANGA_PESAJE_VER', 'ALERTA_VER',
       'RECEPCION_MANGA_VER', 'CALIDAD_MANGA_VER',
     ]);
+    actorId = 1;
     setViewportWidth(1440);
     listarSupervisionOtsScm.mockResolvedValue(listResponse);
     listarDocumentosPendientesSupervisionScm.mockResolvedValue(pendingDocumentsResponse);
@@ -254,8 +258,8 @@ describe('Control > Supervisión de producción', () => {
     expect(screen.getByTestId('kpi-total')).toHaveTextContent('2');
     expect(screen.getByTestId('kpi-running')).toHaveTextContent('1');
     expect(screen.getByTestId('kpi-units')).toHaveTextContent('1,200 / 4,800 un');
-    expect(screen.getByTestId('kpi-physical-weight')).toHaveTextContent('48.125 kg');
-    expect(screen.getByTestId('kpi-standard-weight')).toHaveTextContent('46.500 kg');
+    expect(screen.getByTestId('kpi-physical-weight')).toHaveTextContent('48.13 kg');
+    expect(screen.getByTestId('kpi-standard-weight')).toHaveTextContent('46.50 kg');
     const row = screen.getByTestId('supervision-row-ot-fab-1');
     expect(within(row).getByText('OT-000001')).toBeVisible();
     expect(within(row).getByText(/Documental: LIBERADA/i)).toBeVisible();
@@ -263,9 +267,59 @@ describe('Control > Supervisión de producción', () => {
     expect(within(row).getByText(/Avance total OT/i)).toBeVisible();
     expect(within(row).getByText(/1,600 \/ 3,000 un/i)).toBeVisible();
     expect(within(row).getByText(/Actual: Carne sólido/i)).toBeVisible();
-    expect(within(row).getByText(/Peso neto real: 48\.125 kg/i)).toBeVisible();
+    expect(within(row).getByText(/Peso neto real: 48\.13 kg/i)).toBeVisible();
     expect(screen.getByText(/Datos al/i)).toBeVisible();
     expect(screen.queryByRole('button', { name: /crear|iniciar|anular|corregir/i })).not.toBeInTheDocument();
+  });
+
+  it('explica evidencia KG sin fabricar avance UN ni estándar según unidades', async () => {
+    const kgItem = {
+      ...fabricationItem,
+      unidad_evidencia: 'KG',
+      cantidades_resumen: {
+        objetivo_un: null,
+        confirmado_un: null,
+        unidad_evidencia: 'KG',
+      },
+      trabajo_actual: {
+        ...fabricationItem.trabajo_actual,
+        objetivo_un: null,
+        confirmado_un: null,
+      },
+      pesaje_resumen: {
+        cantidad: 1,
+        neto_kg: 12,
+        peso_fisico_neto_kg: 12,
+        kg_atribuido_ot: 12,
+        kg_fabricacion_estimado_bom: 7.5,
+        kg_previo_estimado_bom: 4.5,
+        kg_produccion_estandar: null,
+        unidad_evidencia: 'KG',
+      },
+    };
+    listarSupervisionOtsScm.mockResolvedValue({
+      ...listResponse,
+      items: [kgItem],
+    });
+    obtenerResumenSupervisionOtsScm.mockResolvedValue({
+      ...summaryResponse,
+      totales: {
+        ...summaryResponse.totales,
+        objetivo_un: null,
+        confirmado_un: null,
+        peso_fisico_neto_kg: 12,
+        kg_produccion_estandar: null,
+      },
+    });
+
+    renderPage();
+
+    expect(await screen.findByText(/Avance UN no aplica/i)).toBeVisible();
+    expect(screen.getByText(/Peso neto real: 12\.00 kg/i)).toBeVisible();
+    expect(screen.queryByText(/Kg atribuidos a OT/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('kpi-units')).toHaveTextContent('No informado');
+    expect(screen.getByTestId('kpi-standard-weight')).toHaveTextContent('No informado');
+    expect(screen.queryByText(/Peso estándar según unidades/i)).not.toBeInTheDocument();
   });
 
   it('ofrece modo Mangas con busqueda por codigo y trazabilidad a su OT', async () => {
@@ -281,7 +335,7 @@ describe('Control > Supervisión de producción', () => {
     expect(within(row).getByText('MANGA-000001')).toBeVisible();
     expect(within(row).getByText(/PC-001.*Alcancia carne/i)).toBeVisible();
     expect(within(row).getByText(/OT-000001/i)).toBeVisible();
-    expect(within(row).getByText(/Peso neto real: 1\.825 kg/i)).toBeVisible();
+    expect(within(row).getByText(/Peso neto real: 1\.83 kg/i)).toBeVisible();
 
     const search = screen.getByRole('textbox', { name: /Omnib/i });
     await user.clear(search);
@@ -290,10 +344,62 @@ describe('Control > Supervisión de producción', () => {
       expect.objectContaining({ q: 'MANGA-000001' }),
     ));
 
-    await user.click(within(row).getByRole('button', { name: /Ver trazabilidad/i }));
+    const refreshedRow = await screen.findByTestId('supervision-manga-manga-1');
+    await user.click(within(refreshedRow).getByRole('button', { name: /Ver trazabilidad/i }));
     await waitFor(() => expect(obtenerDetalleSupervisionOtScm).toHaveBeenCalledWith(
       'ot-fab-1', expect.any(Object),
     ));
+  });
+
+  it('modo Mangas no muestra UN ni estándar para artículo KG', async () => {
+    const user = userEvent.setup();
+    listarSupervisionMangasScm.mockResolvedValue({
+      ...mangaListResponse,
+      items: [{
+        ...mangaListResponse.items[0],
+        manga: {
+          ...mangaListResponse.items[0].manga,
+          articulo: {
+            ...mangaListResponse.items[0].manga.articulo,
+            unidad_inventario: 'KG',
+          },
+          cantidad_objetivo_un: 0,
+          cantidad_confirmada_un: 0,
+          pesaje: {
+            ...mangaListResponse.items[0].manga.pesaje,
+            kg_produccion_estandar: 0,
+            metricas: {
+              unidad_evidencia: 'KG',
+              kg_produccion_estandar: null,
+            },
+          },
+        },
+      }],
+    });
+    renderPage();
+    await screen.findByText('OT-000001');
+    await user.click(screen.getByRole('button', { name: 'Mangas' }));
+
+    expect(await screen.findByText('UN no aplica para artículo KG')).toBeVisible();
+    expect(screen.queryByText(/Peso estándar según unidades/i)).not.toBeInTheDocument();
+  });
+
+  it('distingue pesaje restringido de ausencia de pesaje en modo Mangas', async () => {
+    const user = userEvent.setup();
+    listarSupervisionMangasScm.mockResolvedValue({
+      ...mangaListResponse,
+      items: [{
+        ...mangaListResponse.items[0],
+        manga: { ...mangaListResponse.items[0].manga, pesaje: null },
+        visibilidad: { ...mangaListResponse.items[0].visibilidad, pesaje: false },
+      }],
+    });
+    renderPage();
+    await screen.findByText('OT-000001');
+    await user.click(screen.getByRole('button', { name: 'Mangas' }));
+
+    expect(await screen.findByText('Pesaje restringido')).toBeVisible();
+    expect(screen.queryByText('Sin pesaje efectivo')).not.toBeInTheDocument();
   });
 
   it('hidrata filtros desde URL, los envía al servidor y persiste quick filters', async () => {
@@ -358,7 +464,7 @@ describe('Control > Supervisión de producción', () => {
     expect(within(dialog).getByText('OF-000001')).toBeVisible();
     expect(within(dialog).getByText('MANGA-000001')).toBeVisible();
     expect(within(dialog).getByText(/Logístico: PENDIENTE RECEPCION/i)).toBeVisible();
-    expect(within(dialog).getByText(/Peso neto real 1.825 kg/i)).toBeVisible();
+    expect(within(dialog).getByText(/Peso neto real 1.83 kg/i)).toBeVisible();
     expect(within(dialog).getByText(/Etiqueta PREPESAJE · v2 · IMPRESA/i)).toBeVisible();
     expect(within(dialog).getByText(/Almacén: PENDIENTE RECEPCION/i)).toBeVisible();
     expect(within(dialog).getByText(/Calidad: PENDIENTE/i)).toBeVisible();
@@ -446,6 +552,27 @@ describe('Control > Supervisión de producción', () => {
     resolveFirst(detailResponse);
     await waitFor(() => expect(screen.queryByText('MANGA-000001')).not.toBeInTheDocument());
     expect(screen.getByRole('heading', { name: 'Trazabilidad de OT-000002' })).toBeVisible();
+  });
+
+  it('limpia la supervisión y descarta respuestas del actor anterior al cambiar de actor', async () => {
+    let resolveFirst;
+    listarSupervisionOtsScm
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce({
+        items: [{ ...fabricationItem, ot: { ...fabricationItem.ot, public_id: 'ot-actor-2', codigo: 'OT-ACTOR-2' } }],
+        page: { next_cursor: null, limit: 25, has_more: false },
+        as_of: '2026-08-10T15:00:00Z',
+      });
+    const rendered = renderPage();
+    expect(screen.getByRole('status', { name: 'Cargando supervisión' })).toBeVisible();
+
+    actorId = 2;
+    rendered.rerender(pageUi());
+
+    expect(screen.queryByText('OT-000001')).not.toBeInTheDocument();
+    expect(await screen.findByText('OT-ACTOR-2')).toBeVisible();
+    resolveFirst(listResponse);
+    await waitFor(() => expect(screen.queryByText('OT-000001')).not.toBeInTheDocument());
   });
 
   it('usa cards a 1024 px con sidebar y conserva una acción de detalle accesible', async () => {

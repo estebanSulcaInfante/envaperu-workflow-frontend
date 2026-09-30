@@ -19,6 +19,29 @@ const project = (actor, registry = workspaceFeatures) => buildActorWorkspace({
 });
 
 describe('TS-010N2: proyección única del workspace', () => {
+  it.each([
+    ['control.productionProgress', 'production.fabrication', ['OT_VER']],
+    ['control.inventory', 'warehouse.kardex', ['INVENTARIO_VER', 'INVENTARIO_CONTROL_TRANSVERSAL']],
+  ])('CTL-02 conserva inicio y favorito heredado %s en su vista canónica', (oldKey, newKey, capabilities) => {
+    const workspace = project({
+      capacidades_efectivas: capabilities,
+      rol_principal: { codigo: 'LECTOR', nombre: 'Lector', workspace_start_feature: oldKey,
+        workspace_preferencias: [{ feature_key: oldKey, prioridad: 1, fijada: true }] },
+    });
+    expect(workspace.startFeature.key).toBe(newKey);
+    expect(workspace.startFeature.pinned).toBe(true);
+    expect(workspace.configurationWarnings).toEqual([]);
+    expect(workspace.homeFeatures.map((item) => item.key)).not.toContain(oldKey);
+  });
+
+  it('CTL-02 no convierte control transversal solo en lectura de Kardex', () => {
+    const workspace = project({
+      capacidades_efectivas: ['INVENTARIO_CONTROL_TRANSVERSAL'],
+      rol_principal: { codigo: 'LECTOR', workspace_start_feature: 'control.inventory' },
+    });
+    expect(workspace.homeFeatures.map((item) => item.key)).not.toContain('warehouse.kardex');
+    expect(workspace.startFeature?.key).not.toBe('warehouse.kardex');
+  });
   it('proyecta un rol nuevo sin constantes frontend y respeta su acceso principal', () => {
     const actor = {
       capacidades_efectivas: ['INVENTARIO_VER'],

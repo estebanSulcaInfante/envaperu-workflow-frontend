@@ -41,6 +41,7 @@ const renderInbox = (route = '/') => render(
 
 describe('bandeja local de OF', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     api.list.mockResolvedValue({ items: [
       { id: 'of-1', codigo: 'OF-000001', estado: 'LIBERADA', created_at: '2026-09-01', molde_id: 'M-1', procedencia: { tipo: 'OP', op_codigo: 'OP-7' }, corridas: [{ id: 'r1', objetivo_neto_kg: '10', color_nombre: 'Rojo' }, { id: 'r2', objetivo_neto_kg: '20', color_nombre: 'Verde' }] },
       { id: 'of-2', codigo: 'OF-000002', estado: 'ANULADA', created_at: '2026-09-02', molde_id: 'M-2', corridas: [] },
@@ -53,10 +54,42 @@ describe('bandeja local de OF', () => {
     api.recetas.mockResolvedValue({ items: [] });
   });
 
+  it('conserva expansión, filtro y foco al volver del documento, con estado y recencia visibles', async () => {
+    api.progress.mockResolvedValue({ as_of: '2026-09-29', items: [], visibilidad: { pesaje: false } });
+    const user = userEvent.setup();
+    renderInbox('/produccion/ordenes-fabricacion?q=Rojo');
+    await user.click(await screen.findByRole('button', { name: 'Expandir objetivos OF-000001' }));
+    expect(screen.getByText('Liberada')).toBeVisible();
+    expect(screen.getByText('Fuente consultada: 2026-09-29')).toBeVisible();
+    await user.click(screen.getByRole('link', { name: 'Abrir OF-000001' }));
+    await user.click(await screen.findByRole('button', { name: 'Volver a bandeja' }));
+    expect(await screen.findByRole('button', { name: 'Ocultar objetivos OF-000001' })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Omnibúsqueda' })).toHaveValue('Rojo');
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Abrir OF-000001' })).toHaveFocus());
+  });
+
+  it('reintenta sólo avance aunque el listado posterior no esté disponible', async () => {
+    const user = userEvent.setup();
+    api.progress.mockRejectedValueOnce(new Error('Avance temporalmente no disponible'));
+    renderInbox();
+    await screen.findByText('No se pudo cargar el avance de OF.');
+    const listCalls = api.list.mock.calls.length;
+    api.list.mockRejectedValue(new Error('Listado temporalmente no disponible'));
+    api.progress.mockResolvedValueOnce({ as_of: '2026-09-29', items: [], visibilidad: { pesaje: false } });
+    await user.click(screen.getByRole('button', { name: 'Reintentar', exact: true }));
+    expect(await screen.findByText('Fuente consultada: 2026-09-29')).toBeVisible();
+    expect(api.list.mock.calls.length).toBe(listCalls);
+  });
+
   it('entra a la bandeja sin seleccionar la primera OF', async () => {
     renderInbox();
     expect(await screen.findByTestId('of-inbox')).toBeVisible();
-    expect(screen.getByText('Rojo · Verde')).toBeVisible();
+    expect(await screen.findByRole('link', { name: 'Abrir OF-000001' })).toBeVisible();
+    const objectives = screen.getByRole('button', { name: 'Expandir objetivos OF-000001' });
+    expect(objectives).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(objectives);
+    expect(screen.getByText('Rojo')).toBeVisible();
+    expect(screen.getByText('Verde')).toBeVisible();
     expect(screen.queryByText('Configuración del recurso')).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Orden de fabricación' })).not.toBeInTheDocument();
     expect(api.detail).not.toHaveBeenCalled();

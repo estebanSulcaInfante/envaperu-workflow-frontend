@@ -49,7 +49,7 @@ describe('guarda unificada por función del workspace', () => {
     renderRoute('production.fabrication');
 
     expect(screen.getByText('Vista operativa montada')).toBeVisible();
-    expect(canAny).toHaveBeenCalledWith(['OF_VER']);
+    expect(canAny).toHaveBeenCalledWith(['OF_VER', 'OT_VER']);
   });
 
   it('protege Supervisión de producción con OT_VER', () => {

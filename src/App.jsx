@@ -26,7 +26,7 @@ import RecepcionMateriales from './components/RecepcionMateriales';
 import ScmGuide from './components/ScmGuide';
 import ProductionProgressDashboard from './components/ProductionProgressDashboard';
 import ProductionSupervisionScm from './components/ProductionSupervisionScm';
-import ProductionOrderProgressScm from './components/ProductionOrderProgressScm';
+import ControlConsolidationRedirect from './components/ControlConsolidationRedirect';
 import ProductionHistoryScm from './components/ProductionHistoryScm';
 import PrintJobsControlScm from './components/PrintJobsControlScm';
 import LegacyProductionOrders from './components/LegacyProductionOrders';
@@ -36,7 +36,7 @@ import MaterialCatalogPage from './components/MaterialCatalogPage';
 import LineasFamiliasAdmin from './components/LineasFamiliasAdmin';
 import ScmEngineeringAdmin from './components/ScmEngineeringAdmin';
 import OtMangasScm from './components/OtMangasScm';
-import FabricationOrdersScm from './components/FabricationOrdersScm';
+import FabricationWorkspaceScm from './components/FabricationWorkspaceScm';
 import AssemblyOrdersScm from './components/AssemblyOrdersScm';
 import InventoryScm from './components/InventoryScm';
 import KgPtAvailabilityScm from './components/KgPtAvailabilityScm';
@@ -167,9 +167,9 @@ function App() {
                 <Route path="/produccion/talonarios" element={workspace('control.talonarios', <TalonariosAdmin />)} />
                 <Route path="/control" element={<WorkspaceAreaRedirect areaKey="control" />} />
                 <Route path="/control/supervision-produccion" element={workspace('control.productionSupervision', <ProductionSupervisionScm />)} />
-                <Route path="/control/avance-of" element={workspace('control.productionProgress', <ProductionOrderProgressScm />)} />
+                <Route path="/control/avance-of" element={workspace('control.productionProgress', <ControlConsolidationRedirect />)} />
                 <Route path="/control/historico-produccion" element={workspace('control.productionHistory', <ProductionHistoryScm />)} />
-                <Route path="/control/inventario" element={workspace('control.inventory', <WarehouseOperationsScm control />)} />
+                <Route path="/control/inventario" element={workspace('control.inventory', <ControlConsolidationRedirect />)} />
                 <Route path="/control/impresion-etiquetas" element={workspace('control.printJobs', <PrintJobsControlScm />)} />
                 <Route path="/control/auditoria-hojas" element={workspace('control.sheetAudit', null)} />
                 <Route path="/produccion/supervision" element={<Navigate to="/control/supervision-produccion" replace />} />
@@ -178,7 +178,7 @@ function App() {
                 <Route path="/produccion/ots-planta" element={workspace('production.machineWork', <OtMangasScm view="landing" />)} />
                 <Route path="/produccion/ots-planta/trabajo" element={workspace('production.machineWork', <OtMangasScm view="detail" />)} />
                 <Route path="/produccion/ots-mangas" element={workspace('production.machineWork', <OtMangasScm view="landing" />)} />
-                <Route path="/produccion/ordenes-fabricacion" element={workspace('production.fabrication', <FabricationOrdersScm />)} />
+                <Route path="/produccion/ordenes-fabricacion" element={workspace('production.fabrication', <FabricationWorkspaceScm />)} />
                 <Route path="/produccion/ordenes-armado" element={workspace('production.assembly', <AssemblyOrdersScm />)} />
                 <Route path="/produccion/ordenes-ensamble" element={<Navigate to="/produccion/ordenes-armado" replace />} />
                 <Route path="/produccion/abastecimiento" element={workspace('materials.internalSupply', <InternalSupplyScm />)} />

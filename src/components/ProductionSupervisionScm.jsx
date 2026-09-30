@@ -57,6 +57,7 @@ import {
 } from '../services/scmProductionObservabilityApi';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
 import { todayInLima } from '../utils/limaDate';
+import { formatKg } from '../utils/weightDisplay';
 import DataTableToolbar from './ui/DataTableToolbar';
 import PageHeader from './ui/PageHeader';
 
@@ -94,7 +95,7 @@ const quantity = (value, maximumFractionDigits = 3) => new Intl.NumberFormat('es
   maximumFractionDigits,
 }).format(numberValue(value));
 
-const weight = (value) => `${numberValue(value).toFixed(3)} kg`;
+const weight = (value) => `${formatKg(value)} kg`;
 
 const localDateTime = (value) => {
   if (!value) return 'No informado';
@@ -233,6 +234,10 @@ function UpstreamLabel({ item }) {
 function ProgressSummary({ item }) {
   const work = item?.trabajo_actual;
   const totals = item?.cantidades_resumen;
+  const evidenceUnit = String(
+    totals?.unidad_evidencia || item?.unidad_evidencia || '',
+  ).toUpperCase();
+  const isWeightProgress = evidenceUnit === 'KG' || evidenceUnit === 'MIXTO';
   const hasTotals = totals?.objetivo_un != null || totals?.confirmado_un != null;
   const target = numberValue(totals?.objetivo_un);
   const confirmed = numberValue(totals?.confirmado_un);
@@ -240,7 +245,11 @@ function ProgressSummary({ item }) {
   return (
     <Stack spacing={0.5}>
       <Typography variant="caption" fontWeight={850}>Avance total OT</Typography>
-      {hasTotals ? (
+      {isWeightProgress ? (
+        <Typography variant="body2" color="text.secondary">
+          Avance UN no aplica a esta evidencia; consultar kg medidos. Atribución OT no evaluada.
+        </Typography>
+      ) : hasTotals ? (
         <>
           <Typography variant="body2">
             {quantity(confirmed)} / {quantity(target)} un
@@ -260,7 +269,7 @@ function ProgressSummary({ item }) {
       )}
       <Typography variant="caption" color="text.secondary">
         {work
-          ? `Actual: ${work.color || 'Color no informado'} · ${quantity(work.confirmado_un)} / ${quantity(work.objetivo_un)} un`
+          ? `Actual: ${work.color || 'Color no informado'}${isWeightProgress ? '' : ` · ${work.confirmado_un == null || work.objetivo_un == null ? 'UN no informado' : `${quantity(work.confirmado_un)} / ${quantity(work.objetivo_un)} un`}`}`
           : 'Sin trabajo activo'}
       </Typography>
       {item?.trabajo_siguiente?.color && (
@@ -297,7 +306,7 @@ function LogisticsSummary({ item, canWeighing, canAlerts }) {
       </Stack>
       {weighingVisible && item?.pesaje_resumen && (
         <Typography variant="caption" color="text.secondary">
-          Peso neto real: {weight(item.pesaje_resumen.neto_kg ?? item.pesaje_resumen.peso_fisico_neto_kg)}
+          Peso neto real: {weight(item.pesaje_resumen.neto_kg ?? item.pesaje_resumen.peso_fisico_neto_kg)} · Físico medido
           {item.pesaje_resumen.kg_produccion_estandar != null
             ? ` · Peso estándar según unidades: ${weight(item.pesaje_resumen.kg_produccion_estandar)}` : ''}
         </Typography>
@@ -467,19 +476,35 @@ const mangaArticle = (item) => {
 
 function MangaSummary({ item }) {
   const manga = mangaData(item);
+  const articleUnit = String(manga.articulo?.unidad_inventario || '').toUpperCase();
+  const isKg = articleUnit === 'KG';
+  const hasCanonicalUnit = articleUnit === 'KG' || articleUnit === 'UN';
+  const weighingVisible = item?.visibilidad?.pesaje !== false;
+  const standardWeight = articleUnit !== 'UN'
+    ? null
+    : (manga.pesaje?.metricas?.kg_produccion_estandar
+      ?? manga.pesaje?.kg_produccion_estandar);
   return (
     <Stack spacing={0.25}>
       <Typography variant="body2">
-        {quantity(manga.cantidad_confirmada_un)} / {quantity(manga.cantidad_objetivo_un)} un
+        {isKg
+          ? 'UN no aplica para artículo KG'
+          : !hasCanonicalUnit
+            ? 'UN no informado: unidad canónica ausente'
+          : `${manga.cantidad_confirmada_un == null ? 'No informado' : quantity(manga.cantidad_confirmada_un)} / ${manga.cantidad_objetivo_un == null ? 'No informado' : quantity(manga.cantidad_objetivo_un)} un`}
       </Typography>
-      {manga.pesaje ? (
+      {!weighingVisible ? (
+        <Typography variant="caption" color="text.secondary">Pesaje restringido</Typography>
+      ) : manga.pesaje ? (
         <>
           <Typography variant="caption" color="text.secondary">
             Peso neto real: {weight(manga.pesaje.peso_fisico_neto_kg)}
           </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Peso estándar según unidades: {weight(manga.pesaje.kg_produccion_estandar)}
-          </Typography>
+          {standardWeight != null && (
+            <Typography variant="caption" color="text.secondary">
+              Peso estándar según unidades: {weight(standardWeight)}
+            </Typography>
+          )}
         </>
       ) : <Typography variant="caption" color="text.secondary">Sin pesaje efectivo</Typography>}
     </Stack>
@@ -696,6 +721,11 @@ function KpiGrid({ summary, fallbackItems, canWeighing }) {
     standardWeight: totals.kg_produccion_estandar
       ?? sumKnown((item) => item?.pesaje_resumen?.kg_produccion_estandar),
   };
+  const evidenceUnits = new Set(fallbackItems
+    .map((item) => item?.unidad_evidencia || item?.pesaje_resumen?.unidad_evidencia)
+    .filter(Boolean)
+    .map((value) => String(value).toUpperCase()));
+  const hasCanonicalWeightEvidence = evidenceUnits.has('KG') || evidenceUnits.has('MIXTO');
   const unitsValue = values.confirmed == null || values.objective == null
     ? 'No informado'
     : `${quantity(values.confirmed)} / ${quantity(values.objective)} un`;
@@ -736,11 +766,11 @@ function KpiGrid({ summary, fallbackItems, canWeighing }) {
       />
       <Kpi
         testId="kpi-standard-weight"
-        label="KG DE PRODUCCIÓN ESTÁNDAR"
+        label="KG ESTÁNDAR SEGÚN UN"
         value={canWeighing
-          ? (values.standardWeight == null ? 'No informado' : weight(values.standardWeight))
+          ? (values.standardWeight == null || hasCanonicalWeightEvidence ? 'No informado' : weight(values.standardWeight))
           : 'Restringido'}
-        help={canWeighing ? 'Métrica estándar, separada del peso físico' : 'Requiere permiso de pesaje'}
+        help={canWeighing ? 'Sólo aplica con evidencia canónica UN' : 'Requiere permiso de pesaje'}
         color="secondary.main"
       />
     </Box>
@@ -755,6 +785,8 @@ function DetailHierarchy({
   const orders = Array.isArray(item?.upstream?.ordenes) && item.upstream.ordenes.length
     ? item.upstream.ordenes : (order ? [order] : []);
   const works = Array.isArray(item?.trabajos) ? item.trabajos : [];
+  const evidenceUnit = String(item?.unidad_evidencia || '').toUpperCase();
+  const hideUnitProgress = evidenceUnit === 'KG' || evidenceUnit === 'MIXTO';
   return (
     <Stack spacing={1.5}>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 1 }}>
@@ -834,6 +866,7 @@ function DetailHierarchy({
                 const weighingVisible = canWeighing && item?.visibilidad?.pesaje !== false;
                 const warehouseVisible = canWarehouse && item?.visibilidad?.almacen !== false;
                 const qualityVisible = canQuality && item?.visibilidad?.calidad !== false;
+                const mangaUnit = String(manga.articulo?.unidad_inventario || '').toUpperCase();
                 return (
                   <Paper key={manga.public_id || manga.codigo} variant="outlined" sx={{ p: 1.25 }}>
                     <Stack spacing={0.75}>
@@ -843,7 +876,14 @@ function DetailHierarchy({
                         <Chip size="small" color="info" variant="outlined" label={`Logístico: ${stateLabel(manga.estado_logistico)}`} />
                       </Stack>
                       <Typography variant="body2">
-                        {quantity(manga.cantidad_confirmada_un)} / {quantity(manga.cantidad_objetivo_un)} un · responsable {manga.responsable?.nombre || 'Por asignar'}
+                        {hideUnitProgress
+                          ? (evidenceUnit === 'KG' ? 'UN no aplica para artículo KG' : 'UN no comparable: evidencia mixta')
+                          : mangaUnit === 'KG'
+                            ? 'UN no aplica para artículo KG'
+                            : mangaUnit !== 'UN'
+                              ? 'UN no informado: unidad canónica ausente'
+                          : `${manga.cantidad_confirmada_un == null ? 'No informado' : quantity(manga.cantidad_confirmada_un)} / ${manga.cantidad_objetivo_un == null ? 'No informado' : quantity(manga.cantidad_objetivo_un)} un`}
+                        {' · '}responsable {manga.responsable?.nombre || 'Por asignar'}
                       </Typography>
                       {manga.etiqueta && (
                         <Typography variant="caption" color="text.secondary">
@@ -855,9 +895,14 @@ function DetailHierarchy({
                       {weighingVisible && manga.pesaje && (
                         <Alert severity="info" icon={false}>
                           Peso neto real {weight(manga.pesaje.neto_fisico_kg ?? manga.pesaje.peso_fisico_neto_kg)}
-                          {' · '}Peso estándar según unidades {weight(manga.pesaje.kg_produccion_estandar ?? manga.pesaje.kg_produccion_ot)}
+                          {mangaUnit === 'UN' && (manga.pesaje.metricas?.kg_produccion_estandar
+                            ?? manga.pesaje.kg_produccion_estandar) != null
+                            ? ` · Peso estándar según unidades ${weight(manga.pesaje.metricas?.kg_produccion_estandar ?? manga.pesaje.kg_produccion_estandar)}` : ''}
                           {' · '}{stateLabel(manga.pesaje.estado)}
                         </Alert>
+                      )}
+                      {!weighingVisible && (
+                        <Typography variant="caption" color="text.secondary">Pesaje restringido</Typography>
                       )}
                       {warehouseVisible && manga.almacen && (
                         <Typography variant="caption">
@@ -1020,7 +1065,7 @@ function PendingDocumentsPanel({ items }) {
 export default function ProductionSupervisionScm() {
   const theme = useTheme();
   const mobile = useMediaQuery(theme.breakpoints.down('lg'));
-  const { can, experience } = useScmActor();
+  const { actorId, can, experience } = useScmActor();
   const [searchParams, setSearchParams] = useSearchParams();
   const todayRef = useRef(todayInLima());
   const filters = useMemo(
@@ -1041,6 +1086,7 @@ export default function ProductionSupervisionScm() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const [summaryError, setSummaryError] = useState('');
+  const [loadedActorId, setLoadedActorId] = useState(actorId);
   const [refreshKey, setRefreshKey] = useState(0);
   const [cursorHistory, setCursorHistory] = useState([]);
   const [detailTarget, setDetailTarget] = useState(null);
@@ -1085,12 +1131,28 @@ export default function ProductionSupervisionScm() {
 
   useEffect(() => {
     if (invalidRange) {
+      setItems([]);
+      setSummary(null);
+      setPendingDocuments([]);
+      setAsOf(null);
+      setPage({ next_cursor: null, limit: PAGE_LIMIT, has_more: false });
+      setLoadedActorId(actorId);
       setBusy(false);
       setError('');
       return undefined;
     }
     const controller = new AbortController();
     let active = true;
+    const requestActorId = actorId;
+    setLoadedActorId(null);
+    // Actor changes invalidate the visible snapshot until all actor-scoped
+    // reads return. This also prevents a late response from the previous
+    // actor from repopulating the page.
+    setItems([]);
+    setSummary(null);
+    setPendingDocuments([]);
+    setAsOf(null);
+    setPage({ next_cursor: null, limit: PAGE_LIMIT, has_more: false });
     const load = async () => {
       setBusy(true);
       setError('');
@@ -1128,6 +1190,7 @@ export default function ProductionSupervisionScm() {
       } else {
         setPendingDocuments([]);
       }
+      setLoadedActorId(requestActorId);
       setBusy(false);
     };
     load();
@@ -1135,7 +1198,16 @@ export default function ProductionSupervisionScm() {
       active = false;
       controller.abort();
     };
-  }, [filters, invalidRange, refreshKey]);
+  }, [actorId, filters, invalidRange, refreshKey]);
+
+  useEffect(() => {
+    detailRequestRef.current?.abort();
+    detailRequestRef.current = null;
+    setDetailTarget(null);
+    setDetail(null);
+    setDetailBusy(false);
+    setDetailError('');
+  }, [actorId]);
 
   useEffect(() => {
     if (!filters.autoRefresh) return undefined;
@@ -1191,6 +1263,19 @@ export default function ProductionSupervisionScm() {
   const quickOptions = QUICK_FILTERS.filter(
     (item) => !item.capability || can(item.capability),
   );
+
+  // Do not paint the previous actor's list, summary, or drawer while the
+  // actor-scoped reads are in flight. The effect below also aborts late data;
+  // this guard closes the pre-effect render window.
+  if (String(loadedActorId) !== String(actorId)) {
+    return (
+      <Stack spacing={2.25}>
+        <Alert severity="info" role="status" aria-label="Cargando supervisión">
+          Cargando supervisión para el actor seleccionado…
+        </Alert>
+      </Stack>
+    );
+  }
 
   return (
     <Stack spacing={2.25}>

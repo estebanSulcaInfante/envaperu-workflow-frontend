@@ -1,8 +1,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, Checkbox, FormControl, FormControlLabel, InputLabel,
-  MenuItem, Paper, Select, Stack, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, TextField, Typography, LinearProgress, IconButton,
+  MenuItem, Paper, Select, Stack, TextField, Typography, LinearProgress,
   ToggleButton, ToggleButtonGroup, Pagination,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -39,6 +38,7 @@ import FabricationContextualRecipePanel from './FabricationContextualRecipePanel
 import DraftOrderAnnulment from './DraftOrderAnnulment';
 import FabricationOrderReplacement from './FabricationOrderReplacement';
 import FabricationObjectivesTable from './FabricationObjectivesTable';
+import FabricationProgressObjectivesTable from './FabricationProgressObjectivesTable';
 import { obtenerOrdenFabricacionScm } from '../services/scmOtApi';
 import { listarAvanceOfScm } from '../services/scmProductionObservabilityApi';
 import { defaultRecipeForRun } from './fabricationRecipeOptions';
@@ -224,7 +224,7 @@ export default function FabricationOrdersScm() {
     ? Number(searchParams.get('tamano')) : 25;
   const queryPage = Math.max(1, Number(searchParams.get('pagina')) || 1);
   const queryOrder = searchParams.get('orden') === 'codigo' ? 'codigo' : 'reciente';
-  const { can, experience } = useScmActor();
+  const { can, experience, actorId } = useScmActor();
   const canEdit = can('OF_EDITAR_BORRADOR');
   const canRelease = can('OF_LIBERAR');
   const canClose = can('OF_CERRAR');
@@ -236,7 +236,13 @@ export default function FabricationOrdersScm() {
   const [staleData, setStaleData] = useState(false);
   const [detailOrder, setDetailOrder] = useState(null);
   const [progressItems, setProgressItems] = useState([]);
+  const [progressActorId, setProgressActorId] = useState(null);
+  const [progressVisibility, setProgressVisibility] = useState({});
   const [progressState, setProgressState] = useState('idle');
+  const [progressAsOf, setProgressAsOf] = useState(null);
+  const [progressRefresh, setProgressRefresh] = useState(0);
+  const [expandedObjectives, setExpandedObjectives] = useState({});
+  const progressRequestRef = useRef(0);
   const [molds, setMolds] = useState([]);
   const [machines, setMachines] = useState([]);
   const [colors, setColors] = useState([]);
@@ -366,6 +372,7 @@ export default function FabricationOrdersScm() {
 
   const load = useCallback(async () => {
     setBusy(true);
+    setProgressRefresh((revision) => revision + 1);
     setError('');
     setStaleData(false);
     let active = true;
@@ -389,6 +396,8 @@ export default function FabricationOrdersScm() {
       const detailAccessDenied = detailResult?.status === 'rejected'
         && [401, 403].includes(detailResult.reason?.response?.status || detailResult.reason?.status);
       if (listAccessDenied || detailAccessDenied) {
+        progressRequestRef.current += 1;
+        setProgressAsOf(null);
         ordersRef.current = [];
         setOrders([]);
         setStaleData(false);
@@ -569,29 +578,48 @@ export default function FabricationOrdersScm() {
   }, []);
 
   useEffect(() => {
+    const requestId = ++progressRequestRef.current;
+    setProgressAsOf(null);
     if (!canViewOt) {
       setProgressItems([]);
+      setProgressActorId(null);
+      setProgressVisibility({ pesaje: false });
       setProgressState('restricted');
       return undefined;
     }
+    if (progressRefresh === 0) return undefined;
     const controller = new AbortController();
+    const requestedActor = actorId;
+    setProgressItems([]);
+    setProgressActorId(null);
+    setProgressVisibility({});
     setProgressState('loading');
     listarAvanceOfScm({ signal: controller.signal })
       .then((payload) => {
+        if (requestId !== progressRequestRef.current) return;
         setProgressItems(payload?.items || []);
+        setProgressActorId(requestedActor);
+        setProgressVisibility(payload?.visibilidad || {});
+        setProgressAsOf(payload?.as_of || null);
         setProgressState('ready');
       })
       .catch((requestError) => {
         if (requestError?.name === 'CanceledError' || requestError?.name === 'AbortError') return;
+        if (requestId !== progressRequestRef.current) return;
         if ([401, 403].includes(requestError?.response?.status)) {
           setProgressItems([]);
+          setProgressActorId(null);
+          setProgressVisibility({ pesaje: false });
           setProgressState('restricted');
         } else {
+          setProgressItems([]);
+          setProgressActorId(null);
+          setProgressVisibility({ pesaje: false });
           setProgressState('error');
         }
       });
-    return () => controller.abort();
-  }, [canViewOt, requestedOrderId, orders]);
+    return () => { progressRequestRef.current += 1; controller.abort(); };
+  }, [actorId, canViewOt, progressRefresh]);
 
   const updateQuery = (changes, { replace = false } = {}) => {
     const next = new URLSearchParams(searchParams);
@@ -865,23 +893,27 @@ export default function FabricationOrdersScm() {
     () => paginateOrders(filteredOrders, queryPage, queryPageSize),
     [filteredOrders, queryPage, queryPageSize],
   );
+  const visibleProgressItems = useMemo(
+    () => (progressActorId === actorId ? progressItems : []),
+    [actorId, progressActorId, progressItems],
+  );
   const progressByOrder = useMemo(() => new Map(
     filteredOrders.map((order) => [
       order.id,
-      projectOrderProgress(order, progressItems, {
+      projectOrderProgress(order, visibleProgressItems, {
         canViewOt: canViewOt && progressState !== 'restricted',
         canViewWeights,
         error: progressState === 'error',
         loading: progressState === 'loading',
       }),
     ]),
-  ), [canViewOt, canViewWeights, filteredOrders, progressItems, progressState]);
-  const selectedProgress = useMemo(() => (selected ? projectOrderProgress(selected, progressItems, {
+  ), [canViewOt, canViewWeights, filteredOrders, visibleProgressItems, progressState]);
+  const selectedProgress = useMemo(() => (selected ? projectOrderProgress(selected, visibleProgressItems, {
     canViewOt: canViewOt && progressState !== 'restricted',
     canViewWeights,
     error: progressState === 'error',
     loading: progressState === 'loading',
-  }) : null), [canViewOt, canViewWeights, progressItems, progressState, selected]);
+  }) : null), [canViewOt, canViewWeights, visibleProgressItems, progressState, selected]);
   const detailHref = (id) => {
     const next = new URLSearchParams(searchParams);
     next.set('of', id);
@@ -904,7 +936,8 @@ export default function FabricationOrdersScm() {
     setFormulaDirty(false);
   };
   const setQuery = (changes) => updateQuery({ ...changes, pagina: '1' });
-  const renderOrderIdentity = (order) => {
+  const renderOrderIdentity = (order, options = {}) => {
+    const compact = options.compact === true;
     const mold = orderMoldLabel(order, molds);
     return (
       <Stack spacing={0.1} sx={{ minWidth: 0 }}>
@@ -918,15 +951,22 @@ export default function FabricationOrdersScm() {
         >
           {order.codigo}
         </Button>
-        <Typography variant="caption" color="text.secondary" noWrap>{mold.name}</Typography>
-        <Typography variant="caption" color="text.secondary" noWrap>{mold.code}</Typography>
+        <Chip size="small" variant="outlined" label={statusLabel(order.estado)} color={statusColor[order.estado] || 'default'} sx={{ alignSelf: 'flex-start' }} />
+        {!compact && <>
+          <Typography variant="caption" color="text.secondary" noWrap>{mold.name}</Typography>
+          <Typography variant="caption" color="text.secondary" noWrap>{mold.code}</Typography>
+          <Typography variant="caption" color="text.secondary" noWrap>{firstColorLabel(order)}</Typography>
+          <Typography variant="caption" color="text.secondary" noWrap>
+            {displayProvenance(order.procedencia) || order.origen_demanda || order.motivo || '—'}
+          </Typography>
+        </>}
       </Stack>
     );
   };
   const statusColumns = Object.keys(statusColor);
 
   useEffect(() => {
-    if (requestedOrderId || !focusedOrderRef.current) return undefined;
+    if (requestedOrderId || busy || progressState === 'loading' || !focusedOrderRef.current) return undefined;
     const targetId = focusedOrderRef.current;
     const timer = window.setTimeout(() => {
       const target = [...document.querySelectorAll('[data-of-id]')]
@@ -939,7 +979,7 @@ export default function FabricationOrdersScm() {
       focusedOrderRef.current = null;
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [pagedOrders.items, requestedOrderId]);
+  }, [pagedOrders.items, requestedOrderId, busy, progressState]);
 
   return (
     <Stack spacing={2.5}>
@@ -1058,29 +1098,20 @@ export default function FabricationOrdersScm() {
               action={orders.length ? <Button onClick={() => setQuery({ q: '', estado: 'SIN_ANULADAS' })}>Restablecer consulta</Button> : null}
             />
           ) : queryView === 'tabla' ? (
-            <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
-              <Table size="small" aria-label="Bandeja de órdenes de fabricación">
-                <TableHead><TableRow>
-                  <TableCell>OF / molde</TableCell><TableCell>Color / procedencia</TableCell>
-                  <TableCell>Estado</TableCell><TableCell>Avance</TableCell>
-                </TableRow></TableHead>
-                <TableBody>{pagedOrders.items.map((order) => (
-                  <TableRow key={order.id} hover>
-                    <TableCell>{renderOrderIdentity(order)}</TableCell>
-                    <TableCell>
-                      <Typography variant="body2">{firstColorLabel(order)}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {displayProvenance(order.procedencia) || order.origen_demanda || order.motivo || '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell><Chip size="small" label={statusLabel(order.estado)} color={statusColor[order.estado] || 'default'} /></TableCell>
-                    <TableCell>
-                      <ProgressSummary progress={progressByOrder.get(order.id)} />
-                    </TableCell>
-                  </TableRow>
-                ))}</TableBody>
-              </Table>
-            </TableContainer>
+            <FabricationProgressObjectivesTable
+              items={visibleProgressItems}
+              visibility={{ ...progressVisibility, pesaje: canViewOt && canViewWeights && progressVisibility.pesaje !== false && progressState !== 'restricted' }}
+              orders={pagedOrders.items}
+              loading={progressState === 'loading'}
+              error={progressState === 'error' ? 'No se pudo cargar el avance de OF.' : ''}
+              onRetry={() => setProgressRefresh((value) => value + 1)}
+              title="Comparación de objetivos"
+              description="Compara varias OF; cada OF conserva todos sus objetivos y separa finalizados de abiertas."
+              renderOrder={renderOrderIdentity}
+              expandedKeys={expandedObjectives}
+              onExpandedChange={setExpandedObjectives}
+              asOf={progressAsOf}
+            />
           ) : (
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5 }}>
               {statusColumns.map((status) => {

@@ -11,6 +11,13 @@ import {
 } from '../config/workspaceRegistry';
 
 describe('US-010N1: registro único del workspace', () => {
+  it('CTL-02 conserva lectura OT en Fabricación y retira accesos duplicados de Control', () => {
+    const navigation = buildAreaNavigation({ canAny: (required) => !required.length || required.includes('OT_VER') });
+    expect(navigation.find((area) => area.key === 'production')?.features.map((item) => item.key)).toContain('production.fabrication');
+    expect(navigation.flatMap((area) => area.features).map((item) => item.key)).not.toContain('control.productionProgress');
+    expect(visibleWorkspaceFeatures({ canAny: () => true }).map((item) => item.key)).not.toContain('control.inventory');
+    expect(getFeatureByKey('warehouse.kardex').requiredAny).toEqual(['INVENTARIO_VER']);
+  });
   it('clasifica rutas físicas por función y no por prefijo', () => {
     expect(getWorkspaceFeature('/produccion/kardex')?.key).toBe('warehouse.kardex');
     expect(getWorkspaceFeature('/produccion/recepcion-mangas')?.areaKey).toBe('warehouse');

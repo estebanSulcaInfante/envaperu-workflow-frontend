@@ -185,6 +185,20 @@ const formatValue = (value) =>
     : typeof value === "string"
       ? humanizeStatus(value)
       : String(value);
+const identityText = (value) => {
+  const name = value?.nombre || value?.name || value?.value;
+  const code = value?.codigo || value?.code;
+  if (!name && !code)
+    return <Typography variant="body2" color="text.secondary">Sin vínculo aplicado</Typography>;
+  return (
+    <Stack spacing={0.1}>
+      <Typography variant="body2" fontWeight={700}>{name || "Identidad sin nombre"}</Typography>
+      {code && <Typography variant="caption" color="text.secondary">{code}</Typography>}
+    </Stack>
+  );
+};
+const identitySummary = (value) =>
+  [value?.nombre, value?.codigo].filter(Boolean).join(" · ") || "Sin vínculo histórico";
 const formatLocation = (value) => {
   if (!value) return "—";
   if (typeof value === "string") return value;
@@ -300,10 +314,52 @@ function IdentityBody({ item }) {
         <FieldGrid fields={scalarFields(item.articulo)} />
       </Paper>
       <Paper variant="outlined" sx={{ p: 1.25 }}>
+        <Typography variant="subtitle2">Identidad de fabricación</Typography>
+        <Stack spacing={1} sx={{ mt: 0.75 }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary" display="block">Molde</Typography>
+            {identityText(item.molde)}
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary" display="block">Pieza base</Typography>
+            {identityText(item.pieza)}
+          </Box>
+        </Stack>
+      </Paper>
+      <Paper variant="outlined" sx={{ p: 1.25 }}>
         <Typography variant="subtitle2">Tipo de manga</Typography>
         <FieldGrid fields={scalarFields(item.tipo_manga)} />
       </Paper>
     </Stack>
+  );
+}
+const appliedContextLabel = {
+  MOLDE: "Molde",
+  PIEZA: "Pieza base",
+  COLOR: "Color",
+  ARTICULO: "Artículo",
+};
+function AppliedContextBlock({ context }) {
+  if (!context) return null;
+  const groups = context.groups || [];
+  return (
+    <Paper variant="outlined" sx={{ p: 1.25, mb: 1.5 }} data-testid="manga-applied-context">
+      <Typography variant="subtitle2" sx={{ mb: 0.75 }}>Grupo consultado</Typography>
+      {groups.length ? (
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} flexWrap="wrap" useFlexGap>
+          {groups.map((group) => (
+            <Box key={group.dimension} sx={{ minWidth: 130 }}>
+              <Typography variant="caption" color="text.secondary" display="block">
+                {appliedContextLabel[group.dimension] || group.dimension}
+              </Typography>
+              {identityText(group)}
+            </Box>
+          ))}
+        </Stack>
+      ) : (
+        <Typography variant="body2" color="text.secondary">Total general</Typography>
+      )}
+    </Paper>
   );
 }
 function DocumentsBody({ item }) {
@@ -836,6 +892,7 @@ export default function MangaHistoryDetailScm({
   onClose,
   filters,
   group = [],
+  appliedContext = null,
   actorId = "unknown",
 }) {
   const [listState, setListState] = useState("idle");
@@ -1049,6 +1106,7 @@ export default function MangaHistoryDetailScm({
         </Button>
       </DialogTitle>
       <DialogContent ref={dialogContentRef} dividers>
+        <AppliedContextBlock context={appliedContext} />
         {listState === "loading" && (
           <Stack direction="row" spacing={1} alignItems="center">
             <CircularProgress size={18} aria-label="Cargando mangas" />
@@ -1090,7 +1148,7 @@ export default function MangaHistoryDetailScm({
                     primary={
                       item.articulo?.nombre || item.codigo || "Manga sin nombre"
                     }
-                    secondary={`${item.codigo || "Sin código"} · ${item.color || "Color no indicado"} · aporte en esta consulta: ${formatKg(item.aporte_consulta_kg)} kg · tramos: ${item.tramos_consulta ?? "—"}`}
+                    secondary={`${item.codigo || "Sin código"} · Molde: ${identitySummary(item.molde)} · Pieza: ${identitySummary(item.pieza)} · ${item.color || "Color no indicado"} · aporte en esta consulta: ${formatKg(item.aporte_consulta_kg)} kg · tramos: ${item.tramos_consulta ?? "—"}`}
                   />
                 </ListItemButton>
               ))}
@@ -1143,6 +1201,14 @@ export default function MangaHistoryDetailScm({
                     hex={detailIdentity.color_identidad?.hex}
                   />
                 </Box>
+                <Stack spacing={0.15} sx={{ mt: 0.75 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Molde: {identitySummary(detailIdentity.molde || selected?.molde)}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Pieza base: {identitySummary(detailIdentity.pieza || selected?.pieza)}
+                  </Typography>
+                </Stack>
               </Box>
               <Paper variant="outlined" sx={{ p: 1.25, minWidth: 220 }}>
                 <Typography variant="caption" color="text.secondary">

@@ -1,4 +1,4 @@
-export const GROUP_OPTIONS = ['DIA', 'MES', 'OF', 'CORRIDA', 'COLOR', 'OT', 'RECURSO', 'RESPONSABLE', 'ARTICULO'];
+export const GROUP_OPTIONS = ['DIA', 'MES', 'OF', 'CORRIDA', 'COLOR', 'OT', 'RECURSO', 'RESPONSABLE', 'MOLDE', 'PIEZA', 'ARTICULO'];
 export const MEASURE_OPTIONS = ['PESO_KG', 'MANGAS', 'P_UNITARIO_G', 'P_TEORICO_KG'];
 
 export const GROUP_LABELS = {
@@ -10,6 +10,8 @@ export const GROUP_LABELS = {
   OT: 'OT',
   RECURSO: 'Recurso',
   RESPONSABLE: 'Responsable',
+  MOLDE: 'Molde',
+  PIEZA: 'Pieza base',
   ARTICULO: 'Artículo',
 };
 

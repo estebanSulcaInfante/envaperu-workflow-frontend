@@ -22,6 +22,8 @@ export const GENERIC_WORKSPACE_EXPERIENCE = Object.freeze({
 
 export const WORKSPACE_FEATURE_KEY_ALIASES = Object.freeze({
   'warehouse.reservationInbox': 'materials.internalSupply',
+  'control.productionProgress': 'production.fabrication',
+  'control.inventory': 'warehouse.kardex',
 });
 
 export const normalizeWorkspaceFeatureKey = (featureKey) => (
