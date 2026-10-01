@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { CssBaseline, Paper, Stack, Typography, Checkbox, FormControlLabel } from '@mui/material';
 import DraftOrderAnnulment from '../src/components/DraftOrderAnnulment';
 
-function Preview() {
+export default function Preview() {
   const [fail, setFail] = useState(false);
   const [order, setOrder] = useState({ id: 'fixture', codigo: 'OF-000001', estado: 'BORRADOR', version: 1 });
   return <><CssBaseline /><Stack spacing={3} sx={{ p: 3, maxWidth: 1000, mx: 'auto' }}>
