@@ -57,7 +57,10 @@ export default function FabricationProgressObjectivesTable({
   asOf = null, title = 'Comparación de objetivos', description, renderOrder,
   expandedKeys, onExpandedChange,
 }) {
-  const rows = useMemo(() => objectiveComparisonRows(items, { visibility, orders }), [items, orders, visibility]);
+  const rows = useMemo(
+    () => (loading && !items.length ? [] : objectiveComparisonRows(items, { visibility, orders })),
+    [items, loading, orders, visibility],
+  );
   const groups = useMemo(() => [...groupObjectiveComparisonRows(rows).values()], [rows]);
   const [internalExpanded, setInternalExpanded] = useState({});
   const expanded = expandedKeys ?? internalExpanded;
@@ -82,8 +85,11 @@ export default function FabricationProgressObjectivesTable({
       {error && <Alert severity="error" sx={{ mx: 2, mb: 2 }} action={onRetry ? <Button color="inherit" onClick={onRetry}>Reintentar</Button> : undefined}>{error}</Alert>}
       {loading && <Typography role="status" sx={{ p: 2 }}>Cargando objetivos…</Typography>}
       {!loading && !error && !rows.length && <Typography sx={{ p: 2 }} color="text.secondary">No hay objetivos de producción para mostrar.</Typography>}
-      {!loading && rows.length > 0 && (
-        <TableContainer sx={{ maxHeight: 520, overflowX: 'auto' }}>
+      {rows.length > 0 && (
+        <TableContainer
+          sx={{ maxHeight: 520, overflowX: 'auto', opacity: loading ? 0.72 : 1 }}
+          aria-busy={loading ? 'true' : 'false'}
+        >
           <Table size="small" stickyHeader aria-label="Bandeja y comparación de objetivos de fabricación" sx={{ tableLayout: 'fixed', minWidth: 1000, '& th, & td': { px: 1, overflowWrap: 'anywhere' }, '& th': { whiteSpace: 'normal' }, '& .MuiChip-root': { maxWidth: '100%', height: 'auto', minHeight: 24 }, '& .MuiChip-label': { whiteSpace: 'normal', py: 0.25 } }}>
             <colgroup>{['4%', '22%', '12%', '14%', '12%', '10%', '10%', '8%', '8%'].map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
             <TableHead><TableRow>

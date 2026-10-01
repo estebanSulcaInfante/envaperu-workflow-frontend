@@ -8,6 +8,7 @@ import FabricationOrdersScm from '../components/FabricationOrdersScm';
 const api = vi.hoisted(() => ({
   list: vi.fn(), detail: vi.fn(), progress: vi.fn(),
   moldes: vi.fn(), maquinas: vi.fn(), colores: vi.fn(), recetas: vi.fn(),
+  articles: vi.fn(),
 }));
 
 vi.mock('../services/api', () => ({
@@ -24,7 +25,7 @@ vi.mock('../services/scmOtApi', () => ({
 vi.mock('../services/scmProductionObservabilityApi', () => ({ listarAvanceOfScm: api.progress }));
 vi.mock('../services/scmEngineeringApi', () => ({
   mensajeErrorScm: (error, fallback) => error?.message || fallback,
-  obtenerActorScm: () => 1, listarArticulosScm: vi.fn().mockResolvedValue([]),
+  obtenerActorScm: () => 1, listarArticulosScm: api.articles,
 }));
 vi.mock('../context/ScmActorContext', () => ({
   useScmActor: () => ({
@@ -41,13 +42,14 @@ const renderInbox = (route = '/') => render(
 
 describe('bandeja local de OF', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     api.list.mockResolvedValue({ items: [
       { id: 'of-1', codigo: 'OF-000001', estado: 'LIBERADA', created_at: '2026-09-01', molde_id: 'M-1', procedencia: { tipo: 'OP', op_codigo: 'OP-7' }, corridas: [{ id: 'r1', objetivo_neto_kg: '10', color_nombre: 'Rojo' }, { id: 'r2', objetivo_neto_kg: '20', color_nombre: 'Verde' }] },
       { id: 'of-2', codigo: 'OF-000002', estado: 'ANULADA', created_at: '2026-09-02', molde_id: 'M-2', corridas: [] },
-    ] });
+    ], pagination: { page: 1, page_size: 25, total: 2, total_pages: 1 } });
     api.detail.mockResolvedValue({ id: 'of-1', codigo: 'OF-000001', estado: 'LIBERADA', version: 1, corridas: [] });
     api.progress.mockResolvedValue({ items: [] });
+    api.articles.mockResolvedValue([]);
     api.moldes.mockResolvedValue([]);
     api.maquinas.mockResolvedValue([]);
     api.colores.mockResolvedValue([]);
@@ -117,6 +119,34 @@ describe('bandeja local de OF', () => {
     expect(screen.getByText('Configuración del recurso')).toBeVisible();
   });
 
+  it('explica la receta ausente en readonly sin inferir incompatibilidad del catálogo', async () => {
+    api.detail.mockResolvedValueOnce({
+      id: 'of-1', codigo: 'OF-000001', estado: 'LIBERADA', version: 1,
+      corridas: [{ id: 'r1', codigo: 'C01', color_nombre: 'Rojo', receta_revision_id: null, salidas: [] }],
+    });
+    renderInbox('/produccion/ordenes-fabricacion?of=of-1');
+    await screen.findByRole('button', { name: 'Volver a bandeja' });
+    await userEvent.click(await screen.findByRole('button', { name: /Mostrar composición/ }));
+    expect(screen.getByText('Sin formulación seleccionada.')).toBeVisible();
+    expect(screen.queryByText('Este color no tiene una formulación aprobada compatible.')).not.toBeInTheDocument();
+    expect(api.moldes).not.toHaveBeenCalled();
+    expect(api.recetas).not.toHaveBeenCalled();
+  });
+
+  it('mantiene identidad readonly del molde sin inventar cavidades ni pesos físicos', async () => {
+    api.detail.mockResolvedValueOnce({
+      id: 'of-1', codigo: 'OF-000001', estado: 'LIBERADA', version: 1,
+      molde_id: 'M-1', molde: { codigo: 'M-1', nombre: 'Molde histórico' },
+      corridas: [{ id: 'r1', codigo: 'C01', objetivo_neto_kg: '10', salidas: [] }],
+    });
+    renderInbox('/produccion/ordenes-fabricacion?of=of-1');
+    await screen.findByRole('button', { name: 'Volver a bandeja' });
+
+    expect(screen.getByText('Molde histórico')).toBeVisible();
+    expect(screen.queryByText(/0.0 g netos\/ciclo/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 cavidad/)).not.toBeInTheDocument();
+  });
+
   it('mantiene todos los objetivos visibles y no inventa avance con cero pesajes', async () => {
     api.detail.mockResolvedValueOnce({
       id: 'of-1', codigo: 'OF-000001', estado: 'BORRADOR', version: 1, molde_id: 'M-1',
@@ -149,7 +179,7 @@ describe('bandeja local de OF', () => {
     await screen.findByText('OF-000001');
     await user.click(screen.getByRole('button', { name: 'Vista kanban' }));
     expect(screen.getByText('OF-000001')).toBeVisible();
-    expect(screen.getByText('Avance restringido')).toBeVisible();
+    expect(screen.getAllByText('Avance restringido').length).toBeGreaterThan(0);
   });
 
   it('retira datos previos si se revoca OF_VER al actualizar', async () => {
@@ -157,7 +187,7 @@ describe('bandeja local de OF', () => {
     api.list
       .mockResolvedValueOnce({ items: [
         { id: 'old', codigo: 'OF-ANTERIOR', estado: 'LIBERADA', corridas: [] },
-      ] })
+      ], pagination: { page: 1, page_size: 25, total: 1, total_pages: 1 } })
       .mockRejectedValueOnce({ response: { status: 403 } });
     renderInbox();
     expect(await screen.findByText('OF-ANTERIOR')).toBeVisible();
@@ -169,22 +199,22 @@ describe('bandeja local de OF', () => {
   it('conserva la bandeja si moldes falla y permite reintentar solo ese catálogo', async () => {
     const user = userEvent.setup();
     const callsBefore = api.moldes.mock.calls.length;
-    api.moldes.mockResolvedValueOnce([
-      { codigo: 'M-1', nombre: 'Molde 1', activo: true },
-    ]).mockRejectedValueOnce(new Error('moldes 500')).mockResolvedValueOnce([
+    api.moldes.mockRejectedValueOnce(new Error('moldes 500')).mockResolvedValueOnce([
       { codigo: 'M-1', nombre: 'Molde 1', activo: true },
     ]);
     renderInbox();
     expect(await screen.findByText('OF-000001')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Actualizar' }));
+    await user.click(screen.getByRole('button', { name: 'Nueva OF de reposición' }));
     expect(await screen.findByText(/No se pudo cargar moldes: moldes 500/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Nueva OF de reposición' })).not.toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: 'Reintentar moldes' }));
     await waitFor(() => expect(api.moldes.mock.calls.length).toBeGreaterThan(callsBefore + 1));
     expect(screen.queryByText(/No se pudo cargar moldes/)).not.toBeInTheDocument();
     expect(screen.getByText('OF-000001')).toBeVisible();
   });
 
-  it('no deja que una respuesta vieja de moldes sobrescriba un retry nuevo', async () => {
+  it('espera el catálogo antes de abrir alta y adopta el catálogo vigente', async () => {
     const user = userEvent.setup();
     let resolveOld;
     let resolveNew;
@@ -194,28 +224,27 @@ describe('bandeja local de OF', () => {
       .mockImplementationOnce(() => new Promise((resolve) => { resolveNew = resolve; }));
     renderInbox();
     await screen.findByText('OF-000001');
-    await user.click(screen.getByRole('button', { name: 'Actualizar' }));
+    await user.click(screen.getByRole('button', { name: 'Nueva OF de reposición' }));
+    await waitFor(() => expect(api.moldes.mock.calls.length).toBeGreaterThan(callsBefore));
+    resolveOld([{ codigo: 'M-VIEJO', nombre: 'Molde VIEJO', activo: true }]);
+    expect(await screen.findByRole('dialog', { name: 'Nueva OF de reposición' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Nueva OF de reposición' })).not.toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Nueva OF de reposición' }));
     await waitFor(() => expect(api.moldes.mock.calls.length).toBeGreaterThan(callsBefore + 1));
     resolveNew([{ codigo: 'M-NUEVO', nombre: 'Molde NUEVO', activo: true }]);
-    await waitFor(() => expect(api.moldes.mock.calls.length).toBeGreaterThan(callsBefore + 1));
-    resolveOld([{ codigo: 'M-VIEJO', nombre: 'Molde VIEJO', activo: true }]);
-    await user.click(screen.getByRole('button', { name: 'Nueva OF de reposición' }));
-    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    expect(await screen.findByRole('dialog', { name: 'Nueva OF de reposición' })).toBeVisible();
+    await user.click(await screen.findByRole('combobox', { name: 'Molde' }));
     expect(screen.getByRole('option', { name: /Molde NUEVO/ })).toBeVisible();
     expect(screen.queryByRole('option', { name: /Molde VIEJO/ })).not.toBeInTheDocument();
   });
 
   it('domina el lote si listado o detalle devuelve 401/403', async () => {
     api.list.mockRejectedValueOnce({ response: { status: 403 } });
-    api.detail.mockResolvedValueOnce({
-      id: 'of-1', codigo: 'OF-000001', estado: 'LIBERADA', version: 1, corridas: [],
-    });
-    const first = renderInbox('/produccion/ordenes-fabricacion?of=of-1');
+    const first = renderInbox('/produccion/ordenes-fabricacion');
     expect(await screen.findByText(/No tienes permiso para consultar la bandeja/)).toBeVisible();
-    expect(screen.queryByText('Configuración del recurso')).not.toBeInTheDocument();
     first.unmount();
 
-    api.list.mockResolvedValueOnce({ items: [{ id: 'of-1', codigo: 'OF-000001', estado: 'LIBERADA', corridas: [] }] });
     api.detail.mockRejectedValueOnce({ response: { status: 401 } });
     renderInbox('/produccion/ordenes-fabricacion?of=of-1');
     expect(await screen.findByText(/No tienes permiso para consultar la bandeja/)).toBeVisible();

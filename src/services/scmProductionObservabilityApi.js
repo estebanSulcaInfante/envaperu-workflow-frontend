@@ -86,7 +86,17 @@ export const obtenerDetalleSupervisionOtScm = (publicId, options = {}) => get(
 );
 
 export const listarAvanceOfScm = (filters = {}) => {
-  const { signal, ...params } = filters;
+  const { signal, ofIds, ...rest } = filters;
+  // An explicit empty page is an empty scope, never an accidental global
+  // report.  The inbox already avoids this request, but the service contract
+  // must remain safe for every caller.
+  if (Array.isArray(ofIds) && ofIds.length === 0) {
+    return Promise.resolve({ items: [], visibilidad: {}, as_of: null });
+  }
+  const params = {
+    ...rest,
+    ...(ofIds !== undefined ? { of_ids: Array.isArray(ofIds) ? ofIds.join(',') : ofIds } : {}),
+  };
   return get('/scm/v1/observabilidad/avance-of', {
     params: definedEntries(params), signal,
   });

@@ -40,6 +40,9 @@ vi.mock('../services/scmEngineeringApi', () => ({
   listarRutasArticuloScm: vi.fn().mockResolvedValue([]),
   mensajeErrorScm: (error, fallback) => error?.message || fallback,
 }));
+vi.mock('../services/scmProductionObservabilityApi', () => ({
+  listarAvanceOfScm: vi.fn().mockResolvedValue({ items: [], visibilidad: { pesaje: false } }),
+}));
 
 vi.mock('../context/ScmActorContext', () => ({
   useScmActor: () => ({
@@ -170,9 +173,11 @@ describe('Órdenes de fabricación', () => {
     const user = userEvent.setup();
     const draft = { id: 'of-annul', codigo: 'OF-000099', estado: 'BORRADOR', version: 1, corridas: [] };
     const annulled = { ...draft, estado: 'ANULADA', version: 2, anulacion: { motivo: 'Duplicada' } };
-    listarOrdenesFabricacionScm.mockResolvedValue({ items: [draft] });
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [draft], pagination: { page: 1, page_size: 25, total: 1, total_pages: 1 } });
     anularOrdenFabricacionScm.mockImplementation(async () => {
-      listarOrdenesFabricacionScm.mockResolvedValue({ items: [annulled] });
+      listarOrdenesFabricacionScm.mockImplementation((filters) => Promise.resolve(filters?.estado === 'SIN_ANULADAS'
+        ? { items: [], pagination: { page: 1, page_size: 25, total: 0, total_pages: 0 } }
+        : { items: [annulled], pagination: { page: 1, page_size: 25, total: 1, total_pages: 1 } }));
       return annulled;
     });
     renderDetail(draft, [draft, annulled]);
@@ -182,7 +187,13 @@ describe('Órdenes de fabricación', () => {
     await user.click(screen.getByText('Confirmar anulación'));
     expect(await screen.findByText(/Anulada · Duplicada/)).toBeVisible();
     expect(anularOrdenFabricacionScm).toHaveBeenCalledWith(draft, 'Duplicada');
+    await waitFor(() => expect(screen.queryByText('Hay una operación en curso. Espera a que termine antes de salir.')).not.toBeInTheDocument());
+    await waitFor(() => expect(obtenerOrdenFabricacionScm.mock.calls.length).toBeGreaterThan(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Actualizar' })).not.toBeDisabled());
+    const listCallsBeforeBack = listarOrdenesFabricacionScm.mock.calls.length;
     await user.click(screen.getByRole('button', { name: 'Volver a bandeja' }));
+    await waitFor(() => expect(listarOrdenesFabricacionScm.mock.calls.length).toBeGreaterThan(listCallsBeforeBack));
+    await waitFor(() => expect(screen.queryByText('Hay una operación en curso. Espera a que termine antes de salir.')).not.toBeInTheDocument());
     const stateFilter = await screen.findByRole('combobox', { name: 'Estado' });
     expect(stateFilter).toHaveTextContent('Todos los estados');
     await user.click(stateFilter);
@@ -191,7 +202,7 @@ describe('Órdenes de fabricación', () => {
   });
   beforeEach(() => {
     auth.article = true;
-    listarOrdenesFabricacionScm.mockResolvedValue({ items: [] });
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [], pagination: { page: 1, page_size: 25, total: 0, total_pages: 0 } });
     obtenerColores.mockResolvedValue([]);
     obtenerMaquinas.mockResolvedValue([]);
     obtenerMoldes.mockResolvedValue([]);
@@ -423,7 +434,7 @@ describe('Órdenes de fabricación', () => {
 
   it('explica el siguiente paso cuando Planificación todavía no generó OF', async () => {
     listarOrdenesFabricacionScm.mockReset();
-    listarOrdenesFabricacionScm.mockResolvedValue({ items: [] });
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [], pagination: { page: 1, page_size: 25, total: 0, total_pages: 0 } });
     render(
       <ThemeProvider theme={createTheme()}>
         <MemoryRouter>
@@ -910,5 +921,34 @@ describe('Órdenes de fabricación', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
     await waitFor(() => expect(configurarOrdenFabricacionScm).toHaveBeenCalled());
     expect(configurarOrdenFabricacionScm.mock.calls[0][1].corridas[0]).toHaveProperty('operacion_ruta_revision_id', 88);
+  });
+
+  it('permite reintentar una ruta fallida sin perder las rutas ya resueltas', async () => {
+    const order = {
+      id: 'of-route-retry', codigo: 'OF-ROUTE-RETRY', estado: 'BORRADOR', version: 7,
+      fuente_proceso: 'EXPLICITO', snapshot_proceso: 'INYECCION', molde_id: 'M-RETRY',
+      snapshot_tiempo_ciclo_seg: '20', snapshot_horas_turno: '8', snapshot_peso_colada_gr: '2',
+      corridas: [{
+        id: 'run-retry', codigo: 'C01', color_produccion_id: 7, objetivo_neto_kg: '1', salidas: [
+          { id: 'out-retry', articulo: { id: 5, pieza_id: 5, nombre: 'Pieza 5', codigo: 'PC-5' } },
+        ],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarArticulosScm.mockResolvedValue([{ id: 5, clase: 'PIEZA_COLOR', subtipo: { pieza_color_sku: 'SKU-5' } }]);
+    obtenerMoldes.mockResolvedValue([{
+      codigo: 'M-RETRY', nombre: 'Molde retry', activo: true,
+      formas: [{ pieza_id: 5, activo: true, cavidades: 1, peso_unitario_gr: 1, variantes: [{ color_produccion_id: 7, sku: 'SKU-5' }] }],
+    }]);
+    listarRutasArticuloScm
+      .mockRejectedValueOnce(new Error('rutas temporalmente no disponibles'))
+      .mockResolvedValueOnce([]);
+    listarRutasArticuloScm.mockClear();
+    renderDetail(order);
+
+    expect(await screen.findByText(/No se pudieron cargar las rutas opcionales/)).toBeVisible();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Reintentar rutas' }));
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(/No se pudieron cargar las rutas opcionales/)).not.toBeInTheDocument());
   });
 });

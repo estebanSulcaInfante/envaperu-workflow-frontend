@@ -49,7 +49,7 @@ import SearchableCatalogAutocomplete from './ui/SearchableCatalogAutocomplete';
 import WeightInput from './ui/WeightInput';
 import { formatKg as formatProgressKg } from '../utils/weightDisplay';
 import {
-  displayProvenance, filterAndSortOrders, paginateOrders, projectOrderProgress, statusLabel,
+  displayProvenance, projectOrderProgress, statusLabel,
 } from './fabricationOrdersModel';
 import {
   fabricationProcessLabel, normalizeFabricationProcess, resolveFabricationProcess,
@@ -172,6 +172,12 @@ const progressColor = (percentage) => {
   return 'error';
 };
 
+const moldMeasurement = (value, digits = 1) => {
+  if (value === null || value === undefined || value === '') return '—';
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric.toFixed(digits) : '—';
+};
+
 function ProgressSummary({ progress }) {
   if (!progress || progress.state === 'restricted') {
     return <Typography variant="body2" color="text.secondary">Avance restringido</Typography>;
@@ -224,6 +230,7 @@ export default function FabricationOrdersScm() {
     ? Number(searchParams.get('tamano')) : 25;
   const queryPage = Math.max(1, Number(searchParams.get('pagina')) || 1);
   const queryOrder = searchParams.get('orden') === 'codigo' ? 'codigo' : 'reciente';
+  const hasInboxQuery = Boolean(query || queryOrder !== 'reciente' || searchParams.has('estado') || searchParams.has('pagina'));
   const { can, experience, actorId } = useScmActor();
   const canEdit = can('OF_EDITAR_BORRADOR');
   const canRelease = can('OF_LIBERAR');
@@ -233,6 +240,8 @@ export default function FabricationOrdersScm() {
   const canViewWeights = can('MANGA_PESAJE_VER');
   const [orders, setOrders] = useState([]);
   const ordersRef = useRef([]);
+  const [pagination, setPagination] = useState({ page: queryPage, page_size: queryPageSize, total: 0, total_pages: 1 });
+  const [progressScopeIds, setProgressScopeIds] = useState([]);
   const [staleData, setStaleData] = useState(false);
   const [detailOrder, setDetailOrder] = useState(null);
   const [progressItems, setProgressItems] = useState([]);
@@ -278,9 +287,13 @@ export default function FabricationOrdersScm() {
   const navigationStateRef = useRef({ busy: true, formulaBusy: false, draftDirty: false, formulaDirty: false });
   const catalogGenerationRef = useRef({});
   const routeGenerationRef = useRef(0);
+  const routeCacheRef = useRef(new Map());
+  const routePendingRef = useRef(new Map());
+  const routeFailuresRef = useRef(new Map());
   const [detailRoutesByArticle, setDetailRoutesByArticle] = useState({});
   const [detailRoutesLoading, setDetailRoutesLoading] = useState(false);
   const [detailRoutesError, setDetailRoutesError] = useState('');
+  const [routeRetryNonce, setRouteRetryNonce] = useState(0);
 
   const loadCatalog = useCallback((key) => {
     const requests = {
@@ -324,6 +337,15 @@ export default function FabricationOrdersScm() {
       });
   }, []);
 
+  const openExceptionalOrder = useCallback(async (source = null) => {
+    setDuplicateSource(source);
+    // Resolve the current catalog snapshot before mounting the dialog.  This
+    // prevents a draft opened after a detail visit from receiving stale
+    // mold/color/recipe arrays through its initial props.
+    await Promise.all(['moldes', 'maquinas', 'colores', 'recetas'].map(loadCatalog));
+    setExceptionalOpen(true);
+  }, [loadCatalog]);
+
   const selected = useMemo(
     () => requestedOrderId ? detailOrder : null,
     [detailOrder, requestedOrderId],
@@ -358,27 +380,33 @@ export default function FabricationOrdersScm() {
     [liveProcess, machines, selected],
   );
   const selectedMold = useMemo(
-    () => molds.find((item) => item.codigo === form.molde_id) || null,
-    [form.molde_id, molds],
+    () => molds.find((item) => item.codigo === form.molde_id) || selected?.molde || null,
+    [form.molde_id, molds, selected],
   );
+  const hasMoldMeasurements = selectedMold && [
+    'cavidades_totales', 'peso_neto_gr', 'peso_tiro_gr',
+  ].some((key) => selectedMold[key] !== null && selectedMold[key] !== undefined);
   const moldSelectorOptions = useMemo(() => {
     if (!form.molde_id || compatibleMolds.some((item) => item.codigo === form.molde_id)) return compatibleMolds;
-    return [{ codigo: form.molde_id, nombre: selected?.molde?.nombre || 'Molde seleccionado', activo: false }, ...compatibleMolds];
-  }, [compatibleMolds, form.molde_id, selected?.molde?.nombre]);
+    return [{ ...(selected?.molde || {}), codigo: form.molde_id, nombre: selected?.molde?.nombre || 'Molde seleccionado', activo: false }, ...compatibleMolds];
+  }, [compatibleMolds, form.molde_id, selected]);
   const machineSelectorOptions = useMemo(() => {
     if (!form.maquina_prevista_id || compatibleMachines.some((item) => String(item.id) === String(form.maquina_prevista_id))) return compatibleMachines;
-    return [{ id: form.maquina_prevista_id, codigo: String(form.maquina_prevista_id), nombre: 'Máquina seleccionada', activo: false }, ...compatibleMachines];
-  }, [compatibleMachines, form.maquina_prevista_id]);
+    return [{ ...(selected?.maquina_prevista || {}), id: form.maquina_prevista_id, codigo: selected?.maquina_prevista?.codigo || String(form.maquina_prevista_id), nombre: selected?.maquina_prevista?.nombre || 'Máquina seleccionada', activo: false }, ...compatibleMachines];
+  }, [compatibleMachines, form.maquina_prevista_id, selected?.maquina_prevista]);
 
   const load = useCallback(async () => {
     setBusy(true);
-    setProgressRefresh((revision) => revision + 1);
     setError('');
     setStaleData(false);
     let active = true;
     const generation = ++loadGenerationRef.current;
     const current = () => active && generation === loadGenerationRef.current;
-    const listPromise = listarOrdenesFabricacionScm()
+    const requestFilters = {
+      vista: 'resumen', q: query, estado: queryStatus, orden: queryOrder,
+      pagina: queryPage, tamano: queryPageSize,
+    };
+    const listPromise = requestedOrderId ? Promise.resolve(null) : listarOrdenesFabricacionScm(requestFilters)
       .then((value) => ({ status: 'fulfilled', value }))
       .catch((reason) => ({ status: 'rejected', reason }));
     const detailPromise = requestedOrderId
@@ -386,12 +414,9 @@ export default function FabricationOrdersScm() {
         .then((value) => ({ status: 'fulfilled', value }))
         .catch((reason) => ({ status: 'rejected', reason }))
       : null;
-    const [listResult, detailResult] = await Promise.all([
-      listPromise,
-      detailPromise || Promise.resolve(null),
-    ]);
+    const [listResult, detailResult] = await Promise.all([listPromise, detailPromise]);
     if (current()) {
-      const listAccessDenied = listResult.status === 'rejected'
+      const listAccessDenied = listResult?.status === 'rejected'
         && [401, 403].includes(listResult.reason?.response?.status || listResult.reason?.status);
       const detailAccessDenied = detailResult?.status === 'rejected'
         && [401, 403].includes(detailResult.reason?.response?.status || detailResult.reason?.status);
@@ -408,11 +433,20 @@ export default function FabricationOrdersScm() {
         setDraftDirty(false);
         setError('No tienes permiso para consultar la bandeja de OF. Verifica tu sesión o solicita OF_VER.');
       } else {
-        if (listResult.status === 'fulfilled') {
-          const nextOrders = listResult.value.items || [];
+        if (listResult?.status === 'fulfilled') {
+          const summary = listResult.value;
+          const nextOrders = summary?.pagination ? (summary.items || []) : [];
           ordersRef.current = nextOrders;
           setOrders(nextOrders);
-        } else if (ordersRef.current.length) {
+          setPagination(summary?.pagination || {
+            page: queryPage, page_size: queryPageSize, total: 0, total_pages: 1,
+          });
+          setProgressScopeIds(nextOrders.map((item) => item.id));
+          setProgressRefresh((revision) => revision + 1);
+          if (!summary?.pagination) {
+            setError('La respuesta de la bandeja no incluye paginación. Actualiza el backend antes de continuar.');
+          }
+        } else if (listResult?.status === 'rejected' && ordersRef.current.length) {
           setStaleData(true);
           const detail = mensajeErrorScm(listResult.reason, '');
           setError(`No se pudo actualizar la bandeja. Se muestran datos anteriores.${detail ? ` ${detail}` : ''}`);
@@ -420,28 +454,32 @@ export default function FabricationOrdersScm() {
         if (requestedOrderId) {
           if (detailResult.status === 'fulfilled') {
             setDetailOrder(detailResult.value);
+            setProgressScopeIds([requestedOrderId]);
+            setProgressRefresh((revision) => revision + 1);
             setForm(suggestedForm(detailResult.value, [], []));
             setDraftDirty(false);
           } else {
             setDetailOrder(null);
             setError(mensajeErrorScm(detailResult.reason, 'La OF no está disponible.'));
           }
-        } else if (listResult.status === 'rejected' && !ordersRef.current.length) {
+        } else if (listResult?.status === 'rejected' && !ordersRef.current.length) {
           setError(mensajeErrorScm(listResult.reason, 'No se pudieron cargar las OF.'));
         }
       }
       setBusy(false);
+      if (requestedOrderId && canEdit && detailResult?.status === 'fulfilled' && detailResult.value?.estado === 'BORRADOR') {
+        loadCatalog('moldes');
+        loadCatalog('maquinas');
+        loadCatalog('colores');
+        loadCatalog('recetas');
+      }
     }
-    loadCatalog('moldes');
-    loadCatalog('maquinas');
-    loadCatalog('colores');
-    loadCatalog('recetas');
     return () => { active = false; };
-  }, [loadCatalog, requestedOrderId]);
+  }, [canEdit, loadCatalog, query, queryOrder, queryPage, queryPageSize, queryStatus, requestedOrderId]);
 
   useEffect(() => {
     const state = navigationStateRef.current;
-    if (state.draftDirty || state.formulaDirty || state.formulaBusy || (state.busy && loadGenerationRef.current > 0)) return;
+    if (state.draftDirty || state.formulaDirty || state.formulaBusy) return;
     load();
   }, [load]);
 
@@ -461,7 +499,7 @@ export default function FabricationOrdersScm() {
       .filter((id) => id != null)
       .map(String)) || [];
     const uniqueIds = [...new Set(articleIds)];
-    if (!selected || !uniqueIds.length) {
+    if (!selected || !canEdit || selected.estado !== 'BORRADOR' || !uniqueIds.length) {
       setDetailRoutesByArticle({});
       setDetailRoutesLoading(false);
       setDetailRoutesError('');
@@ -478,21 +516,72 @@ export default function FabricationOrdersScm() {
       listRoutes = null;
     }
     listRoutes ||= (() => Promise.resolve([]));
-    Promise.all(uniqueIds.map((articleId) => listRoutes(articleId).then((items) => [articleId, items || []])))
-      .then((entries) => {
-        if (active && routeGenerationRef.current === generation) setDetailRoutesByArticle(Object.fromEntries(entries));
-      })
-      .catch((requestError) => {
+    const cached = {};
+    const missing = [];
+    const knownFailures = [];
+    uniqueIds.forEach((articleId) => {
+      const key = `${actorId}:${articleId}`;
+      if (routeCacheRef.current.has(key)) {
+        cached[articleId] = routeCacheRef.current.get(key);
+        return;
+      }
+      const pending = routePendingRef.current.get(key);
+      if (pending) {
+        missing.push([articleId, pending]);
+        return;
+      }
+      const previousFailure = routeFailuresRef.current.get(key);
+      if (previousFailure?.nonce === routeRetryNonce) {
+        knownFailures.push({ articleId, requestError: previousFailure.error });
+        return;
+      }
+      routeFailuresRef.current.delete(key);
+      const request = Promise.resolve()
+        .then(() => listRoutes(articleId))
+        .then((items) => {
+          const value = items || [];
+          routeCacheRef.current.set(key, value);
+          routeFailuresRef.current.delete(key);
+          return value;
+        })
+        .catch((requestError) => {
+          routeFailuresRef.current.set(key, { nonce: routeRetryNonce, error: requestError });
+          throw requestError;
+        })
+        .finally(() => routePendingRef.current.delete(key));
+      routePendingRef.current.set(key, request);
+      missing.push([articleId, request]);
+    });
+    setDetailRoutesByArticle(cached);
+    Promise.all(missing.map(([articleId, request]) => request.then(
+      (value) => ({ articleId, value }),
+      (requestError) => ({ articleId, requestError }),
+    )))
+      .then((results) => {
+        const failures = [
+          ...knownFailures,
+          ...results.filter((result) => result.requestError),
+        ];
+        const entries = results
+          .filter((result) => !result.requestError)
+          .map((result) => [result.articleId, result.value]);
         if (active && routeGenerationRef.current === generation) {
-          setDetailRoutesByArticle({});
-          setDetailRoutesError(mensajeErrorScm(requestError, 'No se pudieron cargar las rutas del objetivo.'));
+          setDetailRoutesByArticle({ ...cached, ...Object.fromEntries(entries) });
+          if (failures.length) {
+            setDetailRoutesError(mensajeErrorScm(
+              failures[0].requestError,
+              'No se pudieron cargar las rutas del objetivo.',
+            ));
+          } else {
+            setDetailRoutesError('');
+          }
         }
       })
       .finally(() => {
         if (active && routeGenerationRef.current === generation) setDetailRoutesLoading(false);
       });
     return () => { active = false; };
-  }, [selected]);
+  }, [actorId, canEdit, routeRetryNonce, selected]);
 
   useEffect(() => {
     if (!busy && !formulaBusy && !draftDirty && !formulaDirty) return undefined;
@@ -588,13 +677,18 @@ export default function FabricationOrdersScm() {
       return undefined;
     }
     if (progressRefresh === 0) return undefined;
+    if (!progressScopeIds.length) {
+      setProgressItems([]);
+      setProgressActorId(actorId);
+      setProgressVisibility({});
+      setProgressAsOf(null);
+      setProgressState('ready');
+      return undefined;
+    }
     const controller = new AbortController();
     const requestedActor = actorId;
-    setProgressItems([]);
-    setProgressActorId(null);
-    setProgressVisibility({});
     setProgressState('loading');
-    listarAvanceOfScm({ signal: controller.signal })
+    listarAvanceOfScm({ ofIds: progressScopeIds, signal: controller.signal })
       .then((payload) => {
         if (requestId !== progressRequestRef.current) return;
         setProgressItems(payload?.items || []);
@@ -609,17 +703,15 @@ export default function FabricationOrdersScm() {
         if ([401, 403].includes(requestError?.response?.status)) {
           setProgressItems([]);
           setProgressActorId(null);
+          setProgressAsOf(null);
           setProgressVisibility({ pesaje: false });
           setProgressState('restricted');
         } else {
-          setProgressItems([]);
-          setProgressActorId(null);
-          setProgressVisibility({ pesaje: false });
           setProgressState('error');
         }
       });
     return () => { progressRequestRef.current += 1; controller.abort(); };
-  }, [actorId, canViewOt, progressRefresh]);
+  }, [actorId, canViewOt, progressRefresh, progressScopeIds]);
 
   const updateQuery = (changes, { replace = false } = {}) => {
     const next = new URLSearchParams(searchParams);
@@ -884,21 +976,18 @@ export default function FabricationOrdersScm() {
     }
   };
 
-  const filteredOrders = useMemo(() => filterAndSortOrders(orders, {
-    query,
-    status: queryStatus,
-    order: queryOrder,
-  }), [orders, query, queryOrder, queryStatus]);
-  const pagedOrders = useMemo(
-    () => paginateOrders(filteredOrders, queryPage, queryPageSize),
-    [filteredOrders, queryPage, queryPageSize],
-  );
+  const pagedOrders = {
+    items: orders,
+    page: pagination.page,
+    pageSize: pagination.page_size,
+    totalPages: pagination.total_pages,
+  };
   const visibleProgressItems = useMemo(
     () => (progressActorId === actorId ? progressItems : []),
     [actorId, progressActorId, progressItems],
   );
   const progressByOrder = useMemo(() => new Map(
-    filteredOrders.map((order) => [
+    orders.map((order) => [
       order.id,
       projectOrderProgress(order, visibleProgressItems, {
         canViewOt: canViewOt && progressState !== 'restricted',
@@ -907,7 +996,7 @@ export default function FabricationOrdersScm() {
         loading: progressState === 'loading',
       }),
     ]),
-  ), [canViewOt, canViewWeights, filteredOrders, visibleProgressItems, progressState]);
+  ), [canViewOt, canViewWeights, orders, visibleProgressItems, progressState]);
   const selectedProgress = useMemo(() => (selected ? projectOrderProgress(selected, visibleProgressItems, {
     canViewOt: canViewOt && progressState !== 'restricted',
     canViewWeights,
@@ -992,7 +1081,7 @@ export default function FabricationOrdersScm() {
               <Button
                 startIcon={<AddOutlinedIcon />}
                 variant="contained"
-                onClick={() => { setDuplicateSource(null); setExceptionalOpen(true); }}
+                onClick={() => openExceptionalOrder()}
               >
               Nueva OF de reposición
               </Button>
@@ -1046,7 +1135,7 @@ export default function FabricationOrdersScm() {
           : 'La cantidad requerida viene del plan. Para Pieza-Color y PT monopieza, la salida por ciclo y el peso neto se derivan de MoldePieza; el sistema calcula los ciclos mínimos y el excedente técnico.'}
       </Alert>}
 
-      {!requestedOrderId && !busy && (!error || staleData) && (
+      {!requestedOrderId && (!busy || orders.length > 0) && (!error || staleData) && (
         <Stack
           spacing={2}
           data-testid="of-inbox"
@@ -1059,7 +1148,7 @@ export default function FabricationOrdersScm() {
             onSearchChange={(value) => setQuery({ q: value })}
             searchPlaceholder="Buscar OF, molde, color o procedencia"
             resultCount={pagedOrders.items.length}
-            totalCount={filteredOrders.length}
+            totalCount={pagination.total}
             filters={[{
               id: 'estado', label: 'Estado', value: queryStatus, allValue: 'TODOS',
               options: [
@@ -1088,14 +1177,14 @@ export default function FabricationOrdersScm() {
             )}
           />
           <Typography variant="caption" color="text.secondary">
-            {pagedOrders.items.length} de {filteredOrders.length} OF · página {pagedOrders.page} de {pagedOrders.totalPages}
+            {pagedOrders.items.length} de {pagination.total} OF · página {pagedOrders.page} de {pagedOrders.totalPages}
           </Typography>
-          {filteredOrders.length === 0 ? (
+          {pagination.total === 0 ? (
             <EmptyState
               icon={<FactoryOutlinedIcon />}
-              title={orders.length ? 'Sin coincidencias en la consulta' : 'Aún no hay órdenes de fabricación'}
-              description={orders.length ? 'Prueba otra búsqueda o restablece la consulta.' : 'Las OF aparecerán aquí cuando una OP aprobada confirme su plan.'}
-              action={orders.length ? <Button onClick={() => setQuery({ q: '', estado: 'SIN_ANULADAS' })}>Restablecer consulta</Button> : null}
+              title={orders.length || hasInboxQuery ? 'Sin coincidencias en la consulta' : 'Aún no hay órdenes de fabricación'}
+              description={orders.length || hasInboxQuery ? 'Prueba otra búsqueda o restablece la consulta.' : 'Las OF aparecerán aquí cuando una OP aprobada confirme su plan.'}
+              action={orders.length || hasInboxQuery ? <Button onClick={() => setQuery({ q: '', estado: 'SIN_ANULADAS' })}>Restablecer consulta</Button> : null}
             />
           ) : queryView === 'tabla' ? (
             <FabricationProgressObjectivesTable
@@ -1244,7 +1333,7 @@ export default function FabricationOrdersScm() {
                       : selectedDuplicateEligibility.eligible
                       ? 'Abrir una copia editable en memoria'
                       : selectedDuplicateEligibility.reason}
-                    onClick={() => { setDuplicateSource(selected); setExceptionalOpen(true); }}
+                    onClick={() => openExceptionalOrder(selected)}
                   >
                     Duplicar como borrador
                   </Button>
@@ -1261,10 +1350,9 @@ export default function FabricationOrdersScm() {
                 </Typography>
               )}
               <DraftOrderAnnulment key={selected.id} order={selected} allowed={can('OF_ANULAR')} disabled={busy}
-                onSubmit={anularOrdenFabricacionScm} onSuccess={async () => {
+                onSubmit={anularOrdenFabricacionScm} onSuccess={() => {
                   setNotice(`${selected.codigo} anulada. Se conserva el historial.`);
                   updateQuery({ estado: 'TODOS' });
-                  await load();
                 }} />
               <FabricationOrderReplacement
                 key={`replace-${selected.id}`}
@@ -1291,7 +1379,7 @@ export default function FabricationOrdersScm() {
       )}
 
       {busy && <Box sx={{ display: 'grid', placeItems: 'center', py: 4 }}><CircularProgress /></Box>}
-      {!busy && selected && (
+      {selected && (
         <Stack spacing={2}>
           <DocumentSection
             title="Objetivos de fabricación"
@@ -1328,7 +1416,15 @@ export default function FabricationOrdersScm() {
               {selected.compatibilidad_proceso && ` · Compatibilidad: ${selected.compatibilidad_proceso}`}
             </Alert>
             {detailRoutesError && selected.estado === 'BORRADOR' && selected.origen_demanda !== 'REEMPLAZO_OF' && (
-              <Alert severity="warning" sx={{ mb: 2 }}>
+              <Alert
+                severity="warning"
+                sx={{ mb: 2 }}
+                action={(
+                  <Button color="inherit" onClick={() => setRouteRetryNonce((value) => value + 1)} disabled={detailRoutesLoading}>
+                    {detailRoutesLoading ? 'Reintentando rutas…' : 'Reintentar rutas'}
+                  </Button>
+                )}
+              >
                 No se pudieron cargar las rutas opcionales: {detailRoutesError} Puedes guardar con proceso explícito si el borrador no tiene referencias.
               </Alert>
             )}
@@ -1449,15 +1545,14 @@ export default function FabricationOrdersScm() {
                   setDraftDirty(true);
                 }}
               />
-              {selectedMold && (
+              {hasMoldMeasurements && (
                 <Alert severity="info" sx={{ gridColumn: '1 / -1' }}>
-                  Maestro {selectedMold.codigo}: {selectedMold.cavidades_totales || 0} cavidad(es),{' '}
-                  {Number(selectedMold.peso_neto_gr || 0).toFixed(1)} g netos/ciclo y{' '}
-                  {Number(selectedMold.peso_tiro_gr || 0).toFixed(1)} g totales/ciclo. La diferencia de{' '}
-                  {Math.max(
-                    Number(selectedMold.peso_tiro_gr || 0)
-                    - Number(selectedMold.peso_neto_gr || 0), 0,
-                  ).toFixed(1)} g es material no neto.
+                  Maestro {selectedMold.codigo}: {moldMeasurement(selectedMold.cavidades_totales, 0)} cavidad(es),{' '}
+                  {moldMeasurement(selectedMold.peso_neto_gr)} g netos/ciclo y{' '}
+                  {moldMeasurement(selectedMold.peso_tiro_gr)} g totales/ciclo. La diferencia de{' '}
+                  {selectedMold.peso_tiro_gr != null && selectedMold.peso_neto_gr != null
+                    ? Math.max(Number(selectedMold.peso_tiro_gr) - Number(selectedMold.peso_neto_gr), 0).toFixed(1)
+                    : '—'} g es material no neto.
                 </Alert>
               )}
             </Box>

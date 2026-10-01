@@ -197,9 +197,11 @@ export default function FabricationObjectivesTable({
                         />
                       {!selectedRecipe && (
                         <Alert severity="warning" sx={{ py: 0 }}>
-                          {onOpenRecipe
-                            ? 'Este color no tiene una formulación aprobada compatible.'
-                            : 'Este color no tiene una formulación aprobada compatible. solicita administración de artículos.'}
+                          {canEdit && order.estado === 'BORRADOR'
+                            ? (onOpenRecipe
+                              ? 'Este color no tiene una formulación aprobada compatible.'
+                              : 'Este color no tiene una formulación aprobada compatible. solicita administración de artículos.')
+                            : 'Sin formulación seleccionada.'}
                         </Alert>
                       )}
                       <SearchableCatalogAutocomplete

@@ -76,7 +76,10 @@ describe('navegación real de OF con BrowserRouter', () => {
     api.detail.mockReset();
     api.progress.mockReset();
     api.configure.mockReset();
-    api.list.mockResolvedValue({ items: [order] });
+    api.list.mockResolvedValue({
+      items: [order],
+      pagination: { page: 1, page_size: 25, total: 1, total_pages: 1 },
+    });
     api.detail.mockResolvedValue(order);
     api.progress.mockResolvedValue({ items: [] });
   });

@@ -166,6 +166,13 @@ describe('contrato frontend de observabilidad de OT', () => {
     });
   });
 
+  it('no convierte un alcance OF explícitamente vacío en una consulta global', async () => {
+    const payload = await listarAvanceOfScm({ ofIds: [] });
+
+    expect(payload).toEqual({ items: [], visibilidad: {}, as_of: null });
+    expect(getMock).not.toHaveBeenCalled();
+  });
+
   it('preserva arrays vacíos explícitos del histórico y excluye signal', async () => {
     const signal = new AbortController().signal;
     await listarProduccionHistoricaScm({

@@ -2,6 +2,7 @@ import { ThemeProvider, createTheme } from '@mui/material';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import FabricationObjectivesTable from '../components/FabricationObjectivesTable';
+import FabricationProgressObjectivesTable from '../components/FabricationProgressObjectivesTable';
 
 const renderTable = (progress, { savedObjective = '100', draftObjective = savedObjective, state = 'LIBERADA', canEdit = false } = {}) => {
   const run = { id: 'r1', codigo: 'C01', color_nombre: 'Rojo', objetivo_neto_kg: savedObjective, salidas: [] };
@@ -25,6 +26,27 @@ const renderTable = (progress, { savedObjective = '100', draftObjective = savedO
 };
 
 describe('tabla de objetivos de OF', () => {
+  it('espera la primera respuesta diferida y conserva el snapshot durante refresh', () => {
+    const order = { id: 'of-deferred', codigo: 'OF-DEFERRED', corridas: [{ id: 'r-deferred', codigo: 'C01', objetivo_neto_kg: '10', salidas: [] }] };
+    const progress = [{ corrida_id: 'r-deferred', of: 'OF-DEFERRED', corrida: 'C01', objetivo_neto_kg: '10', kg_finalizados_efectivos: '4', coverage: { estado: 'COMPLETA' } }];
+    const view = render(
+      <ThemeProvider theme={createTheme()}>
+        <FabricationProgressObjectivesTable items={[]} orders={[order]} loading />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('Cargando objetivos');
+    expect(screen.queryByText('OF-DEFERRED')).not.toBeInTheDocument();
+
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <FabricationProgressObjectivesTable items={progress} orders={[order]} loading />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText('OF-DEFERRED')).toBeVisible();
+    expect(screen.getByTestId('fabrication-objective-comparison').querySelector('[aria-busy="true"]')).not.toBeNull();
+  });
+
   it('muestra Sin pesajes sin fabricar cero/meta cuando no hay mangas ni pesos', () => {
     renderTable({
       state: 'incomplete',
