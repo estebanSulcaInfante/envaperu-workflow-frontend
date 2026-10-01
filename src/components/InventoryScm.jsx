@@ -350,13 +350,15 @@ function InventoryWorkspace() {
   }, [identityKey, refreshVersion]);
 
   useEffect(() => {
+    const nextQuery = query.trim();
+    if (nextQuery === debouncedQuery) return undefined;
     const timer = globalThis.setTimeout(() => {
-      setDebouncedQuery(query.trim());
+      setDebouncedQuery(nextQuery);
       setPage(0);
       setPageCursors({ 0: null });
     }, 300);
     return () => globalThis.clearTimeout(timer);
-  }, [query]);
+  }, [query, debouncedQuery]);
 
   const familySummaries = useMemo(() => {
     const families = summary.familias || summary.families || {};

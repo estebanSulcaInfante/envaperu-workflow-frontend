@@ -1,5 +1,5 @@
 import { createTheme, ThemeProvider } from '@mui/material';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -262,39 +262,77 @@ describe('Kardex según alcance de almacén', () => {
     expect(screen.queryByText('Balde terminado')).not.toBeInTheDocument();
   });
 
-  it('solicita la siguiente página con el cursor del servidor', async () => {
-    const user = userEvent.setup();
-    warehouseApi.obtenerAlcanceAlmacenScm.mockResolvedValue({
-      configurado: false, control_transversal: true, almacenes: [],
-    });
-    inventoryApi.explorarSaldosInventarioScm.mockImplementation(({ cursor }) => {
-      const index = cursor ? 26 : 1;
-      return Promise.resolve({
-        items: [{
-          id: `piece-${index}`, cantidad_fisica: '1.000', cantidad_reservada: '0.000',
-          cantidad_no_disponible: '0.000', cantidad_libre: '1.000', updated_at: null,
-          articulo: {
-            codigo: `PC-${String(index).padStart(4, '0')}`,
-            nombre: `Pieza ${index}`, clase: 'PIEZA_COLOR', unidad: 'KG',
-          },
-          ubicacion: { codigo: 'PZ-A1', nombre: 'Piezas A1' },
-        }],
-        page: {
-          total: 26, limit: 25,
-          has_more: !cursor, next_cursor: cursor ? null : 'cursor-page-2',
-        },
+  it.each([0, 300])('solicita la siguiente página con el cursor del servidor a los %i ms', async (elapsed) => {
+    vi.useFakeTimers();
+    let mounted;
+    try {
+      warehouseApi.obtenerAlcanceAlmacenScm.mockResolvedValue({
+        configurado: false, control_transversal: true, almacenes: [],
       });
-    });
+      inventoryApi.explorarSaldosInventarioScm.mockImplementation(({ cursor }) => {
+        const index = cursor ? 26 : 1;
+        return Promise.resolve({
+          items: [{
+            id: `piece-${index}`, cantidad_fisica: '1.000', cantidad_reservada: '0.000',
+            cantidad_no_disponible: '0.000', cantidad_libre: '1.000', updated_at: null,
+            articulo: {
+              codigo: `PC-${String(index).padStart(4, '0')}`,
+              nombre: `Pieza ${index}`, clase: 'PIEZA_COLOR', unidad: 'KG',
+            },
+            ubicacion: { codigo: 'PZ-A1', nombre: 'Piezas A1' },
+          }],
+          page: {
+            total: 26, limit: 25,
+            has_more: !cursor, next_cursor: cursor ? null : 'cursor-page-2',
+          },
+        });
+      });
 
-    renderView();
-    await user.click(await screen.findByRole('tab', { name: 'Piezas y WIP' }));
-    expect(await screen.findByText('Pieza 1')).toBeVisible();
+      await act(async () => { mounted = renderView(); });
+      await act(async () => { fireEvent.click(screen.getByRole('tab', { name: 'Piezas y WIP' })); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(elapsed); });
+      expect(screen.getByText('Pieza 1')).toBeVisible();
 
-    await user.click(screen.getByRole('button', { name: /next page/i }));
-    await waitFor(() => expect(inventoryApi.explorarSaldosInventarioScm).toHaveBeenLastCalledWith(
-      expect.objectContaining({ cursor: 'cursor-page-2', limite: 25 }),
-    ));
-    expect(await screen.findByText('Pieza 26')).toBeVisible();
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: /next page/i })); });
+      expect(inventoryApi.explorarSaldosInventarioScm).toHaveBeenLastCalledWith(
+        expect.objectContaining({ cursor: 'cursor-page-2', limite: 25 }),
+      );
+      expect(screen.getByText('Pieza 26')).toBeVisible();
+      // Cross the initial debounce deadline: it must not reset pagination
+      // when the user has not changed the search query.
+      await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+      expect(inventoryApi.explorarSaldosInventarioScm).toHaveBeenLastCalledWith(
+        expect.objectContaining({ cursor: 'cursor-page-2', limite: 25 }),
+      );
+      expect(screen.getByText('Pieza 26')).toBeVisible();
+
+      const search = screen.getByRole('textbox', { name: /Buscar en Piezas y WIP/i });
+      // The input already returns to page zero immediately; only the new
+      // server search is debounced. Preserve that existing behavior.
+      await act(async () => { fireEvent.change(search, { target: { value: ' azul ' } }); });
+      const callsBeforeSearch = inventoryApi.explorarSaldosInventarioScm.mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(299); });
+      expect(inventoryApi.explorarSaldosInventarioScm).toHaveBeenCalledTimes(callsBeforeSearch);
+      expect(inventoryApi.explorarSaldosInventarioScm).toHaveBeenLastCalledWith(
+        expect.objectContaining({ q: undefined, cursor: undefined, limite: 25 }),
+      );
+      expect(screen.getByText('Pieza 1')).toBeVisible();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(inventoryApi.explorarSaldosInventarioScm).toHaveBeenLastCalledWith(
+        expect.objectContaining({ q: 'azul', cursor: undefined, limite: 25 }),
+      );
+      expect(screen.getByText('Pieza 1')).toBeVisible();
+
+      const callsBeforeUnmount = inventoryApi.explorarSaldosInventarioScm.mock.calls.length;
+      fireEvent.change(search, { target: { value: 'cancelada' } });
+      mounted.unmount();
+      mounted = null;
+      await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+      expect(inventoryApi.explorarSaldosInventarioScm).toHaveBeenCalledTimes(callsBeforeUnmount);
+    } finally {
+      mounted?.unmount();
+      vi.useRealTimers();
+    }
   });
 
   it('consulta Piezas y WIP en KG sin exponer la unidad técnica en la tab', async () => {
