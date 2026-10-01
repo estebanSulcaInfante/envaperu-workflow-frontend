@@ -179,6 +179,9 @@ export const crearPerfilEmpacableScm = (payload) => data(
 export const actualizarPerfilEmpacableScm = (profileId, payload) => data(
   () => api.put(`/scm/v1/perfiles-empacables/${profileId}`, payload, config()),
 );
+export const listarAsignacionesEmpaqueScm = (params = {}) => data(
+  () => api.get('/scm/v1/empaque/asignaciones', { ...config(), params }),
+);
 export const obtenerPerfilesArticuloScm = (articleId) => data(
   () => api.get(`/scm/v1/articulos/${articleId}/perfiles-empaque`, config()),
 );

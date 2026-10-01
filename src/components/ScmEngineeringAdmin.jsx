@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
@@ -31,6 +32,7 @@ import {
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
   TextField,
   Tooltip,
@@ -63,6 +65,7 @@ import {
   descartarEstructuraScm,
   enviarEstructuraScm,
   listarArticulosScm,
+  listarAsignacionesEmpaqueScm,
   listarCentrosTrabajoScm,
   listarEstructurasScm,
   listarPerfilesEmpacablesScm,
@@ -198,6 +201,9 @@ function ScmEngineeringAdmin() {
     aprobaciones: 4,
   }[new URLSearchParams(globalThis.location?.search || '').get('tab')] || 0));
   const [loading, setLoading] = useState(true);
+  const [loadedActorId, setLoadedActorId] = useState(null);
+  const loadGeneration = useRef(0);
+  const activeActor = useRef(actorId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -211,7 +217,19 @@ function ScmEngineeringAdmin() {
   const [centers, setCenters] = useState([]);
   const [containers, setContainers] = useState([]);
   const [profiles, setProfiles] = useState([]);
-  const [articleProfilesById, setArticleProfilesById] = useState({});
+  const [dataRevision, setDataRevision] = useState(0);
+  const [assignmentSearch, setAssignmentSearch] = useState('');
+  const [assignmentQuery, setAssignmentQuery] = useState('');
+  const [assignmentPage, setAssignmentPage] = useState(0);
+  const [assignmentCursors, setAssignmentCursors] = useState({ 0: null });
+  const [assignmentState, setAssignmentState] = useState(null);
+  const [selectedProfileState, setSelectedProfileState] = useState(null);
+  const assignmentCursor = assignmentCursors[assignmentPage] || null;
+  const assignmentKey = JSON.stringify([actorId, dataRevision, assignmentQuery, assignmentCursor]);
+  const assignmentCurrent = assignmentState?.key === assignmentKey;
+  const assignmentLoading = tab === 3 && !assignmentCurrent;
+  const assignmentPayload = assignmentCurrent
+    ? assignmentState.payload : { items: [], total: 0, has_more: false, next_cursor: null };
   const [rules, setRules] = useState([]);
   const [selectedArticleId, setSelectedArticleId] = useState('');
   const [selectedRouteArticleId, setSelectedRouteArticleId] = useState('');
@@ -240,6 +258,14 @@ function ScmEngineeringAdmin() {
     requestedPackagingArticleId,
   );
   const [packagingProfileId, setPackagingProfileId] = useState('');
+  const selectedProfileKey = JSON.stringify([actorId, dataRevision, packagingArticleId]);
+  const selectedProfileCurrent = selectedProfileState?.key === selectedProfileKey;
+  const selectedProfileLoading = Boolean(packagingArticleId) && !selectedProfileCurrent;
+  const articleProfilesError = [
+    assignmentCurrent && assignmentState.error,
+    selectedProfileCurrent && selectedProfileState.error,
+  ].filter(Boolean).join(' · ');
+
   const [planningContext] = useState(initialPlanningContext);
 
   const routeTargetArticles = useMemo(
@@ -285,6 +311,16 @@ function ScmEngineeringAdmin() {
   const pendingRules = rules.filter((item) => item.estado === 'BORRADOR');
 
   const loadData = useCallback(async () => {
+    if (activeActor.current !== actorId) return;
+    const generation = ++loadGeneration.current;
+    const isCurrent = () => generation === loadGeneration.current && activeActor.current === actorId;
+    setLoadedActorId(null);
+    setArticles([]);
+    setStructures([]);
+    setCenters([]);
+    setContainers([]);
+    setProfiles([]);
+    setRules([]);
     setLoading(true);
     setError('');
     try {
@@ -295,6 +331,7 @@ function ScmEngineeringAdmin() {
         listarPerfilesEmpacablesScm(),
         listarReglasEmpaqueScm(),
       ]);
+      if (!isCurrent()) return;
       const errors = results
         .filter((result) => result.status === 'rejected')
         .map((result) => mensajeErrorScm(result.reason));
@@ -311,50 +348,30 @@ function ScmEngineeringAdmin() {
       const profileRows = profileResult.status === 'fulfilled' ? profileResult.value : [];
       const ruleRows = ruleResult.status === 'fulfilled' ? ruleResult.value : [];
       const routeTargets = articleRows.filter(isRoutableArticle);
-      const [structureResults, articleProfileResults] = await Promise.all([
-        Promise.allSettled(articleRows.map((item) => listarEstructurasScm(item.id))),
-        profileResult.status === 'fulfilled'
-          ? Promise.allSettled(articleRows.map((item) => obtenerPerfilesArticuloScm(item.id)))
-          : Promise.resolve([]),
-      ]);
+      const structureResults = await Promise.allSettled(
+        articleRows.map((item) => listarEstructurasScm(item.id)),
+      );
+      if (!isCurrent()) return;
       errors.push(...structureResults
         .filter((result) => result.status === 'rejected')
         .map((result) => mensajeErrorScm(result.reason)));
-      errors.push(...articleProfileResults
-        .filter((result) => result.status === 'rejected')
-        .map((result) => mensajeErrorScm(result.reason)));
+      setLoadedActorId(actorId);
       setArticles(articleRows);
       setCenters(centerRows);
       setContainers(containerRows);
       setProfiles(profileRows);
-      setArticleProfilesById(Object.fromEntries(articleRows.map((article, index) => [
-        article.id,
-        articleProfileResults[index]?.status === 'fulfilled'
-          ? articleProfileResults[index].value.perfiles
-          : [],
-      ])));
+      setDataRevision((current) => current + 1);
+      setAssignmentPage(0);
+      setAssignmentCursors({ 0: null });
+      setPackagingArticleId((current) => {
+        const requested = requestedPackagingArticleId();
+        if (articleRows.some((article) => String(article.id) === requested)) return requested;
+        return articleRows.some((article) => String(article.id) === String(current)) ? current : '';
+      });
       setRules(ruleRows);
       setStructures(structureResults
         .filter((result) => result.status === 'fulfilled')
         .flatMap((result) => result.value));
-      const requestedArticleId = requestedPackagingArticleId();
-      const requestedArticleIndex = articleRows.findIndex(
-        (item) => String(item.id) === String(requestedArticleId),
-      );
-      if (requestedArticleIndex >= 0) {
-        const requestedProfiles = (
-          articleProfileResults[requestedArticleIndex]?.status === 'fulfilled'
-            ? articleProfileResults[requestedArticleIndex].value.perfiles
-            : []
-        );
-        const currentDefault = requestedProfiles.find(
-          (item) => item.activo && item.es_predeterminado,
-        );
-        setPackagingArticleId(String(requestedArticleId));
-        setPackagingProfileId(
-          currentDefault ? String(currentDefault.perfil_empacable_id) : '',
-        );
-      }
       if (errors.length) {
         setError([...new Set(errors)].join(' · '));
       }
@@ -381,22 +398,34 @@ function ScmEngineeringAdmin() {
         return requestedTarget ? String(requestedTarget.id) : '';
       });
     } catch (requestError) {
+      if (!isCurrent()) return;
+      setLoadedActorId(actorId);
       setError(mensajeErrorScm(
         requestError,
         'No se pudieron cargar los maestros R-core para el actor seleccionado.',
       ));
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, []);
+  }, [actorId]);
 
   useEffect(() => {
+    activeActor.current = actorId;
+    setPackagingArticleId('');
+    setPackagingProfileId('');
+    setAssignmentSearch('');
+    setAssignmentQuery('');
+    setAssignmentPage(0);
+    setAssignmentCursors({ 0: null });
+    setDialog(null);
+    setNotice('');
     loadData();
-  }, [loadData]);
+    return () => { activeActor.current = null; loadGeneration.current += 1; };
+  }, [actorId, loadData]);
 
   useEffect(() => {
     let active = true;
-    if (!selectedRouteArticleId) {
+    if (loadedActorId !== actorId || !selectedRouteArticleId) {
       setRoutes([]);
       setRoutesError('');
       setRoutesLoading(false);
@@ -421,7 +450,54 @@ function ScmEngineeringAdmin() {
         if (active) setRoutesLoading(false);
       });
     return () => { active = false; };
-  }, [routeReloadToken, selectedRouteArticleId]);
+  }, [actorId, loadedActorId, routeReloadToken, selectedRouteArticleId]);
+
+  useEffect(() => {
+    const timer = globalThis.setTimeout(() => {
+      setAssignmentQuery(assignmentSearch.trim());
+      setAssignmentPage(0);
+      setAssignmentCursors({ 0: null });
+    }, 300);
+    return () => globalThis.clearTimeout(timer);
+  }, [assignmentSearch]);
+
+  useEffect(() => {
+    if (tab !== 3 || loading || loadedActorId !== actorId) {
+      setAssignmentState(null);
+      return undefined;
+    }
+    let active = true;
+    listarAsignacionesEmpaqueScm({
+      q: assignmentQuery || undefined, limite: 25, cursor: assignmentCursor || undefined,
+    }).then((payload) => {
+      if (active) setAssignmentState({ key: assignmentKey, payload, error: '' });
+    }).catch((requestError) => {
+      if (active) setAssignmentState({
+        key: assignmentKey,
+        payload: { items: [], total: 0, has_more: false, next_cursor: null },
+        error: mensajeErrorScm(requestError),
+      });
+    });
+    return () => { active = false; };
+  }, [actorId, assignmentCursor, assignmentKey, assignmentQuery, loadedActorId, loading, tab]);
+
+  useEffect(() => {
+    if (tab !== 3 || loading || loadedActorId !== actorId || !packagingArticleId) {
+      setSelectedProfileState(null);
+      return undefined;
+    }
+    let active = true;
+    setPackagingProfileId('');
+    obtenerPerfilesArticuloScm(Number(packagingArticleId)).then((payload) => {
+      if (!active) return;
+      const currentDefault = (payload.perfiles || []).find((item) => item.activo && item.es_predeterminado);
+      setPackagingProfileId(currentDefault ? String(currentDefault.perfil_empacable_id) : '');
+      setSelectedProfileState({ key: selectedProfileKey, error: '' });
+    }).catch((requestError) => {
+      if (active) setSelectedProfileState({ key: selectedProfileKey, error: mensajeErrorScm(requestError) });
+    });
+    return () => { active = false; };
+  }, [actorId, loadedActorId, loading, packagingArticleId, selectedProfileKey, tab]);
 
   const runMutation = async (operation, successMessage, { refreshRoute = false } = {}) => {
     setSaving(true);
@@ -772,7 +848,7 @@ function ScmEngineeringAdmin() {
         </Tabs>
       </Paper>
 
-      {loading ? (
+      {loading || loadedActorId !== actorId ? (
         <Stack alignItems="center" sx={{ py: 8 }}><CircularProgress /></Stack>
       ) : (
         <>
@@ -896,7 +972,7 @@ function ScmEngineeringAdmin() {
                     startIcon={<AddIcon />}
                     disabled={!selectedArticleId}
                     onClick={openBom}
-                    sx={{ whiteSpace: 'nowrap' }}
+                    sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
                   >
                     Nueva revisión
                   </Button>}
@@ -1304,6 +1380,7 @@ function ScmEngineeringAdmin() {
 
           {tab === 3 && (
             <Stack spacing={2}>
+              {articleProfilesError && <Alert severity="error">{articleProfilesError}</Alert>}
               {packagingArticle && (
                 <Alert severity="info">
                   Configurando empaque para {packagingArticle.codigo} · {packagingArticle.nombre}.
@@ -1327,19 +1404,15 @@ function ScmEngineeringAdmin() {
                     articles={articles}
                     value={packagingArticleId}
                     onChange={(articleId) => {
-                      const currentDefault = (articleProfilesById[articleId] || []).find(
-                        (item) => item.activo && item.es_predeterminado,
-                      );
                       setPackagingArticleId(articleId);
-                      setPackagingProfileId(
-                        currentDefault ? String(currentDefault.perfil_empacable_id) : '',
-                      );
+                      setPackagingProfileId('');
                     }}
                   />
                   <FormControl fullWidth size="small">
                     <InputLabel>Perfil predeterminado</InputLabel>
                     <Select
                       label="Perfil predeterminado"
+                      disabled={selectedProfileLoading}
                       value={packagingProfileId}
                       onChange={(event) => setPackagingProfileId(event.target.value)}
                     >
@@ -1352,8 +1425,8 @@ function ScmEngineeringAdmin() {
                   </FormControl>
                   <Button
                     variant="contained"
-                    disabled={!packagingArticleId || !packagingProfileId || saving}
-                    sx={{ whiteSpace: 'nowrap' }}
+                    disabled={!packagingArticleId || !packagingProfileId || selectedProfileLoading || saving}
+                    sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
                     onClick={() => {
                       const article = articles.find(
                         (item) => item.id === Number(packagingArticleId),
@@ -1377,65 +1450,55 @@ function ScmEngineeringAdmin() {
                 <Typography variant="caption" color="text.secondary">
                   Evidencia del perfil predeterminado que utilizará el plan de mangas.
                 </Typography>
-                <TableContainer sx={{ mt: 1.5 }}>
-                  <Table size="small" aria-label="Asignaciones actuales de perfiles empacables">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Artículo</TableCell>
-                        <TableCell>Clase</TableCell>
-                        <TableCell>Perfil predeterminado</TableCell>
-                        <TableCell>Estado</TableCell>
-                        {canAdminPackaging && <TableCell align="right">Acción</TableCell>}
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {articles.flatMap((article) => (
-                        (articleProfilesById[article.id] || [])
-                          .filter((item) => item.activo && item.es_predeterminado)
-                          .map((item) => (
-                            <TableRow key={`${article.id}-${item.perfil_empacable_id}`}>
-                              <TableCell>
-                                <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                                  {article.codigo}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {article.nombre}
-                                </Typography>
-                              </TableCell>
-                              <TableCell>
-                                <Chip size="small" label={ARTICLE_CLASS[article.clase] || article.clase} variant="outlined" />
-                              </TableCell>
-                              <TableCell>
-                                <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                                  {item.perfil?.codigo} · {item.perfil?.nombre}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {item.perfil?.descripcion_fisica || 'Sin descripción física'}
-                                </Typography>
-                              </TableCell>
+                <TextField
+                  label="Buscar asignaciones de empaque"
+                  value={assignmentSearch}
+                  onChange={(event) => setAssignmentSearch(event.target.value)}
+                  size="small" fullWidth sx={{ mt: 2 }}
+                  inputProps={{ maxLength: 200 }}
+                />
+                {assignmentLoading ? <CircularProgress size={24} sx={{ m: 2 }} /> : (
+                  <>
+                    <TableContainer sx={{ mt: 1.5 }}>
+                      <Table size="small" aria-label="Asignaciones actuales de perfiles empacables">
+                        <TableHead><TableRow>
+                          <TableCell>Artículo</TableCell><TableCell>Clase</TableCell>
+                          <TableCell>Perfil predeterminado</TableCell><TableCell>Estado</TableCell>
+                          {canAdminPackaging && <TableCell align="right">Acción</TableCell>}
+                        </TableRow></TableHead>
+                        <TableBody>
+                          {assignmentPayload.items.map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell><Typography fontWeight={700}>{item.articulo.codigo}</Typography><Typography variant="caption">{item.articulo.nombre}</Typography></TableCell>
+                              <TableCell><Chip size="small" label={ARTICLE_CLASS[item.articulo.clase] || item.articulo.clase} variant="outlined" /></TableCell>
+                              <TableCell><Typography fontWeight={700}>{item.perfil.codigo} · {item.perfil.nombre}</Typography><Typography variant="caption">{item.perfil.descripcion_fisica || 'Sin descripción física'}</Typography></TableCell>
                               <TableCell><Chip size="small" color="success" label="Predeterminado" /></TableCell>
-                              {canAdminPackaging && (
-                                <TableCell align="right">
-                                  <Button
-                                    size="small"
-                                    onClick={() => {
-                                      setPackagingArticleId(String(article.id));
-                                      setPackagingProfileId(String(item.perfil_empacable_id));
-                                    }}
-                                  >
-                                    Cambiar
-                                  </Button>
-                                </TableCell>
-                              )}
+                              {canAdminPackaging && <TableCell align="right"><Button size="small" onClick={() => {
+                                setPackagingArticleId(String(item.articulo.id));
+                                setPackagingProfileId(String(item.perfil.id));
+                              }}>Cambiar</Button></TableCell>}
                             </TableRow>
-                          ))
-                      ))}
-                      {articles.every((article) => !(articleProfilesById[article.id] || []).some(
-                        (item) => item.activo && item.es_predeterminado,
-                      )) && <EmptyRow columns={canAdminPackaging ? 5 : 4} />}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                          ))}
+                          {assignmentPayload.items.length === 0 && <EmptyRow columns={canAdminPackaging ? 5 : 4} />}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                    <TablePagination
+                      component="div" count={assignmentPayload.total} rowsPerPage={25}
+                      rowsPerPageOptions={[25]} page={assignmentPage}
+                      labelRowsPerPage="Filas por página"
+                      labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
+                      getItemAriaLabel={(type) => type === 'next' ? 'Siguiente página de asignaciones' : 'Anterior página de asignaciones'}
+                      slotProps={{ actions: { nextButton: { disabled: !assignmentPayload.has_more }, previousButton: { disabled: assignmentPage === 0 } } }}
+                      onPageChange={(_, nextPage) => {
+                        if (nextPage > assignmentPage) {
+                          setAssignmentCursors((current) => ({ ...current, [nextPage]: assignmentPayload.next_cursor }));
+                        }
+                        setAssignmentPage(nextPage);
+                      }}
+                    />
+                  </>
+                )}
               </Paper>
               <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2}>
                 <Paper variant="outlined" sx={{ p: 2, flex: 1 }}>

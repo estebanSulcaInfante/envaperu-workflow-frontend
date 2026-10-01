@@ -1,4 +1,5 @@
 import {
+  act,
   render,
   screen,
   waitFor,
@@ -47,6 +48,7 @@ vi.mock('../services/scmEngineeringApi', () => ({
   descartarEstructuraScm: vi.fn(),
   enviarEstructuraScm: vi.fn(),
   listarArticulosScm: vi.fn(),
+  listarAsignacionesEmpaqueScm: vi.fn(),
   listarCentrosTrabajoScm: vi.fn(),
   listarEstructurasScm: vi.fn(),
   listarPerfilesEmpacablesScm: vi.fn(),
@@ -74,6 +76,7 @@ import {
   crearRutaArticuloScm,
   descartarEstructuraScm,
   listarArticulosScm,
+  listarAsignacionesEmpaqueScm,
   listarCentrosTrabajoScm,
   listarEstructurasScm,
   listarPerfilesEmpacablesScm,
@@ -138,6 +141,7 @@ describe('Ingeniería SCM R-core', () => {
     window.history.replaceState({}, '', '/?producto=PT-000001');
     actorState.id = 1;
     listarArticulosScm.mockResolvedValue(articles);
+    listarAsignacionesEmpaqueScm.mockResolvedValue({ items: [], total: 0, has_more: false, next_cursor: null });
     listarCentrosTrabajoScm.mockResolvedValue([]);
     listarTiposContenedorScm.mockResolvedValue([]);
     listarPerfilesEmpacablesScm.mockResolvedValue([]);
@@ -166,6 +170,192 @@ describe('Ingeniería SCM R-core', () => {
     });
   });
 
+  it('carga una pagina de asignaciones sin consultar perfiles por cada articulo', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('WIP-000001');
+    expect(listarAsignacionesEmpaqueScm).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('tab', { name: 'Empaque' }));
+    await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
+    expect(listarAsignacionesEmpaqueScm).toHaveBeenCalledWith({ q: undefined, limite: 25, cursor: undefined });
+    expect(obtenerPerfilesArticuloScm).not.toHaveBeenCalled();
+  });
+  it('renueva la pagina al volver a Empaque sin repetir catalogos ni perfiles individuales', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('WIP-000001');
+    await user.click(screen.getByRole('tab', { name: 'Empaque' }));
+    await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
+    await user.click(screen.getByRole('tab', { name: 'Artículos' }));
+    await user.click(screen.getByRole('tab', { name: 'Empaque' }));
+    await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
+    expect(listarAsignacionesEmpaqueScm).toHaveBeenCalledTimes(2);
+    expect(listarArticulosScm).toHaveBeenCalledTimes(1);
+    expect(obtenerPerfilesArticuloScm).not.toHaveBeenCalled();
+  });
+
+  it('aísla fallos de la pagina y recupera con recarga manual sin fanout', async () => {
+    listarAsignacionesEmpaqueScm.mockRejectedValue(new Error('Asignaciones temporalmente no disponibles'));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('WIP-000001');
+    expect(screen.queryByText('Asignaciones temporalmente no disponibles')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Empaque' }));
+    expect(await screen.findByText('Asignaciones temporalmente no disponibles')).toBeVisible();
+    expect(listarAsignacionesEmpaqueScm).toHaveBeenCalledTimes(1);
+    listarAsignacionesEmpaqueScm.mockResolvedValue({ items: [], total: 0, has_more: false, next_cursor: null });
+    await user.click(screen.getByRole('button', { name: 'Recargar ingeniería SCM' }));
+    await waitFor(() => expect(screen.queryByText('Asignaciones temporalmente no disponibles')).not.toBeInTheDocument());
+    await waitFor(() => expect(listarAsignacionesEmpaqueScm).toHaveBeenCalledTimes(2));
+    expect(obtenerPerfilesArticuloScm).not.toHaveBeenCalled();
+  });
+
+  it.each(['resolve', 'reject'])('ignora paginas tardias (%s) al salir y volver a Empaque', async (outcome) => {
+    let finishOld;
+    const oldRequest = new Promise((resolve, reject) => {
+      finishOld = outcome === 'resolve' ? () => resolve({ items: [], total: 0 }) : () => reject(new Error('Error obsoleto'));
+    });
+    listarAsignacionesEmpaqueScm.mockReturnValue(oldRequest);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('WIP-000001');
+    await user.click(screen.getByRole('tab', { name: 'Empaque' }));
+    await waitFor(() => expect(listarAsignacionesEmpaqueScm).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('tab', { name: 'Artículos' }));
+    listarAsignacionesEmpaqueScm.mockResolvedValue({ items: [{ id: 1, articulo: articles[0], perfil: { id: 8, codigo: 'PEM-VIGENTE', nombre: 'Perfil vigente' } }], total: 1, has_more: false, next_cursor: null });
+    await user.click(screen.getByRole('tab', { name: 'Empaque' }));
+    await screen.findByText(/PEM-VIGENTE/);
+    await act(async () => { finishOld(); });
+    expect(screen.getByText(/PEM-VIGENTE/)).toBeVisible();
+    expect(screen.queryByText('Error obsoleto')).not.toBeInTheDocument();
+    expect(listarAsignacionesEmpaqueScm).toHaveBeenCalledTimes(2);
+  });
+
+  it('pagina y busca en servidor reiniciando cursor sin filtrar la pagina local', async () => {
+    const row = (id) => ({ id, articulo: articles[id - 1], perfil: { id: 8, codigo: 'PEM-8', nombre: 'Perfil de prueba' } });
+    listarAsignacionesEmpaqueScm.mockImplementation(({ q, cursor }) => Promise.resolve(q
+      ? { items: [row(3)], total: 1, has_more: false, next_cursor: null }
+      : { items: [row(cursor ? 2 : 1)], total: 30, has_more: !cursor, next_cursor: cursor ? null : 'cursor-page-2' }));
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Empaque' }));
+    await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
+    await user.click(screen.getByRole('button', { name: 'Siguiente página de asignaciones' }));
+    await waitFor(() => expect(listarAsignacionesEmpaqueScm).toHaveBeenLastCalledWith({ q: undefined, limite: 25, cursor: 'cursor-page-2' }));
+    await user.type(screen.getByRole('textbox', { name: 'Buscar asignaciones de empaque' }), 'consulta servidor');
+    await waitFor(() => expect(listarAsignacionesEmpaqueScm).toHaveBeenLastCalledWith({ q: 'consulta servidor', limite: 25, cursor: undefined }));
+    const table = await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
+    expect(within(table).getByText('PT-000001')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Anterior página de asignaciones' })).toBeDisabled();
+    expect(listarArticulosScm).toHaveBeenCalledTimes(1);
+    expect(obtenerPerfilesArticuloScm).not.toHaveBeenCalled();
+  });
+
+  it('resuelve el perfil de un enlace fuera de la pagina con una sola lectura legacy', async () => {
+    window.history.replaceState({}, '', '/datos-maestros/ingenieria-scm?tab=empaque&articulo=4');
+    const profile = { id: 8, codigo: 'PEM-8', nombre: 'Perfil fuera de pagina', activo: true };
+    listarPerfilesEmpacablesScm.mockResolvedValue([profile]);
+    listarAsignacionesEmpaqueScm.mockResolvedValue({ items: [{ id: 1, articulo: articles[0], perfil: profile }], total: 1, has_more: false, next_cursor: null });
+    obtenerPerfilesArticuloScm.mockResolvedValue({ perfiles: [{ perfil_empacable_id: 8, activo: true, es_predeterminado: true }] });
+    renderPage();
+    await waitFor(() => expect(screen.getAllByRole('combobox')[1]).toHaveTextContent('Perfil fuera de pagina'));
+    expect(obtenerPerfilesArticuloScm).toHaveBeenCalledTimes(1);
+    expect(obtenerPerfilesArticuloScm).toHaveBeenCalledWith(4);
+    const table = await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
+    expect(within(table).queryByText('PT-LEGACY-SIN-CODIGO')).not.toBeInTheDocument();
+  });
+
+  it('reinicia busqueda y cursor al cambiar actor sin enviar filtros anteriores', async () => {
+    const user = userEvent.setup();
+    const view = renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Empaque' }));
+    await user.type(await screen.findByRole('textbox', { name: 'Buscar asignaciones de empaque' }), 'actor anterior');
+    await waitFor(() => expect(listarAsignacionesEmpaqueScm).toHaveBeenLastCalledWith({ q: 'actor anterior', limite: 25, cursor: undefined }));
+    listarAsignacionesEmpaqueScm.mockClear();
+    actorState.id = 2;
+    view.rerender(<ThemeProvider theme={createTheme()}><ScmEngineeringAdmin /></ThemeProvider>);
+    await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
+    expect(screen.getByRole('textbox', { name: 'Buscar asignaciones de empaque' })).toHaveValue('');
+    expect(listarAsignacionesEmpaqueScm).toHaveBeenCalledTimes(1);
+    expect(listarAsignacionesEmpaqueScm).toHaveBeenLastCalledWith({ q: undefined, limite: 25, cursor: undefined });
+  });
+
+  it('descarta la pagina anterior cuando termina despues de la busqueda nueva', async () => {
+    let resolveOld;
+    listarAsignacionesEmpaqueScm.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }));
+    listarAsignacionesEmpaqueScm.mockResolvedValue({ items: [{ id: 7, articulo: articles[2], perfil: { id: 8, codigo: 'PEM-RESULTADO', nombre: 'Resultado vigente' } }], total: 1, has_more: false, next_cursor: null });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Empaque' }));
+    await user.type(await screen.findByRole('textbox', { name: 'Buscar asignaciones de empaque' }), 'nuevo');
+    await screen.findByText(/PEM-RESULTADO/);
+    await act(async () => { resolveOld({ items: [], total: 0, has_more: false, next_cursor: null }); });
+    expect(screen.getByText(/PEM-RESULTADO/)).toBeVisible();
+    expect(listarAsignacionesEmpaqueScm).toHaveBeenCalledTimes(2);
+  });
+  it('restaura el perfil predeterminado del enlace directo y recarga al cambiar actor', async () => {
+    window.history.replaceState({}, '', '/datos-maestros/ingenieria-scm?tab=empaque&articulo=1');
+    listarPerfilesEmpacablesScm.mockResolvedValue([{ id: 8, codigo: 'PEM-8', nombre: 'Perfil exacto', activo: true }]);
+    obtenerPerfilesArticuloScm.mockResolvedValue({ perfiles: [{ activo: true, es_predeterminado: true, perfil_empacable_id: 8, perfil: { codigo: 'PEM-8', nombre: 'Perfil exacto' } }] });
+    const view = renderPage();
+    await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
+    await waitFor(() => expect(screen.getAllByRole('combobox')[1]).toHaveTextContent('Perfil exacto'));
+    expect(obtenerPerfilesArticuloScm).toHaveBeenCalledTimes(1);
+    actorState.id = 2;
+    view.rerender(<ThemeProvider theme={createTheme()}><ScmEngineeringAdmin /></ThemeProvider>);
+    await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
+    expect(obtenerPerfilesArticuloScm).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.getAllByRole('combobox')[1]).toHaveTextContent('Perfil exacto'));
+  });
+  it.each(['catalogo', 'estructuras'])('no mezcla maestros de actores con respuesta tardia en %s', async (phase) => {
+    const oldArticle = { ...articles[1], id: 91, codigo: 'WIP-ANTERIOR', nombre: 'WIP actor anterior' };
+    const newArticle = { ...articles[1], id: 92, codigo: 'WIP-ACTUAL', nombre: 'WIP actor actual' };
+    let finishOld;
+    const oldRequest = new Promise((resolve) => { finishOld = resolve; });
+    listarArticulosScm.mockImplementation(() => actorState.id === 1
+      ? (phase === 'catalogo' ? oldRequest : Promise.resolve([oldArticle]))
+      : Promise.resolve([newArticle]));
+    listarCentrosTrabajoScm.mockImplementation(() => Promise.resolve([{ id: actorState.id, codigo: `CT-${actorState.id}`, nombre: `Centro actor ${actorState.id}`, tipo: 'ARMADO', activo: true }]));
+    listarEstructurasScm.mockImplementation((articleId) => articleId === 91 && phase === 'estructuras' ? oldRequest : Promise.resolve([]));
+    const user = userEvent.setup();
+    const view = renderPage();
+    await waitFor(() => expect(listarArticulosScm).toHaveBeenCalledTimes(1));
+    if (phase === 'estructuras') await waitFor(() => expect(listarEstructurasScm).toHaveBeenCalledWith(91));
+    actorState.id = 2;
+    view.rerender(<ThemeProvider theme={createTheme()}><ScmEngineeringAdmin /></ThemeProvider>);
+    expect(await screen.findByText('WIP-ACTUAL')).toBeVisible();
+    await act(async () => { finishOld(phase === 'catalogo' ? [oldArticle] : []); });
+    expect(screen.getByText('WIP-ACTUAL')).toBeVisible();
+    expect(screen.queryByText('WIP-ANTERIOR')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Rutas' }));
+    expect(await screen.findByText(/Centro actor 2/)).toBeVisible();
+    expect(screen.queryByText(/Centro actor 1/)).not.toBeInTheDocument();
+    expect(listarCentrosTrabajoScm).toHaveBeenCalledTimes(2);
+    expect(listarTiposContenedorScm).toHaveBeenCalledTimes(2);
+    expect(listarPerfilesEmpacablesScm).toHaveBeenCalledTimes(2);
+    expect(listarReglasEmpaqueScm).toHaveBeenCalledTimes(2);
+    if (phase === 'catalogo') expect(listarEstructurasScm).not.toHaveBeenCalledWith(91);
+  });
+  it('descarta la seleccion de empaque al cambiar de actor sin enlace directo', async () => {
+    window.history.replaceState({}, '', '/datos-maestros/ingenieria-scm?tab=empaque');
+    listarArticulosScm.mockImplementation(() => Promise.resolve(actorState.id === 1 ? articles : [{ ...articles[1], id: 92, codigo: 'WIP-ACTUAL' }]));
+    listarPerfilesEmpacablesScm.mockImplementation(() => Promise.resolve([{ id: actorState.id === 1 ? 8 : 9, codigo: `PEM-ACTOR-${actorState.id}`, nombre: `Perfil actor ${actorState.id}`, activo: true }]));
+    const user = userEvent.setup();
+    const view = renderPage();
+    await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
+    await user.type(screen.getAllByRole('combobox')[0], 'PT-000001');
+    await user.click(await screen.findByRole('option', { name: /PT-000001.*Balde terminado/ }));
+    await user.click(screen.getAllByRole('combobox')[1]);
+    await user.click(await screen.findByRole('option', { name: /PEM-ACTOR-1/ }));
+    expect(screen.getByRole('button', { name: 'Asignar perfil' })).toBeEnabled();
+    actorState.id = 2;
+    view.rerender(<ThemeProvider theme={createTheme()}><ScmEngineeringAdmin /></ThemeProvider>);
+    await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
+    expect(screen.getByRole('button', { name: 'Asignar perfil' })).toBeDisabled();
+    expect(screen.getAllByRole('combobox')[0]).toHaveValue('');
+    expect(screen.getAllByRole('combobox')[1]).not.toHaveTextContent('Perfil actor 1');
+    expect(asignarPerfilesArticuloScm).not.toHaveBeenCalled();
+  });
   it('restaura el PT y el contexto de la OP desde el enlace de un bloqueo', async () => {
     listarArticulosScm.mockResolvedValue([
       ...articles,
@@ -320,6 +510,8 @@ describe('Ingeniería SCM R-core', () => {
       articles[2],
       [{ perfil_empacable_id: 8, es_predeterminado: true, activo: true }],
     ));
+    await waitFor(() => expect(obtenerPerfilesArticuloScm).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(listarAsignacionesEmpaqueScm).toHaveBeenCalledTimes(2));
   });
 
   it('muestra el perfil predeterminado asignado a cada artículo', async () => {
@@ -342,6 +534,7 @@ describe('Ingeniería SCM R-core', () => {
         perfil: profile,
       }] : [],
     }));
+    listarAsignacionesEmpaqueScm.mockResolvedValue({ items: [{ id: 18, articulo: articles[2], perfil: profile }], total: 1, has_more: false, next_cursor: null });
     const user = userEvent.setup();
     renderPage();
 

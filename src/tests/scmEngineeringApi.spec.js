@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { postMock } = vi.hoisted(() => ({ postMock: vi.fn() }));
+const { postMock, getMock } = vi.hoisted(() => ({ postMock: vi.fn(), getMock: vi.fn() }));
 
 vi.mock('../services/api', () => ({
   default: {
     post: postMock,
+    get: getMock,
   },
 }));
 
 import {
   aprobarReglaEmpaqueScm,
+  listarAsignacionesEmpaqueScm,
   obtenerActorScm,
   publicarEstructuraScm,
   publicarReglaEmpaqueScm,
@@ -78,5 +80,15 @@ describe('aprobarReglaEmpaqueScm', () => {
         },
       },
     );
+  });
+});
+
+it('conserva metadata y transmite busqueda/cursor al servidor de asignaciones', async () => {
+  globalThis.localStorage?.setItem('envaperu_scm_actor_id', '2');
+  const payload = { items: [], total: 41, has_more: true, next_cursor: 'siguiente' };
+  getMock.mockResolvedValue({ data: payload });
+  expect(await listarAsignacionesEmpaqueScm({ q: 'Balde', limite: 25, cursor: 'anterior' })).toEqual(payload);
+  expect(getMock).toHaveBeenCalledWith('/scm/v1/empaque/asignaciones', {
+    headers: { 'X-Actor-Id': '2' }, params: { q: 'Balde', limite: 25, cursor: 'anterior' },
   });
 });

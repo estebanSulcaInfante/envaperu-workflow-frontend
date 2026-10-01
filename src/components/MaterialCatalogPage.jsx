@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -130,26 +130,44 @@ function MaterialCatalogPage() {
   const [status, setStatus] = useState('TODOS');
   const [form, setForm] = useState(null);
 
-  const load = async () => {
+  const loadGeneration = useRef(0);
+  const activeKind = useRef(kind);
+  const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     setLoading(true);
     setError('');
+    setMaterials([]);
+    setProviders([]);
+    setCategories([]);
     try {
-      const [materialRows, providerRows, categoryRows] = await Promise.all([
-        listarMaterialesScm(),
-        listarProveedoresScm(),
-        listarCategoriasRecepcionScm(),
-      ]);
-      setMaterials(materialRows);
-      setProviders(providerRows);
-      setCategories(categoryRows);
+      if (kind === 'materials') {
+        const [materialRows, categoryRows] = await Promise.all([
+          listarMaterialesScm(), listarCategoriasRecepcionScm(),
+        ]);
+        if (generation !== loadGeneration.current) return;
+        setMaterials(materialRows);
+        setCategories(categoryRows);
+      } else if (kind === 'providers') {
+        const providerRows = await listarProveedoresScm();
+        if (generation !== loadGeneration.current) return;
+        setProviders(providerRows);
+      } else if (kind === 'categoryRules') {
+        const categoryRows = await listarCategoriasRecepcionScm();
+        if (generation !== loadGeneration.current) return;
+        setCategories(categoryRows);
+      }
     } catch (requestError) {
-      setError(apiError(requestError));
+      if (generation === loadGeneration.current) setError(apiError(requestError));
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
-  };
+  }, [kind]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    activeKind.current = kind;
+    load();
+    return () => { activeKind.current = null; loadGeneration.current += 1; };
+  }, [kind, load]);
 
   const rows = useMemo(
     () => (kind === 'materials' ? materials : kind === 'providers' ? providers : kind === 'categoryRules' ? categories : []),
@@ -217,13 +235,14 @@ function MaterialCatalogPage() {
         const payload = editing ? { version: form.version, ...values } : values;
         await (editing ? actualizarCategoriaRecepcionScm(form.id, payload) : crearCategoriaRecepcionScm(payload));
       }
+      if (activeKind.current !== kind) return;
       setForm(null);
       setNotice(`${titleFor(kind)} guardado correctamente.`);
       await load();
     } catch (requestError) {
-      setError(apiError(requestError));
+      if (activeKind.current === kind) setError(apiError(requestError));
     } finally {
-      setSaving(false);
+      if (activeKind.current !== null) setSaving(false);
     }
   };
 
@@ -234,12 +253,13 @@ function MaterialCatalogPage() {
       if (kind === 'materials') await actualizarMaterialScm(item.id, { version: item.version, activo: !item.activo });
       if (kind === 'providers') await actualizarProveedorScm(item.id, { version: item.version, activo: !item.activo });
       if (kind === 'categoryRules') await actualizarCategoriaRecepcionScm(item.id, { version: item.version, activo: !item.activo });
+      if (activeKind.current !== kind) return;
       setNotice(`${titleFor(kind)} ${item.activo ? 'inactivado' : 'reactivado'} en la API.`);
       await load();
     } catch (requestError) {
-      setError(apiError(requestError));
+      if (activeKind.current === kind) setError(apiError(requestError));
     } finally {
-      setSaving(false);
+      if (activeKind.current !== null) setSaving(false);
     }
   };
 
