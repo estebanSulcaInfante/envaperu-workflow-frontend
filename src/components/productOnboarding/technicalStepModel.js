@@ -167,7 +167,7 @@ export const validateComponents = (value) => {
     } else {
       if (!group.molde.nombre.trim()) groupErrors.molde.nombre = 'Ingresa el nombre del molde.';
       if (!positiveNumber(group.molde.peso_tiro_gr)) {
-        groupErrors.molde.peso_tiro_gr = 'El peso de tiro debe ser mayor que cero.';
+    groupErrors.molde.peso_tiro_gr = 'El peso bruto por ciclo debe ser mayor que cero.';
       }
       if (!positiveNumber(group.molde.tiempo_ciclo_std)) {
         groupErrors.molde.tiempo_ciclo_std = 'El ciclo debe ser mayor que cero.';

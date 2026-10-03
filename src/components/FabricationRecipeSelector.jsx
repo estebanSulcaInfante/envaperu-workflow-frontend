@@ -1,9 +1,12 @@
 import {
-  Alert, Box, Button, Chip, Link, Paper,
+  Alert, Box, Chip, Link, Paper,
   Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Typography,
 } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
+import AddCircleOutlineOutlinedIcon from '@mui/icons-material/AddCircleOutlineOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import { approvedRecipesForRun } from './fabricationRecipeOptions';
 import SearchableCatalogAutocomplete from './ui/SearchableCatalogAutocomplete';
 
@@ -41,6 +44,12 @@ export default function FabricationRecipeSelector({
   const selectable = selected && !approved.some((recipe) => recipe.id === selected.id)
     ? [selected, ...approved]
     : approved;
+  const actions = editable && onOpenWorkspace ? [
+    { label: 'Buscar en catálogo', icon: <SearchOutlinedIcon fontSize="small" />, onClick: () => onOpenWorkspace('catalog', selected) },
+    { label: 'Crear receta', icon: <AddCircleOutlineOutlinedIcon fontSize="small" />, onClick: () => onOpenWorkspace('create-direct', null) },
+    { label: 'Editar receta', icon: <EditOutlinedIcon fontSize="small" />, onClick: () => onOpenWorkspace('edit', selected), disabled: !selected },
+    { label: 'Crear a partir de esta', icon: <AddCircleOutlineOutlinedIcon fontSize="small" />, onClick: () => onOpenWorkspace('duplicate', selected), disabled: !selected },
+  ] : undefined;
 
   return (
     <Stack spacing={1.25} sx={compact ? undefined : { px: 2, pb: 2 }}>
@@ -59,11 +68,11 @@ export default function FabricationRecipeSelector({
           getSearchText={(option) => [recipeName(option), recipeLabel(option), option?.revision, option?.codigo, option?.color_nombre].filter(Boolean).join(' ')}
           getColorHex={(option) => option?.hex_referencia || option?.color_hex || option?.color_produccion?.hex_referencia}
           noOptionsText="No hay formulaciones aprobadas compatibles"
+          actions={actions}
         />
         {!compact && !editable && selected && (
           <Chip size="small" color="success" variant="outlined" label="Congelada al liberar" />
         )}
-        {!compact && editable && onOpenWorkspace && <Button variant="outlined" onClick={onOpenWorkspace}>Crear o editar aquí</Button>}
       </Stack>
 
       {!compact && !selected && (

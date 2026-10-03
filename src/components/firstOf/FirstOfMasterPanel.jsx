@@ -20,12 +20,33 @@ import {
 } from '../../services/api';
 import { crearMaterialScm, listarCategoriasRecepcionScm } from '../../services/scmCatalogApi';
 import { useScmActor } from '../../context/ScmActorContext';
+import ColorHexPickerField from '../ui/ColorHexPickerField';
 
 const emptyColor = { nombre: '', familia_color_id: '', hex_referencia: '', activo: true };
+const colorDraftFrom = (item) => ({
+  nombre: item.color_base_nombre || item.nombre || '',
+  familia_color_id: item.familia_color_id || '',
+  hex_referencia: item.hex_referencia || '',
+  activo: item.activo !== false,
+});
 const emptyRecipe = {
   nombre_variante: '', producto_sku: '', estado: 'BORRADOR', es_default: false,
   base_virgen_kg: 25, notas: '', lineas: [],
 };
+const recipeFormFrom = (item, duplicate = false) => ({
+  nombre_variante: `${item?.nombre_variante || ''}${duplicate ? ' (copia)' : ''}`,
+  producto_sku: item?.producto_sku || '',
+  estado: duplicate ? 'BORRADOR' : item?.estado === 'INACTIVA' ? 'BORRADOR' : item?.estado || 'BORRADOR',
+  es_default: duplicate ? false : Boolean(item?.es_default),
+  base_virgen_kg: item?.base_virgen_kg || 25,
+  notas: item?.notas || '',
+  lineas: (item?.lineas || []).map((line) => ({
+    material_id: line.material_id || '',
+    tipo_componente: line.tipo_componente || 'MATERIA_PRIMA',
+    cantidad: line.tipo_componente === 'MATERIA_PRIMA' ? Number(line.cantidad || 0) * 100 : line.cantidad,
+    base_kg: line.base_kg || item?.base_virgen_kg || 25,
+  })),
+});
 
 const asItems = (payload) => (Array.isArray(payload) ? payload : payload?.items || []);
 const apiMessage = (error, fallback) => (
@@ -93,27 +114,38 @@ function StateAlert({ error, notice, loading }) {
   );
 }
 
-function ColorPanel({ mode, selectedId, onBack, onSelect, onSaved, canAdmin, busy, setBusy, notifyBusy, onDirtyChange }) {
-  const [view, setView] = useState(mode);
-  const [colors, setColors] = useState([]);
+function ColorPanel({ mode, selectedId, initialEntity, onBack, onSelect, onSaved, canAdmin, busy, setBusy, notifyBusy, onDirtyChange }) {
+  const [refreshToken, setRefreshToken] = useState(0);
+  const directCreate = mode === 'create';
+  const directRecord = Boolean(initialEntity) && (mode === 'detail' || mode === 'edit');
+  const directEdit = mode === 'edit' && Boolean(initialEntity);
+  const directCreateInitial = directCreate && refreshToken === 0;
+  const directRecordInitial = directRecord && refreshToken === 0;
+  const [view, setView] = useState(directEdit ? 'create' : mode);
+  const [colors, setColors] = useState(initialEntity ? [initialEntity] : []);
   const [families, setFamilies] = useState([]);
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(initialEntity || null);
   const [search, setSearch] = useState('');
-  const [form, setForm] = useState(emptyColor);
-  const [editing, setEditing] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState(() => directEdit ? colorDraftFrom(initialEntity) : emptyColor);
+  const [editing, setEditing] = useState(directEdit ? initialEntity : null);
+  const [loading, setLoading] = useState(!directCreateInitial && !directRecordInitial);
   const [familiesLoading, setFamiliesLoading] = useState(false);
   const [error, setError] = useState('');
   const [accessoryError, setAccessoryError] = useState('');
   const [notice, setNotice] = useState('');
   const [uncertain, setUncertain] = useState(false);
-  const [refreshToken, setRefreshToken] = useState(0);
   const [page, setPage] = useState(0);
-  const initialRef = useRef(JSON.stringify(emptyColor));
+  const initialRef = useRef(JSON.stringify(directEdit ? colorDraftFrom(initialEntity) : emptyColor));
   const familiesLoadedRef = useRef(false);
   const dirtyCallbackRef = useLatest(onDirtyChange);
 
   useEffect(() => {
+    if (directCreateInitial || directRecordInitial) {
+      setColors(initialEntity ? [initialEntity] : []);
+      if (initialEntity) setSelected(initialEntity);
+      setLoading(false);
+      return undefined;
+    }
     let active = true;
     setLoading(true);
     obtenerColores({ include_inactive: true }).then((colorPayload) => {
@@ -127,7 +159,7 @@ function ColorPanel({ mode, selectedId, onBack, onSelect, onSaved, canAdmin, bus
       if (active) setError(apiMessage(requestError, 'No se pudo cargar el catálogo de colores.'));
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [selectedId, refreshToken]);
+  }, [directCreateInitial, directRecordInitial, initialEntity, selectedId, refreshToken]);
 
   const loadFamilies = useCallback(async () => {
     if (familiesLoadedRef.current || familiesLoading) return families;
@@ -148,7 +180,7 @@ function ColorPanel({ mode, selectedId, onBack, onSelect, onSaved, canAdmin, bus
   }, [families, familiesLoading]);
 
   useEffect(() => {
-    if (mode === 'create') loadFamilies();
+    if (mode === 'create' || mode === 'edit') loadFamilies();
   }, [loadFamilies, mode]);
 
   useEffect(() => {
@@ -176,17 +208,11 @@ function ColorPanel({ mode, selectedId, onBack, onSelect, onSaved, canAdmin, bus
   const openEdit = async (item) => {
     await loadFamilies();
     setEditing(item);
-    setForm({
-      nombre: item.color_base_nombre || item.nombre || '',
-      familia_color_id: item.familia_color_id || '',
-      hex_referencia: item.hex_referencia || '',
-      activo: item.activo !== false,
-    });
+    setForm(colorDraftFrom(item));
     setError('');
     setUncertain(false);
     initialRef.current = JSON.stringify({
-      nombre: item.color_base_nombre || item.nombre || '', familia_color_id: item.familia_color_id || '',
-      hex_referencia: item.hex_referencia || '', activo: item.activo !== false,
+      ...colorDraftFrom(item),
     });
     setView('create');
   };
@@ -270,8 +296,11 @@ function ColorPanel({ mode, selectedId, onBack, onSelect, onSaved, canAdmin, bus
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Grid container spacing={1.5}>
             <Grid size={{ xs: 12, sm: 6 }}><TextField required fullWidth label="Nombre del color" value={form.nombre} disabled={busy} onChange={(event) => setForm((current) => ({ ...current, nombre: event.target.value }))} /></Grid>
-            <Grid size={{ xs: 12, sm: 6 }}><TextField required select fullWidth label="Familia de color" value={form.familia_color_id} disabled={busy} onChange={(event) => setForm((current) => ({ ...current, familia_color_id: event.target.value }))}>{families.filter((item) => item.activo !== false).map((item) => <MenuItem key={item.id} value={item.id}>{item.nombre}</MenuItem>)}</TextField></Grid>
-            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="HEX de referencia (opcional)" placeholder="#F2C94C" value={form.hex_referencia} disabled={busy} onChange={(event) => setForm((current) => ({ ...current, hex_referencia: event.target.value.toUpperCase() }))} /></Grid>
+            <Grid size={{ xs: 12, sm: 6 }}><TextField required select fullWidth label="Familia de color" value={form.familia_color_id} disabled={busy} onChange={(event) => setForm((current) => ({ ...current, familia_color_id: event.target.value }))}>
+              {form.familia_color_id && !families.some((item) => String(item.id) === String(form.familia_color_id)) && <MenuItem value={form.familia_color_id}>{editing?.familia_color_nombre || editing?.familia_nombre || 'Familia actual'}</MenuItem>}
+              {families.filter((item) => item.activo !== false).map((item) => <MenuItem key={item.id} value={item.id}>{item.nombre}</MenuItem>)}
+            </TextField></Grid>
+            <Grid size={{ xs: 12 }}><ColorHexPickerField value={form.hex_referencia} disabled={busy} onChange={(hex_referencia) => setForm((current) => ({ ...current, hex_referencia }))} /></Grid>
           </Grid>
         </Paper>
         <Stack direction="row" justifyContent="flex-end" spacing={1}>
@@ -325,18 +354,22 @@ function ColorPanel({ mode, selectedId, onBack, onSelect, onSaved, canAdmin, bus
   );
 }
 
-function RecipePanel({ mode, colorId, selectedId, onBack, onSelect, onSaved, canAdmin, canPublish, canCreateMaterial, busy, setBusy, notifyBusy, onDirtyChange }) {
-  const [view, setView] = useState(mode);
-  const [recipes, setRecipes] = useState([]);
+function RecipePanel({ mode, colorId, selectedId, initialEntity, onBack, onSelect, onSaved, canAdmin, canPublish, canCreateMaterial, busy, setBusy, notifyBusy, onDirtyChange }) {
+  const directMode = ['create-direct', 'edit', 'duplicate'].includes(mode);
+  const initialForm = mode === 'edit' && initialEntity
+    ? recipeFormFrom(initialEntity)
+    : mode === 'duplicate' && initialEntity ? recipeFormFrom(initialEntity, true) : emptyRecipe;
+  const [view, setView] = useState(directMode ? 'create' : mode);
+  const [recipes, setRecipes] = useState(initialEntity ? [initialEntity] : []);
   const [ingredients, setIngredients] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(initialEntity || null);
   const [search, setSearch] = useState('');
-  const [form, setForm] = useState(emptyRecipe);
-  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState(initialForm);
+  const [editing, setEditing] = useState(mode === 'edit' ? initialEntity || null : null);
   const [materialForm, setMaterialForm] = useState({ nombre: '', categoria_recepcion_id: '', clase: 'MATERIA_PRIMA' });
   const [materialIndex, setMaterialIndex] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!directMode);
   const [materialLoading, setMaterialLoading] = useState(false);
   const [accessoryLoading, setAccessoryLoading] = useState(false);
   const [error, setError] = useState('');
@@ -345,13 +378,20 @@ function RecipePanel({ mode, colorId, selectedId, onBack, onSelect, onSaved, can
   const [uncertain, setUncertain] = useState(false);
   const uncertainKindRef = useRef(null);
   const [page, setPage] = useState(0);
-  const initialRef = useRef(JSON.stringify({ form: emptyRecipe, material: null }));
+  const initialRef = useRef(JSON.stringify({ form: initialForm, material: null }));
   const materialInitialRef = useRef(JSON.stringify({ nombre: '', categoria_recepcion_id: '', clase: 'MATERIA_PRIMA' }));
   const accessoriesLoadedRef = useRef(false);
+  const recipeSaveInFlightRef = useRef(false);
   const dirtyCallbackRef = useLatest(onDirtyChange);
 
   useEffect(() => {
     if (!colorId) return undefined;
+    if (directMode) {
+      setRecipes(initialEntity ? [initialEntity] : []);
+      setSelected(initialEntity || null);
+      setLoading(false);
+      return undefined;
+    }
     let active = true;
     setLoading(true);
     obtenerRecetasColorMaestras({ color_produccion_id: colorId, include_inactive: true })
@@ -365,7 +405,7 @@ function RecipePanel({ mode, colorId, selectedId, onBack, onSelect, onSaved, can
         if (active) setError(apiMessage(requestError, 'No se pudo cargar la formulación del color.'));
       }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [colorId, mode, selectedId]);
+  }, [colorId, directMode, initialEntity, mode, selectedId]);
 
   const loadRecipeAccessories = useCallback(async () => {
     if (accessoriesLoadedRef.current || accessoryLoading) return;
@@ -384,7 +424,7 @@ function RecipePanel({ mode, colorId, selectedId, onBack, onSelect, onSaved, can
   }, [accessoryLoading]);
 
   useEffect(() => {
-    if (mode === 'create') loadRecipeAccessories();
+    if (['create', 'create-direct', 'edit', 'duplicate'].includes(mode)) loadRecipeAccessories();
   }, [loadRecipeAccessories, mode]);
 
   useEffect(() => {
@@ -442,6 +482,7 @@ function RecipePanel({ mode, colorId, selectedId, onBack, onSelect, onSaved, can
     const snapshot = JSON.stringify({ form, material: null });
     if (snapshot !== initialRef.current && !window.confirm('Hay cambios sin guardar. ¿Descartar este formulario?')) return;
     dirtyCallbackRef.current(false);
+    if (directMode) { onBack(); return; }
     setView(editing ? 'detail' : 'catalog');
   };
 
@@ -515,7 +556,7 @@ function RecipePanel({ mode, colorId, selectedId, onBack, onSelect, onSaved, can
   };
 
   const saveRecipe = async (targetState) => {
-    if (uncertain || busy || materialLoading) return;
+    if (uncertain || busy || materialLoading || recipeSaveInFlightRef.current) return;
     if (!canAdmin) { setError('Tu perfil no puede administrar formulaciones.'); return; }
     if (!form.nombre_variante.trim()) { setError('Ingresa el nombre de la variante.'); return; }
     if (!(Number(form.base_virgen_kg) > 0)) { setError('La base virgen debe ser positiva.'); return; }
@@ -538,6 +579,7 @@ function RecipePanel({ mode, colorId, selectedId, onBack, onSelect, onSaved, can
         base_kg: line.tipo_componente === 'MATERIA_PRIMA' ? null : Number(line.base_kg || form.base_virgen_kg),
       })),
     };
+    recipeSaveInFlightRef.current = true;
     notifyBusy(true);
     setBusy(true);
     setError('');
@@ -569,6 +611,7 @@ function RecipePanel({ mode, colorId, selectedId, onBack, onSelect, onSaved, can
       }
       setError(apiMessage(requestError, 'No se pudo guardar la receta. Conserva las entradas y recupera desde el catálogo.'));
     } finally {
+      recipeSaveInFlightRef.current = false;
       if (!released) {
         notifyBusy(false);
         setBusy(false);
@@ -631,6 +674,7 @@ function RecipePanel({ mode, colorId, selectedId, onBack, onSelect, onSaved, can
       <Stack spacing={2}>
         <PanelHeader title={editing ? 'Editar receta de color' : 'Crear receta de color'} subtitle="Las materias primas se expresan en porcentaje; los demás ingredientes, en dosis." onBack={leaveCreate} disabled={busy || materialLoading || accessoryLoading} />
         <StateAlert error={error} notice={notice} loading={false} />
+        {editing && editing.estado !== 'BORRADOR' && <Alert severity="info">Guardar esta receta aprobada o inactiva crea una nueva revisión y retira la revisión de origen.</Alert>}
         {accessoryError && <Alert severity="warning">{accessoryError}</Alert>}
         <RecoveryAlert uncertain={uncertain} onCatalog={recoverCatalog} onReload={reloadCatalog} />
         <Paper variant="outlined" sx={{ p: 2 }}><Grid container spacing={1.5}><Grid size={{ xs: 12, sm: 6 }}><TextField required fullWidth label="Nombre de variante" value={form.nombre_variante} disabled={busy || uncertain} onChange={(event) => setForm((current) => ({ ...current, nombre_variante: event.target.value }))} /></Grid><Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Producto SKU (opcional)" value={form.producto_sku} disabled={busy || uncertain} onChange={(event) => setForm((current) => ({ ...current, producto_sku: event.target.value }))} /></Grid><Grid size={{ xs: 12, sm: 6 }}><TextField required type="number" fullWidth label="Base virgen (kg)" value={form.base_virgen_kg} disabled={busy || uncertain} onChange={(event) => setForm((current) => ({ ...current, base_virgen_kg: event.target.value }))} /></Grid></Grid><TextField fullWidth multiline minRows={2} sx={{ mt: 1.5 }} label="Notas" value={form.notas} disabled={busy || uncertain} onChange={(event) => setForm((current) => ({ ...current, notas: event.target.value }))} /></Paper>
@@ -651,7 +695,7 @@ function RecipePanel({ mode, colorId, selectedId, onBack, onSelect, onSaved, can
 }
 
 export default function FirstOfMasterPanel({
-  kind = 'color', mode = 'catalog', colorId, selectedId, onBack = () => {}, onSelect = () => {},
+  kind = 'color', mode = 'catalog', colorId, selectedId, initialEntity, onBack = () => {}, onSelect = () => {},
   onSaved = () => {}, onBusyChange = () => {}, onDirtyChange = () => {},
 }) {
   const { can, canAny = () => false } = useScmActor();
@@ -660,7 +704,7 @@ export default function FirstOfMasterPanel({
   const notifyBusy = (value) => busyCallbackRef.current(value);
   const setPanelBusy = (next) => setBusy(next);
   if (kind === 'recipe') {
-    return <RecipePanel mode={mode} colorId={colorId} selectedId={selectedId} onBack={onBack} onSelect={onSelect} onSaved={onSaved} canAdmin={can('ARTICULO_ADMINISTRAR')} canPublish={can('FORMULACION_PUBLICAR_DIRECTO')} canCreateMaterial={canAny(['CATALOGO_MATERIAL_ADMINISTRAR', 'CONFIG_RECEPCION_ADMINISTRAR'])} busy={busy} setBusy={setPanelBusy} notifyBusy={notifyBusy} onDirtyChange={onDirtyChange} />;
+    return <RecipePanel mode={mode} colorId={colorId} selectedId={selectedId} initialEntity={initialEntity} onBack={onBack} onSelect={onSelect} onSaved={onSaved} canAdmin={can('ARTICULO_ADMINISTRAR')} canPublish={can('FORMULACION_PUBLICAR_DIRECTO')} canCreateMaterial={canAny(['CATALOGO_MATERIAL_ADMINISTRAR', 'CONFIG_RECEPCION_ADMINISTRAR'])} busy={busy} setBusy={setPanelBusy} notifyBusy={notifyBusy} onDirtyChange={onDirtyChange} />;
   }
-  return <ColorPanel mode={mode} selectedId={selectedId} onBack={onBack} onSelect={onSelect} onSaved={onSaved} canAdmin={can('ARTICULO_ADMINISTRAR')} busy={busy} setBusy={setPanelBusy} notifyBusy={notifyBusy} onDirtyChange={onDirtyChange} />;
+  return <ColorPanel mode={mode} selectedId={selectedId} initialEntity={initialEntity} onBack={onBack} onSelect={onSelect} onSaved={onSaved} canAdmin={can('ARTICULO_ADMINISTRAR')} busy={busy} setBusy={setPanelBusy} notifyBusy={notifyBusy} onDirtyChange={onDirtyChange} />;
 }

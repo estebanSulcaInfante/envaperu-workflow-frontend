@@ -172,7 +172,7 @@ function MoldesLista() {
             <TableRow>
               <TableCell>Código</TableCell>
               <TableCell>Nombre</TableCell>
-              <TableCell align="right">Peso Tiro (g)</TableCell>
+              <TableCell align="right">Peso bruto por ciclo (g)</TableCell>
               <TableCell align="right">Peso Neto (g)</TableCell>
               <TableCell align="right">Cavidades Totales</TableCell>
               <TableCell align="right">T. Ciclo (s)</TableCell>
@@ -253,11 +253,12 @@ function MoldesLista() {
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
-                label="Peso Tiro Completo (g)"
+                label="Peso bruto por ciclo (g)"
                 type="number"
                 fullWidth
                 value={formData.peso_tiro_gr}
                 onChange={(e) => setFormData({ ...formData, peso_tiro_gr: parseFloat(e.target.value) })}
+                helperText="Total expulsado por molde por ciclo: piezas más rebaba o colada."
               />
             </Grid>
             <Grid item xs={12} sm={6}>

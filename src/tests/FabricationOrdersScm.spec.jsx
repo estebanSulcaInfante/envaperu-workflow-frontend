@@ -388,7 +388,9 @@ describe('Órdenes de fabricación', () => {
     );
 
     await user.click(await screen.findByRole('button', { name: 'Nueva OF de reposición' }));
-    await user.type(screen.getByLabelText(/Motivo de reposición/), 'Stock de asas para prearmado');
+    await user.click(screen.getByRole('combobox', { name: 'Motivo de reposición' }));
+    await user.click(screen.getByRole('option', { name: 'Otro', exact: true }));
+    await user.type(screen.getByRole('textbox', { name: 'Especifica el motivo' }), 'Stock de asas para prearmado');
     await user.click(screen.getByRole('combobox', { name: 'Molde' }));
     await user.click(await screen.findByRole('option', { name: /Molde Asa.*ML-ASA/ }));
     await screen.findByDisplayValue('20');
@@ -749,7 +751,7 @@ describe('Órdenes de fabricación', () => {
     expect(within(row).getByText('1')).toBeVisible();
     expect(within(row).getByText('240.0 g')).toBeVisible();
     expect(within(row).queryByRole('spinbutton')).not.toBeInTheDocument();
-    expect(screen.getByText(/240\.0 g netos\/ciclo y 250\.0 g totales\/ciclo/)).toBeVisible();
+    expect(screen.getByText(/240\.0 g netos\/ciclo y 250\.0 g de peso bruto por ciclo/)).toBeVisible();
     expect(screen.getByText(/10\.0 g es material no neto/)).toBeVisible();
     await userEvent.setup().click(screen.getByRole('button', { name: 'Ver ayuda' }));
     expect(screen.getByText(/La OPM todavía no debe existir/)).toBeVisible();

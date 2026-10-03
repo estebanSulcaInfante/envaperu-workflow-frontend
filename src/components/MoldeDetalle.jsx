@@ -173,7 +173,7 @@ function MoldeDetalle() {
     const pesoTiro = Number(editMoldeData.peso_tiro_gr);
     const ciclo = Number(editMoldeData.tiempo_ciclo_std);
     if (pesoTiro <= 0 || ciclo <= 0) {
-      setError('El peso de tiro y el tiempo de ciclo deben ser mayores que cero.');
+    setError('El peso bruto por ciclo y el tiempo de ciclo deben ser mayores que cero.');
       return;
     }
     try {
@@ -376,11 +376,12 @@ function MoldeDetalle() {
             fullWidth
           />
           <TextField
-            label="Peso de tiro (g)"
+            label="Peso bruto por ciclo (g)"
             type="number"
             value={editMoldeData.peso_tiro_gr}
             onChange={(event) => setEditMoldeData({ ...editMoldeData, peso_tiro_gr: event.target.value })}
             inputProps={{ min: 0.001, step: 0.001 }}
+            helperText="Total expulsado por molde por ciclo: piezas más rebaba o colada."
             fullWidth
           />
           <Button

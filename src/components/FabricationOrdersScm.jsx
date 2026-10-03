@@ -1549,7 +1549,7 @@ export default function FabricationOrdersScm() {
                 <Alert severity="info" sx={{ gridColumn: '1 / -1' }}>
                   Maestro {selectedMold.codigo}: {moldMeasurement(selectedMold.cavidades_totales, 0)} cavidad(es),{' '}
                   {moldMeasurement(selectedMold.peso_neto_gr)} g netos/ciclo y{' '}
-                  {moldMeasurement(selectedMold.peso_tiro_gr)} g totales/ciclo. La diferencia de{' '}
+                  {moldMeasurement(selectedMold.peso_tiro_gr)} g de peso bruto por ciclo. La diferencia de{' '}
                   {selectedMold.peso_tiro_gr != null && selectedMold.peso_neto_gr != null
                     ? Math.max(Number(selectedMold.peso_tiro_gr) - Number(selectedMold.peso_neto_gr), 0).toFixed(1)
                     : '—'} g es material no neto.

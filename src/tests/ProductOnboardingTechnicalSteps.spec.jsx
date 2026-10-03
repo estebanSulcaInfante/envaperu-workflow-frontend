@@ -974,7 +974,7 @@ describe('TS-017B: fases tecnicas del alta integral', () => {
     renderStep('componentes');
 
     await user.type(await screen.findByLabelText(/Nombre del molde/i), 'MOLDE COLADOR');
-    await user.type(screen.getByLabelText(/Peso de tiro/i), '100');
+    await user.type(screen.getByLabelText(/Peso bruto por ciclo/i), '100');
     await user.click(screen.getByRole('button', { name: /Añadir pieza/i }));
     await user.type(screen.getByLabelText(/Nombre de la pieza/i), 'CUERPO COLADOR');
     const cavities = screen.getByLabelText(/Cavidades/i);

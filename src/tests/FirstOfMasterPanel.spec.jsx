@@ -197,6 +197,14 @@ describe('FirstOfMasterPanel', () => {
     expect(crearRecetaColorMaestra).not.toHaveBeenCalled();
   });
 
+  it('abre el color seleccionado directamente para editar sin solicitar el catálogo completo', async () => {
+    render(<FirstOfMasterPanel kind="color" mode="edit" selectedId={7} initialEntity={color} />);
+    expect(await screen.findByRole('heading', { name: 'Editar color de producción' })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Nombre del color/)).toHaveValue('AMARILLO');
+    expect(obtenerColores).not.toHaveBeenCalled();
+    expect(obtenerFamiliasColor).toHaveBeenCalledTimes(1);
+  });
+
   it('distingue rechazo HTTP confirmado de timeout y bloquea el segundo POST incierto', async () => {
     const user = userEvent.setup();
     const confirmed = { response: { status: 400, data: { error: 'Nombre inválido' } } };
@@ -326,5 +334,71 @@ describe('FirstOfMasterPanel', () => {
     await user.click(screen.getAllByLabelText(/Material/)[0]);
     expect(screen.getByRole('option', { name: /Aditivo natural/ })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /Colorante amarillo/ })).not.toBeInTheDocument();
+  });
+
+  it('abre edición directa desde la entidad recibida sin cargar el catálogo completo', async () => {
+    const selectedRecipe = {
+      id: 91, version: 4, revision: 2, estado: 'BORRADOR', color_produccion_id: 7,
+      nombre_variante: 'Rojo base', producto_sku: '', base_virgen_kg: 25, notas: 'Notas', es_default: false,
+      lineas: [{ id: 801, material_id: 11, material_nombre: 'PP VIRGEN', tipo_componente: 'MATERIA_PRIMA', cantidad: 1 }],
+    };
+    render(<FirstOfMasterPanel kind="recipe" mode="edit" colorId={7} selectedId={91} initialEntity={selectedRecipe} />);
+    expect(await screen.findByRole('heading', { name: 'Editar receta de color' })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Nombre de variante/)).toHaveValue('Rojo base');
+    expect(obtenerRecetasColorMaestras).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar borrador' }));
+    await waitFor(() => expect(actualizarRecetaColorMaestra).toHaveBeenCalledWith(91, expect.objectContaining({ version: 4 })));
+    expect(crearRecetaColorMaestra).not.toHaveBeenCalled();
+  });
+
+  it('duplica la entidad recibida como borrador sin identidad ni historial y no persiste al abrir', async () => {
+    const selectedRecipe = {
+      id: 92, version: 3, revision: 5, estado: 'APROBADA', color_produccion_id: 7,
+      nombre_variante: 'Rojo aprobado', producto_sku: 'SKU-7', base_virgen_kg: 40, notas: 'Base de prueba', es_default: true,
+      lineas: [{ id: 802, material_id: 11, material_nombre: 'PP VIRGEN', tipo_componente: 'MATERIA_PRIMA', cantidad: 1 }],
+    };
+    const user = userEvent.setup();
+    render(<FirstOfMasterPanel kind="recipe" mode="duplicate" colorId={7} selectedId={92} initialEntity={selectedRecipe} />);
+    expect(await screen.findByRole('heading', { name: 'Crear receta de color' })).toBeInTheDocument();
+    expect(screen.getByLabelText(/Nombre de variante/)).toHaveValue('Rojo aprobado (copia)');
+    expect(screen.getByLabelText(/Producto SKU/)).toHaveValue('SKU-7');
+    expect(obtenerRecetasColorMaestras).not.toHaveBeenCalled();
+    expect(crearRecetaColorMaestra).not.toHaveBeenCalled();
+    await user.dblClick(screen.getByRole('button', { name: 'Guardar borrador' }));
+    await waitFor(() => expect(crearRecetaColorMaestra).toHaveBeenCalledTimes(1));
+    const payload = crearRecetaColorMaestra.mock.calls[0][0];
+    expect(payload).toMatchObject({ estado: 'BORRADOR', es_default: false, producto_sku: 'SKU-7', base_virgen_kg: 40, notas: 'Base de prueba' });
+    expect(payload).not.toHaveProperty('id');
+    expect(payload).not.toHaveProperty('version');
+    expect(payload).not.toHaveProperty('revision');
+    expect(payload.lineas[0]).not.toHaveProperty('id');
+  });
+
+  it('conserva el borrador directo tras un error confirmado y permite reintentar sin cargar el catalogo', async () => {
+    const user = userEvent.setup();
+    crearRecetaColorMaestra.mockRejectedValueOnce({ response: { data: { message: 'Fallo confirmado al guardar' } } });
+    render(<FirstOfMasterPanel kind="recipe" mode="create-direct" colorId={7} onBack={vi.fn()} onSaved={vi.fn()} />);
+
+    await user.type(await screen.findByLabelText(/Nombre de variante/), 'Receta recuperable');
+    await user.click(screen.getByRole('button', { name: 'Guardar borrador' }));
+
+    expect(await screen.findByText('Fallo confirmado al guardar')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Nombre de variante/)).toHaveValue('Receta recuperable');
+    expect(obtenerRecetasColorMaestras).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Guardar borrador' }));
+    await waitFor(() => expect(crearRecetaColorMaestra).toHaveBeenCalledTimes(2));
+  });
+
+  it('advierte que editar una receta aprobada crea revisión nueva mediante PUT', async () => {
+    const selectedRecipe = {
+      id: 93, version: 8, revision: 4, estado: 'APROBADA', color_produccion_id: 7,
+      nombre_variante: 'Rojo aprobado', producto_sku: '', base_virgen_kg: 25, notas: '', es_default: true,
+      lineas: [{ id: 803, material_id: 11, tipo_componente: 'MATERIA_PRIMA', cantidad: 1 }],
+    };
+    render(<FirstOfMasterPanel kind="recipe" mode="edit" colorId={7} selectedId={93} initialEntity={selectedRecipe} />);
+    expect(await screen.findByText(/crea una nueva revisión y retira la revisión de origen/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar borrador' }));
+    await waitFor(() => expect(actualizarRecetaColorMaestra).toHaveBeenCalledWith(93, expect.objectContaining({ version: 8 })));
+    expect(crearRecetaColorMaestra).not.toHaveBeenCalled();
   });
 });

@@ -20,6 +20,7 @@ import PieceCompositionEditor from './productOnboarding/PieceCompositionEditor';
 import FirstOfMasterPanel from './firstOf/FirstOfMasterPanel';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import AddCircleOutlineOutlinedIcon from '@mui/icons-material/AddCircleOutlineOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import {
   compatibleProcessMachines,
@@ -41,6 +42,7 @@ const emptyRun = (key = 'run-1') => ({
   ciclos_objetivo: '',
   objetivo_neto_kg: '',
 });
+const replacementReasons = ['Completar Stock', 'Reponer merma', 'Otro'];
 
 const emptyMoldPiece = () => ({
   client_id: `of-piece-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -61,6 +63,20 @@ const emptyMoldDraft = () => ({
 const colorLabel = (color) => color.nombre
   || [color.color_base?.nombre, color.familia_color?.nombre].filter(Boolean).join(' ')
   || `Color ${color.id}`;
+const safeColorMutationError = (error, fallback) => {
+  const message = scmEngineeringApi.mensajeErrorScm(error, fallback);
+  const details = [
+    message,
+    error?.response?.data?.error?.message,
+    error?.response?.data?.error,
+    error?.response?.data?.message,
+    error?.message,
+  ].filter((value) => typeof value === 'string').join(' ');
+  if (/permission denied|\b42501\b|scm_assert_article_subtype/i.test(details)) {
+    return 'No se pudo habilitar el color en todo el molde por un problema de permisos. El formulario se conservó; solicita la corrección de acceso y reintenta.';
+  }
+  return message;
+};
 const exceptionalOutputsForRun = (mold, articles, colorId) => {
   const articlesBySku = new Map(
     articles
@@ -121,6 +137,8 @@ export default function ExceptionalFabricationOrderDialog({
   initialSource = null,
 }) {
   const [reason, setReason] = useState('');
+  const [reasonOption, setReasonOption] = useState('');
+  const [reasonOther, setReasonOther] = useState('');
   const [moldId, setMoldId] = useState('');
   const [machineId, setMachineId] = useState('');
   const [cycleSeconds, setCycleSeconds] = useState('');
@@ -142,6 +160,7 @@ export default function ExceptionalFabricationOrderDialog({
   const [moldMutationBusy, setMoldMutationBusy] = useState(false);
   const [moldMutationError, setMoldMutationError] = useState('');
   const [colorMutationBusy, setColorMutationBusy] = useState(false);
+  const colorMutationInFlightRef = useRef(false);
   const [masterPanel, setMasterPanel] = useState(null);
   const [masterBusy, setMasterBusy] = useState(false);
   const [masterDirty, setMasterDirty] = useState(false);
@@ -169,6 +188,8 @@ export default function ExceptionalFabricationOrderDialog({
     if (!open) return undefined;
     let active = true;
     setReason('');
+    setReasonOption('');
+    setReasonOther('');
     setMoldId('');
     setMachineId('');
     setCycleSeconds('');
@@ -236,6 +257,8 @@ export default function ExceptionalFabricationOrderDialog({
     if (initialSource) {
       const draft = buildExceptionalDuplicateDraft(initialSource);
       setReason(draft.motivo);
+      setReasonOption(replacementReasons.includes(draft.motivo) ? draft.motivo : 'Otro');
+      setReasonOther(replacementReasons.includes(draft.motivo) ? '' : draft.motivo);
       setMoldId(draft.molde_id);
       setMachineId('');
       setCycleSeconds('');
@@ -602,7 +625,7 @@ export default function ExceptionalFabricationOrderDialog({
   );
   const parentFormVisible = moldWorkspace === 'select' && !masterPanel;
   const buildPayload = () => ({
-    motivo: reason.trim(),
+      motivo: reason.trim(),
     // A process inferred from linked route operations is response context,
     // not an explicit input. Only the user's explicit selection belongs in
     // the create payload; the backend persists the derived source.
@@ -701,7 +724,7 @@ export default function ExceptionalFabricationOrderDialog({
         || !(Number(piece.peso_unitario_gr) > 0)
         || (piece.modo === 'REUTILIZAR' ? !piece.ref : !piece.nombre.trim()))
       || shotWeight < netWeight) {
-      setMoldMutationError('Completa nombre, peso de tiro, ciclo y piezas válidas; el peso de tiro debe cubrir el peso neto.');
+      setMoldMutationError('Completa nombre, peso bruto por ciclo, ciclo y piezas válidas; el peso bruto por ciclo debe cubrir el peso neto.');
       return;
     }
     if (typeof crearMolde !== 'function') {
@@ -754,10 +777,12 @@ export default function ExceptionalFabricationOrderDialog({
   };
 
   const enableColorForMold = async (colorId) => {
+    if (colorMutationInFlightRef.current) return;
     if (!moldId || !colorId || typeof habilitarColorMolde !== 'function') {
       setError('No se puede habilitar el color hasta seleccionar un molde y un color.');
       return;
     }
+    colorMutationInFlightRef.current = true;
     setColorMutationBusy(true);
     setError('');
     try {
@@ -768,11 +793,12 @@ export default function ExceptionalFabricationOrderDialog({
       }
       await chooseMold(moldId, { preserveMetrics: true });
     } catch (requestError) {
-      setError(scmEngineeringApi.mensajeErrorScm(
+      setError(safeColorMutationError(
         requestError,
         'No se pudo habilitar el color en todas las piezas del molde.',
       ));
     } finally {
+      colorMutationInFlightRef.current = false;
       setColorMutationBusy(false);
     }
   };
@@ -799,14 +825,19 @@ export default function ExceptionalFabricationOrderDialog({
     return next;
   }));
 
-  const openMasterPanel = (kind, runIndex, mode = 'catalog') => {
+  const openMasterPanel = (kind, runIndex, mode = 'catalog', selectedEntity = null) => {
     const run = runs[runIndex] || {};
+    const panelMode = kind === 'recipe' && mode === 'create' ? 'create-direct' : mode;
+    const entity = selectedEntity || (kind === 'color'
+      ? colorOptions.find((item) => String(item.id) === String(run.color_produccion_id)) || null
+      : null);
     setMasterPanel({
       kind,
       runIndex,
-      mode,
+      mode: panelMode,
       colorId: run.color_produccion_id || null,
-      selectedId: kind === 'recipe' ? (run.receta_revision_id || null) : (run.color_produccion_id || null),
+      selectedId: kind === 'recipe' ? (entity?.id || run.receta_revision_id || null) : (run.color_produccion_id || null),
+      initialEntity: entity,
     });
   };
 
@@ -941,6 +972,7 @@ export default function ExceptionalFabricationOrderDialog({
               mode={masterPanel.mode}
               colorId={masterPanel.colorId}
               selectedId={masterPanel.selectedId}
+              initialEntity={masterPanel.initialEntity}
               onBack={closeMasterPanel}
               onSelect={selectMasterEntity}
               onSaved={(entity, outcome = {}) => {
@@ -978,18 +1010,38 @@ export default function ExceptionalFabricationOrderDialog({
               onDirtyChange={setMasterDirty}
             />
           )}
-          <TextField
+          <FormControl required fullWidth sx={{ display: parentFormVisible ? undefined : 'none' }}>
+            <InputLabel id="exceptional-of-reason-label">Motivo de reposición</InputLabel>
+            <Select
+              labelId="exceptional-of-reason-label"
+              label="Motivo de reposición"
+              value={reasonOption}
+              disabled={busy || Boolean(uncertainAttempt)}
+              onChange={(event) => {
+                const next = event.target.value;
+                setReasonOption(next);
+                setReasonOther('');
+                setReason(next === 'Otro' ? '' : next);
+              }}
+            >
+              {replacementReasons.map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
+            </Select>
+          </FormControl>
+          {reasonOption === 'Otro' && <TextField
             required
             fullWidth
             multiline
             minRows={2}
-            label="Motivo de reposición"
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
+            label="Especifica el motivo"
+            value={reasonOther}
+            onChange={(event) => {
+              setReasonOther(event.target.value);
+              setReason(event.target.value);
+            }}
             disabled={busy || Boolean(uncertainAttempt)}
             sx={{ display: parentFormVisible ? undefined : 'none' }}
-            helperText="Ej.: reposición autorizada de asas para futuros prearmados de balde."
-          />
+            helperText="El motivo queda auditado como texto libre."
+          />}
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
             <FormControl fullWidth required={!processResolution.complete} sx={{ display: parentFormVisible ? undefined : 'none' }}>
               <InputLabel id="exceptional-of-process-label">Proceso de fabricación</InputLabel>
@@ -1110,7 +1162,7 @@ export default function ExceptionalFabricationOrderDialog({
                     )}
                     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1.5fr 1fr 1fr' }, gap: 1.5 }}>
                       <TextField label="Nombre del molde" required value={moldDraft.nombre} onChange={(event) => setMoldDraft((current) => ({ ...current, nombre: event.target.value }))} disabled={moldMutationBusy || Boolean(moldUncertainAttempt)} />
-                      <TextField label="Peso de tiro (g)" required type="number" value={moldDraft.peso_tiro_gr} onChange={(event) => setMoldDraft((current) => ({ ...current, peso_tiro_gr: event.target.value }))} disabled={moldMutationBusy || Boolean(moldUncertainAttempt)} slotProps={{ htmlInput: { min: 0.001, step: 'any' } }} />
+                      <TextField label="Peso bruto por ciclo (g)" required type="number" value={moldDraft.peso_tiro_gr} onChange={(event) => setMoldDraft((current) => ({ ...current, peso_tiro_gr: event.target.value }))} disabled={moldMutationBusy || Boolean(moldUncertainAttempt)} slotProps={{ htmlInput: { min: 0.001, step: 'any' } }} helperText="Total expulsado por molde por ciclo: piezas más rebaba o colada." />
                       <TextField label="Ciclo estándar (s)" required type="number" value={moldDraft.tiempo_ciclo_std} onChange={(event) => setMoldDraft((current) => ({ ...current, tiempo_ciclo_std: event.target.value }))} disabled={moldMutationBusy || Boolean(moldUncertainAttempt)} slotProps={{ htmlInput: { min: 0.001, step: 'any' } }} />
                     </Box>
                     <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -1131,7 +1183,7 @@ export default function ExceptionalFabricationOrderDialog({
                       />
                     ))}
                     <Alert severity={Number(moldDraft.peso_tiro_gr) >= moldNetWeight ? 'info' : 'warning'}>
-                      Peso neto calculado: {moldNetWeight.toFixed(1)} g. El tiro debe ser igual o mayor.
+                      Peso neto calculado: {moldNetWeight.toFixed(1)} g. El peso bruto por ciclo debe ser igual o mayor.
                     </Alert>
                     <Button variant="contained" onClick={createContextualMold} disabled={moldMutationBusy || Boolean(moldUncertainAttempt)}>
                       {moldMutationBusy ? 'Creando molde…' : 'Crear y usar este molde'}
@@ -1143,7 +1195,7 @@ export default function ExceptionalFabricationOrderDialog({
                 <Paper variant="outlined" sx={{ p: 2 }}>
                   <Stack spacing={1}>
                     <Stack direction="row" justifyContent="space-between" alignItems="center"><Box><Typography component="h3" variant="h6" fontWeight={800}>{mold.nombre || moldId}</Typography><Typography variant="body2" color="text.secondary">Código {mold.codigo || moldId}</Typography></Box><Button size="small" onClick={() => setMoldWorkspace('select')}>Volver a OF</Button></Stack>
-                    <Typography variant="body2">Ciclo: {mold.tiempo_ciclo_std ?? '—'} s · Peso de tiro: {mold.peso_tiro_gr ?? mold.peso_colada_gr ?? '—'} g</Typography>
+                    <Typography variant="body2">Ciclo: {mold.tiempo_ciclo_std ?? '-'} s · Peso bruto por ciclo: {mold.peso_tiro_gr ?? mold.peso_colada_gr ?? '-'} g</Typography>
                     {(mold.formas || []).filter((shape) => shape.activo !== false).map((shape) => (
                       <Box key={shape.pieza_id || shape.id}>
                         <Typography variant="body2" fontWeight={700}>{shape.nombre || 'Pieza sin nombre'}</Typography>
@@ -1231,6 +1283,7 @@ export default function ExceptionalFabricationOrderDialog({
                     actions={[
                       { label: 'Buscar en catálogo', icon: <SearchOutlinedIcon fontSize="small" />, onClick: () => openMasterPanel('color', runIndex, 'catalog') },
                       { label: 'Crear color', icon: <AddCircleOutlineOutlinedIcon fontSize="small" />, onClick: () => openMasterPanel('color', runIndex, 'create') },
+                      { label: 'Editar color', icon: <EditOutlinedIcon fontSize="small" />, onClick: () => openMasterPanel('color', runIndex, 'edit'), disabled: !colorOptions.some((item) => String(item.id) === String(run.color_produccion_id)) },
                       { label: 'Ver ficha', icon: <InfoOutlinedIcon fontSize="small" />, onClick: () => openMasterPanel('color', runIndex, 'detail'), disabled: !run.color_produccion_id },
                     ]}
                   />
@@ -1287,7 +1340,7 @@ export default function ExceptionalFabricationOrderDialog({
                     onChange={(recipeId) => updateRun(runIndex, {
                       receta_revision_id: recipeId,
                     })}
-                    onOpenWorkspace={() => openMasterPanel('recipe', runIndex, 'catalog')}
+      onOpenWorkspace={(mode, entity) => openMasterPanel('recipe', runIndex, mode, entity)}
                   />
                 )}
                 {run.color_produccion_id && (

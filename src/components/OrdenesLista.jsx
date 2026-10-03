@@ -195,7 +195,7 @@ function OrderPrintSheet({ orden }) {
         <div><span>Horas/turno</span><strong>{formatNumber(technical.horas_turno)} h</strong></div>
         <div><span>Peso neto/golpe</span><strong>{formatNumber(technical.peso_neto_golpe_gr)} g</strong></div>
         <div><span>Ramal/colada</span><strong>{formatNumber(technical.peso_colada_gr)} g</strong></div>
-        <div><span>Peso de tiro</span><strong>{formatNumber(technical.peso_tiro_gr)} g</strong></div>
+                        <div><span>Peso bruto por ciclo</span><strong>{formatNumber(technical.peso_tiro_gr)} g</strong></div>
         <div><span>Duración estimada</span><strong>{formatNumber(resumen['Horas'])} h / {formatNumber(resumen['Días'])} días</strong></div>
       </Box>
       <Typography variant="h6" sx={{ mt: 2, mb: 1, fontWeight: 750 }}>Lotes de color</Typography>
@@ -752,11 +752,12 @@ function MetricasForm({ orden, onClose, onSuccess }) {
                 </Grid>
                 <Grid size={{ xs: 6 }}>
                     <TextField 
-                        label="Peso Tiro (inc. Colada)"
+                        label="Peso bruto por ciclo (g)"
                         type="number"
                         name="snapshot_peso_inc_colada"
                         value={formData.snapshot_peso_inc_colada}
                         onChange={handleChange}
+                        helperText="Total expulsado por molde por ciclo: piezas más rebaba o colada."
                         fullWidth
                         size="small"
                     />

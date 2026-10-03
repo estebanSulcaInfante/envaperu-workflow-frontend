@@ -538,11 +538,11 @@ function ConfigurarProducto() {
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <TextField
                       fullWidth
-                      label="Peso Tiro (gr)"
+                      label="Peso bruto por ciclo (g)"
                       type="number"
                       value={molde.peso_tiro_gr}
                       onChange={(e) => handleMoldeChange('peso_tiro_gr', e.target.value)}
-                      helperText="Peso total del golpe"
+                      helperText="Total expulsado por molde por ciclo: piezas más rebaba o colada."
                     />
                   </Grid>
                   <Grid size={{ xs: 6, sm: 3 }}>
@@ -906,7 +906,7 @@ function ConfigurarProducto() {
                       }
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Peso tiro: {molde.peso_tiro_gr}gr | T. Ciclo: {molde.tiempo_ciclo_std}s
+                      Peso bruto por ciclo: {molde.peso_tiro_gr} g | T. Ciclo: {molde.tiempo_ciclo_std}s
                     </Typography>
                     <Typography variant="caption" color="text.secondary" display="block">
                       Clasificación para altas nuevas: {lineaSeleccionada?.nombre} · {familiaSeleccionada?.nombre}

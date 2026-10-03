@@ -33,6 +33,7 @@ const emptyForm = {
   cantidad_objetivo: '',
   motivo: '',
 };
+const replacementReasons = ['Completar Stock', 'Reponer merma', 'Otro'];
 
 const terminalOperations = (route) => {
   const outgoingIds = new Set((route.precedencias || []).map((edge) => Number(
@@ -78,6 +79,7 @@ function ExceptionalAssemblyOrderDialog({ open, onClose, onCreated }) {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [engineeringLoading, setEngineeringLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [reasonOption, setReasonOption] = useState('');
   const [error, setError] = useState('');
 
   const loadWips = async () => {
@@ -101,6 +103,7 @@ function ExceptionalAssemblyOrderDialog({ open, onClose, onCreated }) {
   useEffect(() => {
     if (!open) return;
     setForm(emptyForm);
+    setReasonOption('');
     setRoutes([]);
     setStructures([]);
     setError('');
@@ -305,18 +308,29 @@ function ExceptionalAssemblyOrderDialog({ open, onClose, onCreated }) {
             slotProps={{ htmlInput: { min: 1, step: 1 } }}
           />
           <TextField
+            select
             label="Motivo de reposición"
+            required
+            value={reasonOption}
+            disabled={saving}
+            onChange={(event) => {
+              const next = event.target.value;
+              setReasonOption(next);
+              setForm((current) => ({ ...current, motivo: next === 'Otro' ? '' : next }));
+            }}
+            helperText="El motivo queda auditado y no reemplaza la autorización server-side."
+          >
+            {replacementReasons.map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
+          </TextField>
+          {reasonOption === 'Otro' && <TextField
+            label="Especifica el motivo"
             required
             multiline
             minRows={2}
             value={form.motivo}
             disabled={saving}
-            onChange={(event) => setForm((current) => ({
-              ...current,
-              motivo: event.target.value,
-            }))}
-            helperText="El motivo queda auditado y no reemplaza la autorización server-side."
-          />
+            onChange={(event) => setForm((current) => ({ ...current, motivo: event.target.value }))}
+          />}
         </Stack>
       </DialogContent>
       <DialogActions>

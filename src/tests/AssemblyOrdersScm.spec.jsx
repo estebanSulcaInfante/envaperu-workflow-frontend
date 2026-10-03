@@ -270,10 +270,9 @@ describe('OA y OT diaria de Armado', () => {
     await user.click(within(dialog).getByRole('combobox', { name: 'Operación aprobada' }));
     await user.click(screen.getByRole('option', { name: /Colocar pico entre ciclos/ }));
     await user.type(within(dialog).getByRole('spinbutton', { name: 'Cantidad objetivo' }), '20');
-    await user.type(
-      within(dialog).getByRole('textbox', { name: 'Motivo de reposición' }),
-      'Reponer WIP para marcha blanca',
-    );
+    await user.click(within(dialog).getByRole('combobox', { name: 'Motivo de reposición' }));
+    await user.click(screen.getByRole('option', { name: 'Otro', exact: true }));
+    await user.type(within(dialog).getByRole('textbox', { name: 'Especifica el motivo' }), 'Reponer WIP para marcha blanca');
     await user.click(within(dialog).getByRole('button', { name: 'Crear borrador' }));
 
     await waitFor(() => expect(crearOrdenArmadoExcepcionalScm).toHaveBeenCalledWith({

@@ -124,7 +124,7 @@ describe('configuración guiada Molde–Pieza–PiezaColor', () => {
     renderWizard();
 
     await user.type(await screen.findByLabelText(/Nombre del Molde/i), 'Molde regadera');
-    await user.type(screen.getByLabelText(/Peso Tiro/i), '120');
+    await user.type(screen.getByLabelText(/Peso bruto por ciclo/i), '120');
     await selectAutocomplete(user, /^Línea/i, 'HOGAR');
     await selectAutocomplete(user, /^Familia/i, 'TAPAS');
     await user.click(screen.getByRole('button', { name: 'Siguiente' }));
@@ -249,7 +249,7 @@ describe('configuración guiada Molde–Pieza–PiezaColor', () => {
     renderWizard();
 
     await user.type(await screen.findByLabelText(/Nombre del Molde/i), 'Molde tapa');
-    await user.type(screen.getByLabelText(/Peso Tiro/i), '80');
+    await user.type(screen.getByLabelText(/Peso bruto por ciclo/i), '80');
     await selectAutocomplete(user, /^Línea/i, 'HOGAR');
     await selectAutocomplete(user, /^Familia/i, 'TAPAS');
     await user.click(screen.getByRole('button', { name: 'Siguiente' }));
@@ -289,7 +289,7 @@ describe('configuración guiada Molde–Pieza–PiezaColor', () => {
     renderWizard();
 
     await user.type(await screen.findByLabelText(/Nombre del Molde/i), 'Molde prueba');
-    await user.type(screen.getByLabelText(/Peso Tiro/i), '80');
+    await user.type(screen.getByLabelText(/Peso bruto por ciclo/i), '80');
     await selectAutocomplete(user, /^Línea/i, 'HOGAR');
     await selectAutocomplete(user, /^Familia/i, 'TAPAS');
     await user.click(screen.getByRole('button', { name: 'Siguiente' }));

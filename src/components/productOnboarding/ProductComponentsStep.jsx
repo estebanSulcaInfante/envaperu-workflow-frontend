@@ -235,13 +235,13 @@ export default function ProductComponentsStep({
                       </Grid>
                       <Grid size={{ xs: 12, sm: 6, md: 3.5 }}>
                         <TextField
-                          fullWidth required type="number" label="Peso de tiro (g)"
+              fullWidth required type="number" label="Peso bruto por ciclo (g)"
                           value={group.molde.peso_tiro_gr}
                           onChange={(event) => updateGroup(group.client_id, {
                             ...group, molde: { ...group.molde, peso_tiro_gr: event.target.value },
                           })}
                           error={showValidation && Boolean(groupErrors.molde.peso_tiro_gr)}
-                          helperText={(showValidation && groupErrors.molde.peso_tiro_gr) || 'Peso total del golpe.'}
+                          helperText={(showValidation && groupErrors.molde.peso_tiro_gr) || 'Total expulsado por molde por ciclo: piezas más rebaba o colada.'}
                           slotProps={{ htmlInput: { min: 0.001, step: 0.001 } }}
                         />
                       </Grid>
@@ -306,7 +306,7 @@ export default function ProductComponentsStep({
                 <Chip label={`Peso neto ${netWeight.toFixed(2)} g`} />
                 {shotWeight > 0 && <Chip color={runnerWeight < 0 ? 'error' : 'default'} label={`Colada estimada ${runnerWeight.toFixed(2)} g`} />}
               </Stack>
-              {runnerWeight < 0 && <Alert severity="warning">El peso neto supera el peso de tiro de este molde.</Alert>}
+              {runnerWeight < 0 && <Alert severity="warning">El peso neto supera el peso bruto por ciclo de este molde.</Alert>}
             </Stack>
           </Paper>
         );

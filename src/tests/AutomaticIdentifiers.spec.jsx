@@ -84,7 +84,7 @@ describe('identificadores internos automáticos', () => {
     expect(identifier).toHaveValue('Se asignará automáticamente al guardar');
     expect(identifier).toHaveAttribute('readonly');
     await user.type(screen.getByLabelText(/nombre descriptivo/i), 'Molde de prueba');
-    await user.type(screen.getByLabelText(/peso tiro completo/i), '120');
+    await user.type(screen.getByLabelText(/peso bruto por ciclo/i), '120');
     await user.click(screen.getByRole('button', { name: /crear molde/i }));
 
     await waitFor(() => expect(crearMolde).toHaveBeenCalledTimes(1));

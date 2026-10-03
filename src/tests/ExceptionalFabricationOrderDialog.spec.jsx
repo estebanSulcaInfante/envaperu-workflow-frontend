@@ -1,5 +1,5 @@
 import { ThemeProvider, createTheme } from '@mui/material';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,7 +8,7 @@ import ExceptionalFabricationOrderDialog from '../components/ExceptionalFabricat
 const api = vi.hoisted(() => ({
   create: vi.fn(), mold: vi.fn(), articles: vi.fn(), routes: vi.fn(),
   createMold: vi.fn(), pieces: vi.fn(), enableColor: vi.fn(),
-  molds: vi.fn(), colors: vi.fn(), recipes: vi.fn(),
+  molds: vi.fn(), colors: vi.fn(), recipes: vi.fn(), ingredients: vi.fn(), categories: vi.fn(),
 }));
 
 vi.mock('../services/api', () => ({
@@ -19,7 +19,9 @@ vi.mock('../services/api', () => ({
   obtenerMoldes: api.molds,
   obtenerColores: api.colors,
   obtenerRecetasColorMaestras: api.recipes,
+  obtenerIngredientesRecetaColor: api.ingredients,
 }));
+vi.mock('../services/scmCatalogApi', () => ({ listarCategoriasRecepcionScm: api.categories }));
 vi.mock('../services/scmEngineeringApi', () => ({
   obtenerActorScm: () => 1,
   listarArticulosScm: api.articles,
@@ -36,7 +38,7 @@ const mold = {
   }],
 };
 
-const renderDialog = (machines = []) => render(
+const renderDialog = (machines = [], recipes = []) => render(
   <ThemeProvider theme={createTheme()}>
     <MemoryRouter>
       <ExceptionalFabricationOrderDialog
@@ -44,7 +46,7 @@ const renderDialog = (machines = []) => render(
         molds={[{ codigo: 'M-1', nombre: 'Molde 1' }]}
         machines={machines}
         colors={[{ id: 1, nombre: 'Rojo' }]}
-        recipes={[]}
+        recipes={recipes}
         onClose={vi.fn()}
         onCreated={vi.fn()}
       />
@@ -53,7 +55,8 @@ const renderDialog = (machines = []) => render(
 );
 
 const fillValidForm = async (user) => {
-  await user.type(screen.getByRole('textbox', { name: 'Motivo de reposición' }), 'Reposición autorizada');
+  await user.click(screen.getByRole('combobox', { name: 'Motivo de reposición' }));
+  await user.click(screen.getByRole('option', { name: 'Completar Stock', exact: true }));
   await user.click(screen.getByRole('combobox', { name: 'Proceso de fabricación' }));
   await user.click(screen.getByRole('option', { name: 'Inyección' }));
   await user.click(screen.getByRole('combobox', { name: 'Molde' }));
@@ -61,6 +64,12 @@ const fillValidForm = async (user) => {
   await user.click(screen.getByRole('combobox', { name: 'Color del objetivo 1' }));
   await user.click(screen.getByRole('option', { name: 'Rojo' }));
   await user.type(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' }), '10');
+};
+
+const fillOtherReason = async (user, value) => {
+  await user.click(screen.getByRole('combobox', { name: 'Motivo de reposición' }));
+  await user.click(screen.getByRole('option', { name: 'Otro', exact: true }));
+  await user.type(screen.getByRole('textbox', { name: 'Especifica el motivo' }), value);
 };
 
 describe('alta de reposición: intento idempotente', () => {
@@ -74,6 +83,8 @@ describe('alta de reposición: intento idempotente', () => {
     api.molds.mockResolvedValue([{ ...mold, nombre: 'Molde catálogo', formas: mold.formas }]);
     api.colors.mockResolvedValue([{ id: 1, nombre: 'Rojo', activo: true }]);
     api.recipes.mockResolvedValue([]);
+    api.ingredients.mockResolvedValue([]);
+    api.categories.mockResolvedValue([]);
     api.createMold.mockReset();
     api.enableColor.mockReset();
     api.create.mockReset();
@@ -88,6 +99,98 @@ describe('alta de reposición: intento idempotente', () => {
     expect(screen.getByRole('button', { name: 'Volver a OF' })).toBeVisible();
   });
 
+  it('muestra opciones controladas y edita el color seleccionado directamente', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const colorActions = () => screen.getByRole('button', { name: 'Color del objetivo 1: acciones' });
+    await user.click(colorActions());
+    expect(screen.getByRole('menuitem', { name: 'Editar color' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('menuitem', { name: 'Crear color' })).toBeEnabled();
+    await user.click(screen.getByRole('menuitem', { name: 'Crear color' }));
+    expect(await screen.findByRole('heading', { name: 'Crear color de producción' })).toBeVisible();
+    expect(screen.getByLabelText(/Nombre del color/)).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    await user.click(screen.getByRole('button', { name: 'Volver' }));
+    expect(screen.getByRole('combobox', { name: 'Color del objetivo 1' })).toHaveValue('');
+    await user.click(screen.getByRole('combobox', { name: 'Motivo de reposición' }));
+    expect(screen.getByRole('option', { name: 'Completar Stock', exact: true })).toBeVisible();
+    expect(screen.getByRole('option', { name: 'Reponer merma', exact: true })).toBeVisible();
+    expect(screen.getByRole('option', { name: 'Otro', exact: true })).toBeVisible();
+    await user.click(screen.getByRole('option', { name: 'Completar Stock', exact: true }));
+    await fillValidForm(user);
+    const callsBeforeEdit = api.colors.mock.calls.length;
+    expect(callsBeforeEdit).toBe(0);
+    await user.click(colorActions());
+    expect(screen.getByRole('menuitem', { name: 'Editar color' })).toBeEnabled();
+    await user.click(screen.getByRole('menuitem', { name: 'Editar color' }));
+    expect(await screen.findByRole('heading', { name: 'Editar color de producción' })).toBeVisible();
+    expect(screen.getByLabelText(/Nombre del color/)).toHaveValue('Rojo');
+    expect(api.colors).toHaveBeenCalledTimes(callsBeforeEdit);
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    await user.click(screen.getByRole('button', { name: 'Volver' }));
+    await user.click(screen.getByRole('button', { name: 'Volver' }));
+    expect(screen.getByRole('combobox', { name: 'Motivo de reposición' })).toHaveTextContent('Completar Stock');
+    expect(screen.getByRole('combobox', { name: 'Molde' })).toHaveValue('Molde 1');
+    expect(screen.getByRole('combobox', { name: 'Color del objetivo 1' })).toHaveValue('Rojo');
+    expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(10);
+  });
+
+  it('muestra motivos históricos sin alterarlos como texto libre en Otro', async () => {
+    const historicReason = 'Reposición autorizada por auditoría 2025';
+    render(<ThemeProvider theme={createTheme()}><MemoryRouter>
+      <ExceptionalFabricationOrderDialog
+        open initialSource={{ id: 'of-old', codigo: 'OF-ANTERIOR', motivo: historicReason, molde_id: 'M-1', corridas: [] }}
+        molds={[{ codigo: 'M-1', nombre: 'Molde 1' }]} machines={[]} colors={[{ id: 1, nombre: 'Rojo' }]}
+        recipes={[]} onClose={vi.fn()} onCreated={vi.fn()}
+      />
+    </MemoryRouter></ThemeProvider>);
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Motivo de reposición' })).toHaveTextContent('Otro'));
+    expect(screen.getByRole('textbox', { name: 'Especifica el motivo' })).toHaveValue(`${historicReason} · copia de OF-ANTERIOR`);
+  });
+
+  it('sanea el error SQL al habilitar color, conserva el formulario y evita doble submit', async () => {
+    const user = userEvent.setup();
+    let rejectRequest;
+    api.mold.mockResolvedValue({ ...mold, formas: [{ ...mold.formas[0], variantes: [] }] });
+    api.enableColor.mockReturnValueOnce(new Promise((resolve, reject) => { rejectRequest = reject; }));
+    renderDialog();
+    await user.click(screen.getByRole('combobox', { name: 'Motivo de reposición' }));
+    await user.click(screen.getByRole('option', { name: 'Completar Stock', exact: true }));
+    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    await user.click(screen.getByRole('option', { name: /Molde 1/ }));
+    await user.click(screen.getByRole('combobox', { name: 'Color del objetivo 1' }));
+    await user.click(screen.getByRole('option', { name: 'Rojo' }));
+    const enable = await screen.findByRole('button', { name: 'Habilitar color en todo el molde' });
+    await user.click(enable);
+    expect(api.enableColor).toHaveBeenCalledTimes(1);
+    expect(enable).toBeDisabled();
+    fireEvent.click(enable);
+    expect(api.enableColor).toHaveBeenCalledTimes(1);
+    rejectRequest(new Error('permission denied for function scm_assert_article_subtype'));
+    expect(await screen.findByText(/No se pudo habilitar el color en todo el molde por un problema de permisos/)).toBeVisible();
+    expect(screen.queryByText(/scm_assert_article_subtype|permission denied/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Motivo de reposición' })).toHaveTextContent('Completar Stock');
+    expect(screen.getByRole('combobox', { name: 'Color del objetivo 1' })).toHaveValue('Rojo');
+    expect(api.enableColor).toHaveBeenCalledTimes(1);
+  });
+
+  it('conserva el mensaje de un error de base de datos genérico', async () => {
+    const user = userEvent.setup();
+    api.mold.mockResolvedValue({ ...mold, formas: [{ ...mold.formas[0], variantes: [] }] });
+    api.enableColor.mockRejectedValueOnce(new Error('database error: connection refused'));
+    renderDialog();
+    await user.click(screen.getByRole('combobox', { name: 'Motivo de reposición' }));
+    await user.click(screen.getByRole('option', { name: 'Completar Stock', exact: true }));
+    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    await user.click(screen.getByRole('option', { name: /Molde 1/ }));
+    await user.click(screen.getByRole('combobox', { name: 'Color del objetivo 1' }));
+    await user.click(screen.getByRole('option', { name: 'Rojo' }));
+    await user.click(await screen.findByRole('button', { name: 'Habilitar color en todo el molde' }));
+    expect(await screen.findByText('database error: connection refused')).toBeVisible();
+    expect(screen.queryByText(/problema de permisos/)).not.toBeInTheDocument();
+    expect(api.enableColor).toHaveBeenCalledTimes(1);
+  });
+
   it('crea el molde y sus piezas en un payload atómico sin identificadores manuales', async () => {
     const user = userEvent.setup();
     api.createMold.mockResolvedValue({ codigo: 'MOL-000123', nombre: 'Molde nuevo' });
@@ -95,7 +198,7 @@ describe('alta de reposición: intento idempotente', () => {
     await user.click(screen.getByRole('button', { name: 'Molde: acciones' }));
     await user.click(screen.getByRole('menuitem', { name: 'Crear molde' }));
     await user.type(screen.getByRole('textbox', { name: 'Nombre del molde' }), 'Molde nuevo');
-    await user.type(screen.getByRole('spinbutton', { name: 'Peso de tiro (g)' }), '120');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso bruto por ciclo (g)' }), '120');
     await user.type(screen.getByRole('spinbutton', { name: 'Peso neto por pieza (g)' }), '50');
     await user.type(screen.getByRole('textbox', { name: 'Nombre de la pieza' }), 'Pieza técnica');
     await user.click(screen.getByRole('button', { name: 'Crear y usar este molde' }));
@@ -116,7 +219,7 @@ describe('alta de reposición: intento idempotente', () => {
     await user.click(screen.getByRole('button', { name: 'Molde: acciones' }));
     await user.click(screen.getByRole('menuitem', { name: 'Crear molde' }));
     await user.type(screen.getByRole('textbox', { name: 'Nombre del molde' }), 'Molde inicial');
-    await user.type(screen.getByRole('spinbutton', { name: 'Peso de tiro (g)' }), '120');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso bruto por ciclo (g)' }), '120');
     await user.type(screen.getByRole('spinbutton', { name: 'Peso neto por pieza (g)' }), '50');
     await user.type(screen.getByRole('textbox', { name: 'Nombre de la pieza' }), 'Pieza técnica');
     await user.click(screen.getByRole('button', { name: 'Crear y usar este molde' }));
@@ -135,7 +238,7 @@ describe('alta de reposición: intento idempotente', () => {
     await user.click(screen.getByRole('button', { name: 'Molde: acciones' }));
     await user.click(screen.getByRole('menuitem', { name: 'Crear molde' }));
     await user.type(screen.getByRole('textbox', { name: 'Nombre del molde' }), 'Molde incierto');
-    await user.type(screen.getByRole('spinbutton', { name: 'Peso de tiro (g)' }), '120');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso bruto por ciclo (g)' }), '120');
     await user.type(screen.getByRole('spinbutton', { name: 'Peso neto por pieza (g)' }), '50');
     await user.type(screen.getByRole('textbox', { name: 'Nombre de la pieza' }), 'Pieza técnica');
     await user.click(screen.getByRole('button', { name: 'Crear y usar este molde' }));
@@ -153,7 +256,7 @@ describe('alta de reposición: intento idempotente', () => {
     await user.click(screen.getByRole('button', { name: 'Molde: acciones' }));
     await user.click(screen.getByRole('menuitem', { name: 'Crear molde' }));
     await user.type(screen.getByRole('textbox', { name: 'Nombre del molde' }), 'Molde pendiente');
-    await user.type(screen.getByRole('spinbutton', { name: 'Peso de tiro (g)' }), '120');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso bruto por ciclo (g)' }), '120');
     await user.type(screen.getByRole('spinbutton', { name: 'Peso neto por pieza (g)' }), '50');
     await user.type(screen.getByRole('textbox', { name: 'Nombre de la pieza' }), 'Pieza técnica');
     await user.click(screen.getByRole('button', { name: 'Crear y usar este molde' }));
@@ -171,7 +274,7 @@ describe('alta de reposición: intento idempotente', () => {
     await user.click(screen.getByRole('button', { name: 'Molde: acciones' }));
     await user.click(screen.getByRole('menuitem', { name: 'Crear molde' }));
     await user.type(screen.getByRole('textbox', { name: 'Nombre del molde' }), 'Molde incierto');
-    await user.type(screen.getByRole('spinbutton', { name: 'Peso de tiro (g)' }), '120');
+    await user.type(screen.getByRole('spinbutton', { name: 'Peso bruto por ciclo (g)' }), '120');
     await user.type(screen.getByRole('spinbutton', { name: 'Peso neto por pieza (g)' }), '50');
     await user.type(screen.getByRole('textbox', { name: 'Nombre de la pieza' }), 'Pieza técnica');
     await user.click(screen.getByRole('button', { name: 'Crear y usar este molde' }));
@@ -206,10 +309,11 @@ describe('alta de reposición: intento idempotente', () => {
     await user.click(screen.getByRole('button', { name: 'Crear OF en borrador' }));
 
     expect(await screen.findByRole('button', { name: 'Reintentar mismo intento' })).toBeVisible();
-    expect(screen.getByRole('textbox', { name: 'Motivo de reposición' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Motivo de reposición' })).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Reintentar mismo intento' }));
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(2));
+    expect(api.create.mock.calls[0][0].motivo).toBe('Completar Stock');
     expect(api.create.mock.calls[1][0]).toEqual(api.create.mock.calls[0][0]);
     expect(api.create.mock.calls[1][1]).toBe(api.create.mock.calls[0][1]);
   });
@@ -507,7 +611,8 @@ describe('alta de reposición: intento idempotente', () => {
     await user.click(screen.getByRole('button', { name: 'Eliminar objetivo de color 1' }));
     expect(screen.getByRole('combobox', { name: 'Color del objetivo 1' })).toHaveValue('Azul');
     api.recipes.mockClear();
-    await user.click(screen.getByRole('button', { name: 'Crear o editar aquí' }));
+    await user.click(screen.getByRole('button', { name: 'Formulación de material: acciones' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Buscar en catálogo' }));
     expect(await screen.findByRole('heading', { name: 'Catálogo de recetas de color' })).toBeVisible();
     await waitFor(() => expect(api.recipes).toHaveBeenCalledWith({ color_produccion_id: 2, include_inactive: true }));
     await user.click(screen.getByRole('button', { name: 'Seleccionar' }));
@@ -532,10 +637,9 @@ describe('alta de reposición: intento idempotente', () => {
     expect(await screen.findByText('payload inválido')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Reintentar mismo intento' })).not.toBeInTheDocument();
 
-    const reason = screen.getByRole('textbox', { name: 'Motivo de reposición' });
+    const reason = screen.getByRole('combobox', { name: 'Motivo de reposición' });
     expect(reason).not.toBeDisabled();
-    await user.clear(reason);
-    await user.type(reason, 'Reposición corregida');
+    await fillOtherReason(user, 'Reposición corregida');
     await user.click(screen.getByRole('button', { name: 'Crear OF en borrador' }));
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(2));
     expect(api.create.mock.calls[1][1]).not.toBe(api.create.mock.calls[0][1]);
@@ -571,7 +675,7 @@ describe('alta de reposición: intento idempotente', () => {
       { id: 100, codigo: 'ART-2', clase: 'PIEZA_COLOR', subtipo: { pieza_color_sku: 'SKU-2' } },
     ]);
     renderDialog();
-    await user.type(screen.getByRole('textbox', { name: 'Motivo de reposición' }), 'Reposición soplado');
+    await fillOtherReason(user, 'Reposición soplado');
     await user.click(screen.getByRole('combobox', { name: 'Proceso de fabricación' }));
     await user.click(screen.getByRole('option', { name: 'Soplado' }));
     await user.click(screen.getByRole('combobox', { name: 'Molde' }));
@@ -608,7 +712,7 @@ describe('alta de reposición: intento idempotente', () => {
     }]);
     api.create.mockResolvedValue({ id: 'of-derived' });
     renderDialog();
-    await user.type(screen.getByRole('textbox', { name: 'Motivo de reposición' }), 'Reposición derivada');
+    await fillOtherReason(user, 'Reposición derivada');
     await user.click(screen.getByRole('combobox', { name: 'Molde' }));
     await user.click(screen.getByRole('option', { name: /Molde 1/ }));
     await user.click(screen.getByRole('combobox', { name: 'Color del objetivo 1' }));
@@ -650,7 +754,7 @@ describe('alta de reposición: intento idempotente', () => {
       { id: 10, codigo: 'MAQ-SOP', nombre: 'Sopladora', estado: 'OPERATIVA', tipo_maquina: { proceso: 'SOPLADO' } },
       { id: 11, codigo: 'MAQ-INY', nombre: 'Inyectora', estado: 'OPERATIVA', tipo_maquina: { proceso: 'INYECCION' } },
     ]);
-    await user.type(screen.getByRole('textbox', { name: 'Motivo de reposición' }), 'Reposición con cambio');
+    await fillOtherReason(user, 'Reposición con cambio');
     await user.click(screen.getByRole('combobox', { name: 'Molde' }));
     await user.click(screen.getByRole('option', { name: /Molde 1/ }));
     await user.click(screen.getByRole('combobox', { name: 'Color del objetivo 1' }));
@@ -678,7 +782,7 @@ describe('alta de reposición: intento idempotente', () => {
     renderDialog([
       { id: 10, codigo: 'MAQ-SOP', nombre: 'Sopladora', estado: 'OPERATIVA', tipo_maquina: { proceso: 'SOPLADO' } },
     ]);
-    await user.type(screen.getByRole('textbox', { name: 'Motivo de reposición' }), 'Reposición al retirar objetivo');
+    await fillOtherReason(user, 'Reposición al retirar objetivo');
     await user.click(screen.getByRole('combobox', { name: 'Molde' }));
     await user.click(screen.getByRole('option', { name: /Molde 1/ }));
     await user.click(screen.getByRole('combobox', { name: 'Color del objetivo 1' }));
@@ -693,6 +797,40 @@ describe('alta de reposición: intento idempotente', () => {
     expect(screen.getByRole('combobox', { name: 'Máquina sugerida (opcional)' })).toHaveValue('Sopladora');
     await user.click(screen.getByRole('button', { name: 'Eliminar objetivo de color 2' }));
     expect(screen.getByRole('combobox', { name: 'Máquina sugerida (opcional)' })).toHaveValue('');
+  });
+
+  it('ofrece crear, editar y duplicar receta en el menú contextual del selector', async () => {
+    const user = userEvent.setup();
+    api.recipes.mockResolvedValue([{
+      id: 41, revision: 2, version: 3, estado: 'APROBADA', es_default: false,
+      color_produccion_id: 1, nombre_variante: 'Rojo validado', base_virgen_kg: 25,
+      lineas: [{ material_id: 1, tipo_componente: 'MATERIA_PRIMA', cantidad: 1 }],
+    }]);
+    renderDialog([], [{
+      id: 41, revision: 2, version: 3, estado: 'APROBADA', es_default: false,
+      color_produccion_id: 1, nombre_variante: 'Rojo validado', base_virgen_kg: 25,
+      lineas: [{ material_id: 1, tipo_componente: 'MATERIA_PRIMA', cantidad: 1 }],
+    }]);
+    await fillValidForm(user);
+    const recipeActions = await screen.findByRole('button', { name: 'Formulación de material: acciones' });
+    await user.click(recipeActions);
+    expect(screen.getByRole('menuitem', { name: 'Crear receta' })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: 'Editar receta' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('menuitem', { name: 'Crear a partir de esta' })).toHaveAttribute('aria-disabled', 'true');
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('combobox', { name: 'Formulación de material' }));
+    await user.click(await screen.findByRole('option', { name: /Rojo validado/ }));
+    await user.click(recipeActions);
+    expect(screen.getByRole('menuitem', { name: 'Editar receta' })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: 'Crear a partir de esta' })).toBeEnabled();
+    api.recipes.mockClear();
+    await user.click(screen.getByRole('menuitem', { name: 'Crear receta' }));
+    expect(await screen.findByRole('heading', { name: 'Crear receta de color' })).toBeVisible();
+    expect(api.recipes).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Volver' }));
+    expect(screen.getByRole('combobox', { name: 'Motivo de reposición' })).toHaveTextContent('Completar Stock');
+    expect(screen.getByRole('combobox', { name: 'Molde' })).toHaveValue('Molde 1');
+    expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(10);
   });
 
   it('descarta el molde diferido al limpiar y reabrir', async () => {

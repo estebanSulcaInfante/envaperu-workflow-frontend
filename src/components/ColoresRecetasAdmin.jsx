@@ -53,6 +53,7 @@ import { matchesOmniSearch } from '../utils/tableSearch';
 import { listarCategoriasRecepcionScm } from '../services/scmCatalogApi';
 import { useScmActor } from '../context/ScmActorContext';
 import { buildRecipeDuplicateDraft } from './duplicateDraft';
+import ColorHexPickerField, { ColorSwatch } from './ui/ColorHexPickerField';
 
 const emptyColor = {
   nombre: '',
@@ -72,11 +73,6 @@ const emptyRecipe = {
 };
 
 const emptyFamily = { nombre: '', codigo: '', activo: true };
-const palettePresets = [
-  '#D32F2F', '#F57C00', '#FBC02D', '#388E3C', '#00897B',
-  '#1976D2', '#303F9F', '#7B1FA2', '#E91E63', '#795548',
-  '#FFFFFF', '#9E9E9E', '#212121',
-];
 
 const apiError = (error, fallback) => (
   error?.response?.data?.error
@@ -139,23 +135,6 @@ const ensureRecipeSourceNote = (notes, source) => {
     && (!revision || normalized.includes(`rev. ${String(source.revision).toLocaleLowerCase()}`))) return current;
   return [current, marker].filter(Boolean).join(' · ');
 };
-
-function ColorSwatch({ hex, size = 28 }) {
-  return (
-    <Box
-      aria-label={hex ? `Color ${hex}` : 'Color sin HEX'}
-      sx={{
-        width: size,
-        height: size,
-        borderRadius: 1,
-        bgcolor: hex || 'grey.200',
-        border: '1px solid',
-        borderColor: 'divider',
-        flex: '0 0 auto',
-      }}
-    />
-  );
-}
 
 function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipeSaved = null }) {
   const { can } = useScmActor();
@@ -860,35 +839,11 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
             <TextField select label="Acabado / familia de color" value={colorForm.familia_color_id} onChange={(event) => setColorForm((current) => ({ ...current, familia_color_id: event.target.value }))} fullWidth>{families.filter((family) => family.activo !== false || family.id === colorForm.familia_color_id).map((family) => <MenuItem key={family.id} value={family.id}>{family.nombre}{family.activo === false ? ' (INACTIVA)' : ''}</MenuItem>)}</TextField>
             <Button size="small" startIcon={<AddOutlinedIcon />} sx={{ alignSelf: 'flex-start' }} onClick={() => { resetFamilyForm(); setFamilyDialogOpen(true); }}>Crear acabado / familia</Button>
           </Stack>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }}>
-            <ColorSwatch hex={/^#[0-9a-fA-F]{6}$/.test(colorForm.hex_referencia) ? colorForm.hex_referencia : null} size={42} />
-            <TextField
-              label="Paleta de color"
-              type="color"
-              value={/^#[0-9a-fA-F]{6}$/.test(colorForm.hex_referencia) ? colorForm.hex_referencia : '#000000'}
-              onChange={(event) => setColorForm((current) => ({ ...current, hex_referencia: event.target.value.toUpperCase() }))}
-              sx={{ width: { xs: '100%', sm: 150 } }}
-              slotProps={{ htmlInput: { 'aria-label': 'Escoger color de la paleta' } }}
-            />
-            <TextField label="HEX de referencia (opcional)" placeholder="#F2C94C" value={colorForm.hex_referencia} onChange={(event) => setColorForm((current) => ({ ...current, hex_referencia: event.target.value.toUpperCase() }))} fullWidth />
-          </Stack>
-          <Box>
-            <Typography variant="caption" color="text.secondary">Colores frecuentes</Typography>
-            <Stack direction="row" gap={0.75} flexWrap="wrap" sx={{ mt: 0.75 }}>
-              {palettePresets.map((hex) => (
-                <IconButton
-                  key={hex}
-                  aria-label={`Usar color ${hex}`}
-                  title={hex}
-                  onClick={() => setColorForm((current) => ({ ...current, hex_referencia: hex }))}
-                  sx={{ p: 0.25, border: '1px solid', borderColor: 'divider' }}
-                >
-                  <ColorSwatch hex={hex} size={26} />
-                </IconButton>
-              ))}
-              <Button size="small" onClick={() => setColorForm((current) => ({ ...current, hex_referencia: '' }))}>Sin color</Button>
-            </Stack>
-          </Box>
+          <ColorHexPickerField
+            value={colorForm.hex_referencia}
+            onChange={(hex_referencia) => setColorForm((current) => ({ ...current, hex_referencia }))}
+            disabled={saving}
+          />
           {colorDialog.item && <FormControlLabel control={<Switch checked={colorForm.activo} onChange={(event) => setColorForm((current) => ({ ...current, activo: event.target.checked }))} />} label="Disponible para nuevas OP" />}
         </Stack></DialogContent>
         <DialogActions><Button onClick={() => setColorDialog({ open: false, item: null })} disabled={saving}>Cancelar</Button><Button variant="contained" onClick={saveColor} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</Button></DialogActions>
