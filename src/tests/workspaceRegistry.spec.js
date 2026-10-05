@@ -45,7 +45,13 @@ describe('US-010N1: registro único del workspace', () => {
     expect(getWorkspaceFeature('/almacen/operaciones')?.key).toBe('warehouse.operations');
     expect(getWorkspaceFeature('/almacen/reservas-staging')?.key).toBe('materials.internalSupply');
     expect(getWorkspaceFeature('/almacen/transferencias')?.key).toBe('warehouse.transfers');
-    expect(getFeatureByKey('warehouse.operations')?.requiredAny).toEqual(['ABASTECIMIENTO_VER']);
+    expect(getFeatureByKey('warehouse.operations')?.requiredAny).toEqual(['ABASTECIMIENTO_VER', 'PICKING_PREPARAR', 'PICKING_DESPACHAR']);
+  });
+
+  it('permite descubrir salida con picking sin exigir lectura de abastecimiento', () => {
+    const caps = new Set(['PICKING_PREPARAR', 'PICKING_DESPACHAR']);
+    const navigation = buildAreaNavigation({ canAny: (required) => !required.length || required.some((cap) => caps.has(cap)) });
+    expect(navigation.flatMap((area) => area.features).map((item) => item.key)).toContain('warehouse.operations');
   });
 
   it('no fabrica encabezados para secciones sin funciones autorizadas', () => {

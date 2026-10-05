@@ -37,6 +37,7 @@ import {
   featureMatches,
 } from '../config/workspaceRegistry';
 import { useActorWorkspace } from '../context/ScmActorContext';
+import { activateScanAudio } from '../services/scmScanAudio';
 
 const expandedWidth = 248;
 const collapsedWidth = 76;
@@ -126,7 +127,7 @@ function NavigationList({
           component: RouterLink,
           to: area.path,
           'aria-current': active ? 'page' : undefined,
-          onClick: onNavigate,
+          onClick: () => onNavigate(area.path),
         };
 
         return (
@@ -186,7 +187,7 @@ function NavigationList({
                           ? `${item.label} · fuera del piloto`
                           : undefined}
                         aria-current={childActive ? 'page' : undefined}
-                        onClick={onNavigate}
+                        onClick={() => onNavigate(item.path)}
                         sx={navButtonSx(childActive, true)}
                       >
                         <ListItemText
@@ -239,7 +240,12 @@ function Sidebar() {
   const supportAreas = areas.filter((area) => area.support);
   const compact = !isMobile && collapsed;
   const width = compact ? collapsedWidth : expandedWidth;
-  const closeOnMobile = () => { if (isMobile) setMobileOpen(false); };
+  const handleNavigate = (path) => {
+    if (path === '/almacen/salidas-retornos' || path === '/almacen/operaciones') {
+      void activateScanAudio();
+    }
+    if (isMobile) setMobileOpen(false);
+  };
   const toggleArea = (areaKey) => setExpandedAreas((current) => {
     const next = new Set(current);
     if (next.has(areaKey)) next.delete(areaKey);
@@ -287,7 +293,7 @@ function Sidebar() {
         activeFeature={activeFeature}
         collapsed={compact}
         expandedAreas={expandedAreas}
-        onNavigate={closeOnMobile}
+        onNavigate={handleNavigate}
         onToggleArea={toggleArea}
         onExpandFromRail={expandFromRail}
       />
@@ -299,7 +305,7 @@ function Sidebar() {
         activeFeature={activeFeature}
         collapsed={compact}
         expandedAreas={expandedAreas}
-        onNavigate={closeOnMobile}
+        onNavigate={handleNavigate}
         onToggleArea={toggleArea}
         onExpandFromRail={expandFromRail}
       />

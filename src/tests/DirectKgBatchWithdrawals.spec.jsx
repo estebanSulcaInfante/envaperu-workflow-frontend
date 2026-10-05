@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DirectKgBatchWithdrawals from '../components/DirectKgBatchWithdrawals';
 
@@ -9,6 +9,13 @@ const api = vi.hoisted(() => ({
   workers: vi.fn(),
 }));
 const actor = vi.hoisted(() => ({ id: 7, can: () => true }));
+const audio = vi.hoisted(() => ({ status: 'ready', play: vi.fn(), activate: vi.fn() }));
+vi.mock('../services/scmScanAudio', () => ({
+  activateScanAudio: audio.activate,
+  getScanAudioStatus: () => audio.status,
+  subscribeScanAudio: (listener) => { listener(audio.status); return () => {}; },
+  playScanFeedback: audio.play,
+}));
 
 vi.mock('../context/ScmActorContext', () => ({ useScmActor: () => ({ actorId: actor.id, can: actor.can }) }));
 vi.mock('../services/scmKgCustodyApi', () => ({
@@ -45,6 +52,7 @@ beforeEach(() => {
   localStorage.clear();
   actor.id = 7;
   actor.can = () => true;
+  audio.status = 'ready'; audio.activate.mockResolvedValue(true);
   api.workers.mockResolvedValue([{ id: 9, nombre_corto: 'Almacenera', activo: true }]);
   api.resolve.mockImplementation(async (code) => ({ unit: unit(code, code) }));
   api.create.mockResolvedValue({ operation_id: 'op-1', cantidad_unidades: 1, total_kg: '12.500', retiros: [] });
@@ -54,11 +62,12 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 const draftKey = 'scm-kg-direct-batch:/api:7:draft';
 const pendingKey = 'scm-kg-direct-batch:/api:7:pending';
-const confirmButton = () => screen.getByRole('button', { name: /revisar y confirmar salida|confirmar salida/i });
+const confirmButton = () => screen.getByRole('button', { name: /revisar y confirmar salida|confirmar salida|validando y confirmando|validando lecturas/i });
 const deferred = () => {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 };
 const sendScan = (value) => {
   const input = screen.getByLabelText('Escanear QR de manga KG');
@@ -75,6 +84,60 @@ const pendingFixture = () => {
 };
 
 describe('salida directa KG a Armado', () => {
+  it('reintenta una identidad conocida que recupera su elegibilidad', async () => {
+    api.resolve.mockResolvedValueOnce({ unit: { ...unit('A', 'A'), estado_calidad: 'BLOQUEADA' } });
+    render(<DirectKgBatchWithdrawals />);
+    sendScan('A');
+    fireEvent.click(await screen.findByRole('button', { name: 'Reintentar A', exact: true }));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0]?.status).toBe('ready'));
+    expect(audio.play.mock.calls.map(([kind]) => kind)).toEqual(['rejected', 'accepted']);
+    expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(1);
+  });
+
+  it('un alias de una manga restaurada solo señala duplicado', async () => {
+    localStorage.setItem(draftKey, JSON.stringify({ reason: 'Guardado', holderId: 9,
+      candidates: [{ code: 'A', unit: unit('A', 'A'), status: 'ready' }] }));
+    api.resolve.mockResolvedValue({ unit: unit('A', 'A') });
+    render(<DirectKgBatchWithdrawals />);
+    sendScan('ALIAS-A');
+    await waitFor(() => expect(audio.play).toHaveBeenCalledWith('duplicate'));
+    expect(audio.play).not.toHaveBeenCalledWith('accepted');
+    expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(1);
+  });
+
+  it('permite excluir una lectura válida equivocada antes de confirmar', async () => {
+    render(<DirectKgBatchWithdrawals />);
+    await scan('A');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retirar A', exact: true })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Retirar A', exact: true }));
+    expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(0);
+    expect(confirmButton()).toBeDisabled();
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('vacía las tarjetas al iniciar otro lote después de confirmar', async () => {
+    render(<DirectKgBatchWithdrawals />);
+    await chooseContext();
+    await scan('A');
+    await waitFor(() => expect(confirmButton()).toBeEnabled());
+    fireEvent.click(confirmButton());
+    fireEvent.click(await screen.findByRole('button', { name: 'Nueva salida' }));
+    expect(screen.queryByRole('list', { name: 'Lecturas pendientes' })).not.toBeInTheDocument();
+    expect(screen.queryByText('A', { exact: true })).not.toBeInTheDocument();
+    expect(confirmButton()).toBeDisabled();
+  });
+
+  it('ofrece activar audio suspendido sin bloquear nuevas lecturas', async () => {
+    audio.status = 'suspended';
+    render(<DirectKgBatchWithdrawals />);
+    expect(screen.getByLabelText('Escanear QR de manga KG')).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Activar sonido' }));
+    await waitFor(() => expect(audio.activate).toHaveBeenCalledTimes(1));
+    await scan('A');
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0].status).toBe('ready'));
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
   it('resuelve una manga sin enviar POST y deduplica por identidad aunque cambie el QR', async () => {
     render(<DirectKgBatchWithdrawals />);
     await scan('QR-1');
@@ -145,6 +208,99 @@ describe('salida directa KG a Armado', () => {
     await waitFor(() => expect(api.resolve).toHaveBeenCalledWith('QR-2'));
     await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(2));
     expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('muestra A y B pendientes con foco y confirmación bloqueada, y resuelve FIFO', async () => {
+    const first = deferred(); const second = deferred();
+    api.resolve.mockImplementation(code => code === 'A' ? first.promise : second.promise);
+    render(<DirectKgBatchWithdrawals />); await chooseContext();
+    const input = screen.getByLabelText('Escanear QR de manga KG'); input.focus();
+    sendScan('A'); sendScan('B');
+    const queue = screen.getByRole('list', { name: 'Lecturas pendientes' });
+    expect(within(queue).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(queue).getByText('A')).toBeVisible();
+    expect(within(queue).getByText('B')).toBeVisible();
+    expect(input).toBeEnabled(); expect(input).toHaveFocus(); expect(input).toHaveValue('');
+    expect(confirmButton()).toBeDisabled(); expect(api.resolve).toHaveBeenCalledTimes(1);
+    expect(api.resolve).toHaveBeenNthCalledWith(1, 'A');
+    expect(audio.play).not.toHaveBeenCalled();
+    fireEvent.click(confirmButton()); expect(api.create).not.toHaveBeenCalled();
+    await act(async () => first.resolve({ unit: unit('A', 'A') }));
+    await waitFor(() => expect(api.resolve).toHaveBeenNthCalledWith(2, 'B'));
+    expect(confirmButton()).toBeDisabled();
+    await act(async () => second.resolve({ unit: unit('B', 'B') }));
+    await waitFor(() => expect(confirmButton()).toBeEnabled());
+    expect(JSON.parse(localStorage.getItem(draftKey)).candidates.map(c => c.unit.id)).toEqual(['A', 'B']);
+    expect(audio.play.mock.calls.map(c => c[0])).toEqual(['accepted', 'accepted']);
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('deduplica A mientras está pendiente y un alias posterior por identidad canónica', async () => {
+    const first = deferred();
+    api.resolve.mockImplementation(code => code === 'A' ? first.promise : Promise.resolve({ unit: unit('A', 'A') }));
+    render(<DirectKgBatchWithdrawals />);
+    sendScan('A'); sendScan('A'); sendScan('ALIAS-A');
+    expect(within(screen.getByRole('list', { name: 'Lecturas pendientes' })).getAllByRole('listitem')).toHaveLength(2);
+    expect(api.resolve).toHaveBeenCalledTimes(1);
+    expect(audio.play.mock.calls.some(c => c[0] === 'accepted')).toBe(false);
+    await act(async () => first.resolve({ unit: unit('A', 'A') }));
+    await waitFor(() => expect(api.resolve).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(audio.play.mock.calls.filter(c => c[0] === 'duplicate')).toHaveLength(2));
+    expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(1);
+    expect(audio.play.mock.calls.filter(c => c[0] === 'accepted')).toHaveLength(1);
+  });
+
+  it('error de A conserva B y permite reintentar A sin repetir el escaneo físico', async () => {
+    const first = deferred();
+    api.resolve.mockImplementation(code => code === 'A' ? first.promise : Promise.resolve({ unit: unit('B', 'B') }));
+    render(<DirectKgBatchWithdrawals />); await chooseContext();
+    sendScan('A'); sendScan('B');
+    await act(async () => first.reject(new Error('Etiqueta A no disponible')));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(2));
+    expect(JSON.parse(localStorage.getItem(draftKey)).candidates.find(c => c.code === 'B').status).toBe('ready');
+    expect(confirmButton()).toBeDisabled(); expect(api.create).not.toHaveBeenCalled();
+    api.resolve.mockResolvedValue({ unit: unit('A', 'A') });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reintentar A' })[0]);
+    await waitFor(() => expect(confirmButton()).toBeEnabled());
+    const saved = JSON.parse(localStorage.getItem(draftKey)).candidates;
+    expect(saved).toHaveLength(2); expect(saved.every(c => c.status === 'ready')).toBe(true);
+    expect(audio.play.mock.calls.map(c => c[0])).toEqual(['rejected', 'accepted', 'accepted']);
+  });
+
+  it('aplica límite visible de 32 pendientes sin perder el código que excede la cola', async () => {
+    const first = deferred();
+    api.resolve.mockImplementation(code => code === 'Q0' ? first.promise : Promise.resolve({ unit: unit(code, code) }));
+    render(<DirectKgBatchWithdrawals />);
+    for (let index = 0; index < 32; index += 1) sendScan(`Q${index}`);
+    sendScan('EXTRA');
+    expect(within(screen.getByRole('list', { name: 'Lecturas pendientes' })).getAllByRole('listitem')).toHaveLength(32);
+    expect(screen.getByLabelText('Escanear QR de manga KG')).toHaveValue('EXTRA');
+    expect(screen.getByText(/cola.*llena|límite.*32/i)).toBeVisible();
+    expect(api.resolve).toHaveBeenCalledTimes(1); expect(api.create).not.toHaveBeenCalled();
+    await act(async () => first.resolve({ unit: unit('Q0', 'Q0') }));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(32));
+    expect(api.resolve).not.toHaveBeenCalledWith('EXTRA');
+    sendScan('EXTRA');
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(33));
+  });
+
+  it('no emite acierto al resolver una identidad bloqueada', async () => {
+    api.resolve.mockResolvedValue({ unit: { ...unit('A', 'A'), estado_calidad: 'BLOQUEADA' } });
+    render(<DirectKgBatchWithdrawals />); sendScan('A');
+    await waitFor(() => expect(audio.play).toHaveBeenCalledWith('rejected'));
+    expect(audio.play).not.toHaveBeenCalledWith('accepted');
+    expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0].status).toBe('conflict');
+  });
+
+  it('emite confirmación distinta solo después del resultado del POST', async () => {
+    const response = deferred(); api.create.mockReturnValue(response.promise);
+    render(<DirectKgBatchWithdrawals />); await chooseContext(); await scan('A');
+    await waitFor(() => expect(confirmButton()).toBeEnabled()); fireEvent.click(confirmButton());
+    await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
+      expect(audio.play).not.toHaveBeenCalledWith('confirmed');
+      expect(screen.getByRole('button', { name: 'Retirar A', exact: true })).toBeDisabled();
+    await act(async () => response.resolve({ operation_id: 'op', cantidad_unidades: 1, total_kg: '12.500', retiros: [] }));
+    await waitFor(() => expect(audio.play).toHaveBeenCalledWith('confirmed'));
   });
 
   it('serializa el doble toque mientras revalida antes del POST', async () => {
