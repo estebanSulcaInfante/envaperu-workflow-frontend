@@ -8,13 +8,18 @@ vi.mock('../services/scmKgCustodyApi', () => ({ resolveKgUnit: mocks.resolve, co
 vi.mock('../services/scmWarehouseApi', () => ({ listarRecepcionMangasScm: async () => ({ ubicaciones: [{ codigo: 'PIEZAS', nombre: 'Almacén de piezas' }] }) }));
 vi.mock('../services/scmEngineeringApi', () => ({ mensajeErrorScm: (e) => e.message }));
 const unit = { id: 'unit1', codigo: 'KG-1', articulo: { codigo: 'PIEZA' }, estado_logistico: 'RECIBIDA_ALMACEN', estado_calidad: 'LIBERADA', version: 3, kg_verificados: '12.000' };
+const openReturns = () => {
+  const summary = screen.getByText('Retornos, divisiones y configuración de custodia');
+  if (!summary.parentElement.open) fireEvent.click(summary);
+};
 const scan = async () => {
+  openReturns();
   fireEvent.change(screen.getByLabelText('QR o código de pieza / parte'), { target: { value: 'KG-1' } });
   fireEvent.click(screen.getByRole('button', { name: 'Consultar identidad KG' }));
   await screen.findByText('KG-1 · PIEZA');
 };
 beforeEach(() => {
-  vi.clearAllMocks(); sessionStorage.clear();
+  vi.clearAllMocks(); sessionStorage.clear(); localStorage.clear();
   mocks.list.mockResolvedValue({ items: [] });
   mocks.resolve.mockResolvedValue({ unit });
   mocks.command.mockResolvedValue({});
@@ -33,52 +38,52 @@ describe('Custodia KG', () => {
   });
   it('mantiene confirmación si falla solo el refresco posterior', async () => {
     mocks.list.mockResolvedValueOnce({ items: [] }).mockRejectedValueOnce(new Error('Sin conexión'));
+    mocks.resolve.mockResolvedValue({ unit: { ...unit, estado_logistico: 'RESERVADA' } });
     render(<WarehouseKgCustodyScm />);
     await scan();
-    fireEvent.change(screen.getByLabelText('Motivo y destino de uso en Armado'), { target: { value: 'Mesa A' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Reservar para Armado' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Liberar reserva' }));
     await screen.findByText('La operación quedó confirmada. No se pudo actualizar la vista; consulte de nuevo la identidad.');
-    expect(screen.getByText('Reserva registrada. El material sigue en Almacén.')).toBeTruthy();
+    expect(screen.getByText('Reserva liberada sin mover material.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Recuperar operación' })).toBeNull();
     expect(sessionStorage.getItem('scm-kg-custody-intent:7')).toBeNull();
   });
 
   it('otro QR no hereda motivo ni configuración de la identidad anterior', async () => {
+    const retained = { ...unit, estado_logistico: 'PENDIENTE_VERIFICACION', estado: 'ACTIVA', intencion: 'PERMANECE', kg_verificados: null };
+    mocks.resolve.mockResolvedValue({ unit: retained });
     render(<WarehouseKgCustodyScm />);
     await scan();
-    fireEvent.change(screen.getByLabelText('Motivo y destino de uso en Armado'), { target: { value: 'Mesa anterior' } });
-    mocks.resolve.mockResolvedValue({ unit: { ...unit, id: 'unit2', codigo: 'KG-2' } });
+    fireEvent.change(screen.getByLabelText('Motivo del retorno de esta parte'), { target: { value: 'Mesa anterior' } });
+    mocks.resolve.mockResolvedValue({ unit: { ...retained, id: 'unit2', codigo: 'KG-2' } });
     fireEvent.change(screen.getByLabelText('QR o código de pieza / parte'), { target: { value: 'KG-2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Consultar identidad KG' }));
     await screen.findByText('KG-2 · PIEZA');
-    expect(screen.getByLabelText('Motivo y destino de uso en Armado')).toHaveValue('');
-    expect(screen.getByRole('button', { name: 'Reservar para Armado' })).toBeDisabled();
+    expect(screen.getByLabelText('Motivo del retorno de esta parte')).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Preparar retorno para pesaje' })).toBeDisabled();
   });
-  it('reserva el peso de la identidad sin pedir ni estimar cantidades', async () => {
+  it('conserva la consulta sin ofrecer la reserva saliente anterior', async () => {
     render(<WarehouseKgCustodyScm />);
     await scan();
-    fireEvent.change(screen.getByLabelText('Motivo y destino de uso en Armado'), { target: { value: 'Mesa A, turno tarde' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Reservar para Armado' }));
-    await waitFor(() => expect(mocks.command).toHaveBeenCalledTimes(1));
-    expect(mocks.command.mock.calls[0][0].data).toEqual({ version: 3, motivo_operativo: 'Mesa A, turno tarde' });
+    expect(screen.queryByRole('button', { name: 'Reservar para Armado' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Confirmar retiro físico a Armado' })).toBeNull();
+    expect(mocks.command).not.toHaveBeenCalled();
   });
 
-  it('permite reservar para Armado una manga disponible desde el pesaje', async () => {
+  it('mantiene la salida de una manga SIN_CONTROL únicamente en el flujo directo', async () => {
     mocks.resolve.mockResolvedValue({ unit: { ...unit, estado_logistico: 'DISPONIBLE_PRODUCCION', estado_calidad: 'SIN_CONTROL' } });
     render(<WarehouseKgCustodyScm />);
     await scan();
-    expect(screen.getByLabelText('Motivo y destino de uso en Armado')).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('Motivo y destino de uso en Armado'), { target: { value: 'Armado, mesa principal' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Reservar para Armado' }));
-    await waitFor(() => expect(mocks.command).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('heading', { name: 'Salida directa a Armado' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Reservar para Armado' })).toBeNull();
+    expect(mocks.command).not.toHaveBeenCalled();
   });
 
   it('tras perder respuesta reintenta exactamente la operación guardada', async () => {
     mocks.command.mockRejectedValueOnce(new Error('Sin respuesta')).mockResolvedValue({});
+    mocks.resolve.mockResolvedValue({ unit: { ...unit, estado_logistico: 'RESERVADA' } });
     render(<WarehouseKgCustodyScm />);
     await scan();
-    fireEvent.change(screen.getByLabelText('Motivo y destino de uso en Armado'), { target: { value: 'Mesa A' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Reservar para Armado' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Liberar reserva' }));
     await screen.findByText('Sin respuesta');
     expect(screen.getByLabelText('QR o código de pieza / parte')).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Recuperar operación' }));
@@ -115,7 +120,7 @@ describe('Custodia KG', () => {
       kg_retenido_verificado: '0.000', kg_sin_verificar_clasificar: '0.000',
     }] });
     render(<WarehouseKgCustodyScm />);
-
+    openReturns();
     expect(await screen.findByText('1 · 7.000 KG')).toBeVisible();
     expect(screen.getByText('1 · 2.000 KG')).toBeVisible();
     expect(screen.getByText('8.000 KG')).toBeVisible();

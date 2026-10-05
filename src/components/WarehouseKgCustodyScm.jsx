@@ -6,6 +6,7 @@ import { useScmActor } from '../context/ScmActorContext';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
 import { commandKgCustody, listKgWithdrawals, resolveKgUnit } from '../services/scmKgCustodyApi';
 import PageHeader from './ui/PageHeader';
+import DirectKgBatchWithdrawals from './DirectKgBatchWithdrawals';
 
 const asNumber = (value) => Number(value || 0);
 const formatKg = (value) => `${value.toLocaleString('es-PE', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} KG`;
@@ -103,7 +104,6 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
   const locked = busy || !!pending;
   const allowed = (capability) => !readOnly && can(capability);
   const unitPath = `unidades-kg/${unit?.id}`;
-  const reserve = () => execute(`${unitPath}/reservas`, { version: unit.version, motivo_operativo: reason.trim() }, 'Reserva registrada. El material sigue en Almacén.');
   const measurement = context?.measurement || context?.medicion;
   const summary = useMemo(() => {
     const returned = rows.reduce((total, row) => total + asNumber(row.kg_retornado_recibido), 0);
@@ -123,9 +123,15 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
     };
   }, [rows]);
   return <Stack spacing={2} aria-label="Custodia de piezas en kg">
+    <DirectKgBatchWithdrawals readOnly={readOnly} />
+    <details>
+      <summary>Retornos, divisiones y configuración de custodia</summary>
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+        Herramientas de retorno, división de remanentes y configuración verificada de lectura permanecen disponibles aquí.
+      </Typography>
     <PageHeader
-      title="Salidas y retornos de Armado"
-      description="Controla qué material sale, qué permanece junto a Armado y qué retorna medido."
+      title="Retornos y custodia KG"
+      description="Gestiona retornos, divisiones de remanentes y lectura verificada de custodia KG."
       actions={(
         <Stack direction="row" spacing={1}>
           <Button variant="contained" startIcon={<QrCodeScannerIcon />} onClick={() => codeRef.current?.focus()} disabled={locked}>
@@ -137,7 +143,7 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
         </Stack>
       )}
     />
-    <Alert severity="info">Almacén conserva la custodia. Retirar para Armado no confirma consumo; los remanentes vuelven con peso automático y quedan disponibles al confirmar su recepción.</Alert>
+    <Alert severity="info">Almacén conserva la custodia. Los remanentes vuelven con peso automático y quedan disponibles al confirmar su recepción.</Alert>
     {error && <Alert severity="error">{error}</Alert>}
     {notice && <Alert severity="success">{notice}</Alert>}
     {pending && <Alert severity="warning" action={<Button disabled={busy || readOnly} onClick={() => execute(null, null, null, true)}>Recuperar operación</Button>}>
@@ -165,13 +171,8 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
         <Typography variant="h6">{unit.codigo} · {unit.articulo?.nombre || unit.articulo?.codigo}</Typography>
         <Typography>{state?.replaceAll('_', ' ')} · Calidad {unit.estado_calidad}</Typography>
         <Typography variant="h5">{unit.kg_verificados == null ? 'Peso pendiente de verificación' : `${unit.kg_verificados} kg — última verificación`}</Typography>
-        {['RECIBIDA_ALMACEN', 'ALMACENADA_CONTROLADA', 'DISPONIBLE_PRODUCCION'].includes(state) && allowed('PICKING_PREPARAR') && <>
-          <TextField label="Motivo y destino de uso en Armado" value={reason} disabled={locked} onChange={(e) => setReason(e.target.value)} />
-          <Button disabled={locked || !reason.trim() || !['LIBERADA', 'SIN_CONTROL'].includes(unit.estado_calidad)} onClick={reserve}>Reservar para Armado</Button>
-        </>}
-        {state === 'RESERVADA' && <Stack direction="row" spacing={2}>
-          {allowed('PICKING_DESPACHAR') && <Button variant="contained" disabled={locked} onClick={() => execute(`${unitPath}/retiro`, { version: unit.version }, 'Retiro registrado. Material junto a Armado, pendiente de conciliación.')}>Confirmar retiro físico a Armado</Button>}
-          {allowed('PICKING_PREPARAR') && <Button disabled={locked} onClick={() => execute(`${unitPath}/reservas/liberar`, { version: unit.version }, 'Reserva liberada sin mover material.')}>Liberar reserva</Button>}
+        {state === 'RESERVADA' && allowed('PICKING_PREPARAR') && <Stack direction="row" spacing={2}>
+          <Button disabled={locked} onClick={() => execute(`${unitPath}/reservas/liberar`, { version: unit.version }, 'Reserva liberada sin mover material.')}>Liberar reserva</Button>
         </Stack>}
         {state === 'RETIRADA_ARMADO' && context?.retiro && allowed('UNIDAD_LOGISTICA_FRACCIONAR') && <>
           <Alert severity="info">Si vuelve todo el sobrante, pese esta identidad en la estación. Si una parte queda en Armado, identifique ambas partes y pese solo la que retorna.</Alert>
@@ -225,5 +226,6 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
       <TableCell>{row.kg_entregado}</TableCell><TableCell>{row.kg_retornado_recibido}</TableCell><TableCell>{row.kg_retorno_verificado_pendiente}</TableCell><TableCell>{row.kg_sin_verificar_clasificar}</TableCell>
     </TableRow>)}</TableBody></Table></TableContainer>
     <Typography variant="body2">La diferencia pendiente no demuestra consumo ni stock físico disponible. Consulte y repese el remanente antes de recuperarlo.</Typography>
+      </details>
   </Stack>;
 }
