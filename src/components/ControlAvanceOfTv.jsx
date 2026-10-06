@@ -263,7 +263,11 @@ export default function ControlAvanceOfTv() {
   }, new Map());
 
   const tvParts = [...orderedGroups.values()].flatMap(({ of, outputs }) => {
-    const chunks = chunkRows(outputs, TV_PART_SIZE);
+    const pieceIds = new Set(outputs.map(({ output }) => output.pieza_id).filter((id) => id != null));
+    const hasOneStablePiece = outputs.length > 0
+      && pieceIds.size === 1
+      && outputs.every(({ output }) => output.pieza_id != null);
+    const chunks = chunkRows(outputs, hasOneStablePiece ? 7 : TV_PART_SIZE);
     return chunks.map((rows, index) => ({
       of,
       rows,

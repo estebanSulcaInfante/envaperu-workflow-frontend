@@ -94,6 +94,28 @@ describe('ControlAvanceOfTv', () => {
     expect(seen.size).toBe(9);
   });
 
+  it('keeps seven colors for one stable piece together on a single TV part', async () => {
+    const sevenColors = outputs.slice(0, 7).map((output, index) => ({
+      ...output,
+      pieza_id: 31,
+      pieza: 'Pieza con siete colores',
+      corrida_id: `seven-goal-${index + 1}`,
+      corrida: `COLOR-${index + 1}`,
+      pieza_color_id: `seven-pc-${index + 1}`,
+    }));
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: [{ ...response.items[0], salidas: sevenColors }],
+    });
+    render(<ControlAvanceOfTv />);
+    await screen.findByTestId('of-progress-card');
+    fireEvent.click(screen.getByRole('button', { name: 'Modo TV' }));
+
+    expect(await screen.findByRole('heading', { name: /Parte 1 de 1/ })).toBeInTheDocument();
+    expect(screen.getAllByTestId('output-progress-row')).toHaveLength(7);
+    expect(screen.getAllByTestId('piece-progress-group')).toHaveLength(1);
+  });
+
   it('keeps last successful data visible after a refresh error', async () => {
     render(<ControlAvanceOfTv />);
     expect(await screen.findAllByTestId('output-progress-row')).toHaveLength(9);
