@@ -75,67 +75,59 @@ function OutputRow({ output, compact = false }) {
         border: '1px solid',
         borderColor: 'divider',
         borderRadius: 1.5,
-        p: compact ? { xs: 1, md: 1.25 } : 1.5,
+        p: compact ? { xs: 0.5, md: 0.75 } : 1,
         minWidth: 0,
       }}
     >
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={compact ? 1 : 1.5} alignItems={{ sm: 'center' }}>
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          spacing={{ xs: 0.25, sm: 1 }}
-          alignItems={{ xs: 'flex-start', sm: 'center' }}
-          sx={{ minWidth: compact ? { sm: 230, md: 290 } : { sm: 250 }, flex: '0 0 auto' }}
-        >
-          <Stack direction="row" spacing={1} alignItems="center">
+      <Stack direction={compact ? { xs: 'column', sm: 'row' } : 'column'} spacing={compact ? 0.75 : 1} alignItems={compact ? { sm: 'flex-start' } : 'stretch'}>
+        <Stack direction={compact ? { xs: 'row', sm: 'column' } : 'row'} spacing={0.5} alignItems="center" sx={{ width: compact ? { xs: '100%', sm: 125, md: 145 } : '100%', flex: compact ? { sm: '0 0 auto' } : undefined, minWidth: 0, flexWrap: 'wrap' }}>
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0, flexWrap: 'wrap' }}>
             <Box
               aria-label={`Color ${output.color || 'sin especificar'}`}
-              sx={{ width: compact ? { xs: 20, md: 24 } : 22, height: compact ? { xs: 20, md: 24 } : 22, flex: '0 0 auto', borderRadius: '50%', bgcolor: swatch, border: '2px solid', borderColor: 'text.secondary' }}
+              sx={{ width: compact ? 18 : 22, height: compact ? 18 : 22, flex: '0 0 auto', borderRadius: '50%', bgcolor: swatch, border: '2px solid', borderColor: 'text.secondary' }}
             />
-            <Typography fontWeight={750} sx={{ overflowWrap: 'anywhere', fontSize: compact ? { xs: 18, md: 24 } : undefined }}>
+            <Typography fontWeight={750} sx={{ minWidth: 0, overflowWrap: 'anywhere', fontSize: compact ? { xs: 14, md: 18 } : 16, lineHeight: 1.1 }}>
               {output.color || 'Color sin nombre'}
             </Typography>
           </Stack>
-          <Typography color="text.secondary" sx={{ overflowWrap: 'anywhere', fontSize: compact ? { xs: 14, md: 16 } : undefined }}>
-            Objetivo de color {output.corrida}
-          </Typography>
+          <Chip
+            size="small"
+            color={statusTone}
+            label={statusLabels[output.estado_avance] || output.estado_avance}
+            sx={{ alignSelf: 'flex-start', maxWidth: '100%', height: 'auto', minHeight: compact ? 20 : 22, fontSize: 11, '& .MuiChip-label': { px: 0.75, py: 0.2, whiteSpace: 'normal', display: 'block', overflowWrap: 'anywhere', lineHeight: 1.1 } }}
+          />
+          {output.unidad !== 'KG' && output.peso_fisico_kg != null && (
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: compact ? 9 : 10, lineHeight: 1.1 }}>
+              Peso neto: <strong>{number(output.peso_fisico_kg, 1)} kg</strong>
+            </Typography>
+          )}
         </Stack>
-        <Chip
-          size={compact ? 'small' : 'small'}
-          color={statusTone}
-          label={statusLabels[output.estado_avance] || output.estado_avance}
-          sx={{ flex: '0 0 auto', fontSize: compact ? { xs: 13, md: 15 } : undefined }}
-        />
-        <Grid container spacing={compact ? 1 : 2} sx={{ flex: 1, minWidth: 0 }}>
+        <Grid container columnSpacing={compact ? 0.5 : 1} rowSpacing={0} sx={{ flex: 1, minWidth: 0, width: compact ? undefined : '100%' }}>
           <Grid size={{ xs: 6, sm: 3 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: compact ? { xs: 12, md: 16 } : undefined }}>{metricLabel(output)}</Typography>
-            <Typography fontWeight={800} sx={{ fontSize: compact ? { xs: 20, md: 34 } : undefined }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1, overflowWrap: 'anywhere' }}>{metricLabel(output)}</Typography>
+            <Typography fontWeight={800} sx={{ fontSize: compact ? { xs: 16, md: 22 } : 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
               {number(output.meta, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
             </Typography>
           </Grid>
           <Grid size={{ xs: 6, sm: 3 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: compact ? { xs: 12, md: 16 } : undefined }}>Avance confirmado</Typography>
-            <Typography fontWeight={800} sx={{ fontSize: compact ? { xs: 20, md: 34 } : undefined }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1 }}>Avance</Typography>
+            <Typography fontWeight={800} sx={{ fontSize: compact ? { xs: 16, md: 22 } : 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
               {number(output.avance, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
             </Typography>
           </Grid>
           <Grid size={{ xs: 6, sm: 3 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: compact ? { xs: 12, md: 16 } : undefined }}>Pendiente</Typography>
-            <Typography fontWeight={800} sx={{ fontSize: compact ? { xs: 20, md: 34 } : undefined }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1 }}>Pendiente</Typography>
+            <Typography fontWeight={800} sx={{ fontSize: compact ? { xs: 16, md: 22 } : 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
               {number(output.pendiente, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
             </Typography>
           </Grid>
           <Grid size={{ xs: 6, sm: 3 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: compact ? { xs: 12, md: 16 } : undefined }}>Cumplimiento</Typography>
-            <Typography fontWeight={800} sx={{ fontSize: compact ? { xs: 20, md: 34 } : undefined }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1 }}>Cumplimiento</Typography>
+            <Typography fontWeight={800} sx={{ fontSize: compact ? { xs: 16, md: 22 } : 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
               {output.porcentaje == null ? '-' : `${number(output.porcentaje, 1)}%`}
             </Typography>
           </Grid>
         </Grid>
-        {output.unidad !== 'KG' && output.peso_fisico_kg != null && (
-          <Typography variant="caption" color="text.secondary" sx={{ minWidth: 95 }}>
-            Peso físico neto: <strong>{number(output.peso_fisico_kg, 1)} kg</strong>
-          </Typography>
-        )}
       </Stack>
       {output.meta != null && output.porcentaje != null && (
         <LinearProgress
@@ -143,8 +135,8 @@ function OutputRow({ output, compact = false }) {
           value={barValue}
           aria-label={`Avance ${number(output.porcentaje, 1)} por ciento`}
           sx={{
-            mt: compact ? 0.75 : 1.25,
-            height: compact ? 7 : 9,
+            mt: compact ? 0.5 : 0.75,
+            height: compact ? 4 : 7,
             borderRadius: 8,
             border: '1px solid',
             borderColor: 'text.secondary',
@@ -171,11 +163,11 @@ function PieceGroups({ rows, compact = false }) {
           <Typography
             variant={compact ? 'h6' : 'subtitle1'}
             fontWeight={850}
-            sx={{ mb: compact ? 0.5 : 0.75, fontSize: compact ? { xs: 20, md: 28 } : undefined, overflowWrap: 'anywhere' }}
+            sx={{ mb: compact ? 0.15 : 0.75, fontSize: compact ? { xs: 16, md: 19 } : undefined, overflowWrap: 'anywhere', lineHeight: 1.1 }}
           >
             {group.name}
           </Typography>
-          <Stack spacing={compact ? 0.75 : 1}>{group.outputs.map((output) => (
+          <Stack spacing={compact ? 0.35 : 0.75}>{group.outputs.map((output) => (
             <OutputRow key={outputIdentity(output)} output={output} compact={compact} />
           ))}</Stack>
         </Box>
@@ -190,6 +182,19 @@ function chunkRows(rows, size) {
   return chunks;
 }
 
+function pairDistinctOrders(parts) {
+  const remaining = [...parts];
+  const pages = [];
+  while (remaining.length) {
+    const first = remaining.shift();
+    const differentOrderIndex = remaining.findIndex((part) => part.of.of_id !== first.of.of_id);
+    pages.push(differentOrderIndex < 0
+      ? [first]
+      : [first, ...remaining.splice(differentOrderIndex, 1)]);
+  }
+  return pages;
+}
+
 export default function ControlAvanceOfTv() {
   const { actorId } = useScmActor();
   const [payload, setPayload] = useState(null);
@@ -200,11 +205,18 @@ export default function ControlAvanceOfTv() {
   const [search, setSearch] = useState('');
   const [orderDirection, setOrderDirection] = useState('asc');
   const [tvMode, setTvMode] = useState(false);
+  const [wideViewport, setWideViewport] = useState(() => window.innerWidth >= 900);
   const [fullscreenWarning, setFullscreenWarning] = useState('');
   const [slide, setSlide] = useState(0);
   const [paused, setPaused] = useState(false);
   const rootRef = useRef(null);
   const requestSeq = useRef(0);
+
+  useEffect(() => {
+    const updateViewport = () => setWideViewport(window.innerWidth >= 900);
+    window.addEventListener('resize', updateViewport);
+    return () => window.removeEventListener('resize', updateViewport);
+  }, []);
 
   const refresh = useCallback(async (signal) => {
     const requestId = ++requestSeq.current;
@@ -275,16 +287,17 @@ export default function ControlAvanceOfTv() {
       partCount: chunks.length,
     }));
   });
-  const visibleSlide = slide % Math.max(1, tvParts.length);
-  const currentPart = tvParts[visibleSlide];
+  const tvSlides = useMemo(() => wideViewport ? pairDistinctOrders(tvParts) : tvParts.map((part) => [part]), [tvParts, wideViewport]);
+  const visibleSlide = slide % Math.max(1, tvSlides.length);
+  const currentPage = tvSlides[visibleSlide] || [];
 
   useEffect(() => {
-    if (!tvMode || tvParts.length < 2) return undefined;
+    if (!tvMode || tvSlides.length < 2) return undefined;
     const timer = window.setInterval(() => {
-      if (!paused) setSlide((current) => (current + 1) % tvParts.length);
+      if (!paused) setSlide((current) => (current + 1) % tvSlides.length);
     }, PAGE_MS);
     return () => window.clearInterval(timer);
-  }, [tvMode, tvParts.length, paused]);
+  }, [tvMode, tvSlides.length, paused]);
 
   const setFullscreen = async () => {
     if (tvMode) {
@@ -344,43 +357,54 @@ export default function ControlAvanceOfTv() {
       {fullscreenWarning && <Alert severity="warning" sx={{ mb: 1 }}>{fullscreenWarning}</Alert>}
       {loading && !payload && <Stack alignItems="center" sx={{ py: 6 }}><CircularProgress /><Typography sx={{ mt: 1 }}>Consultando avance.</Typography></Stack>}
       {!loading && !tvParts.length && <Alert severity="info">No hay salidas de OF activas para mostrar.</Alert>}
-      {tvMode && currentPart && (
+      {tvMode && currentPage.length > 0 && (
         <Stack spacing={1}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
             <Typography variant="subtitle1" color="text.secondary" aria-live="polite" sx={{ fontSize: { xs: 14, md: 18 } }}>
-              {currentPart.of.of} · Parte {currentPart.part} de {currentPart.partCount}{currentPart.part < currentPart.partCount ? ' · Continúa' : ''}
+              Pantalla {visibleSlide + 1} de {tvSlides.length}
             </Typography>
             <Stack direction="row" spacing={0.5}>
-              <Button size="small" onClick={() => setSlide((current) => (current - 1 + tvParts.length) % tvParts.length)}>Anterior</Button>
+              <Button size="small" onClick={() => setSlide((current) => (current - 1 + tvSlides.length) % tvSlides.length)}>Anterior</Button>
               <Button size="small" onClick={() => setPaused((value) => !value)}>{paused ? 'Reanudar' : 'Pausar'}</Button>
-              <Button size="small" onClick={() => setSlide((current) => (current + 1) % tvParts.length)}>Siguiente</Button>
+              <Button size="small" onClick={() => setSlide((current) => (current + 1) % tvSlides.length)}>Siguiente</Button>
             </Stack>
           </Stack>
-          <Card variant="outlined" data-testid="of-progress-card" data-of-id={currentPart.of.of_id} sx={{ boxShadow: 2, minHeight: 0 }}>
-            <CardContent sx={{ p: { xs: 1, md: 1.5 }, '&:last-child': { pb: { xs: 1, md: 1.5 } } }}>
-              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                <Typography variant="h4" fontWeight={900} sx={{ fontSize: { xs: 28, md: 42 }, lineHeight: 1.1 }}>{currentPart.of.of}</Typography>
-                <Chip size="small" label={currentPart.of.estado} />
-              </Stack>
-              <PieceGroups rows={currentPart.rows} compact />
-            </CardContent>
-          </Card>
+          <Grid container spacing={1} data-testid="of-progress-layout" data-columns={wideViewport ? '2' : '1'}>
+            {currentPage.map((part) => (
+              <Grid key={`${part.of.of_id}-${part.part}`} size={{ xs: 12, md: 6 }}>
+                <Card variant="outlined" data-testid="of-progress-card" data-of-id={part.of.of_id} sx={{ boxShadow: 2, minHeight: 0 }}>
+                  <CardContent sx={{ p: { xs: 1, md: 1.25 }, '&:last-child': { pb: { xs: 1, md: 1.25 } } }}>
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5, flexWrap: 'wrap' }}>
+                      <Typography variant="h4" fontWeight={900} sx={{ fontSize: { xs: 25, md: 32 }, lineHeight: 1.05 }}>{part.of.of}</Typography>
+                      <Chip size="small" label={part.of.estado} sx={{ height: 22, fontSize: 11 }} />
+                      <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto !important', fontSize: { xs: 11, md: 12 }, whiteSpace: 'nowrap' }}>
+                        Parte {part.part} de {part.partCount}{part.part < part.partCount ? ' · Continúa' : ''}
+                      </Typography>
+                    </Stack>
+                    <PieceGroups rows={part.rows} compact />
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
         </Stack>
       )}
       {!tvMode && [...orderedGroups.values()].length > 0 && (
-        <Stack spacing={2}>
+        <Grid container spacing={2} data-testid="of-progress-layout" data-columns={wideViewport ? '2' : '1'}>
           {[...orderedGroups.values()].map(({ of, outputs }) => (
-            <Card key={of.of_id} variant="outlined" data-testid="of-progress-card" data-of-id={of.of_id}>
-              <CardContent sx={{ p: { xs: 1.5, md: 2.5 } }}>
-                <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 1.5 }}>
-                  <Typography variant="h5" fontWeight={900}>{of.of}</Typography>
-                  <Chip size="small" label={of.estado} />
-                </Stack>
-                <PieceGroups rows={outputs} />
-              </CardContent>
-            </Card>
+            <Grid key={of.of_id} size={{ xs: 12, md: 6 }}>
+              <Card variant="outlined" data-testid="of-progress-card" data-of-id={of.of_id}>
+                <CardContent sx={{ p: { xs: 1.5, md: 2 } }}>
+                  <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 1 }}>
+                    <Typography variant="h5" fontWeight={900}>{of.of}</Typography>
+                    <Chip size="small" label={of.estado} />
+                  </Stack>
+                  <PieceGroups rows={outputs} />
+                </CardContent>
+              </Card>
+            </Grid>
           ))}
-        </Stack>
+        </Grid>
       )}
       {activePayload?.visibilidad?.pesaje === false && <Alert severity="warning" sx={{ mt: 2 }}>Tu permiso permite ver OF, pero no los datos de pesaje.</Alert>}
     </Box>
