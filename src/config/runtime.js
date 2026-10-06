@@ -21,6 +21,12 @@ export const SCM_ASSISTANT_ENABLED = String(
   import.meta.env.VITE_SCM_ASSISTANT_ENABLED || '',
 ).trim().toLowerCase() === 'true';
 
+// Assistant v2 is deliberately opt-in while the analytical chat contract is
+// validated with the SCM API. Keep the orb out of every build by default.
+export const SCM_ASSISTANT_V2_ENABLED = String(
+  import.meta.env.VITE_SCM_ASSISTANT_V2_ENABLED || '',
+).trim().toLowerCase() === 'true';
+
 export const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '').trim().replace(/\/+$/, '');
 export const SUPABASE_PUBLISHABLE_KEY = (
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''

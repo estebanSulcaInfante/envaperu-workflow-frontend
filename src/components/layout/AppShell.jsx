@@ -1,19 +1,37 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Box } from '@mui/material';
 import { useLocation } from 'react-router-dom';
 import Sidebar from '../Sidebar';
 import ActorWorkspaceBar from './ActorWorkspaceBar';
 import WorkspaceBreadcrumbs from './WorkspaceBreadcrumbs';
 import { useScmActor } from '../../context/ScmActorContext';
+import { SCM_ASSISTANT_V2_ENABLED } from '../../config/runtime';
+import AssistantV2Orb from '../assistantV2/AssistantV2Orb';
 
 function AppShell({ children }) {
   const location = useLocation();
-  const { actorId } = useScmActor();
+  const { actorId, actor, can, error, loading } = useScmActor();
   const mainRef = useRef(null);
+  const [fullscreen, setFullscreen] = useState(() => Boolean(document.fullscreenElement));
+
+  useEffect(() => {
+    const update = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', update);
+    return () => document.removeEventListener('fullscreenchange', update);
+  }, []);
 
   useEffect(() => {
     mainRef.current?.focus({ preventScroll: true });
   }, [location.pathname]);
+
+  const showAssistantV2 = useMemo(() => {
+    if (!SCM_ASSISTANT_V2_ENABLED || loading || error || !actor || fullscreen) return false;
+    if (location.pathname === '/control/avance-of-tv') return false;
+    return can('ASISTENTE_PRODUCCION_USAR')
+      && can('OT_VER')
+      && can('MANGA_PESAJE_VER');
+  }, [actor, can, error, fullscreen, loading, location.pathname]);
+  const canReviewAssistant = useMemo(() => can('AUTORIZACION_SCM_ADMINISTRAR'), [can]);
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
@@ -61,6 +79,7 @@ function AppShell({ children }) {
           {children}
         </Box>
       </Box>
+      {showAssistantV2 && <AssistantV2Orb actorId={actorId} canReview={canReviewAssistant} />}
     </Box>
   );
 }
