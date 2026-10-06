@@ -1199,6 +1199,7 @@ export default function FabricationOrdersScm() {
               renderOrder={renderOrderIdentity}
               expandedKeys={expandedObjectives}
               onExpandedChange={setExpandedObjectives}
+              showRowsWhileLoading
               asOf={progressAsOf}
             />
           ) : (

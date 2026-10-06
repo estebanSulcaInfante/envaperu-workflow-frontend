@@ -42,7 +42,7 @@ export default function AssistantV2Proposals() {
   return (
     <Stack spacing={1.25} sx={{ mt: 1 }}>
       <Typography variant="caption" sx={{ color: '#b6c1cc' }}>
-        Las propuestas preparan un diff manual. La ejecución automática está deshabilitada; cualquier cambio posterior invalida la aprobación.
+        Guardar registra una necesidad en backlog. El resumen y el diff se preparan manualmente; no hay generador ni ejecutor de codigo. Aprobar no aplica cambios.
       </Typography>
       {error && <Alert severity="error">{error}</Alert>}
       {!(payload?.items || []).length && !error && <Typography variant="body2" sx={{ color: '#d6dee8' }}>No hay propuestas para revisar.</Typography>}
@@ -52,7 +52,7 @@ export default function AssistantV2Proposals() {
             <Box sx={{ minWidth: 0 }}><Typography variant="body2" sx={{ color: '#f5f7fa', fontWeight: 750 }}>{item.need}</Typography><Typography variant="caption" sx={{ color: '#9daaba' }}>v{item.version} · {item.diff_sha256 || 'sin huella'}</Typography></Box>
             <Chip size="small" label={statusLabel[item.status] || item.status || 'Estado no informado'} sx={{ color: '#f5f7fa', borderColor: '#53667a' }} variant="outlined" />
           </Stack>
-          {item.summary && <Typography variant="body2" sx={{ color: '#d6dee8', mt: 0.75 }}>{item.summary}</Typography>}
+          {item.summary && <Typography variant="body2" sx={{ color: '#d6dee8', mt: 0.75 }}>{item.summary}</Typography>}<Typography variant="caption" sx={{ color: '#9daaba', display: 'block', mt: 0.5 }}>{item.diff ? 'Diff manual listo segun estado.' : 'Solo necesidad/backlog, sin patch.'}</Typography>
           {item.diff && <Box component="pre" sx={{ maxHeight: 130, overflow: 'auto', bgcolor: '#101820', color: '#b9c7d6', p: 1, borderRadius: 1, fontSize: 11, mt: 0.75, whiteSpace: 'pre-wrap' }}>{item.diff}</Box>}
           {item.status === 'LISTA_REVISION' && (
             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>

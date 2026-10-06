@@ -55,11 +55,23 @@ function FabricationIdentityCell({ rows = [], renderOrder }) {
 export default function FabricationProgressObjectivesTable({
   items = [], visibility = {}, orders = [], loading = false, error = '', onRetry,
   asOf = null, title = 'Comparación de objetivos', description, renderOrder,
-  expandedKeys, onExpandedChange,
+  expandedKeys, onExpandedChange, showRowsWhileLoading = false,
 }) {
   const rows = useMemo(
-    () => (loading && !items.length ? [] : objectiveComparisonRows(items, { visibility, orders })),
-    [items, loading, orders, visibility],
+    () => {
+      const projected = objectiveComparisonRows(items, { visibility, orders });
+      if (loading && !items.length && !showRowsWhileLoading) return [];
+      if (!loading || items.length) return projected;
+      return projected.map((row) => ({
+        ...row,
+        target: null,
+        final: null,
+        open: null,
+        percentage: null,
+        status: { key: 'LOADING', label: 'Consultando avance', color: 'info' },
+      }));
+    },
+    [items, loading, orders, showRowsWhileLoading, visibility],
   );
   const groups = useMemo(() => [...groupObjectiveComparisonRows(rows).values()], [rows]);
   const [internalExpanded, setInternalExpanded] = useState({});
@@ -100,7 +112,9 @@ export default function FabricationProgressObjectivesTable({
             </TableRow></TableHead>
             <TableBody>{groups.map((group) => {
               const open = Boolean(expanded[group.key]);
-              const summary = groupSummary(group.rows);
+              const summary = loading && showRowsWhileLoading && !items.length
+                ? { target: null, final: null, open: null, percentage: null, label: 'Consultando avance', color: 'info' }
+                : groupSummary(group.rows);
               return (
                 <Fragment key={group.key}>
                   <TableRow hover sx={{ '& > td': { borderBottom: open ? 0 : undefined } }}>
