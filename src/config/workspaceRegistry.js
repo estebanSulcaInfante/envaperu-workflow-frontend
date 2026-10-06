@@ -31,6 +31,7 @@ const feature = ({
   matches = [],
   aliases = [],
   requiredAny = [],
+  requiredAll = [],
   maturity = 'PILOTO',
   placeholder = null,
   task = false,
@@ -41,6 +42,7 @@ const feature = ({
   sectionHeading,
   sectionPriority,
   exact = false,
+  runtimeFlag = null,
 }) => ({
   key,
   areaKey,
@@ -51,6 +53,7 @@ const feature = ({
   matches: [path, ...matches],
   aliases,
   requiredAny,
+  requiredAll,
   maturity,
   placeholder,
   task,
@@ -61,6 +64,7 @@ const feature = ({
   sectionHeading,
   sectionPriority,
   exact,
+  runtimeFlag,
 });
 
 export const workspaceAreas = [
@@ -76,6 +80,7 @@ export const workspaceAreas = [
 ];
 
 export const workspaceFeatures = [
+  feature({ key: 'control.assistant', areaKey: 'control', sectionKey: 'assistant', label: 'Asistente de producción', description: 'Consulta de solo lectura sobre avance diario respaldado por pesajes.', path: '/control/asistente', requiredAny: ['ASISTENTE_PRODUCCION_USAR'], requiredAll: ['OT_VER', 'MANGA_PESAJE_VER'], icon: 'control', defaultPriority: 0.5, keywords: ['asistente', 'avance', 'producción', 'pesajes'], task: true, runtimeFlag: 'scmAssistantEnabled' }),
   feature({ key: 'home.workspace', areaKey: 'home', sectionKey: 'home', label: 'Inicio', description: 'Trabajo disponible para el perfil.', path: '/', icon: 'dashboard', defaultPriority: 0, exact: true }),
 
   feature({ key: 'planning.demand', areaKey: 'planning', sectionKey: 'demand', label: 'Demanda, OP y plan', description: 'Demanda, cobertura, metas y OF/OA generadas.', path: '/planificacion', matches: ['/planificacion/:solicitudId'], requiredAny: ['OP_VER', 'OP_CREAR', 'OP_APROBAR', 'PLANIFICACION_CALCULAR'], icon: 'planning', defaultPriority: 10, task: true }),
@@ -170,11 +175,13 @@ export const defaultWorkspaceRuntimeFlags = {
     && String(import.meta.env.VITE_SCM_ENABLE_PROTOTYPES || 'true').toLowerCase() !== 'false',
   allowOutOfPilot: import.meta.env.DEV
     && String(import.meta.env.VITE_SCM_ENABLE_OUT_OF_PILOT || '').toLowerCase() === 'true',
+  scmAssistantEnabled: String(import.meta.env.VITE_SCM_ASSISTANT_ENABLED || '').toLowerCase() === 'true',
 };
 
 export const featureIsPlaceholder = (item) => Boolean(item?.placeholder);
 
 export const featureIsAvailable = (item, runtimeFlags = defaultWorkspaceRuntimeFlags) => {
+  if (item?.runtimeFlag && runtimeFlags[item.runtimeFlag] !== true) return false;
   if (featureIsPlaceholder(item)) return false;
   if (!item?.maturity || ['PILOTO', 'DISPONIBLE'].includes(item.maturity)) return true;
   if (item.maturity === 'LEGACY_MARCHA_BLANCA') return runtimeFlags.showLegacy === true;
@@ -213,6 +220,7 @@ export const getWorkspaceArea = (value) => {
 
 export const visibleWorkspaceFeatures = ({
   canAny,
+  canAll,
   runtimeFlags = defaultWorkspaceRuntimeFlags,
   areaKey,
 } = {}) => workspaceFeatures.filter((item) => (
@@ -220,16 +228,18 @@ export const visibleWorkspaceFeatures = ({
   && item.navigation !== false
   && featureIsDiscoverable(item, runtimeFlags)
   && (!canAny || canAny(item.requiredAny || []))
+  && (!canAll || canAll(item.requiredAll || []))
 ));
 
 export const buildAreaNavigation = ({
   canAny,
+  canAll,
   runtimeFlags = defaultWorkspaceRuntimeFlags,
 } = {}) => workspaceAreas
-  .filter((area) => visibleWorkspaceFeatures({ canAny, runtimeFlags, areaKey: area.key }).length > 0)
+  .filter((area) => visibleWorkspaceFeatures({ canAny, canAll, runtimeFlags, areaKey: area.key }).length > 0)
   .sort((left, right) => left.order - right.order)
   .map((area) => {
-    const features = visibleWorkspaceFeatures({ canAny, runtimeFlags, areaKey: area.key })
+    const features = visibleWorkspaceFeatures({ canAny, canAll, runtimeFlags, areaKey: area.key })
       .sort((left, right) => (
         left.defaultPriority - right.defaultPriority
         || left.label.localeCompare(right.label, 'es')

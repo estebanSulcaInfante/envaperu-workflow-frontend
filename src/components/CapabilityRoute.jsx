@@ -6,9 +6,9 @@ import ArrowBackOutlinedIcon from '@mui/icons-material/ArrowBackOutlined';
 import { Link as RouterLink } from 'react-router-dom';
 import { useScmActor } from '../context/ScmActorContext';
 
-export default function CapabilityRoute({ any = [], children }) {
+export default function CapabilityRoute({ any = [], all = [], children }) {
   const {
-    actor, canAny, error, loading, refreshActors,
+    actor, can, canAny, error, loading, refreshActors,
   } = useScmActor();
 
   if (loading) {
@@ -43,7 +43,10 @@ export default function CapabilityRoute({ any = [], children }) {
     );
   }
 
-  if (canAny(any)) return children;
+  const hasRequiredAll = !all.length || (
+    typeof can === 'function' && all.every((capability) => can(capability))
+  );
+  if (canAny(any) && hasRequiredAll) return children;
 
   return (
     <Box sx={{ maxWidth: 760, mx: 'auto', py: 6 }}>

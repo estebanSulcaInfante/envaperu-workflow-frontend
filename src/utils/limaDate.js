@@ -14,3 +14,11 @@ export const isoDateInLima = (value = new Date()) => {
 };
 
 export const todayInLima = () => isoDateInLima(new Date());
+
+export const yesterdayInLima = () => {
+  const today = todayInLima();
+  if (!today) return '';
+  const date = new Date(`${today}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return isoDateInLima(date);
+};

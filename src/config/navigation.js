@@ -69,6 +69,6 @@ export const visibleByCapabilities = (
   && canAny(item.requiredAny || [])
 ));
 
-export const buildVisibleWorkspaceNavigation = ({ canAny, runtimeFlags } = {}) => (
-  buildAreaNavigation({ canAny, runtimeFlags })
+export const buildVisibleWorkspaceNavigation = ({ canAny, canAll, runtimeFlags } = {}) => (
+  buildAreaNavigation({ canAny, canAll, runtimeFlags })
 );

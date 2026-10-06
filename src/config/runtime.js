@@ -15,6 +15,12 @@ export const SCM_PROFILE_SWITCH_ENABLED = SCM_AUTH_MODE === 'local_actor'
   && import.meta.env.DEV
   && configuredActorSwitch !== false;
 
+// Explicit opt-in for the assistant pilot. The default is false so a build
+// cannot expose the route before identity/provider validation is complete.
+export const SCM_ASSISTANT_ENABLED = String(
+  import.meta.env.VITE_SCM_ASSISTANT_ENABLED || '',
+).trim().toLowerCase() === 'true';
+
 export const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '').trim().replace(/\/+$/, '');
 export const SUPABASE_PUBLISHABLE_KEY = (
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''

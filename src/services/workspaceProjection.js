@@ -99,6 +99,7 @@ export function buildActorWorkspace({
     featureIsDiscoverable(item, runtimeFlags)
     && (!(item.requiredAny || []).length
       || (item.requiredAny || []).some((code) => capabilities.has(code)))
+    && (item.requiredAll || []).every((code) => capabilities.has(code))
   );
 
   const eligibleByKey = new Map();

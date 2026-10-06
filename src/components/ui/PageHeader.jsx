@@ -8,6 +8,7 @@ function PageHeader({ title, description, actions }) {
       justifyContent="space-between"
       alignItems={{ lg: 'flex-end' }}
       spacing={1.25}
+      sx={{ minWidth: 0 }}
     >
       <Box sx={{ minWidth: 0 }}>
         <Typography component="h1" variant="h4" sx={{ fontSize: { xs: 24, md: 28 }, fontWeight: 850 }}>

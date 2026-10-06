@@ -57,6 +57,7 @@ import WarehouseKgCustodyScm from './components/WarehouseKgCustodyScm';
 import WarehouseSetupScm from './components/WarehouseSetupScm';
 import PreparedMaterialMachineScanner from './components/PreparedMaterialMachineScanner';
 import ControlAvanceOfTv from './components/ControlAvanceOfTv';
+import ScmAssistantPage from './components/ScmAssistantPage';
 
 const workspace = (featureKey, element) => (
   <WorkspaceFeatureRoute featureKey={featureKey}>{element}</WorkspaceFeatureRoute>
@@ -168,6 +169,7 @@ function App() {
                 <Route path="/produccion/talonarios" element={workspace('control.talonarios', <TalonariosAdmin />)} />
                 <Route path="/control" element={<WorkspaceAreaRedirect areaKey="control" />} />
                 <Route path="/control/supervision-produccion" element={workspace('control.productionSupervision', <ProductionSupervisionScm />)} />
+                <Route path="/control/asistente" element={workspace('control.assistant', <ScmAssistantPage />)} />
                 <Route path="/control/avance-of-tv" element={workspace('control.productionProgressTv', <ControlAvanceOfTv />)} />
                 <Route path="/control/avance-of" element={workspace('control.productionProgress', <ControlConsolidationRedirect />)} />
                 <Route path="/control/historico-produccion" element={workspace('control.productionHistory', <ProductionHistoryScm />)} />

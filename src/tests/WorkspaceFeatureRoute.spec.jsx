@@ -68,6 +68,54 @@ describe('guarda unificada por función del workspace', () => {
     expect(canAny).toHaveBeenCalledWith(['OT_VER']);
   });
 
+  it('protege el asistente con capacidad de rol y permisos de datos', () => {
+    const canAny = vi.fn((required) => required.includes('ASISTENTE_PRODUCCION_USAR'));
+    const can = vi.fn((capability) => ['OT_VER', 'MANGA_PESAJE_VER'].includes(capability));
+    actorState = {
+      actor: { nombre_corto: 'Asistente SCM' },
+      can,
+      canAny,
+      error: '',
+      loading: false,
+      refreshActors: vi.fn(),
+    };
+
+    renderRoute('control.assistant', {
+      showLegacy: false,
+      allowPrototype: false,
+      allowOutOfPilot: false,
+      scmAssistantEnabled: true,
+    });
+
+    expect(screen.getByText('Vista operativa montada')).toBeVisible();
+    expect(canAny).toHaveBeenCalledWith(['ASISTENTE_PRODUCCION_USAR']);
+    expect(can).toHaveBeenCalledWith('OT_VER');
+    expect(can).toHaveBeenCalledWith('MANGA_PESAJE_VER');
+  });
+
+  it('no monta el asistente si falta un permiso de datos', () => {
+    const canAny = vi.fn(() => true);
+    const can = vi.fn((capability) => capability === 'OT_VER');
+    actorState = {
+      actor: { nombre_corto: 'Asistente sin pesajes' },
+      can,
+      canAny,
+      error: '',
+      loading: false,
+      refreshActors: vi.fn(),
+    };
+
+    renderRoute('control.assistant', {
+      showLegacy: false,
+      allowPrototype: false,
+      allowOutOfPilot: false,
+      scmAssistantEnabled: true,
+    });
+
+    expect(screen.queryByText('Vista operativa montada')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Esta vista no corresponde a tu funci.n/ })).toBeVisible();
+  });
+
   it('falla cerrado y permite reintentar cuando no puede verificar identidad', () => {
     const refreshActors = vi.fn();
     actorState = {
