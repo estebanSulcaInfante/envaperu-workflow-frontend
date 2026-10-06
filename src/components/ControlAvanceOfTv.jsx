@@ -183,7 +183,7 @@ export default function ControlAvanceOfTv() {
   return (
     <Box ref={rootRef} data-testid="control-avance-of-tv" sx={{ maxWidth: tvMode ? 'none' : 1500, mx: 'auto', p: tvMode ? { xs: 2, md: 4 } : 0, bgcolor: 'background.default', minHeight: tvMode ? '100vh' : undefined, '&:fullscreen': { overflow: 'auto', bgcolor: 'background.default' } }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={1} sx={{ mb: 2 }}>
-      <Box><Typography component="h1" variant={tvMode ? 'h3' : 'h4'} fontWeight={850}>Avance OF · TV</Typography><Typography color="text.secondary">Pesajes vigentes por OF, objetivo de color y pieza-color.</Typography></Box>
+      <Box><Typography component="h1" variant={tvMode ? 'h3' : 'h4'} fontWeight={850}>Avance OF</Typography><Typography color="text.secondary">Pesajes vigentes por OF, objetivo de color y pieza-color.</Typography></Box>
         <Stack direction="row" spacing={1} alignItems="center">
           <Typography variant="body2" color="text.secondary">Última consulta exitosa: {lastSuccessLabel}</Typography>
           <Tooltip title="Actualizar ahora"><IconButton aria-label="Actualizar ahora" onClick={() => refresh()}><RefreshOutlinedIcon /></IconButton></Tooltip>

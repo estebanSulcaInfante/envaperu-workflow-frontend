@@ -20,6 +20,8 @@ describe('US-010N1: registro único del workspace', () => {
   });
   it('clasifica rutas físicas por función y no por prefijo', () => {
     expect(getWorkspaceFeature('/produccion/kardex')?.key).toBe('warehouse.kardex');
+    expect(getWorkspaceFeature('/control/avance-of-tv')?.label).toBe('Avance OF');
+    expect(getWorkspaceFeature('/control/avance-of-tv')?.areaKey).toBe('control');
     expect(getWorkspaceFeature('/produccion/recepcion-mangas')?.areaKey).toBe('warehouse');
     expect(getWorkspaceFeature('/produccion/reproceso')?.areaKey).toBe('materials');
     expect(getWorkspaceFeature('/produccion/alertas')?.areaKey).toBe('control');

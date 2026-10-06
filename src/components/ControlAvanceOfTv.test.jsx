@@ -35,6 +35,7 @@ describe('ControlAvanceOfTv', () => {
     render(<ControlAvanceOfTv />);
 
     expect(await screen.findAllByRole('heading', { name: 'OF-000001' })).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Avance OF$/);
     expect(screen.getAllByRole('heading', { level: 5 }).map((heading) => heading.textContent)).toEqual(['OF-000001', 'OF-000002']);
     expect(screen.getByText('PC-000001')).toBeInTheDocument();
     fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Orden de OF' }));
