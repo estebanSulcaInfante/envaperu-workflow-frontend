@@ -102,6 +102,11 @@ export const listarAvanceOfScm = (filters = {}) => {
   });
 };
 
+export const listarAvanceOfTvScm = (filters = {}) => get(
+  '/scm/v1/observabilidad/avance-of-tv',
+  { signal: filters.signal },
+);
+
 export const listarProduccionHistoricaScm = (filters = {}) => get(
   '/scm/v1/observabilidad/produccion-historica',
   { params: productionHistoryParams(filters, { includeHierarchy: true }), signal: filters.signal },
