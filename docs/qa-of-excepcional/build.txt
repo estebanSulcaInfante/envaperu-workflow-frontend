@@ -1,0 +1,18 @@
+
+> envaperu-frontend@0.0.0 build
+> vite build
+
+vite v7.3.6 building client environment for production...
+transforming...
+Γ£ô 1356 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                     0.48 kB Γöé gzip:   0.30 kB
+dist/assets/index-5rrrnaxN.css      6.60 kB Γöé gzip:   1.89 kB
+dist/assets/index-Cl5aNpxx.js   2,502.64 kB Γöé gzip: 711.86 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+Γ£ô built in 4.33s

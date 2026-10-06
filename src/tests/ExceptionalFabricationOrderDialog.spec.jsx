@@ -1,5 +1,5 @@
 import { ThemeProvider, createTheme } from '@mui/material';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -88,6 +88,189 @@ describe('alta de reposición: intento idempotente', () => {
     api.createMold.mockReset();
     api.enableColor.mockReset();
     api.create.mockReset();
+  });
+
+  it('precarga variantes únicas sin metas ni crear OF y conserva la selección al refrescar catálogos', async () => {
+    const user = userEvent.setup();
+    let lateArticles;
+    api.articles.mockReturnValueOnce(new Promise((resolve) => { lateArticles = resolve; }));
+    api.mold.mockResolvedValue({ ...mold, formas: [{ ...mold.formas[0], variantes: [
+      { color_produccion_id: 1, sku: 'SKU-1' },
+      { color_produccion_id: 2, sku: 'SKU-2' },
+      { color_produccion_id: 2, sku: 'SKU-2' },
+      { color_produccion_id: 3, sku: 'SKU-3', activo: false },
+    ] }] });
+    const props = { open: true, molds: [{ codigo: 'M-1', nombre: 'Molde 1' }], machines: [],
+      colors: [{ id: 1, nombre: 'Rojo' }, { id: 2, nombre: 'Azul' }], recipes: [], onClose: vi.fn(), onCreated: vi.fn() };
+    const ui = (values) => <ThemeProvider theme={createTheme()}><MemoryRouter><ExceptionalFabricationOrderDialog {...values} /></MemoryRouter></ThemeProvider>;
+    const view = render(ui(props));
+    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    await user.click(screen.getByRole('option', { name: /Molde 1/ }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Color del objetivo 2' })).toHaveValue('Azul'));
+    expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(null);
+    expect(screen.queryByRole('combobox', { name: 'Color del objetivo 3' })).not.toBeInTheDocument();
+    await user.type(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' }), '12');
+    await user.click(screen.getByRole('button', { name: 'Eliminar objetivo de color 2' }));
+    await act(async () => lateArticles([{ id: 99, clase: 'PIEZA_COLOR', subtipo: { pieza_color_sku: 'SKU-1' } }]));
+    view.rerender(ui({ ...props, molds: [...props.molds], colors: [...props.colors], recipes: [] }));
+    expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(12);
+    expect(screen.queryByRole('combobox', { name: 'Color del objetivo 2' })).not.toBeInTheDocument();
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('conserva metas en el mismo molde y pide confirmación al cambiarlo', async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    api.molds.mockResolvedValue([{ ...mold, nombre: 'Molde 1' }, { ...mold, codigo: 'M-2', nombre: 'Molde 2' }]);
+    renderDialog();
+    await fillValidForm(user);
+    const selectFromCatalog = async (name) => {
+      await user.click(screen.getByRole('button', { name: 'Molde: acciones' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Buscar en catálogo' }));
+      const row = await screen.findByRole('row', { name });
+      await user.click(within(row).getByRole('button', { name: 'Seleccionar' }));
+    };
+    const before = api.mold.mock.calls.length;
+    await selectFromCatalog(/M-1/);
+    expect(api.mold).toHaveBeenCalledTimes(before);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(10);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Molde' }), { target: { value: 'Molde 2' } });
+    await user.click(await screen.findByRole('option', { name: /Molde 2/ }));
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(screen.getByRole('combobox', { name: 'Molde' })).toHaveValue('Molde 1');
+    expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(10);
+    confirm.mockReturnValue(true);
+    await selectFromCatalog(/Molde 2/);
+    await waitFor(() => expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(null));
+    expect(screen.getByRole('combobox', { name: 'Color del objetivo 1' })).toHaveValue('Rojo');
+    expect(api.create).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('ignora respuestas de moldes anteriores y conserva metas al cargar artículos tardíos', async () => {
+    const user = userEvent.setup();
+    let firstMold;
+    let articles;
+    api.mold.mockReturnValueOnce(new Promise((resolve) => { firstMold = resolve; })).mockResolvedValue(mold);
+    api.articles.mockReturnValueOnce(new Promise((resolve) => { articles = resolve; }));
+    render(<ThemeProvider theme={createTheme()}><MemoryRouter><ExceptionalFabricationOrderDialog open
+      molds={[{ codigo: 'M-1', nombre: 'Molde 1' }, { codigo: 'M-2', nombre: 'Molde 2' }]}
+      machines={[]} colors={[{ id: 1, nombre: 'Rojo' }]} recipes={[]} onClose={vi.fn()} onCreated={vi.fn()} />
+    </MemoryRouter></ThemeProvider>);
+    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    await user.click(screen.getByRole('option', { name: /Molde 1/ }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Molde' }), { target: { value: 'Molde 2' } });
+    await user.click(await screen.findByRole('option', { name: /Molde 2/ }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Color del objetivo 1' })).toHaveValue('Rojo'));
+    await user.type(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' }), '8');
+    await act(async () => { firstMold({ ...mold, formas: [] }); articles([{ id: 99, clase: 'PIEZA_COLOR', subtipo: { pieza_color_sku: 'SKU-1' } }]); });
+    expect(screen.getByRole('combobox', { name: 'Molde' })).toHaveValue('Molde 2');
+    expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(8);
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('distingue error de molde de catálogo vacío y no crea una OF', async () => {
+    const user = userEvent.setup();
+    api.mold.mockRejectedValueOnce(new Error('Catálogo no disponible'));
+    renderDialog();
+    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    await user.click(screen.getByRole('option', { name: /Molde 1/ }));
+    expect(await screen.findByText('Catálogo no disponible')).toBeVisible();
+    expect(screen.queryByText(/Este molde no tiene variantes/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Crear OF en borrador' })).toBeDisabled();
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('cancelar y reabrir empieza un borrador limpio incluso con respuesta anterior pendiente', async () => {
+    const user = userEvent.setup();
+    let late;
+    api.mold.mockReturnValueOnce(new Promise((resolve) => { late = resolve; })).mockResolvedValue(mold);
+    const props = { molds: [{ codigo: 'M-1', nombre: 'Molde 1' }], machines: [], colors: [{ id: 1, nombre: 'Rojo' }], recipes: [], onClose: vi.fn(), onCreated: vi.fn() };
+    const ui = (open) => <ThemeProvider theme={createTheme()}><MemoryRouter><ExceptionalFabricationOrderDialog {...props} open={open} /></MemoryRouter></ThemeProvider>;
+    const view = render(ui(true));
+    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    await user.click(screen.getByRole('option', { name: /Molde 1/ }));
+    view.rerender(ui(false));
+    view.rerender(ui(true));
+    await act(async () => late(mold));
+    expect(screen.getByRole('combobox', { name: 'Molde' })).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: 'Color del objetivo 1' })).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(props.onClose).toHaveBeenCalledOnce();
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('resuelve etiquetas de colores tardíos sin resetear metas y bloquea recetas retiradas', async () => {
+    const user = userEvent.setup();
+    const recipe = { id: 51, color_produccion_id: 1, estado: 'APROBADA', es_default: true, nombre_variante: 'Receta QA', lineas: [] };
+    const props = { open: true, molds: [{ codigo: 'M-1', nombre: 'Molde 1' }], machines: [], colors: [], recipes: [recipe], onClose: vi.fn(), onCreated: vi.fn() };
+    const ui = (values) => <ThemeProvider theme={createTheme()}><MemoryRouter><ExceptionalFabricationOrderDialog {...values} /></MemoryRouter></ThemeProvider>;
+    const view = render(ui(props));
+    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    await user.click(screen.getByRole('option', { name: /Molde 1/ }));
+    expect(await screen.findByText(/Color 1 ausente o inactivo/)).toBeVisible();
+    await user.type(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' }), '7');
+    view.rerender(ui({ ...props, colors: [{ id: 1, nombre: 'Rojo' }], recipes: [{ ...recipe, estado: 'RETIRADA' }] }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Color del objetivo 1' })).toHaveValue('Rojo'));
+    expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(7);
+    expect(await screen.findByText(/La receta seleccionada ya no está disponible/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Crear OF en borrador' })).toBeDisabled();
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('informa variantes vacías o inactivas sin inventar objetivos', async () => {
+    const user = userEvent.setup();
+    api.mold.mockResolvedValue({ ...mold, formas: [{ ...mold.formas[0], variantes: [{ color_produccion_id: 1, activo: false }] }] });
+    renderDialog();
+    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    await user.click(screen.getByRole('option', { name: /Molde 1/ }));
+    expect(await screen.findByText(/Este molde no tiene variantes de color activas/)).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Color del objetivo 1' })).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Crear OF en borrador' })).toBeDisabled();
+  });
+
+  it('habilitar color refresca el molde sin restaurar valores capturados antes de la espera', async () => {
+    const user = userEvent.setup();
+    let enabled;
+    api.mold.mockResolvedValueOnce({ ...mold, formas: [{ ...mold.formas[0], variantes: [] }] }).mockResolvedValue(mold);
+    api.enableColor.mockReturnValueOnce(new Promise((resolve) => { enabled = resolve; }));
+    renderDialog();
+    await fillValidForm(user);
+    await user.click(screen.getByRole('button', { name: 'Habilitar color en todo el molde' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Tiempo de ciclo (s)' }), { target: { value: '25' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Peso de colada (g)' }), { target: { value: '3' } });
+    await act(async () => enabled({}));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Habilitando color.' })).not.toBeInTheDocument());
+    expect(screen.getByRole('spinbutton', { name: 'Tiempo de ciclo (s)' })).toHaveValue(25);
+    expect(screen.getByRole('spinbutton', { name: 'Peso de colada (g)' })).toHaveValue(3);
+    expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(10);
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('espera una recarga de ruta seleccionada y permite retirar una referencia ya no disponible', async () => {
+    const user = userEvent.setup();
+    api.routes.mockResolvedValue([{ id: 20, estado: 'APROBADA', operaciones: [{
+      id: 299, executor_kind: 'OP_OT', tipo: 'INYECCION', nombre: 'Inyectar QA', articulo_salida: { id: 99 },
+    }] }]);
+    renderDialog();
+    await fillValidForm(user);
+    await user.click(screen.getByRole('combobox', { name: 'Operación de ruta (opcional)' }));
+    await user.click(await screen.findByRole('option', { name: /Inyectar QA/ }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Crear OF en borrador' })).toBeEnabled());
+    let routes;
+    api.routes.mockReturnValueOnce(new Promise((resolve) => { routes = resolve; }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' }), { target: { value: '12' } });
+    await waitFor(() => expect(routes).toBeDefined());
+    expect(screen.getByRole('button', { name: 'Crear OF en borrador' })).toBeDisabled();
+    await act(async () => routes([]));
+    expect(await screen.findByText(/La ruta seleccionada ya no está disponible/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Crear OF en borrador' })).toBeDisabled();
+    api.routes.mockResolvedValue([]);
+    await user.click(screen.getByRole('button', { name: 'Retirar referencia' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Crear OF en borrador' })).toBeEnabled());
+    expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(12);
+    expect(api.create).not.toHaveBeenCalled();
   });
 
   it('expone acciones contextuales del molde dentro de la misma ventana', async () => {

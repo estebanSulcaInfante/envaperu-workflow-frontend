@@ -1,0 +1,12 @@
+
+> envaperu-frontend@0.0.0 lint
+> eslint .
+
+
+C:\Users\esteb\Documents\Codex\2026-10-05\task-5\frontend-of\src\components\ColoresRecetasAdmin.jsx
+  241:39  warning  React Hook useEffect has a missing dependency: 'loadCatalog'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\esteb\Documents\Codex\2026-10-05\task-5\frontend-of\src\components\OtMangasScm.jsx
+  1255:6  warning  React Hook useEffect has a missing dependency: 'reliefWorkers'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+Γ£û 2 problems (0 errors, 2 warnings)

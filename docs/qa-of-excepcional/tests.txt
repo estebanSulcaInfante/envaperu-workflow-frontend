@@ -1,0 +1,12 @@
+
+> envaperu-frontend@0.0.0 test:run
+> vitest --run src/tests/ExceptionalFabricationOrderDialog.spec.jsx src/tests/ExceptionalColorDefaults.spec.js src/tests/FabricationOrdersScm.spec.jsx
+
+
+ RUN  v4.1.5 C:/Users/esteb/Documents/Codex/2026-10-05/task-5/frontend-of
+
+
+ Test Files  3 passed (3)
+      Tests  67 passed (67)
+   Start at  23:43:26
+   Duration  104.64s (transform 817ms, setup 499ms, import 2.67s, tests 146.76s, environment 2.18s)

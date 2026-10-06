@@ -13,7 +13,8 @@ import {
 import * as scmEngineeringApi from '../services/scmEngineeringApi';
 import { crearOrdenFabricacionExcepcionalScm } from '../services/scmOtApi';
 import FabricationRecipeSelector from './FabricationRecipeSelector';
-import { defaultRecipeForRun } from './fabricationRecipeOptions';
+import { approvedRecipesForRun, defaultRecipeForRun } from './fabricationRecipeOptions';
+import { exceptionalColorIds } from './exceptionalColorDefaults';
 import SearchableCatalogAutocomplete from './ui/SearchableCatalogAutocomplete';
 import WeightInput from './ui/WeightInput';
 import PieceCompositionEditor from './productOnboarding/PieceCompositionEditor';
@@ -80,12 +81,12 @@ const safeColorMutationError = (error, fallback) => {
 const exceptionalOutputsForRun = (mold, articles, colorId) => {
   const articlesBySku = new Map(
     articles
-      .filter((article) => article.clase === 'PIEZA_COLOR')
+      .filter((article) => article.clase === 'PIEZA_COLOR' && article.activo !== false)
       .map((article) => [article.subtipo?.pieza_color_sku, article]),
   );
   return (mold?.formas || []).filter((shape) => shape.activo !== false).map((shape) => {
     const variant = (shape.variantes || []).find(
-      (item) => Number(item.color_produccion_id) === Number(colorId),
+      (item) => item.activo !== false && Number(item.color_produccion_id) === Number(colorId),
     );
     const article = variant ? articlesBySku.get(variant.sku) : null;
     return {
@@ -140,6 +141,7 @@ export default function ExceptionalFabricationOrderDialog({
   const [reasonOption, setReasonOption] = useState('');
   const [reasonOther, setReasonOther] = useState('');
   const [moldId, setMoldId] = useState('');
+  const [moldSelectionRevision, setMoldSelectionRevision] = useState(0);
   const [machineId, setMachineId] = useState('');
   const [cycleSeconds, setCycleSeconds] = useState('');
   const [shiftHours, setShiftHours] = useState('8');
@@ -183,9 +185,15 @@ export default function ExceptionalFabricationOrderDialog({
   const articleGenerationRef = useRef(0);
   const moldGenerationRef = useRef(0);
   const catalogGenerationRef = useRef(0);
+  const openingCatalogsRef = useRef({ colors, molds, recipes });
+  useEffect(() => {
+    openingCatalogsRef.current = { colors, molds, recipes };
+  }, [colors, molds, recipes]);
 
   useEffect(() => {
     if (!open) return undefined;
+    // Catalog refreshes update options, not the user's in-memory draft.
+    const { colors, molds, recipes } = openingCatalogsRef.current;
     let active = true;
     setReason('');
     setReasonOption('');
@@ -299,13 +307,16 @@ export default function ExceptionalFabricationOrderDialog({
         setArticleCatalogError(message);
         setError(message);
       });
-    return () => { active = false; };
-  }, [colors, initialSource, molds, open, recipes]);
+    return () => {
+      active = false;
+      moldGenerationRef.current += 1;
+    };
+  }, [initialSource, open]);
 
   useEffect(() => { if (!initialSource) setLocalColors(colors || []); }, [colors, initialSource]);
   useEffect(() => { if (!initialSource) setLocalRecipes(recipes || []); }, [initialSource, recipes]);
   useEffect(() => {
-    if (open) setMoldCatalog((current) => current.length ? current : (molds || []));
+    if (open) setMoldCatalog(molds || []);
   }, [molds, open]);
 
 
@@ -386,10 +397,14 @@ export default function ExceptionalFabricationOrderDialog({
   }, [duplicateCatalogState, initialSource, localRecipes]);
 
   const chooseMold = async (nextMoldId, { preserveMetrics = false } = {}) => {
-    const previousCycleSeconds = cycleSeconds;
-    const previousRunnerWeight = runnerWeight;
-    const previousMachineId = machineId;
-    const previousRouteIds = runs.map((run) => run.operacion_ruta_revision_id || '');
+    if (!initialSource && !preserveMetrics && nextMoldId === moldId && mold) return;
+    if (!initialSource && !preserveMetrics && nextMoldId !== moldId
+      && runs.some((run) => run.color_produccion_id || run.objetivo_neto_kg || run.receta_revision_id)
+      && !window.confirm('Cambiar el molde sustituirá los objetivos de color y sus metas. ¿Descartar estos objetivos y cargar las variantes del nuevo molde?')) {
+      // Autocomplete keeps its own search text; restore the accepted identity.
+      setMoldSelectionRevision((revision) => revision + 1);
+      return;
+    }
     const generation = ++moldGenerationRef.current;
     setMoldId(nextMoldId);
     setMold(null);
@@ -397,16 +412,17 @@ export default function ExceptionalFabricationOrderDialog({
       setDuplicateReviewConfirmed(false);
       setDuplicateComparison({ changed: false, messages: [] });
     }
-    setMachineId(preserveMetrics ? previousMachineId : '');
-    setRuns((current) => current.map((run, index) => ({
+    if (!preserveMetrics) setMachineId('');
+    if (!preserveMetrics) setRuns((current) => current.map((run) => ({
       ...run,
-      operacion_ruta_revision_id: preserveMetrics ? (previousRouteIds[index] || '') : '',
+      operacion_ruta_revision_id: '',
       ...(initialSource && !preserveMetrics
         ? { source_route_selection_touched: true, source_route_decision: '' }
         : {}),
     })));
     setError('');
     if (!nextMoldId) {
+      if (!initialSource && !preserveMetrics) setRuns([emptyRun()]);
       setLoadingMold(false);
       return;
     }
@@ -415,13 +431,18 @@ export default function ExceptionalFabricationOrderDialog({
       const detail = await obtenerMolde(nextMoldId);
       if (moldGenerationRef.current !== generation) return;
       setMold(detail);
+      if (!initialSource && !preserveMetrics) {
+        const ids = exceptionalColorIds(detail, openingCatalogsRef.current.colors);
+        setRuns(ids.length ? ids.map((id) => ({
+          ...emptyRun(`default-${generation}-${id}`),
+          color_produccion_id: id,
+          receta_revision_id: defaultRecipeForRun(recipeOptions, { salidas: [] }, id)?.id || '',
+        })) : [emptyRun()]);
+      }
       if (initialSource) setDuplicateComparison(compareMoldComposition(initialSource, detail));
       if (!preserveMetrics) {
         setCycleSeconds(String(detail.tiempo_ciclo_std ?? ''));
         setRunnerWeight(String(Math.max(Number(detail.peso_colada_gr || 0), 0)));
-      } else {
-        setCycleSeconds(previousCycleSeconds);
-        setRunnerWeight(previousRunnerWeight);
       }
     } catch (requestError) {
       if (moldGenerationRef.current !== generation) return;
@@ -600,10 +621,17 @@ export default function ExceptionalFabricationOrderDialog({
     && runs.every((run) => Number(run.color_produccion_id) > 0
       && Number(run.objetivo_neto_kg) > 0)
     && processResolution.valid
+    && (!runs.some((run) => run.operacion_ruta_revision_id)
+      || (routeCatalogState === 'ready' && !routeLoading && !routeError))
     && selectedMachineCompatible
     && !duplicateColors
     && outputsComplete
     && !uncertainAttempt
+    && (initialSource || (articleCatalogState === 'ready'
+      && mold?.activo !== false
+      && runs.every((run) => colorOptions.some((color) => String(color.id) === String(run.color_produccion_id) && color.activo !== false)
+        && (!run.receta_revision_id || approvedRecipesForRun(recipeOptions, { salidas: [] }, run.color_produccion_id)
+          .some((recipe) => String(recipe.id) === String(run.receta_revision_id))))))
     && (!initialSource || duplicateReviewConfirmed)
     && (!initialSource || (
       articleCatalogState === 'ready'
@@ -614,6 +642,8 @@ export default function ExceptionalFabricationOrderDialog({
       && duplicateRoutePending.length === 0
     ))
     && !busy
+    && !colorMutationBusy
+    && !masterBusy
     && !loadingMold
     && (!initialSource || duplicateCatalogState === 'ready')
   );
@@ -1073,6 +1103,7 @@ export default function ExceptionalFabricationOrderDialog({
               {moldWorkspace === 'select' && !masterPanel && (
                 <Stack spacing={1}>
                   <SearchableCatalogAutocomplete
+                    key={moldSelectionRevision}
                     id="exceptional-of-mold"
                     label="Molde"
                     options={moldCatalog}
@@ -1233,7 +1264,9 @@ export default function ExceptionalFabricationOrderDialog({
             </Alert>
             {routeError && (
               <Alert severity="warning" sx={{ gridColumn: '1 / -1', display: parentFormVisible ? undefined : 'none' }}>
-                {routeError} La copia queda bloqueada hasta consultar las rutas actuales correctamente; reintenta al cambiar el molde o el color.
+                {routeError} {initialSource
+                  ? 'La copia queda bloqueada hasta consultar las rutas actuales correctamente; reintenta al cambiar el molde o el color.'
+                  : 'No se han podido consultar las rutas. Para continuar sin ruta, selecciona un proceso explícito; el servidor validará la configuración al guardar.'}
               </Alert>
             )}
             <TextField required type="number" label="Tiempo de ciclo (s)" value={cycleSeconds} onChange={(event) => setCycleSeconds(event.target.value)} disabled={busy || Boolean(uncertainAttempt)} sx={{ display: parentFormVisible ? undefined : 'none' }} slotProps={{ htmlInput: { min: 0.001, step: 'any' } }} />
@@ -1242,6 +1275,13 @@ export default function ExceptionalFabricationOrderDialog({
           </Box>
 
           <Divider sx={{ display: parentFormVisible ? undefined : 'none' }} />
+          {!initialSource && parentFormVisible && mold && (
+            <Alert severity={exceptionalColorIds(mold, colorOptions).length ? 'info' : 'warning'}>
+              {exceptionalColorIds(mold, colorOptions).length
+                ? 'Se precargan los colores activos de las piezas del molde una sola vez. Puedes quitar colores y ajustar sus metas antes de crear el borrador.'
+                : 'Este molde no tiene variantes de color activas disponibles. Revisa su configuración o selecciona otro molde.'}
+            </Alert>
+          )}
           <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={1} sx={{ display: parentFormVisible ? undefined : 'none' }}>
             <Box>
               <Typography variant="h6" component="h3" fontWeight={800}>Objetivos por color</Typography>
@@ -1295,7 +1335,7 @@ export default function ExceptionalFabricationOrderDialog({
                     required
                     value={run.objetivo_neto_kg}
                     onChange={(event) => updateRun(runIndex, { objetivo_neto_kg: event.target.value })}
-                    disabled={busy || Boolean(uncertainAttempt)}
+                    disabled={allBusy}
                     slotProps={{ htmlInput: { min: 0, step: 0.001 } }}
                     helperText="Obligatorio: indica kg netos para calcular ciclos completos; los kg reales vienen del pesaje."
                   />
@@ -1311,7 +1351,7 @@ export default function ExceptionalFabricationOrderDialog({
                   </Box>
                   <IconButton
                     aria-label={`Eliminar objetivo de color ${runIndex + 1}`}
-                    disabled={runs.length === 1 || busy || Boolean(uncertainAttempt)}
+                    disabled={runs.length === 1 || allBusy}
                     onClick={() => {
                       setRuns((current) => current.filter((_, index) => index !== runIndex));
                       setMachineId('');
@@ -1329,6 +1369,16 @@ export default function ExceptionalFabricationOrderDialog({
                     {' '}La producción real se registra con pesajes.
                   </Alert>
                 )}
+                {!initialSource && run.color_produccion_id
+                  && !colorOptions.some((color) => String(color.id) === String(run.color_produccion_id) && color.activo !== false) && (
+                  <Alert severity="warning">
+                    {`Color ${run.color_produccion_id} ausente o inactivo en el catálogo; revisa la configuración antes de guardar.`}
+                  </Alert>
+                )}
+                {!initialSource && run.receta_revision_id && !approvedRecipesForRun(recipeOptions, { salidas: [] }, run.color_produccion_id)
+                  .some((recipe) => String(recipe.id) === String(run.receta_revision_id)) && (
+                  <Alert severity="warning">La receta seleccionada ya no está disponible como aprobada para este color. Selecciona otra receta antes de guardar.</Alert>
+                )}
                 {run.color_produccion_id && (
                   <FabricationRecipeSelector
                     idPrefix={`exceptional-run-${run.key}`}
@@ -1336,7 +1386,7 @@ export default function ExceptionalFabricationOrderDialog({
                     colorId={run.color_produccion_id}
                     recipes={recipeOptions}
                     value={run.receta_revision_id}
-                    editable={!busy && !uncertainAttempt}
+                    editable={!allBusy}
                     onChange={(recipeId) => updateRun(runIndex, {
                       receta_revision_id: recipeId,
                     })}
@@ -1372,10 +1422,17 @@ export default function ExceptionalFabricationOrderDialog({
                     getPrimary={(option) => `${option.nombre} · ${fabricationProcessLabel(option.proceso)}`}
                     getSecondary={(option) => option.articulo_salida?.nombre || option.articulo_salida?.codigo || option.route_codigo}
                     loading={routeLoading}
-                    disabled={busy || Boolean(uncertainAttempt)}
+                    disabled={allBusy}
                     noOptionsText={routeLoading ? 'Cargando rutas compatibles…' : 'Sin ruta aprobada para estas salidas'}
                     helperText="Sólo se muestran revisiones APROBADA / OP_OT con salida exacta del objetivo."
                   />
+                )}
+                {!initialSource && run.operacion_ruta_revision_id && routeCatalogState === 'ready'
+                  && !routeOptionsForRun({ ...run, salidas: outputGroups[runIndex].map((output) => ({ articulo: output.article })) }, routesByArticle)
+                    .some((option) => String(option.operacion_ruta_revision_id) === String(run.operacion_ruta_revision_id)) && (
+                  <Alert severity="warning" action={<Button disabled={allBusy} onClick={() => updateRun(runIndex, { operacion_ruta_revision_id: '' })}>Retirar referencia</Button>}>
+                    La ruta seleccionada ya no está disponible. Selecciona otra o retira la referencia y elige un proceso explícito.
+                  </Alert>
                 )}
                 {initialSource && run.source_ruta && !run.operacion_ruta_revision_id
                   && run.source_route_decision !== 'without'
