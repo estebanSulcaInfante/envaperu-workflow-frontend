@@ -26,7 +26,7 @@ function AppShell({ children }) {
 
   const showAssistantV2 = useMemo(() => {
     if (!SCM_ASSISTANT_V2_ENABLED || loading || error || !actor || fullscreen) return false;
-    if (location.pathname === '/control/avance-of-tv') return false;
+    if (location.pathname.replace(/\/+$/, '') === '/control/avance-of-tv') return false;
     return can('ASISTENTE_PRODUCCION_USAR')
       && can('OT_VER')
       && can('MANGA_PESAJE_VER');
