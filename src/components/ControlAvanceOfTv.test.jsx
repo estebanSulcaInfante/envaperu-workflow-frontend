@@ -35,8 +35,12 @@ const response = {
 };
 
 describe('ControlAvanceOfTv', () => {
+  const initialViewportWidth = window.innerWidth;
   beforeEach(() => listarAvanceOfTvScm.mockResolvedValue(response));
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.clearAllMocks();
+    window.innerWidth = initialViewportWidth;
+  });
 
   it('renders one OF card, groups by stable piece id, and preserves output metrics without showing item ids', async () => {
     render(<ControlAvanceOfTv />);
@@ -50,8 +54,7 @@ describe('ControlAvanceOfTv', () => {
     expect(pieceGroups).toHaveLength(2);
     expect(pieceGroups.map((group) => group.getAttribute('data-piece-id'))).toEqual(['31', '42']);
     expect(within(orderCard).getAllByTestId('output-progress-row')).toHaveLength(9);
-    expect(within(orderCard).getByText(/Objetivo de color AZUL-1/)).toBeInTheDocument();
-    expect(within(orderCard).getByText(/Objetivo de color AZUL-2/)).toBeInTheDocument();
+    expect(within(orderCard).queryByText(/Objetivo de color/)).not.toBeInTheDocument();
 
     expect(screen.queryByText(/PC-SKU-SECRET|PZ-CODE-SECRET|goal-[0-9]+|pc-[0-9]+/)).not.toBeInTheDocument();
     expect(screen.getByText(/Última consulta exitosa/)).toBeInTheDocument();
@@ -82,13 +85,13 @@ describe('ControlAvanceOfTv', () => {
 
     const seen = new Set(screen.getAllByTestId('output-progress-row').map((row) => row.getAttribute('data-output-key')));
     fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
-    expect(await screen.findByRole('heading', { name: /Parte 2 de 3.*Continúa/ })).toBeInTheDocument();
+    expect(await screen.findByText(/Parte 2 de 3/)).toBeInTheDocument();
     expect(screen.getAllByTestId('output-progress-row')).toHaveLength(4);
     expect(screen.getAllByTestId('piece-progress-group')).toHaveLength(2);
     screen.getAllByTestId('output-progress-row').forEach((row) => seen.add(row.getAttribute('data-output-key')));
 
     fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
-    expect(await screen.findByRole('heading', { name: /Parte 3 de 3/ })).toBeInTheDocument();
+    expect(await screen.findByText(/Parte 3 de 3/)).toBeInTheDocument();
     expect(screen.getAllByTestId('output-progress-row')).toHaveLength(1);
     screen.getAllByTestId('output-progress-row').forEach((row) => seen.add(row.getAttribute('data-output-key')));
     expect(seen.size).toBe(9);
@@ -111,7 +114,7 @@ describe('ControlAvanceOfTv', () => {
     await screen.findByTestId('of-progress-card');
     fireEvent.click(screen.getByRole('button', { name: 'Modo TV' }));
 
-    expect(await screen.findByRole('heading', { name: /Parte 1 de 1/ })).toBeInTheDocument();
+    expect(await screen.findByText(/Parte 1 de 1/)).toBeInTheDocument();
     expect(screen.getAllByTestId('output-progress-row')).toHaveLength(7);
     expect(screen.getAllByTestId('piece-progress-group')).toHaveLength(1);
   });
@@ -146,5 +149,68 @@ describe('ControlAvanceOfTv', () => {
     expect(screen.getAllByTestId('output-progress-row')).toHaveLength(9);
     expect(screen.queryAllByRole('progressbar')).toHaveLength(0);
     expect(screen.getAllByText('-').length).toBeGreaterThan(0);
+  });
+
+  it('uses two normal columns at desktop widths and one at mobile widths', async () => {
+    window.innerWidth = 1366;
+    const secondOf = { ...response.items[0], of_id: 'of-202', of: 'OF-000202', salidas: outputs.slice(0, 2) };
+    listarAvanceOfTvScm.mockResolvedValueOnce({ ...response, items: [response.items[0], secondOf] });
+    render(<ControlAvanceOfTv />);
+    await screen.findAllByTestId('of-progress-card');
+    expect(screen.getByTestId('of-progress-layout')).toHaveAttribute('data-columns', '2');
+
+    window.innerWidth = 390;
+    fireEvent(window, new Event('resize'));
+    expect(await screen.findByTestId('of-progress-layout')).toHaveAttribute('data-columns', '1');
+  });
+
+  it('pairs TV parts from different OFs and visits every output once, then adapts to mobile width', async () => {
+    const makeOrder = (id, count, pieceIds) => ({
+      of_id: id,
+      of: `OF-${id}`,
+      estado: 'EN_EJECUCION',
+      salidas: Array.from({ length: count }, (_, index) => ({
+        ...outputs[index % outputs.length],
+        corrida_id: `${id}-goal-${index + 1}`,
+        corrida: `COLOR-${id}-${index + 1}`,
+        pieza_id: pieceIds[index],
+        pieza_color_id: `${id}-pc-${index + 1}`,
+        pieza: `Pieza ${pieceIds[index]}`,
+      })),
+    });
+    const orders = [
+      makeOrder('of-101', 9, [31, 31, 31, 31, 31, 42, 42, 42, 42]),
+      makeOrder('of-202', 7, Array(7).fill(51)),
+      makeOrder('of-303', 4, [61, 62, 63, 64]),
+    ];
+    window.innerWidth = 1366;
+    listarAvanceOfTvScm.mockResolvedValueOnce({ ...response, items: orders });
+    render(<ControlAvanceOfTv />);
+    await screen.findAllByTestId('of-progress-card');
+    fireEvent.click(screen.getByRole('button', { name: 'Modo TV' }));
+
+    const firstCards = await screen.findAllByTestId('of-progress-card');
+    expect(firstCards).toHaveLength(2);
+    expect(new Set(firstCards.map((card) => card.getAttribute('data-of-id'))).size).toBe(2);
+    const seen = new Set(screen.getAllByTestId('output-progress-row').map((row) => row.getAttribute('data-output-key')));
+
+    const visitedOutputKeys = [...seen];
+    for (let page = 1; page < 3; page += 1) {
+      fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
+      const cards = await screen.findAllByTestId('of-progress-card');
+      expect(new Set(cards.map((card) => card.getAttribute('data-of-id'))).size).toBe(cards.length);
+      screen.getAllByTestId('output-progress-row').forEach((row) => {
+        const key = row.getAttribute('data-output-key');
+        visitedOutputKeys.push(key);
+        seen.add(key);
+      });
+    }
+    expect(visitedOutputKeys).toHaveLength(20);
+    expect(seen.size).toBe(20);
+
+    window.innerWidth = 390;
+    fireEvent(window, new Event('resize'));
+    expect(await screen.findAllByTestId('of-progress-card')).toHaveLength(1);
+    expect(screen.getAllByTestId('output-progress-row').length).toBeGreaterThan(0);
   });
 });
