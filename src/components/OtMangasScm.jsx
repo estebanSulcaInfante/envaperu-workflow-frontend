@@ -49,6 +49,8 @@ import CloseKgControlAction from './CloseKgControlAction';
 import ProcessJourney from './ui/ProcessJourney';
 import PlantJourneysOverview from './PlantJourneysOverview';
 import { OtCreationReview, OtAnnulmentAction } from './OtHeaderSafety';
+import PostWeighingLabelVisualization from './ui/PostWeighingLabelVisualization';
+import { selectCurrentPostLabel } from './ui/postWeighingReprintModel';
 import WorkKgAllocation from './WorkKgAllocation';
 import { buildKgAssignment } from '../utils/workKgAssignment';
 import { useScmActor } from '../context/ScmActorContext';
@@ -89,6 +91,8 @@ const PRINTED_LABEL_STATES = new Set(['IMPRESA']);
 const GENERATED_LABEL_STATES = new Set(['GENERADA', 'PENDIENTE_IMPRESION']);
 const DISCARDED_MANGA_STATES = new Set(['ANULADA', 'BORRADA']);
 const UNKNOWN_PRODUCTION_COLOR = 'Color no informado en la OF';
+
+const postLabelForWeighing = selectCurrentPostLabel;
 
 const packagingBlockerFromError = (requestError) => {
   const apiError = requestError?.response?.data?.error;
@@ -774,7 +778,7 @@ export default function OtMangasScm({ view = 'all' }) {
   const navigate = useNavigate();
   const isLanding = view === 'landing';
   const isDetail = view === 'detail';
-  const { can, canAny, experience } = useScmActor();
+  const { actorId, can, canAny, experience } = useScmActor();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialJourneyContextRef = useRef(null);
   if (initialJourneyContextRef.current === null) {
@@ -798,13 +802,14 @@ export default function OtMangasScm({ view = 'all' }) {
   const canAnnulWeighing = can('ANULAR_PESAJE');
   const canReopenManga = can('MANGA_REABRIR');
   const canReattributeManga = can('MANGA_REATRIBUIR_TRABAJO');
+  const canReprintPost = can('MANGA_ETIQUETA_POST_REIMPRIMIR');
   const hasOperationalActions = canAny([
     'PLAN_MANGA_ADMINISTRAR', 'OT_CREAR', 'OT_INICIAR', 'OT_CERRAR',
     'MANGA_PLANIFICAR', 'MANGA_EXTRA_SOLICITAR', 'MANGA_EXTRA_APROBAR',
     'MANGA_ETIQUETA_PRE_GENERAR', 'MANGA_ANULAR',
     'MANGA_ETIQUETA_REEMPLAZAR_APROBAR', 'PESAJE_CORRECCION_SOLICITAR',
     'PESAJE_CORRECCION_APROBAR', 'ANULAR_PESAJE', 'MANGA_REABRIR',
-    'MANGA_REATRIBUIR_TRABAJO',
+    'MANGA_REATRIBUIR_TRABAJO', 'MANGA_ETIQUETA_POST_REIMPRIMIR',
   ]);
 
   const [catalogs, setCatalogs] = useState({
@@ -3388,6 +3393,14 @@ export default function OtMangasScm({ view = 'all' }) {
                 </Table>
               </TableContainer>
               )}
+
+              <PostWeighingLabelVisualization
+                label={postLabelForWeighing(weighingDialog.detail, weighingDialog.manga)}
+                pesaje={weighingDialog.detail.current_source?.pesaje || weighingDialog.detail.vigente}
+                stationId={weighingDialog.manga.station_id || weighingDialog.manga.estacion_id || ''}
+                canReprint={canReprintPost}
+                actorId={actorId}
+              />
 
               {canRequestCorrection && weighingDialog.detail.vigente
                 && !weighingDialog.detail.anulacion && (

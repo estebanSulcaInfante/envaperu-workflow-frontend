@@ -29,6 +29,8 @@ import {
 } from "../services/scmProductionObservabilityApi";
 import { formatGrams, formatKg } from "../utils/weightDisplay";
 import ProductionColorLabel from "./ui/ProductionColorLabel";
+import PostWeighingLabelVisualization from "./ui/PostWeighingLabelVisualization";
+import { historyPesajeForLabel, isPostWeighingLabel } from "./ui/postWeighingReprintModel";
 
 const sectionOrder = [
   "identidad",
@@ -823,9 +825,35 @@ function GenealogyAssembly({ armado }) {
   );
 }
 
-function SimpleItemsBody({ items, kind, section }) {
+function SimpleItemsBody({ items, kind, section, canReprint, actorId }) {
   if (!items?.length && !section?.armado)
     return <StateMessage value={{ estado: "sin_datos" }} />;
+  if (kind === "etiquetas") {
+    const postLabels = (items || []).filter(isPostWeighingLabel);
+    const otherLabels = (items || []).filter((entry) => !isPostWeighingLabel(entry));
+    return (
+      <Stack spacing={1}>
+        {postLabels.map((label, index) => (
+          <PostWeighingLabelVisualization
+            key={label.public_id || label.id || index}
+            label={label}
+            pesaje={historyPesajeForLabel(label)}
+            stationId={section?.station_id || ""}
+            canReprint={canReprint}
+            actorId={actorId}
+          />
+        ))}
+        {!postLabels.length && (
+          <Typography color="text.secondary">No hay etiquetas POSTPESAJE disponibles.</Typography>
+        )}
+        {otherLabels.map((entry, index) => (
+          <Paper variant="outlined" sx={{ p: 1.25 }} key={entry.id || entry.codigo || index}>
+            <FieldGrid fields={scalarFields(entry, ["id"])} />
+          </Paper>
+        ))}
+      </Stack>
+    );
+  }
   return (
     <Stack spacing={1}>
       {kind === "genealogia" && section?.armado && (
@@ -861,7 +889,7 @@ function SimpleItemsBody({ items, kind, section }) {
     </Stack>
   );
 }
-function SectionBody({ section, sectionKey }) {
+function SectionBody({ section, sectionKey, canReprint, actorId }) {
   if (!section || section.estado !== "disponible")
     return <StateMessage value={section} />;
   if (sectionKey === "identidad") return <IdentityBody item={section.item} />;
@@ -875,6 +903,8 @@ function SectionBody({ section, sectionKey }) {
       items={section.items}
       kind={sectionKey}
       section={section}
+      canReprint={canReprint}
+      actorId={actorId}
     />
   );
 }
@@ -894,6 +924,7 @@ export default function MangaHistoryDetailScm({
   group = [],
   appliedContext = null,
   actorId = "unknown",
+  canReprint = false,
 }) {
   const [listState, setListState] = useState("idle");
   const [listError, setListError] = useState("");
@@ -1265,7 +1296,7 @@ export default function MangaHistoryDetailScm({
                     </Typography>
                   </AccordionSummary>
                   <AccordionDetails>
-                    <SectionBody section={section} sectionKey={key} />
+                    <SectionBody section={section} sectionKey={key} canReprint={canReprint} actorId={actorId} />
                   </AccordionDetails>
                 </Accordion>
               );

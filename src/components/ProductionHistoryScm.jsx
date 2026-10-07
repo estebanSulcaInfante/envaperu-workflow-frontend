@@ -1057,6 +1057,7 @@ export default function ProductionHistoryScm() {
         group={mangaDialog.context?.group || mangaDialog.group}
         appliedContext={mangaDialog.context}
         actorId={actorId}
+        canReprint={can("MANGA_ETIQUETA_POST_REIMPRIMIR")}
       />
     </Box>
   );
