@@ -42,6 +42,123 @@ describe('ControlAvanceOfTv', () => {
     window.innerWidth = initialViewportWidth;
   });
 
+  it('renders one card per canonical group, shows color once, and keeps multipiece outputs together', async () => {
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      as_of: response.as_of,
+      visibilidad: { pesaje: true },
+      items: ['a', 'b'].map((suffix, index) => ({
+        group_id: `of-1|ot-${suffix}|corrida-${suffix}|ML-1|${index + 1}`,
+        identity: { identity_status: 'COMPLETA', identity_issues: [] },
+        of_id: 'of-1', of: 'OF-0001', estado: 'EN_EJECUCION',
+        ot_id: `ot-${suffix}`, ot: `OT-${suffix}`, corrida_id: `corrida-${suffix}`,
+        corrida: 'Mismo nombre visual', molde_id: 'ML-1', molde: { codigo: 'ML-1', nombre: 'Molde común' },
+        color_id: index + 1, color: 'Azul', color_hex: '#123456',
+        salidas: outputs.slice(0, 2).map((output, outputIndex) => ({
+          ...output, corrida_id: `corrida-${suffix}`, pieza_id: outputIndex + 1,
+          pieza: `Pieza ${outputIndex + 1}`, porcentaje: 50, avance: 1, pendiente: 1,
+          estado_avance: 'EN_AVANCE',
+        })),
+      })),
+    });
+
+    render(<ControlAvanceOfTv />);
+    const cards = await screen.findAllByTestId('of-progress-card');
+    expect(cards).toHaveLength(2);
+    expect(cards.map((card) => card.getAttribute('data-group-id'))).toEqual([
+      'of-1|ot-a|corrida-a|ML-1|1',
+      'of-1|ot-b|corrida-b|ML-1|2',
+    ]);
+    cards.forEach((card) => {
+      expect(within(card).getByTestId('group-color-swatch')).toBeInTheDocument();
+      expect(within(card).getAllByTestId('output-progress-row')).toHaveLength(2);
+      expect(within(card).getAllByText('Azul')).toHaveLength(1);
+    });
+  });
+
+  it('keys normal-view canonical cards by group_id and renders transparent semantics once', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      listarAvanceOfTvScm.mockResolvedValueOnce({
+        ...response,
+        items: [
+          {
+            group_id: 'of-shared|ot-a|corrida-a|ML-1|1', identity: { identity_status: 'COMPLETA', identity_issues: [] },
+            of_id: 'of-shared', of: 'OF-SHARED', estado: 'EN_EJECUCION', ot: 'OT-A', corrida: 'C-A',
+            molde: { codigo: 'ML-1', nombre: 'Molde 1' }, color: 'TRANSPARENTE TRANSPARENTE', color_hex: null,
+            salidas: [{ ...outputs[0], corrida_id: 'corrida-a', pieza_id: 1, pieza: 'Pieza A', porcentaje: null, estado_avance: 'SIN_META' }],
+          },
+          {
+            group_id: 'of-shared|ot-b|corrida-b|ML-1|2', identity: { identity_status: 'COMPLETA', identity_issues: [] },
+            of_id: 'of-shared', of: 'OF-SHARED', estado: 'EN_EJECUCION', ot: 'OT-B', corrida: 'C-B',
+            molde: { codigo: 'ML-1', nombre: 'Molde 1' }, color: 'Rojo', color_hex: null,
+            salidas: [{ ...outputs[0], corrida_id: 'corrida-b', pieza_id: 2, pieza: 'Pieza B', porcentaje: null, estado_avance: 'SIN_META' }],
+          },
+        ],
+      });
+      render(<ControlAvanceOfTv />);
+      const cards = await screen.findAllByTestId('of-progress-card');
+      expect(cards).toHaveLength(2);
+      expect(cards.map((card) => card.getAttribute('data-group-id'))).toEqual([
+        'of-shared|ot-a|corrida-a|ML-1|1',
+        'of-shared|ot-b|corrida-b|ML-1|2',
+      ]);
+      expect(within(cards[0]).getByText('Transparente')).toBeInTheDocument();
+      expect(within(cards[0]).getByTestId('group-color-swatch')).toHaveAttribute('data-color-kind', 'transparent');
+      expect(within(cards[0]).queryByText(/muestra neutral/)).not.toBeInTheDocument();
+      expect(within(cards[1]).getByText('Rojo')).toBeInTheDocument();
+      expect(within(cards[1]).getByText(/muestra neutral/)).toBeInTheDocument();
+      expect(consoleError.mock.calls.some(([message]) => String(message).includes('Encountered two children with the same key'))).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('does not render mold identity when the server redacts OF visibility', async () => {
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: [{
+        group_id: 'tvgrp-opaque-authority',
+        identity: { identity_status: 'COMPLETA', identity_issues: [] },
+        of_id: 'of-hidden', of: 'OF-HIDDEN', estado: 'EN_EJECUCION',
+        ot: 'OT-HIDDEN', corrida: 'C-HIDDEN', color: 'Azul', color_hex: null,
+        salidas: [{ ...outputs[0], corrida_id: 'corrida-hidden', pieza_id: 1, pieza: 'Pieza oculta' }],
+      }],
+    });
+
+    render(<ControlAvanceOfTv />);
+
+    const card = await screen.findByTestId('of-progress-card');
+    expect(card).toHaveAttribute('data-group-id', 'tvgrp-opaque-authority');
+    expect(within(card).queryByText(/Molde/)).not.toBeInTheDocument();
+    expect(within(card).queryByText(/Molde sin identificar/)).not.toBeInTheDocument();
+  });
+
+  it('paginates canonical group ids exactly once in TV mode', async () => {
+    const groups = Array.from({ length: 3 }, (_, index) => ({
+      group_id: `of-${index + 1}|ot-${index + 1}|corrida-${index + 1}|ML-1|${index + 1}`,
+      identity: { identity_status: 'COMPLETA', identity_issues: [] },
+      of_id: `of-${index + 1}`, of: `OF-${index + 1}`, estado: 'EN_EJECUCION',
+      ot_id: `ot-${index + 1}`, ot: `OT-${index + 1}`, corrida_id: `corrida-${index + 1}`,
+      corrida: `C-${index + 1}`, molde_id: 'ML-1', molde: { codigo: 'ML-1', nombre: 'Molde 1' },
+      color_id: index + 1, color: `Color ${index + 1}`, color_hex: null,
+      salidas: [{ ...outputs[0], corrida_id: `corrida-${index + 1}`, pieza_id: index + 1, pieza: `Pieza ${index + 1}`, porcentaje: null, estado_avance: 'SIN_META' }],
+    }));
+    listarAvanceOfTvScm.mockResolvedValueOnce({ ...response, items: groups });
+    window.innerWidth = 1366;
+
+    render(<ControlAvanceOfTv />);
+    await screen.findAllByTestId('of-progress-card');
+    fireEvent.click(screen.getByRole('button', { name: 'Modo TV' }));
+
+    const seen = new Set();
+    for (let page = 0; page < 2; page += 1) {
+      screen.getAllByTestId('of-progress-card').forEach((card) => seen.add(card.getAttribute('data-group-id')));
+      fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
+    }
+    screen.getAllByTestId('of-progress-card').forEach((card) => seen.add(card.getAttribute('data-group-id')));
+    expect(seen).toEqual(new Set(groups.map((group) => group.group_id)));
+  });
+
   it('renders one OF card, groups by stable piece id, and preserves output metrics without showing item ids', async () => {
     render(<ControlAvanceOfTv />);
 

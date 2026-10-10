@@ -53,6 +53,7 @@ beforeEach(() => {
   actor.id = 7;
   actor.can = () => true;
   audio.status = 'ready'; audio.activate.mockResolvedValue(true);
+  audio.play.mockReturnValue(true);
   api.workers.mockResolvedValue([{ id: 9, nombre_corto: 'Almacenera', activo: true }]);
   api.resolve.mockImplementation(async (code) => ({ unit: unit(code, code) }));
   api.create.mockResolvedValue({ operation_id: 'op-1', cantidad_unidades: 1, total_kg: '12.500', retiros: [] });
@@ -127,15 +128,105 @@ describe('salida directa KG a Armado', () => {
     expect(confirmButton()).toBeDisabled();
   });
 
-  it('ofrece activar audio suspendido sin bloquear nuevas lecturas', async () => {
+  it('activa y prueba audio suspendido en el mismo gesto sin bloquear nuevas lecturas', async () => {
     audio.status = 'suspended';
     render(<DirectKgBatchWithdrawals />);
     expect(screen.getByLabelText('Escanear QR de manga KG')).toBeEnabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Activar sonido' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Activar y probar sonido' }));
     await waitFor(() => expect(audio.activate).toHaveBeenCalledTimes(1));
+    expect(audio.play).toHaveBeenCalledWith('accepted');
     await scan('A');
     await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0].status).toBe('ready'));
     expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('intenta reanudar el audio al recibir Enter con estado suspendido', async () => {
+    audio.status = 'suspended';
+    render(<DirectKgBatchWithdrawals />);
+
+    await scan('A');
+
+    expect(audio.activate).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0].status).toBe('ready');
+  });
+
+  it('reanuda por foco y desmonta sus listeners sin conservar efectos', async () => {
+    audio.status = 'suspended';
+    const { unmount } = render(<DirectKgBatchWithdrawals />);
+
+    fireEvent.focus(window);
+    await waitFor(() => expect(audio.activate).toHaveBeenCalledTimes(1));
+    unmount();
+    fireEvent.focus(window);
+    expect(audio.activate).toHaveBeenCalledTimes(1);
+  });
+
+  it('hace visible cuando el feedback de audio devuelve false', async () => {
+    audio.play.mockReturnValue(false);
+    render(<DirectKgBatchWithdrawals />);
+
+    await scan('A');
+
+    expect(await screen.findByText(/no se pudo reproducir el feedback sonoro/i)).toBeVisible();
+  });
+
+  it('muestra identidad OF OT M y pieza-color en tarjetas aceptadas', async () => {
+    api.resolve.mockResolvedValue({ unit: {
+      ...unit('A', 'A'),
+      identidad: {
+        of: 'OF-001', ot: 'OT-001', m: 'M-001',
+        pieza: { codigo: 'PC-001', nombre: 'Tapa' },
+        color: { nombre: 'Azul', hex: '#112233' },
+      },
+    } });
+    render(<DirectKgBatchWithdrawals />);
+
+    await scan('A');
+
+    const list = screen.getByRole('list', { name: 'Lecturas pendientes' });
+    expect(list).toHaveStyle({ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' });
+    expect(within(list).getByText(/OF-001.*OT-001.*M-001/)).toBeVisible();
+    expect(within(list).getByText(/PC-001.*Tapa/i)).toBeVisible();
+    expect(within(list).getByText('Azul')).toBeVisible();
+    expect(within(list).getByLabelText('Color Azul')).toHaveStyle({ backgroundColor: '#112233' });
+  });
+
+  it('normaliza solo transparente exacto y conserva nombres parecidos con HEX neutral', async () => {
+    api.resolve.mockImplementation(async (code) => ({ unit: {
+      ...unit(code, code), identidad: {
+        of: `OF-${code}`, ot: `OT-${code}`, m: `M-${code}`,
+        pieza: { codigo: `PC-${code}`, nombre: 'Tapa' },
+        color: code === 'A'
+          ? { nombre: 'TRANSPARENTE TRANSPARENTE', hex: '' }
+          : code === 'B'
+            ? { nombre: 'Azul transparente', hex: '#12345' }
+            : { nombre: 'No transparente', hex: '#ZZZZZZ' },
+      },
+    } }));
+    render(<DirectKgBatchWithdrawals />);
+
+    await scan('A');
+    await scan('B');
+    await scan('C');
+
+    const list = screen.getByRole('list', { name: 'Lecturas pendientes' });
+    expect(within(list).getAllByText('Transparente')).toHaveLength(1);
+    expect(within(list).getByText('Azul transparente')).toBeVisible();
+    expect(within(list).getByText('No transparente')).toBeVisible();
+    expect(within(list).getByLabelText('Color Transparente')).toBeVisible();
+    expect(within(list).getByLabelText('Color Azul transparente')).toBeVisible();
+    expect(within(list).getByLabelText('Color No transparente')).toBeVisible();
+  });
+
+  it('mantiene visible la recuperación de un QR largo en conflicto sin desbordar acciones', async () => {
+    const longCode = 'QR-' + 'X'.repeat(120);
+    api.resolve.mockRejectedValueOnce(new Error('Identidad no encontrada'));
+    render(<DirectKgBatchWithdrawals />);
+
+    await scan(longCode);
+
+    expect(screen.getByText(longCode)).toBeVisible();
+    expect(screen.getByRole('button', { name: `Reintentar ${longCode}` })).toBeVisible();
   });
 
   it('resuelve una manga sin enviar POST y deduplica por identidad aunque cambie el QR', async () => {

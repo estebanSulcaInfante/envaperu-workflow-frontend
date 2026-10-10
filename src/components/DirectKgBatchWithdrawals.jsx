@@ -109,14 +109,23 @@ const normalizeWorkers = (payload) => (payload?.items || payload || [])
   .filter((worker) => worker?.activo !== false && worker?.id != null);
 
 const candidateLabel = (candidate) => candidate.unit?.codigo || candidate.code;
-const identityMetadata = (unit) => [
-  ['Pieza', unit?.pieza_codigo || unit?.pieza?.codigo],
-  ['Color', unit?.color || unit?.color_nombre],
-  ['OF', unit?.orden_fabricacion_codigo || unit?.orden_fabricacion?.codigo],
-  ['OT', unit?.orden_trabajo?.codigo_ot || unit?.orden_trabajo?.codigo],
-  ['Ubicaci�n', unit?.ubicacion_codigo || unit?.ubicacion?.codigo],
-].filter(([, value]) => value !== undefined && value !== null && value !== '')
-  .filter(([, value]) => typeof value === 'string' || typeof value === 'number');
+const validColorHex = (value) => typeof value === 'string' && /^#[\da-f]{6}$/i.test(value.trim());
+const normalizeColorName = (value) => String(value || '').trim().replace(/\s+/g, ' ');
+const isTransparentColor = (value) => /^transparente(?:\s+transparente)*$/i.test(normalizeColorName(value));
+const outgoingIdentity = (unit) => {
+  const identity = unit?.identidad || {};
+  const piece = identity.pieza || {};
+  const color = identity.color || {};
+  return {
+    of: identity.of || unit?.orden_fabricacion_codigo || 'OF no informado',
+    ot: identity.ot || unit?.orden_trabajo?.codigo_ot || 'OT no informado',
+    m: identity.m || unit?.codigo || 'M no informado',
+    piece: piece.codigo || piece.nombre || unit?.pieza_color_sku || unit?.articulo?.codigo || 'Pieza no informada',
+    pieceName: piece.nombre || '',
+    colorName: color.nombre || unit?.color || unit?.color_nombre || 'Color no informado',
+    colorHex: color.hex || unit?.color_hex || null,
+  };
+};
 
 /**
  * Outgoing direct batch flow. Scanning only resolves identities and builds a
@@ -138,6 +147,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
   const [complete, setComplete] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [audioStatus, setAudioStatus] = useState('unavailable');
+  const [audioError, setAudioError] = useState('');
   const activeActorRef = useRef(actorId);
   const candidatesRef = useRef([]);
   const sessionGenerationRef = useRef(0);
@@ -158,9 +168,18 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
 
   const safePlayFeedback = useCallback((kind) => {
     try {
-      playScanFeedback(kind);
+      const played = playScanFeedback(kind);
+      if (!played) {
+        setAudioStatus('error');
+        setAudioError('No se pudo reproducir el feedback sonoro. Continúa con la señal visual o prueba el sonido de nuevo.');
+      } else {
+        setAudioError('');
+      }
+      return played;
     } catch {
-      // Audio feedback is optional and never blocks scanning or confirmation.
+      setAudioStatus('error');
+      setAudioError('No se pudo reproducir el feedback sonoro. Continúa con la señal visual o prueba el sonido de nuevo.');
+      return false;
     }
   }, []);
 
@@ -230,10 +249,32 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     });
   };
 
-  const activateAudio = async () => {
+  const activateAudio = useCallback(async ({ playTest = true } = {}) => {
+    setAudioError('');
     const ready = await activateScanAudio();
     setAudioStatus(ready ? 'ready' : getScanAudioStatus());
-  };
+    if (!ready) {
+      setAudioError('No se pudo activar el sonido. Revisa el permiso del navegador y vuelve a probar.');
+      return false;
+    }
+    if (!playTest) return true;
+    return safePlayFeedback('accepted');
+  }, [safePlayFeedback]);
+
+  useEffect(() => {
+    const recoverAudio = () => {
+      if (audioStatus !== 'ready' || getScanAudioStatus() !== 'ready') void activateAudio({ playTest: false });
+    };
+    const onVisibilityChange = () => {
+      if (globalThis.document?.visibilityState === 'visible') recoverAudio();
+    };
+    globalThis.addEventListener?.('focus', recoverAudio);
+    globalThis.document?.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      globalThis.removeEventListener?.('focus', recoverAudio);
+      globalThis.document?.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [activateAudio, audioStatus]);
 
   const loadWorkers = useCallback(async () => {
     if (workers.length || loadingWorkers) return;
@@ -642,8 +683,9 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       {storageError && <Alert severity="error">{storageError}</Alert>}
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
-      {audioStatus === 'suspended' && <Alert severity="warning" action={<Button onClick={activateAudio}>Activar sonido</Button>}>El sonido de lectura está suspendido. Puedes activarlo para recibir feedback.</Alert>}
+      {audioStatus === 'suspended' && <Alert severity="warning" action={<Button onClick={() => activateAudio()}>Activar y probar sonido</Button>}>El sonido de lectura está suspendido. Puedes activarlo para recibir feedback.</Alert>}
       {audioStatus === 'unavailable' && <Alert severity="info">Sonido no disponible; puedes continuar con feedback visual.</Alert>}
+      {audioStatus === 'error' && <Alert severity="error" action={<Button onClick={() => activateAudio()}>Activar y probar sonido</Button>}>{audioError || 'No se pudo reproducir el feedback sonoro.'}</Alert>}
       {pending && <Alert severity="warning" action={<Button startIcon={<RestoreIcon />} onClick={() => sendPending(pending, true)} disabled={busy}>Recuperar</Button>}>
         Hay una solicitud sin resultado confirmado. Puedes reintentar la misma salida desde aquí.
       </Alert>}
@@ -690,6 +732,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
               event.preventDefault();
+              if (audioStatus !== 'ready') void activateAudio({ playTest: false });
               enqueueScan(event.target.value || code);
             }
           }}
@@ -697,17 +740,43 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
         <Button type="submit" variant="outlined" startIcon={<QrCodeScannerIcon />} disabled={readOnly || confirming || !!pending || !!complete || !code.trim()}>Agregar manga</Button>
       </Stack>
 
-      {scanReads.length > 0 && <Stack component="ul" role="list" aria-label="Lecturas pendientes" spacing={1} sx={{ p: 0, m: 0, listStyle: 'none' }}>
-        {scanReads.map((read) => <Paper component="li" role="listitem" key={read.id} variant="outlined" sx={{ p: 1.25 }}>
-          {read.status === 'waiting' && <Stack direction="row" justifyContent="space-between"><Typography>{read.code}</Typography><Chip size="small" label="En espera" /></Stack>}
-          {read.status === 'validating' && <Stack direction="row" justifyContent="space-between"><Typography>{read.code}</Typography><Chip size="small" label="Validando" color="info" /></Stack>}
-          {read.status === 'accepted' && <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}>
-            <Box><Typography fontWeight={750}>{read.unit?.codigo || read.code}</Typography><Typography variant="caption" color="text.secondary">{read.unit?.articulo?.codigo || 'KG'} · {unitKg(read.unit) ?? '-'} KG</Typography>{identityMetadata(read.unit).map(([label, value]) => <Typography key={label} variant="caption" color="text.secondary" display="block">{label}: {value}</Typography>)}</Box>
-            <Stack direction="row" spacing={1} alignItems="center"><Chip size="small" label="Aceptada" color="success" /><Button size="small" color="error" disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${read.unit?.codigo || read.code}`}>Retirar</Button></Stack>
-          </Stack>}
-          {read.status === 'conflict' && <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}>
-            <Box><Typography fontWeight={750}>{read.code}</Typography><Typography variant="body2" color="error">{read.error || 'No se pudo validar.'}</Typography></Box>
-            <Stack direction="row" spacing={1}><Button size="small" disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => retryScanRead(read)} aria-label={`Reintentar ${read.code}`}>Reintentar</Button><Button size="small" color="error" disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${read.code}`}>Retirar</Button></Stack>
+      {scanReads.length > 0 && <Stack component="ul" role="list" aria-label="Lecturas pendientes" spacing={1} sx={{ p: 0, m: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1 }}>
+        {scanReads.map((read) => <Paper component="li" role="listitem" key={read.id} variant="outlined" sx={{ p: 1.25, minWidth: 0 }}>
+          {read.status === 'waiting' && <Stack direction="row" justifyContent="space-between" flexWrap="wrap" sx={{ minWidth: 0 }}><Typography sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{read.code}</Typography><Chip size="small" label="En espera" /></Stack>}
+          {read.status === 'validating' && <Stack direction="row" justifyContent="space-between" flexWrap="wrap" sx={{ minWidth: 0 }}><Typography sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{read.code}</Typography><Chip size="small" label="Validando" color="info" /></Stack>}
+          {read.status === 'accepted' && (() => {
+            const identity = outgoingIdentity(read.unit);
+            const transparent = isTransparentColor(identity.colorName);
+            const hasHex = validColorHex(identity.colorHex);
+            const colorName = transparent ? 'Transparente' : identity.colorName;
+            return <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
+              <Box sx={{ minWidth: 0, flex: '1 1 0', overflowWrap: 'anywhere' }}>
+                <Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{identity.of} · {identity.ot} · {identity.m}</Typography>
+                <Typography variant="body2" fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>{identity.pieceName ? `${identity.piece} · ${identity.pieceName}` : identity.piece}</Typography>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                  <Box
+                    aria-label={`Color ${colorName}`}
+                    sx={{
+                      width: 20,
+                      height: 20,
+                      flex: '0 0 auto',
+                      borderRadius: '50%',
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      bgcolor: transparent || !hasHex ? 'grey.300' : identity.colorHex,
+                      ...(transparent ? { backgroundImage: 'repeating-linear-gradient(45deg, rgba(0,0,0,.25) 0 2px, transparent 2px 5px)' } : {}),
+                    }}
+                  />
+                  <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{colorName}</Typography>
+                </Stack>
+                <Typography variant="caption" color="text.secondary" display="block">{unitKg(read.unit) ?? '-'} KG verificados</Typography>
+              </Box>
+              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ minWidth: 0 }}><Chip size="small" label="Aceptada" color="success" /><Button size="small" color="error" disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${read.unit?.codigo || read.code}`}>Retirar</Button></Stack>
+            </Stack>;
+          })()}
+          {read.status === 'conflict' && <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
+            <Box sx={{ minWidth: 0, flex: '1 1 0', overflowWrap: 'anywhere' }}><Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{read.code}</Typography><Typography variant="body2" color="error" sx={{ overflowWrap: 'anywhere' }}>{read.error || 'No se pudo validar.'}</Typography></Box>
+            <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ minWidth: 0 }}><Button size="small" disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => retryScanRead(read)} aria-label={`Reintentar ${read.code}`}>Reintentar</Button><Button size="small" color="error" disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${read.code}`}>Retirar</Button></Stack>
           </Stack>}
         </Paper>)}
       </Stack>}

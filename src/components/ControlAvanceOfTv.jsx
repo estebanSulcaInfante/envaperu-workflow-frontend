@@ -28,6 +28,15 @@ const number = (value, fraction = 0) => value == null
   ? '-'
   : new Intl.NumberFormat('es-PE', { maximumFractionDigits: fraction }).format(value);
 
+function displayColorName(value) {
+  const name = String(value || '').trim().replace(/\s+/g, ' ');
+  return /^transparente(?:\s+transparente)+$/i.test(name) ? 'Transparente' : (name || 'Color sin nombre');
+}
+
+function isTransparentColor(value) {
+  return /^transparente(?:\s+transparente)*$/i.test(String(value || '').trim().replace(/\s+/g, ' '));
+}
+
 function metricLabel(output) {
   if (output.unidad === 'KG') {
     if (output.tipo_meta === 'ESTANDAR') return 'Meta estándar (kg)';
@@ -60,8 +69,9 @@ function groupByPiece(rows) {
   return [...groups.values()];
 }
 
-function OutputRow({ output, compact = false }) {
+function OutputRow({ output, compact = false, showColor = true }) {
   const swatch = output.color_hex && /^#[\da-f]{6}$/i.test(output.color_hex) ? output.color_hex : '#94A3B8';
+  const colorName = displayColorName(output.color);
   const statusTone = ['SOBREPRODUCCION', 'SOBRE_REFERENCIA'].includes(output.estado_avance)
     ? 'warning'
     : ['EN_AVANCE', 'COMPLETADA'].includes(output.estado_avance) ? 'success' : 'default';
@@ -80,16 +90,16 @@ function OutputRow({ output, compact = false }) {
       }}
     >
       <Stack direction={compact ? { xs: 'column', sm: 'row' } : 'column'} spacing={compact ? 0.75 : 1} alignItems={compact ? { sm: 'flex-start' } : 'stretch'}>
-        <Stack direction={compact ? { xs: 'row', sm: 'column' } : 'row'} spacing={0.5} alignItems="center" sx={{ width: compact ? { xs: '100%', sm: 125, md: 145 } : '100%', flex: compact ? { sm: '0 0 auto' } : undefined, minWidth: 0, flexWrap: 'wrap' }}>
-          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0, flexWrap: 'wrap' }}>
+          <Stack direction={compact ? { xs: 'row', sm: 'column' } : 'row'} spacing={0.5} alignItems="center" sx={{ width: compact ? { xs: '100%', sm: 125, md: 145 } : '100%', flex: compact ? { sm: '0 0 auto' } : undefined, minWidth: 0, flexWrap: 'wrap' }}>
+          {showColor && <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0, flexWrap: 'wrap' }}>
             <Box
-              aria-label={`Color ${output.color || 'sin especificar'}`}
+              aria-label={`Color ${colorName}`}
               sx={{ width: compact ? 18 : 22, height: compact ? 18 : 22, flex: '0 0 auto', borderRadius: '50%', bgcolor: swatch, border: '2px solid', borderColor: 'text.secondary' }}
             />
             <Typography fontWeight={750} sx={{ minWidth: 0, overflowWrap: 'anywhere', fontSize: compact ? { xs: 14, md: 18 } : 16, lineHeight: 1.1 }}>
-              {output.color || 'Color sin nombre'}
+              {colorName}
             </Typography>
-          </Stack>
+          </Stack>}
           <Chip
             size="small"
             color={statusTone}
@@ -149,7 +159,7 @@ function OutputRow({ output, compact = false }) {
   );
 }
 
-function PieceGroups({ rows, compact = false }) {
+function PieceGroups({ rows, compact = false, showColor = true }) {
   return (
     <Stack spacing={compact ? 1 : 1.5}>
       {groupByPiece(rows).map((group, index) => (
@@ -168,11 +178,49 @@ function PieceGroups({ rows, compact = false }) {
             {group.name}
           </Typography>
           <Stack spacing={compact ? 0.35 : 0.75}>{group.outputs.map((output) => (
-            <OutputRow key={outputIdentity(output)} output={output} compact={compact} />
+            <OutputRow key={outputIdentity(output)} output={output} compact={compact} showColor={showColor} />
           ))}</Stack>
         </Box>
       ))}
     </Stack>
+  );
+}
+
+function CanonicalGroupCard({ group, compact = false, partLabel = null }) {
+  const identity = group.identity || {};
+  const colorName = displayColorName(group.color);
+  const transparent = isTransparentColor(colorName);
+  const swatch = group.color_hex && /^#[\da-f]{6}$/i.test(group.color_hex) ? group.color_hex : '#94A3B8';
+  const swatchSx = transparent
+    ? { background: 'repeating-linear-gradient(45deg, #FFFFFF 0 4px, #CBD5E1 4px 8px)' }
+    : { bgcolor: swatch };
+  const rows = (group.salidas || []).map((output, index) => ({ of: group, output, index }));
+  return (
+    <Card variant="outlined" data-testid="of-progress-card" data-group-id={group.group_id} data-of-id={group.of_id} sx={{ boxShadow: compact ? 2 : undefined, minHeight: 0 }}>
+      <CardContent sx={{ p: compact ? { xs: 1, md: 1.25 } : { xs: 1.5, md: 2 }, '&:last-child': { pb: compact ? { xs: 1, md: 1.25 } : { xs: 1.5, md: 2 } } }}>
+        <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: compact ? 0.5 : 1, flexWrap: 'wrap' }}>
+          <Typography variant={compact ? 'h4' : 'h5'} fontWeight={900} sx={compact ? { fontSize: { xs: 25, md: 32 }, lineHeight: 1.05 } : undefined}>{group.of || 'OF sin identificar'}</Typography>
+          <Chip size="small" label={group.estado || 'Estado no disponible'} sx={compact ? { height: 22, fontSize: 11 } : undefined} />
+          {group.ot && <Chip size="small" variant="outlined" label={`OT ${group.ot}`} />}
+          {group.corrida && <Chip size="small" variant="outlined" label={`Corrida ${group.corrida}`} />}
+          {group.molde_visible === true && (group.molde?.nombre || group.molde?.codigo
+            ? <Chip size="small" variant="outlined" label={`Molde ${group.molde.nombre || group.molde.codigo}`} />
+            : <Chip size="small" color="warning" variant="outlined" label="Molde sin identificar" />)}
+          {partLabel && <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto !important', whiteSpace: 'nowrap' }}>{partLabel}</Typography>}
+        </Stack>
+        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: compact ? 0.75 : 1 }}>
+          <Box aria-label={`Color ${colorName}`} data-color-kind={transparent ? 'transparent' : 'named'} data-testid="group-color-swatch" sx={{ width: compact ? 20 : 24, height: compact ? 20 : 24, borderRadius: '50%', border: '2px solid', borderColor: 'text.secondary', flex: '0 0 auto', ...swatchSx }} />
+          <Typography fontWeight={800}>{colorName}</Typography>
+          {!group.color_hex && !transparent && <Typography variant="caption" color="text.secondary">(muestra neutral)</Typography>}
+        </Stack>
+        {identity.identity_status !== 'COMPLETA' && (
+          <Alert severity="warning" sx={{ mb: 1 }}>
+            Identidad incompleta: avance y porcentaje no disponibles ({(identity.identity_issues || []).join(', ') || 'evidencia insuficiente'}).
+          </Alert>
+        )}
+        <PieceGroups rows={rows} compact={compact} showColor={false} />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -256,6 +304,16 @@ export default function ControlAvanceOfTv() {
   }, [refresh]);
 
   const activePayload = payloadActorId === actorId ? payload : null;
+  const canonicalGroups = useMemo(() => (activePayload?.items || [])
+    .filter((group) => group.group_id)
+    .filter((group) => ACTIVE.has(String(group.estado || '').toUpperCase()))
+    .filter((group) => `${group.of || ''} ${group.ot || ''} ${group.corrida || ''} ${group.molde?.nombre || ''} ${group.color || ''} ${(group.salidas || []).map((output) => `${output.pieza || ''} ${output.sku || ''}`).join(' ')}`.toLowerCase().includes(search.toLowerCase()))
+    .sort((left, right) => {
+      const order = String(left.of || '').localeCompare(String(right.of || ''), 'es', { numeric: true });
+      const inner = String(left.group_id).localeCompare(String(right.group_id), 'es', { numeric: true });
+      return (order || inner) * (orderDirection === 'asc' ? 1 : -1);
+    }), [activePayload, search, orderDirection]);
+  const hasCanonicalGroups = canonicalGroups.length > 0 || Boolean((activePayload?.items || []).some((group) => group.group_id));
   const flatRows = useMemo(() => (activePayload?.items || [])
     .filter((of) => ACTIVE.has(String(of.estado || '').toUpperCase()))
     .flatMap((of) => (of.salidas || []).map((output, index) => ({ of, output, index })))
@@ -267,14 +325,16 @@ export default function ControlAvanceOfTv() {
       return (order || inner) * (orderDirection === 'asc' ? 1 : -1);
     }), [activePayload, search, orderDirection]);
 
-  const orderedGroups = flatRows.reduce((groups, row) => {
-    const id = row.of.of_id;
-    if (!groups.has(id)) groups.set(id, { of: row.of, outputs: [] });
-    groups.get(id).outputs.push(row);
-    return groups;
-  }, new Map());
+  const orderedGroups = hasCanonicalGroups
+    ? new Map(canonicalGroups.map((group) => [group.group_id, { of: group, outputs: (group.salidas || []).map((output, index) => ({ of: group, output, index })) }]))
+    : flatRows.reduce((groups, row) => {
+      const id = row.of.of_id;
+      if (!groups.has(id)) groups.set(id, { of: row.of, outputs: [] });
+      groups.get(id).outputs.push(row);
+      return groups;
+    }, new Map());
 
-  const tvParts = [...orderedGroups.values()].flatMap(({ of, outputs }) => {
+  const legacyTvParts = [...orderedGroups.values()].flatMap(({ of, outputs }) => {
     const pieceIds = new Set(outputs.map(({ output }) => output.pieza_id).filter((id) => id != null));
     const hasOneStablePiece = outputs.length > 0
       && pieceIds.size === 1
@@ -287,7 +347,17 @@ export default function ControlAvanceOfTv() {
       partCount: chunks.length,
     }));
   });
-  const tvSlides = useMemo(() => wideViewport ? pairDistinctOrders(tvParts) : tvParts.map((part) => [part]), [tvParts, wideViewport]);
+  const tvParts = hasCanonicalGroups
+    ? chunkRows([...orderedGroups.values()], wideViewport ? 2 : 1).map((groups, index, pages) => ({
+      canonical: true,
+      groups,
+      part: index + 1,
+      partCount: pages.length,
+    }))
+    : legacyTvParts;
+  const tvSlides = useMemo(() => hasCanonicalGroups
+    ? tvParts.map((part) => part.groups)
+    : wideViewport ? pairDistinctOrders(tvParts) : tvParts.map((part) => [part]), [tvParts, wideViewport, hasCanonicalGroups]);
   const visibleSlide = slide % Math.max(1, tvSlides.length);
   const currentPage = tvSlides[visibleSlide] || [];
 
@@ -370,38 +440,46 @@ export default function ControlAvanceOfTv() {
             </Stack>
           </Stack>
           <Grid container spacing={1} data-testid="of-progress-layout" data-columns={wideViewport ? '2' : '1'}>
-            {currentPage.map((part) => (
-              <Grid key={`${part.of.of_id}-${part.part}`} size={{ xs: 12, md: 6 }}>
-                <Card variant="outlined" data-testid="of-progress-card" data-of-id={part.of.of_id} sx={{ boxShadow: 2, minHeight: 0 }}>
-                  <CardContent sx={{ p: { xs: 1, md: 1.25 }, '&:last-child': { pb: { xs: 1, md: 1.25 } } }}>
-                    <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5, flexWrap: 'wrap' }}>
-                      <Typography variant="h4" fontWeight={900} sx={{ fontSize: { xs: 25, md: 32 }, lineHeight: 1.05 }}>{part.of.of}</Typography>
-                      <Chip size="small" label={part.of.estado} sx={{ height: 22, fontSize: 11 }} />
-                      <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto !important', fontSize: { xs: 11, md: 12 }, whiteSpace: 'nowrap' }}>
-                        Parte {part.part} de {part.partCount}{part.part < part.partCount ? ' · Continúa' : ''}
-                      </Typography>
-                    </Stack>
-                    <PieceGroups rows={part.rows} compact />
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
+            {hasCanonicalGroups
+              ? currentPage.map(({ of: group }) => (
+                <Grid key={group.group_id} size={{ xs: 12, md: 6 }}>
+                  <CanonicalGroupCard group={group} compact />
+                </Grid>
+              ))
+              : currentPage.map((part) => (
+                <Grid key={`${part.of.of_id}-${part.part}`} size={{ xs: 12, md: 6 }}>
+                  <Card variant="outlined" data-testid="of-progress-card" data-of-id={part.of.of_id} sx={{ boxShadow: 2, minHeight: 0 }}>
+                    <CardContent sx={{ p: { xs: 1, md: 1.25 }, '&:last-child': { pb: { xs: 1, md: 1.25 } } }}>
+                      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5, flexWrap: 'wrap' }}>
+                        <Typography variant="h4" fontWeight={900} sx={{ fontSize: { xs: 25, md: 32 }, lineHeight: 1.05 }}>{part.of.of}</Typography>
+                        <Chip size="small" label={part.of.estado} sx={{ height: 22, fontSize: 11 }} />
+                        <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto !important', fontSize: { xs: 11, md: 12 }, whiteSpace: 'nowrap' }}>
+                          Parte {part.part} de {part.partCount}{part.part < part.partCount ? ' · Continúa' : ''}
+                        </Typography>
+                      </Stack>
+                      <PieceGroups rows={part.rows} compact />
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
           </Grid>
         </Stack>
       )}
       {!tvMode && [...orderedGroups.values()].length > 0 && (
         <Grid container spacing={2} data-testid="of-progress-layout" data-columns={wideViewport ? '2' : '1'}>
           {[...orderedGroups.values()].map(({ of, outputs }) => (
-            <Grid key={of.of_id} size={{ xs: 12, md: 6 }}>
-              <Card variant="outlined" data-testid="of-progress-card" data-of-id={of.of_id}>
-                <CardContent sx={{ p: { xs: 1.5, md: 2 } }}>
-                  <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 1 }}>
-                    <Typography variant="h5" fontWeight={900}>{of.of}</Typography>
-                    <Chip size="small" label={of.estado} />
-                  </Stack>
-                  <PieceGroups rows={outputs} />
-                </CardContent>
-              </Card>
+            <Grid key={hasCanonicalGroups ? of.group_id : of.of_id} size={{ xs: 12, md: 6 }}>
+              {hasCanonicalGroups
+                ? <CanonicalGroupCard group={of} />
+                : <Card variant="outlined" data-testid="of-progress-card" data-of-id={of.of_id}>
+                  <CardContent sx={{ p: { xs: 1.5, md: 2 } }}>
+                    <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 1 }}>
+                      <Typography variant="h5" fontWeight={900}>{of.of}</Typography>
+                      <Chip size="small" label={of.estado} />
+                    </Stack>
+                    <PieceGroups rows={outputs} />
+                  </CardContent>
+                </Card>}
             </Grid>
           ))}
         </Grid>
