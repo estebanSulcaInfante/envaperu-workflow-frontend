@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 class FakeGain {
+  static instances = [];
+
   constructor() {
     this.gain = {
       setValueAtTime: vi.fn(),
       exponentialRampToValueAtTime: vi.fn(),
     };
+    FakeGain.instances.push(this);
   }
 
   connect() {}
@@ -65,6 +68,7 @@ async function loadAudio() {
 describe('scmScanAudio', () => {
   beforeEach(() => {
     FakeAudioContext.instances = [];
+    FakeGain.instances = [];
     FakeOscillator.emitEnded = true;
     vi.unstubAllGlobals();
     vi.stubGlobal('AudioContext', FakeAudioContext);
@@ -112,6 +116,15 @@ describe('scmScanAudio', () => {
     expect(audio.playScanFeedback('confirmed')).toBe(true);
     const frequencies = fakeContext.oscillators.map((oscillator) => oscillator.frequency.value);
     expect(new Set(frequencies).size).toBeGreaterThan(1);
+  });
+
+  it('ramps feedback tones to the authorized 0.16 peak', async () => {
+    const audio = await loadAudio();
+    await audio.activateScanAudio();
+
+    expect(audio.playScanFeedback('accepted')).toBe(true);
+    expect(FakeGain.instances[0].gain.exponentialRampToValueAtTime)
+      .toHaveBeenCalledWith(0.16, 0.01);
   });
 
   it('reserves the feedback tone budget before scheduling a multi-tone cue', async () => {

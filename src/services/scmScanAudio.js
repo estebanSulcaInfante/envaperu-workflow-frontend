@@ -1,4 +1,5 @@
 const MAX_ACTIVE_FEEDBACK = 4;
+const FEEDBACK_PEAK = 0.16;
 
 const FEEDBACK_TONES = {
   accepted: [{ frequency: 740, duration: 0.08 }],
@@ -108,7 +109,7 @@ export function playScanFeedback(kind) {
       oscillator.type = 'sine';
       oscillator.frequency.value = tone.frequency;
       gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.08, start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(FEEDBACK_PEAK, start + 0.01);
       gain.gain.exponentialRampToValueAtTime(0.0001, end);
       oscillator.connect(gain);
       gain.connect(audioContext.destination);
