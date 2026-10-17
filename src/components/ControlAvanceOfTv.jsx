@@ -452,7 +452,7 @@ function CanonicalMetricCell({ output, pieceName, colorName, groupId }) {
         <Typography fontWeight={800} sx={{ minWidth: 0, fontSize: { xs: 12, md: 14 }, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
           {advance}
         </Typography>
-        {overTarget && <Chip data-testid="over-target-label" size="small" color="warning" label="Meta superada · exceso" sx={{ height: 20, maxWidth: '100%', fontWeight: 800, fontSize: 10, '& .MuiChip-label': { px: 0.6, overflow: 'hidden', textOverflow: 'ellipsis' } }} />}
+        {overTarget && <Chip data-testid="over-target-label" size="small" color="warning" label="Exceso" sx={{ height: 20, maxWidth: '100%', fontWeight: 800, fontSize: 10, '& .MuiChip-label': { px: 0.6, overflow: 'hidden', textOverflow: 'ellipsis' } }} />}
       </Stack>
       {exception && !overTarget && <Chip size="small" color="default" label={status} sx={{ maxWidth: '100%', height: 18, fontSize: 9, mb: 0.25, '& .MuiChip-label': { px: 0.5, overflow: 'hidden', textOverflow: 'ellipsis' } }} />}
       <Typography data-testid="output-percent" color="text.secondary" sx={{ display: 'block', fontSize: { xs: 11, md: 12 }, lineHeight: 1.1, whiteSpace: 'nowrap' }}>

@@ -117,9 +117,10 @@ describe('ControlAvanceOfTv', () => {
       'error', 'warning', 'success', 'success',
     ]);
     const note = within(board).getByTestId('over-target-label');
-    expect(note).toHaveTextContent('Meta superada');
-    expect(note.parentElement).toHaveTextContent('Meta superada');
+    expect(note).toHaveTextContent('Exceso');
+    expect(note.parentElement).toHaveTextContent('Exceso');
     expect(note.parentElement).toHaveTextContent('120 / 100 KG');
+    expect(within(board).queryByText('Meta superada · exceso')).not.toBeInTheDocument();
     expect(within(board).getAllByRole('progressbar')[3]).toHaveAttribute(
       'aria-valuetext', '120%; estado Meta superada',
     );
