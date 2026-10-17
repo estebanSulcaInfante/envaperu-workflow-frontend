@@ -23,6 +23,13 @@ const statusLabels = {
   SIN_PERMISO_PESAJE: 'Pesajes no visibles',
   INCOMPLETO: 'Evidencia incompleta',
 };
+const orderStatusLabels = {
+  EN_EJECUCION: 'En ejecución',
+  EN_COBERTURA: 'En cobertura',
+  PROGRAMADA: 'Programada',
+  LIBERADA: 'Liberada',
+  ABIERTA: 'Abierta',
+};
 
 const number = (value, fraction = 0) => value == null
   ? '-'
@@ -37,6 +44,12 @@ function isTransparentColor(value) {
   return /^transparente(?:\s+transparente)*$/i.test(String(value || '').trim().replace(/\s+/g, ' '));
 }
 
+function displayOt(value) {
+  const ot = String(value || '').trim();
+  if (!ot) return 'Sin OT';
+  return /^OT(?:-|\s)/i.test(ot) ? ot : `OT ${ot}`;
+}
+
 function metricLabel(output) {
   if (output.unidad === 'KG') {
     if (output.tipo_meta === 'ESTANDAR') return 'Meta estándar (kg)';
@@ -49,6 +62,18 @@ function metricLabel(output) {
 
 function outputIdentity(output) {
   return `${output.corrida_id ?? 'sin-objetivo'}-${output.pieza_color_id ?? output.sku ?? 'sin-color'}`;
+}
+
+function canonicalBoardKey(group) {
+  const ofKey = group.of_id ?? group.of ?? 'sin-of';
+  const moldKey = group.molde_id ?? group.molde?.codigo ?? group.molde?.nombre ?? 'sin-molde';
+  if (group.molde_visible !== true || !moldKey || moldKey === 'sin-molde') return `group:${group.group_id}`;
+  return `${ofKey}|${moldKey}`;
+}
+
+function canonicalColorKey(group) {
+  if (group.color_id != null) return `color-id:${group.color_id}`;
+  return `color-name:${String(group.color || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es-PE') || 'sin-color'}`;
 }
 
 function groupByPiece(rows) {
@@ -67,6 +92,21 @@ function groupByPiece(rows) {
     groups.get(key).outputs.push(output);
   });
   return [...groups.values()];
+}
+
+function canonicalPieceKey(output) {
+  return output.pieza_id != null
+    ? `pieza:${output.pieza_id}`
+    : `nombre:${output.pieza || 'Pieza sin identificar'}`;
+}
+
+function canonicalPieces(groups) {
+  const pieces = new Map();
+  groups.forEach((group) => (group.salidas || []).forEach((output) => {
+    const key = canonicalPieceKey(output);
+    if (!pieces.has(key)) pieces.set(key, { key, name: output.pieza || 'Pieza sin identificar', pieceId: output.pieza_id ?? null });
+  }));
+  return [...pieces.values()];
 }
 
 function OutputRow({ output, compact = false, showColor = true }) {
@@ -100,12 +140,14 @@ function OutputRow({ output, compact = false, showColor = true }) {
               {colorName}
             </Typography>
           </Stack>}
-          <Chip
-            size="small"
-            color={statusTone}
-            label={statusLabels[output.estado_avance] || output.estado_avance}
-            sx={{ alignSelf: 'flex-start', maxWidth: '100%', height: 'auto', minHeight: compact ? 20 : 22, fontSize: 11, '& .MuiChip-label': { px: 0.75, py: 0.2, whiteSpace: 'normal', display: 'block', overflowWrap: 'anywhere', lineHeight: 1.1 } }}
-          />
+          {(!compact || !['EN_AVANCE', 'COMPLETADA'].includes(output.estado_avance)) && (
+            <Chip
+              size="small"
+              color={statusTone}
+              label={statusLabels[output.estado_avance] || output.estado_avance}
+              sx={{ alignSelf: 'flex-start', maxWidth: '100%', height: 'auto', minHeight: compact ? 20 : 22, fontSize: 11, '& .MuiChip-label': { px: 0.75, py: 0.2, whiteSpace: 'normal', display: 'block', overflowWrap: 'anywhere', lineHeight: 1.1 } }}
+            />
+          )}
           {output.unidad !== 'KG' && output.peso_fisico_kg != null && (
             <Typography variant="caption" color="text.secondary" sx={{ fontSize: compact ? 9 : 10, lineHeight: 1.1 }}>
               Peso neto: <strong>{number(output.peso_fisico_kg, 1)} kg</strong>
@@ -113,30 +155,49 @@ function OutputRow({ output, compact = false, showColor = true }) {
           )}
         </Stack>
         <Grid container columnSpacing={compact ? 0.5 : 1} rowSpacing={0} sx={{ flex: 1, minWidth: 0, width: compact ? undefined : '100%' }}>
-          <Grid size={{ xs: 6, sm: 3 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1, overflowWrap: 'anywhere' }}>{metricLabel(output)}</Typography>
-            <Typography fontWeight={800} sx={{ fontSize: compact ? { xs: 16, md: 22 } : 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
-              {number(output.meta, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
-            </Typography>
-          </Grid>
-          <Grid size={{ xs: 6, sm: 3 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1 }}>Avance</Typography>
-            <Typography fontWeight={800} sx={{ fontSize: compact ? { xs: 16, md: 22 } : 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
-              {number(output.avance, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
-            </Typography>
-          </Grid>
-          <Grid size={{ xs: 6, sm: 3 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1 }}>Pendiente</Typography>
-            <Typography fontWeight={800} sx={{ fontSize: compact ? { xs: 16, md: 22 } : 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
-              {number(output.pendiente, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
-            </Typography>
-          </Grid>
-          <Grid size={{ xs: 6, sm: 3 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1 }}>Cumplimiento</Typography>
-            <Typography fontWeight={800} sx={{ fontSize: compact ? { xs: 16, md: 22 } : 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
-              {output.porcentaje == null ? '-' : `${number(output.porcentaje, 1)}%`}
-            </Typography>
-          </Grid>
+          {compact ? (
+            <>
+              <Grid size={{ xs: 7, sm: 8 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 10, lineHeight: 1.1 }}>Avance / meta</Typography>
+                <Typography fontWeight={800} sx={{ fontSize: { xs: 16, md: 21 }, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
+                  {number(output.avance, output.unidad === 'KG' ? 1 : 0)} / {number(output.meta, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 5, sm: 4 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 10, lineHeight: 1.1 }}>Porcentaje</Typography>
+                <Typography data-testid="output-percent" fontWeight={800} sx={{ fontSize: { xs: 16, md: 21 }, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
+                  {output.porcentaje == null ? '-' : `${number(output.porcentaje, 1)}%`}
+                </Typography>
+              </Grid>
+            </>
+          ) : (
+            <>
+              <Grid size={{ xs: 6, sm: 3 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1, overflowWrap: 'anywhere' }}>{metricLabel(output)}</Typography>
+                <Typography fontWeight={800} sx={{ fontSize: 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
+                  {number(output.meta, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 3 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1 }}>Avance</Typography>
+                <Typography fontWeight={800} sx={{ fontSize: 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
+                  {number(output.avance, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 3 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1 }}>Pendiente</Typography>
+                <Typography fontWeight={800} sx={{ fontSize: 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
+                  {number(output.pendiente, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6, sm: 3 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1 }}>Cumplimiento</Typography>
+                <Typography fontWeight={800} sx={{ fontSize: 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
+                  {output.porcentaje == null ? '-' : `${number(output.porcentaje, 1)}%`}
+                </Typography>
+              </Grid>
+            </>
+          )}
         </Grid>
       </Stack>
       {output.meta != null && output.porcentaje != null && (
@@ -186,39 +247,128 @@ function PieceGroups({ rows, compact = false, showColor = true }) {
   );
 }
 
-function CanonicalGroupCard({ group, compact = false, partLabel = null }) {
-  const identity = group.identity || {};
-  const colorName = displayColorName(group.color);
-  const transparent = isTransparentColor(colorName);
-  const swatch = group.color_hex && /^#[\da-f]{6}$/i.test(group.color_hex) ? group.color_hex : '#94A3B8';
-  const swatchSx = transparent
-    ? { background: 'repeating-linear-gradient(45deg, #FFFFFF 0 4px, #CBD5E1 4px 8px)' }
-    : { bgcolor: swatch };
-  const rows = (group.salidas || []).map((output, index) => ({ of: group, output, index }));
+function CanonicalMetricCell({ output, pieceName, colorName, ot, groupId }) {
+  if (!output) {
+    return <Box data-testid="canonical-piece-cell" sx={{ minWidth: 0, p: 0.4, color: 'text.disabled' }}>-</Box>;
+  }
+  const barValue = output.porcentaje == null ? 0 : Math.max(0, Math.min(output.porcentaje, 100));
+  const exception = !['EN_AVANCE', 'COMPLETADA'].includes(output.estado_avance);
+  const swatch = output.color_hex && /^#[\da-f]{6}$/i.test(output.color_hex) ? output.color_hex : '#94A3B8';
+  const advance = `${number(output.avance, output.unidad === 'KG' ? 1 : 0)} / ${number(output.meta, output.unidad === 'KG' ? 1 : 0)} ${output.unidad || ''}`.trim();
+  const percentage = output.porcentaje == null ? '-' : `${number(output.porcentaje, 1)}%`;
   return (
-    <Card variant="outlined" data-testid="of-progress-card" data-group-id={group.group_id} data-of-id={group.of_id} sx={{ boxShadow: compact ? 2 : undefined, minHeight: 0 }}>
+    <Box
+      component="article"
+      data-testid="output-progress-row"
+      data-canonical-piece={pieceName}
+      data-group-id={groupId}
+      data-output-key={outputIdentity(output)}
+      aria-label={`Color ${colorName}; pieza ${pieceName}; ${displayOt(ot)}; avance/meta ${advance}; porcentaje ${percentage}`}
+      sx={{ minWidth: 0, p: { xs: 0.35, md: 0.5 }, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
+    >
+      {exception && <Chip size="small" color={['SOBREPRODUCCION', 'SOBRE_REFERENCIA'].includes(output.estado_avance) ? 'warning' : 'default'} label={statusLabels[output.estado_avance] || output.estado_avance} sx={{ maxWidth: '100%', height: 18, fontSize: 9, mb: 0.25, '& .MuiChip-label': { px: 0.5, overflow: 'hidden', textOverflow: 'ellipsis' } }} />}
+      {ot && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 9, lineHeight: 1.05 }}>{displayOt(ot)}</Typography>}
+      <Typography fontWeight={800} sx={{ display: 'block', fontSize: { xs: 12, md: 14 }, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
+        {advance}
+      </Typography>
+      <Typography data-testid="output-percent" color="text.secondary" sx={{ display: 'block', fontSize: { xs: 11, md: 12 }, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
+        {percentage}
+      </Typography>
+      {output.meta != null && output.porcentaje != null && (
+        <LinearProgress
+          variant="determinate"
+          value={barValue}
+          aria-label={`Avance ${number(output.porcentaje, 1)} por ciento`}
+          sx={{ mt: 0.25, height: 3, borderRadius: 4, bgcolor: 'action.disabledBackground', '& .MuiLinearProgress-bar': { bgcolor: swatch } }}
+        />
+      )}
+    </Box>
+  );
+}
+
+function CanonicalBoardCard({ board, compact = false, wide = true, partLabel = null }) {
+  const groups = board.groups || [];
+  const firstGroup = groups[0] || {};
+  const pieces = canonicalPieces(groups);
+  const colorLanes = [...groups.reduce((lanes, group) => {
+    const key = canonicalColorKey(group);
+    if (!lanes.has(key)) lanes.set(key, { key, groups: [] });
+    lanes.get(key).groups.push(group);
+    return lanes;
+  }, new Map()).values()];
+  const moldVisible = groups.some((group) => group.molde_visible === true);
+  const moldLabel = firstGroup.molde?.nombre || firstGroup.molde?.codigo;
+  const boardHeader = (
+    <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: compact ? 0.75 : 1, flexWrap: 'wrap' }}>
+      <Typography variant={compact ? 'h4' : 'h5'} fontWeight={900} sx={compact ? { fontSize: { xs: 25, md: 32 }, lineHeight: 1.05 } : undefined}>{board.of || 'OF sin identificar'}</Typography>
+      <Chip size="small" label={orderStatusLabels[board.estado] || board.estado || 'Estado no disponible'} sx={compact ? { height: 22, fontSize: 11 } : undefined} />
+      {moldVisible && (moldLabel
+        ? <Chip size="small" variant="outlined" label={`Molde ${moldLabel}`} />
+        : <Chip size="small" color="warning" variant="outlined" label="Molde sin identificar" />)}
+      {partLabel && <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto !important', whiteSpace: 'nowrap' }}>{partLabel}</Typography>}
+    </Stack>
+  );
+  const laneOutputs = (lane, piece) => lane.groups.flatMap((group) => (group.salidas || [])
+    .filter((output) => canonicalPieceKey(output) === piece.key)
+    .map((output) => ({ output, group })));
+  const colorCell = (lane) => {
+    const group = lane.groups[0] || {};
+    const colorName = displayColorName(group.color);
+    const transparent = isTransparentColor(colorName);
+    const swatch = group.color_hex && /^#[\da-f]{6}$/i.test(group.color_hex) ? group.color_hex : '#94A3B8';
+    const swatchSx = transparent
+      ? { background: 'repeating-linear-gradient(45deg, #FFFFFF 0 4px, #CBD5E1 4px 8px)' }
+      : { bgcolor: swatch };
+    return (
+      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0, flexWrap: 'wrap' }}>
+        <Box aria-label={`Color ${colorName}`} data-color-kind={transparent ? 'transparent' : 'named'} data-testid="group-color-swatch" sx={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid', borderColor: 'text.secondary', flex: '0 0 auto', ...swatchSx }} />
+        <Typography fontWeight={800} sx={{ fontSize: { xs: 12, md: 14 }, overflowWrap: 'anywhere' }}>{colorName}</Typography>
+        {!group.color_hex && !transparent && <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>(neutral)</Typography>}
+        {lane.groups.map((subgroup) => <Typography key={subgroup.group_id} component="span" variant="caption" color="text.secondary" data-testid="canonical-progress-group" data-group-id={subgroup.group_id} sx={{ width: '100%', fontSize: 10 }}>{displayOt(subgroup.ot)}</Typography>)}
+      </Stack>
+    );
+  };
+  return (
+    <Card variant="outlined" data-testid="of-progress-card" data-board-key={board.key} data-of-id={board.of_id} sx={{ boxShadow: compact ? 2 : undefined, minHeight: 0 }}>
       <CardContent sx={{ p: compact ? { xs: 1, md: 1.25 } : { xs: 1.5, md: 2 }, '&:last-child': { pb: compact ? { xs: 1, md: 1.25 } : { xs: 1.5, md: 2 } } }}>
-        <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: compact ? 0.5 : 1, flexWrap: 'wrap' }}>
-          <Typography variant={compact ? 'h4' : 'h5'} fontWeight={900} sx={compact ? { fontSize: { xs: 25, md: 32 }, lineHeight: 1.05 } : undefined}>{group.of || 'OF sin identificar'}</Typography>
-          <Chip size="small" label={group.estado || 'Estado no disponible'} sx={compact ? { height: 22, fontSize: 11 } : undefined} />
-          {group.ot && <Chip size="small" variant="outlined" label={`OT ${group.ot}`} />}
-          {group.corrida && <Chip size="small" variant="outlined" label={`Corrida ${group.corrida}`} />}
-          {group.molde_visible === true && (group.molde?.nombre || group.molde?.codigo
-            ? <Chip size="small" variant="outlined" label={`Molde ${group.molde.nombre || group.molde.codigo}`} />
-            : <Chip size="small" color="warning" variant="outlined" label="Molde sin identificar" />)}
-          {partLabel && <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto !important', whiteSpace: 'nowrap' }}>{partLabel}</Typography>}
-        </Stack>
-        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: compact ? 0.75 : 1 }}>
-          <Box aria-label={`Color ${colorName}`} data-color-kind={transparent ? 'transparent' : 'named'} data-testid="group-color-swatch" sx={{ width: compact ? 20 : 24, height: compact ? 20 : 24, borderRadius: '50%', border: '2px solid', borderColor: 'text.secondary', flex: '0 0 auto', ...swatchSx }} />
-          <Typography fontWeight={800}>{colorName}</Typography>
-          {!group.color_hex && !transparent && <Typography variant="caption" color="text.secondary">(muestra neutral)</Typography>}
-        </Stack>
-        {identity.identity_status !== 'COMPLETA' && (
-          <Alert severity="warning" sx={{ mb: 1 }}>
-            Identidad incompleta: avance y porcentaje no disponibles ({(identity.identity_issues || []).join(', ') || 'evidencia insuficiente'}).
-          </Alert>
+        {boardHeader}
+        {wide ? (
+          <Box data-testid="canonical-matrix" sx={{ display: 'grid', gridTemplateColumns: `minmax(132px, 0.8fr) repeat(${Math.max(pieces.length, 1)}, minmax(88px, 1fr))`, minWidth: 0, '& > *': { minWidth: 0 } }}>
+            <Typography variant="caption" color="text.secondary" sx={{ p: 0.5, fontWeight: 800 }}>Color</Typography>
+            {pieces.map((piece) => <Typography key={piece.key} data-testid="canonical-piece-header" variant="caption" fontWeight={850} sx={{ p: 0.5, lineHeight: 1.1, overflowWrap: 'anywhere' }}>{piece.name}</Typography>)}
+            {colorLanes.map((lane) => {
+              return (
+                <Box key={lane.key} component="section" data-testid="canonical-color-lane" data-color-key={lane.key} sx={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'subgrid', borderTop: '1px solid', borderColor: 'divider', py: 0.35, minWidth: 0 }}>
+                  <Box sx={{ minWidth: 0, p: 0.25 }}>{colorCell(lane)}</Box>
+                  {pieces.map((piece) => {
+                    const outputs = laneOutputs(lane, piece);
+                    const colorName = displayColorName(lane.groups[0]?.color);
+                    return <Box key={`${lane.key}-${piece.key}`} data-testid="canonical-piece-cell" sx={{ minWidth: 0, p: 0.2 }}>{outputs.length ? outputs.map(({ output, group }) => <CanonicalMetricCell key={`${group.group_id}-${outputIdentity(output)}`} output={output} pieceName={piece.name} colorName={colorName} ot={group.ot} groupId={group.group_id} />) : '-'}</Box>;
+                  })}
+                  {lane.groups.filter((group) => group.identity?.identity_status !== 'COMPLETA').map((group) => <Alert key={`${group.group_id}-identity`} severity="warning" sx={{ gridColumn: '1 / -1', mt: 0.25, py: 0 }}>{`Identidad incompleta: avance y porcentaje no disponibles (${(group.identity?.identity_issues || []).join(', ') || 'evidencia insuficiente'}).`}</Alert>)}
+                </Box>
+              );
+            })}
+          </Box>
+        ) : (
+          <Stack spacing={0.75} data-testid="canonical-compact-grid">
+            {colorLanes.map((lane) => {
+              return (
+                <Box key={lane.key} component="section" data-testid="canonical-color-lane" data-color-key={lane.key} sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 0.5, minWidth: 0 }}>
+                  {colorCell(lane)}
+                  {lane.groups.filter((group) => group.identity?.identity_status !== 'COMPLETA').map((group) => <Alert key={`${group.group_id}-identity`} severity="warning" sx={{ my: 0.5, py: 0 }}>{`Identidad incompleta: avance y porcentaje no disponibles (${(group.identity?.identity_issues || []).join(', ') || 'evidencia insuficiente'}).`}</Alert>)}
+                  <Grid container spacing={0.35} sx={{ mt: 0.25 }}>
+                    {pieces.map((piece) => {
+                      const outputs = laneOutputs(lane, piece);
+                      const colorName = displayColorName(lane.groups[0]?.color);
+                      return <Grid key={`${lane.key}-${piece.key}`} size={{ xs: 6, sm: 3 }} sx={{ minWidth: 0 }}><Typography variant="caption" fontWeight={750} sx={{ display: 'block', fontSize: 10, overflowWrap: 'anywhere' }}>{piece.name}</Typography>{outputs.length ? outputs.map(({ output, group }) => <CanonicalMetricCell key={`${group.group_id}-${outputIdentity(output)}`} output={output} pieceName={piece.name} colorName={colorName} ot={group.ot} groupId={group.group_id} />) : <CanonicalMetricCell pieceName={piece.name} colorName={colorName} />}</Grid>;
+                    })}
+                  </Grid>
+                </Box>
+              );
+            })}
+          </Stack>
         )}
-        <PieceGroups rows={rows} compact={compact} showColor={false} />
       </CardContent>
     </Card>
   );
@@ -307,7 +457,7 @@ export default function ControlAvanceOfTv() {
   const canonicalGroups = useMemo(() => (activePayload?.items || [])
     .filter((group) => group.group_id)
     .filter((group) => ACTIVE.has(String(group.estado || '').toUpperCase()))
-    .filter((group) => `${group.of || ''} ${group.ot || ''} ${group.corrida || ''} ${group.molde?.nombre || ''} ${group.color || ''} ${(group.salidas || []).map((output) => `${output.pieza || ''} ${output.sku || ''}`).join(' ')}`.toLowerCase().includes(search.toLowerCase()))
+    .filter((group) => `${group.of || ''} ${group.ot || ''} ${group.molde?.nombre || ''} ${group.molde?.codigo || ''} ${group.color || ''} ${(group.salidas || []).map((output) => `${output.pieza || ''} ${output.sku || ''}`).join(' ')}`.toLowerCase().includes(search.toLowerCase()))
     .sort((left, right) => {
       const order = String(left.of || '').localeCompare(String(right.of || ''), 'es', { numeric: true });
       const inner = String(left.group_id).localeCompare(String(right.group_id), 'es', { numeric: true });
@@ -317,7 +467,7 @@ export default function ControlAvanceOfTv() {
   const flatRows = useMemo(() => (activePayload?.items || [])
     .filter((of) => ACTIVE.has(String(of.estado || '').toUpperCase()))
     .flatMap((of) => (of.salidas || []).map((output, index) => ({ of, output, index })))
-    .filter(({ of, output }) => `${of.of} ${output.pieza || ''} ${output.color || ''} ${output.corrida || ''} ${output.sku || ''}`.toLowerCase().includes(search.toLowerCase()))
+    .filter(({ of, output }) => `${of.of} ${output.pieza || ''} ${output.color || ''} ${output.sku || ''}`.toLowerCase().includes(search.toLowerCase()))
     .sort((left, right) => {
       const order = left.of.of.localeCompare(right.of.of, 'es', { numeric: true });
       const inner = `${left.output.pieza_id ?? ''}-${left.output.corrida ?? ''}-${left.output.pieza_color_id ?? ''}`
@@ -325,6 +475,20 @@ export default function ControlAvanceOfTv() {
       return (order || inner) * (orderDirection === 'asc' ? 1 : -1);
     }), [activePayload, search, orderDirection]);
 
+  const canonicalBoards = useMemo(() => canonicalGroups.reduce((boards, group) => {
+    const key = canonicalBoardKey(group);
+    if (!boards.has(key)) {
+      boards.set(key, {
+        key,
+        of_id: group.of_id,
+        of: group.of,
+        estado: group.estado,
+        groups: [],
+      });
+    }
+    boards.get(key).groups.push(group);
+    return boards;
+  }, new Map()), [canonicalGroups]);
   const orderedGroups = hasCanonicalGroups
     ? new Map(canonicalGroups.map((group) => [group.group_id, { of: group, outputs: (group.salidas || []).map((output, index) => ({ of: group, output, index })) }]))
     : flatRows.reduce((groups, row) => {
@@ -348,15 +512,15 @@ export default function ControlAvanceOfTv() {
     }));
   });
   const tvParts = hasCanonicalGroups
-    ? chunkRows([...orderedGroups.values()], wideViewport ? 2 : 1).map((groups, index, pages) => ({
+    ? chunkRows([...canonicalBoards.values()], wideViewport ? 2 : 1).map((boards, index, pages) => ({
       canonical: true,
-      groups,
+      boards,
       part: index + 1,
       partCount: pages.length,
     }))
     : legacyTvParts;
   const tvSlides = useMemo(() => hasCanonicalGroups
-    ? tvParts.map((part) => part.groups)
+    ? tvParts.map((part) => part.boards)
     : wideViewport ? pairDistinctOrders(tvParts) : tvParts.map((part) => [part]), [tvParts, wideViewport, hasCanonicalGroups]);
   const visibleSlide = slide % Math.max(1, tvSlides.length);
   const currentPage = tvSlides[visibleSlide] || [];
@@ -439,11 +603,11 @@ export default function ControlAvanceOfTv() {
               <Button size="small" onClick={() => setSlide((current) => (current + 1) % tvSlides.length)}>Siguiente</Button>
             </Stack>
           </Stack>
-          <Grid container spacing={1} data-testid="of-progress-layout" data-columns={wideViewport ? '2' : '1'}>
+          <Grid container spacing={1} data-testid="of-progress-layout" data-columns={wideViewport ? '2' : '1'} data-page-columns={hasCanonicalGroups ? (currentPage.length === 1 ? '1' : '2') : undefined} key={`tv-page-${visibleSlide}`} sx={{ animation: 'tv-page-enter 180ms ease-out', '@keyframes tv-page-enter': { from: { opacity: 0.65, transform: 'translateY(6px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none' } }}>
             {hasCanonicalGroups
-              ? currentPage.map(({ of: group }) => (
-                <Grid key={group.group_id} size={{ xs: 12, md: 6 }}>
-                  <CanonicalGroupCard group={group} compact />
+              ? currentPage.map((board) => (
+                <Grid key={board.key} size={{ xs: 12, md: currentPage.length === 1 ? 12 : 6 }}>
+                  <CanonicalBoardCard board={board} compact wide={wideViewport} />
                 </Grid>
               ))
               : currentPage.map((part) => (
@@ -465,13 +629,17 @@ export default function ControlAvanceOfTv() {
           </Grid>
         </Stack>
       )}
-      {!tvMode && [...orderedGroups.values()].length > 0 && (
+      {!tvMode && (hasCanonicalGroups ? canonicalBoards.size : orderedGroups.size) > 0 && (
         <Grid container spacing={2} data-testid="of-progress-layout" data-columns={wideViewport ? '2' : '1'}>
-          {[...orderedGroups.values()].map(({ of, outputs }) => (
-            <Grid key={hasCanonicalGroups ? of.group_id : of.of_id} size={{ xs: 12, md: 6 }}>
-              {hasCanonicalGroups
-                ? <CanonicalGroupCard group={of} />
-                : <Card variant="outlined" data-testid="of-progress-card" data-of-id={of.of_id}>
+          {hasCanonicalGroups
+            ? [...canonicalBoards.values()].map((board) => (
+              <Grid key={board.key} size={{ xs: 12, md: 6 }}>
+                <CanonicalBoardCard board={board} compact wide={wideViewport} />
+              </Grid>
+            ))
+            : [...orderedGroups.values()].map(({ of, outputs }) => (
+            <Grid key={of.of_id} size={{ xs: 12, md: 6 }}>
+              <Card variant="outlined" data-testid="of-progress-card" data-of-id={of.of_id}>
                   <CardContent sx={{ p: { xs: 1.5, md: 2 } }}>
                     <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 1 }}>
                       <Typography variant="h5" fontWeight={900}>{of.of}</Typography>
@@ -479,7 +647,7 @@ export default function ControlAvanceOfTv() {
                     </Stack>
                     <PieceGroups rows={outputs} />
                   </CardContent>
-                </Card>}
+                </Card>
             </Grid>
           ))}
         </Grid>

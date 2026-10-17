@@ -42,7 +42,7 @@ describe('ControlAvanceOfTv', () => {
     window.innerWidth = initialViewportWidth;
   });
 
-  it('renders one card per canonical group, shows color once, and keeps multipiece outputs together', async () => {
+  it('renders one shared OF-mold board, keeps group ids and multipiece outputs together', async () => {
     listarAvanceOfTvScm.mockResolvedValueOnce({
       as_of: response.as_of,
       visibilidad: { pesaje: true },
@@ -52,7 +52,7 @@ describe('ControlAvanceOfTv', () => {
         of_id: 'of-1', of: 'OF-0001', estado: 'EN_EJECUCION',
         ot_id: `ot-${suffix}`, ot: `OT-${suffix}`, corrida_id: `corrida-${suffix}`,
         corrida: 'Mismo nombre visual', molde_id: 'ML-1', molde: { codigo: 'ML-1', nombre: 'Molde común' },
-        color_id: index + 1, color: 'Azul', color_hex: '#123456',
+        color_id: 1, color: 'Azul', color_hex: '#123456', molde_visible: true,
         salidas: outputs.slice(0, 2).map((output, outputIndex) => ({
           ...output, corrida_id: `corrida-${suffix}`, pieza_id: outputIndex + 1,
           pieza: `Pieza ${outputIndex + 1}`, porcentaje: 50, avance: 1, pendiente: 1,
@@ -63,16 +63,19 @@ describe('ControlAvanceOfTv', () => {
 
     render(<ControlAvanceOfTv />);
     const cards = await screen.findAllByTestId('of-progress-card');
-    expect(cards).toHaveLength(2);
-    expect(cards.map((card) => card.getAttribute('data-group-id'))).toEqual([
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toHaveAttribute('data-board-key', 'of-1|ML-1');
+    const canonicalGroups = within(cards[0]).getAllByTestId('canonical-progress-group');
+    expect(canonicalGroups.map((group) => group.getAttribute('data-group-id'))).toEqual([
       'of-1|ot-a|corrida-a|ML-1|1',
       'of-1|ot-b|corrida-b|ML-1|2',
     ]);
-    cards.forEach((card) => {
-      expect(within(card).getByTestId('group-color-swatch')).toBeInTheDocument();
-      expect(within(card).getAllByTestId('output-progress-row')).toHaveLength(2);
-      expect(within(card).getAllByText('Azul')).toHaveLength(1);
-    });
+    expect(within(cards[0]).getAllByTestId('canonical-color-lane')).toHaveLength(1);
+    expect(within(cards[0]).getAllByTestId('group-color-swatch')).toHaveLength(1);
+    expect(within(cards[0]).getAllByTestId('output-progress-row')).toHaveLength(4);
+    expect(within(cards[0]).getAllByText('Azul')).toHaveLength(1);
+    expect(within(cards[0]).queryByText(/Corrida/)).not.toBeInTheDocument();
+    expect(within(cards[0]).queryByText('Pendiente')).not.toBeInTheDocument();
   });
 
   it('keys normal-view canonical cards by group_id and renders transparent semantics once', async () => {
@@ -84,29 +87,32 @@ describe('ControlAvanceOfTv', () => {
           {
             group_id: 'of-shared|ot-a|corrida-a|ML-1|1', identity: { identity_status: 'COMPLETA', identity_issues: [] },
             of_id: 'of-shared', of: 'OF-SHARED', estado: 'EN_EJECUCION', ot: 'OT-A', corrida: 'C-A',
-            molde: { codigo: 'ML-1', nombre: 'Molde 1' }, color: 'TRANSPARENTE TRANSPARENTE', color_hex: null,
+            molde: { codigo: 'ML-1', nombre: 'Molde 1' }, molde_visible: true, color: 'TRANSPARENTE TRANSPARENTE', color_hex: null,
             salidas: [{ ...outputs[0], corrida_id: 'corrida-a', pieza_id: 1, pieza: 'Pieza A', porcentaje: null, estado_avance: 'SIN_META' }],
           },
           {
             group_id: 'of-shared|ot-b|corrida-b|ML-1|2', identity: { identity_status: 'COMPLETA', identity_issues: [] },
             of_id: 'of-shared', of: 'OF-SHARED', estado: 'EN_EJECUCION', ot: 'OT-B', corrida: 'C-B',
-            molde: { codigo: 'ML-1', nombre: 'Molde 1' }, color: 'Rojo', color_hex: null,
+            molde: { codigo: 'ML-1', nombre: 'Molde 1' }, molde_visible: true, color: 'Rojo', color_hex: null,
             salidas: [{ ...outputs[0], corrida_id: 'corrida-b', pieza_id: 2, pieza: 'Pieza B', porcentaje: null, estado_avance: 'SIN_META' }],
           },
         ],
       });
       render(<ControlAvanceOfTv />);
       const cards = await screen.findAllByTestId('of-progress-card');
-      expect(cards).toHaveLength(2);
-      expect(cards.map((card) => card.getAttribute('data-group-id'))).toEqual([
+      expect(cards).toHaveLength(1);
+      const canonicalGroups = within(cards[0]).getAllByTestId('canonical-progress-group');
+      expect(canonicalGroups.map((group) => group.getAttribute('data-group-id'))).toEqual([
         'of-shared|ot-a|corrida-a|ML-1|1',
         'of-shared|ot-b|corrida-b|ML-1|2',
       ]);
-      expect(within(cards[0]).getByText('Transparente')).toBeInTheDocument();
-      expect(within(cards[0]).getByTestId('group-color-swatch')).toHaveAttribute('data-color-kind', 'transparent');
-      expect(within(cards[0]).queryByText(/muestra neutral/)).not.toBeInTheDocument();
-      expect(within(cards[1]).getByText('Rojo')).toBeInTheDocument();
-      expect(within(cards[1]).getByText(/muestra neutral/)).toBeInTheDocument();
+      const lanes = within(cards[0]).getAllByTestId('canonical-color-lane');
+      expect(lanes).toHaveLength(2);
+      expect(within(lanes[0]).getByText('Transparente')).toBeInTheDocument();
+      expect(within(lanes[0]).getByTestId('group-color-swatch')).toHaveAttribute('data-color-kind', 'transparent');
+      expect(within(lanes[0]).queryByText(/neutral/)).not.toBeInTheDocument();
+      expect(within(lanes[1]).getByText('Rojo')).toBeInTheDocument();
+      expect(within(lanes[1]).getByText(/neutral/)).toBeInTheDocument();
       expect(consoleError.mock.calls.some(([message]) => String(message).includes('Encountered two children with the same key'))).toBe(false);
     } finally {
       consoleError.mockRestore();
@@ -128,9 +134,29 @@ describe('ControlAvanceOfTv', () => {
     render(<ControlAvanceOfTv />);
 
     const card = await screen.findByTestId('of-progress-card');
-    expect(card).toHaveAttribute('data-group-id', 'tvgrp-opaque-authority');
+    expect(within(card).getByTestId('canonical-progress-group')).toHaveAttribute('data-group-id', 'tvgrp-opaque-authority');
     expect(within(card).queryByText(/Molde/)).not.toBeInTheDocument();
     expect(within(card).queryByText(/Molde sin identificar/)).not.toBeInTheDocument();
+  });
+
+  it('does not merge opaque groups when mold identity is unavailable', async () => {
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: ['a', 'b'].map((suffix, index) => ({
+        group_id: `opaque-of|${suffix}`,
+        identity: { identity_status: 'COMPLETA', identity_issues: [] },
+        of_id: 'opaque-of', of: 'OF-OPAQUE', estado: 'EN_EJECUCION',
+        molde_visible: false, color_id: index + 1, color: index === 0 ? 'Azul' : 'Rojo', color_hex: null,
+        salidas: [{ ...outputs[0], corrida_id: `opaque-${suffix}`, pieza_id: index + 1, pieza: `Pieza ${suffix}`, porcentaje: 25, avance: 1, meta: 4, estado_avance: 'EN_AVANCE' }],
+      })),
+    });
+
+    render(<ControlAvanceOfTv />);
+
+    const cards = await screen.findAllByTestId('of-progress-card');
+    expect(cards).toHaveLength(2);
+    expect(cards.map((card) => card.getAttribute('data-board-key'))).toEqual(['group:opaque-of|a', 'group:opaque-of|b']);
+    expect(screen.queryByText(/Molde/)).not.toBeInTheDocument();
   });
 
   it('paginates canonical group ids exactly once in TV mode', async () => {
@@ -139,7 +165,7 @@ describe('ControlAvanceOfTv', () => {
       identity: { identity_status: 'COMPLETA', identity_issues: [] },
       of_id: `of-${index + 1}`, of: `OF-${index + 1}`, estado: 'EN_EJECUCION',
       ot_id: `ot-${index + 1}`, ot: `OT-${index + 1}`, corrida_id: `corrida-${index + 1}`,
-      corrida: `C-${index + 1}`, molde_id: 'ML-1', molde: { codigo: 'ML-1', nombre: 'Molde 1' },
+      corrida: `C-${index + 1}`, molde_id: 'ML-1', molde: { codigo: 'ML-1', nombre: 'Molde 1' }, molde_visible: true,
       color_id: index + 1, color: `Color ${index + 1}`, color_hex: null,
       salidas: [{ ...outputs[0], corrida_id: `corrida-${index + 1}`, pieza_id: index + 1, pieza: `Pieza ${index + 1}`, porcentaje: null, estado_avance: 'SIN_META' }],
     }));
@@ -149,13 +175,15 @@ describe('ControlAvanceOfTv', () => {
     render(<ControlAvanceOfTv />);
     await screen.findAllByTestId('of-progress-card');
     fireEvent.click(screen.getByRole('button', { name: 'Modo TV' }));
+    expect(screen.getByTestId('of-progress-layout')).toHaveAttribute('data-page-columns', '2');
 
     const seen = new Set();
     for (let page = 0; page < 2; page += 1) {
-      screen.getAllByTestId('of-progress-card').forEach((card) => seen.add(card.getAttribute('data-group-id')));
+      screen.getAllByTestId('canonical-progress-group').forEach((group) => seen.add(group.getAttribute('data-group-id')));
       fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
+      if (page === 0) expect(screen.getByTestId('of-progress-layout')).toHaveAttribute('data-page-columns', '1');
     }
-    screen.getAllByTestId('of-progress-card').forEach((card) => seen.add(card.getAttribute('data-group-id')));
+    screen.getAllByTestId('canonical-progress-group').forEach((group) => seen.add(group.getAttribute('data-group-id')));
     expect(seen).toEqual(new Set(groups.map((group) => group.group_id)));
   });
 
@@ -279,6 +307,51 @@ describe('ControlAvanceOfTv', () => {
     window.innerWidth = 390;
     fireEvent(window, new Event('resize'));
     expect(await screen.findByTestId('of-progress-layout')).toHaveAttribute('data-columns', '1');
+  });
+
+  it('renders five accessory color lanes against four aligned pieces', async () => {
+    const pieceNames = ['ESTRELLA', 'CANGREJO', 'CABALLITO DE MAR', 'PEZ'];
+    const accessoryGroups = ['Crema', 'Rojo', 'Azul', 'Verde', 'Amarillo'].map((color, index) => ({
+      group_id: `acc-of|acc-ot-${index}|acc-run-${index}|M-ACC|${index}`,
+      identity: { identity_status: 'COMPLETA', identity_issues: [] },
+      of_id: 'acc-of', of: 'OF-ACCESORIOS', estado: 'EN_EJECUCION',
+      ot: 'OT-ACCESORIOS', corrida: `RUN-${index}`, molde_id: 'M-ACC',
+      molde: { codigo: 'M-ACC', nombre: 'Molde accesorios' }, molde_visible: true,
+      color, color_hex: index === 0 ? '#F5E7C8' : null,
+      salidas: pieceNames.map((pieza, pieceIndex) => ({
+        ...outputs[pieceIndex], corrida_id: `acc-run-${index}`, pieza_id: 700 + pieceIndex,
+        pieza, color, color_hex: null, pieza_color_id: `acc-${index}-${pieceIndex}`,
+        meta: 8, avance: pieceIndex + 2, porcentaje: (pieceIndex + 2) * 12.5,
+        pendiente: 8 - (pieceIndex + 2), estado_avance: 'EN_AVANCE', unidad: 'KG',
+      })),
+    }));
+    listarAvanceOfTvScm.mockResolvedValueOnce({ ...response, items: accessoryGroups });
+    window.innerWidth = 1366;
+
+    render(<ControlAvanceOfTv />);
+
+    const board = await screen.findByTestId('of-progress-card');
+    expect(screen.getAllByTestId('of-progress-card')).toHaveLength(1);
+    expect(within(board).getAllByText('Molde Molde accesorios')).toHaveLength(1);
+    expect(within(board).getAllByTestId('canonical-progress-group')).toHaveLength(5);
+    expect(within(board).getAllByTestId('output-progress-row')).toHaveLength(20);
+    expect(within(board).getAllByTestId('canonical-piece-header')).toHaveLength(4);
+    pieceNames.forEach((piece) => {
+      expect(within(board).getAllByText(piece)).toHaveLength(1);
+    });
+    expect(within(board).getAllByTestId('group-color-swatch')).toHaveLength(5);
+    expect(within(board).queryByText(/Corrida|Pendiente/)).not.toBeInTheDocument();
+    expect(within(board).getAllByTestId('output-percent')).toHaveLength(20);
+    expect(within(board).getAllByTestId('output-progress-row')[0]).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Color Crema; pieza ESTRELLA; OT-ACCESORIOS; avance/meta'),
+    );
+
+    window.innerWidth = 390;
+    fireEvent(window, new Event('resize'));
+    expect(await screen.findByTestId('canonical-compact-grid')).toBeInTheDocument();
+    expect(screen.queryByTestId('canonical-matrix')).not.toBeInTheDocument();
+    expect(within(board).getAllByTestId('output-progress-row')).toHaveLength(20);
   });
 
   it('pairs TV parts from different OFs and visits every output once, then adapts to mobile width', async () => {
