@@ -10,12 +10,6 @@ import {
   Paper,
   Select,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   Typography,
 } from '@mui/material';
@@ -49,6 +43,7 @@ const unitVersion = (unit) => Number(unit?.version);
 const outgoingEligibilityError = (unit, label) => {
   if (!unit?.id) return `${label} no tiene una identidad KG válida.`;
   if (!Number.isInteger(unitVersion(unit)) || unitVersion(unit) <= 0) return `${label} no tiene una versión válida.`;
+  if (!String(unit?.identidad?.m || '').trim()) return `${label} no tiene una identidad humana OF-OT-M.`;
   if (!ELIGIBLE_STATES.has(unitState(unit))) return `${label} ya no está disponible para salida.`;
   if (unit.estado && unit.estado !== 'ACTIVA') return `${label} no está activa para salida.`;
   const kg = Number(unitKg(unit));
@@ -117,15 +112,43 @@ const outgoingIdentity = (unit) => {
   const piece = identity.pieza || {};
   const color = identity.color || {};
   return {
-    of: identity.of || unit?.orden_fabricacion_codigo || 'OF no informado',
-    ot: identity.ot || unit?.orden_trabajo?.codigo_ot || 'OT no informado',
-    m: identity.m || unit?.codigo || 'M no informado',
-    piece: piece.codigo || piece.nombre || unit?.pieza_color_sku || unit?.articulo?.codigo || 'Pieza no informada',
-    pieceName: piece.nombre || '',
+    // `m` is the human-facing OF-OT-M identifier supplied by the resolver.
+    // Never synthesize it from technical fields: an absent identity must be
+    // visible as incomplete rather than silently displaying the KG code.
+    m: identity.m || null,
+    pieceName: piece.nombre || unit?.articulo?.nombre || '',
     colorName: color.nombre || unit?.color || unit?.color_nombre || 'Color no informado',
     colorHex: color.hex || unit?.color_hex || null,
   };
 };
+
+const colorPresentation = (unit) => {
+  const identity = outgoingIdentity(unit);
+  const transparent = isTransparentColor(identity.colorName);
+  const hasHex = validColorHex(identity.colorHex);
+  return {
+    ...identity,
+    colorName: transparent ? 'Transparente' : identity.colorName,
+    transparent,
+    hasHex,
+  };
+};
+
+const ColorDot = ({ colorName, colorHex, transparent, hasHex }) => (
+  <Box
+    aria-label={`Color ${colorName}`}
+    sx={{
+      width: 22,
+      height: 22,
+      flex: '0 0 auto',
+      borderRadius: '50%',
+      border: '1px solid',
+      borderColor: 'divider',
+      bgcolor: transparent || !hasHex ? 'grey.300' : colorHex,
+      ...(transparent ? { backgroundImage: 'repeating-linear-gradient(45deg, rgba(0,0,0,.25) 0 2px, transparent 2px 5px)' } : {}),
+    }}
+  />
+);
 
 /**
  * Outgoing direct batch flow. Scanning only resolves identities and builds a
@@ -683,13 +706,13 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       {storageError && <Alert severity="error">{storageError}</Alert>}
       {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
-      {audioStatus === 'suspended' && <Alert severity="warning" action={<Button onClick={() => activateAudio()}>Activar y probar sonido</Button>}>El sonido de lectura está suspendido. Puedes activarlo para recibir feedback.</Alert>}
+      {audioStatus === 'suspended' && <Alert severity="warning" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => activateAudio()}>Activar y probar sonido</Button>}>El sonido de lectura está suspendido. Puedes activarlo para recibir feedback.</Alert>}
       {audioStatus === 'unavailable' && <Alert severity="info">Sonido no disponible; puedes continuar con feedback visual.</Alert>}
-      {audioStatus === 'error' && <Alert severity="error" action={<Button onClick={() => activateAudio()}>Activar y probar sonido</Button>}>{audioError || 'No se pudo reproducir el feedback sonoro.'}</Alert>}
-      {pending && <Alert severity="warning" action={<Button startIcon={<RestoreIcon />} onClick={() => sendPending(pending, true)} disabled={busy}>Recuperar</Button>}>
+      {audioStatus === 'error' && <Alert severity="error" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => activateAudio()}>Activar y probar sonido</Button>}>{audioError || 'No se pudo reproducir el feedback sonoro.'}</Alert>}
+      {pending && <Alert severity="warning" action={<Button sx={{ minWidth: 44, minHeight: 44 }} startIcon={<RestoreIcon />} onClick={() => sendPending(pending, true)} disabled={busy}>Recuperar</Button>}>
         Hay una solicitud sin resultado confirmado. Puedes reintentar la misma salida desde aquí.
       </Alert>}
-      {complete && <Alert severity="success" action={<Button onClick={startNew} disabled={readOnly}>Nueva salida</Button>}>Salida <strong>{complete.operation_id}</strong> confirmada: {complete.cantidad_unidades ?? complete.retiros?.length ?? 0} unidad(es), {complete.total_kg ?? '-'} KG.</Alert>}
+      {complete && <Alert severity="success" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={startNew} disabled={readOnly}>Nueva salida</Button>}>Salida <strong>{complete.operation_id}</strong> confirmada: {complete.cantidad_unidades ?? complete.retiros?.length ?? 0} unidad(es), {complete.total_kg ?? '-'} KG.</Alert>}
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
         <FormControl fullWidth>
@@ -737,46 +760,33 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
             }
           }}
         />
-        <Button type="submit" variant="outlined" startIcon={<QrCodeScannerIcon />} disabled={readOnly || confirming || !!pending || !!complete || !code.trim()}>Agregar manga</Button>
+        <Button type="submit" variant="outlined" startIcon={<QrCodeScannerIcon />} sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || confirming || !!pending || !!complete || !code.trim()}>Agregar manga</Button>
       </Stack>
 
-      {scanReads.length > 0 && <Stack component="ul" role="list" aria-label="Lecturas pendientes" spacing={1} sx={{ p: 0, m: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1 }}>
+      {scanReads.length > 0 && <Stack component="ul" role="list" aria-label="Lecturas pendientes" spacing={1} sx={{ p: 0, m: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: '1fr', '@media (min-width:600px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
         {scanReads.map((read) => <Paper component="li" role="listitem" key={read.id} variant="outlined" sx={{ p: 1.25, minWidth: 0 }}>
           {read.status === 'waiting' && <Stack direction="row" justifyContent="space-between" flexWrap="wrap" sx={{ minWidth: 0 }}><Typography sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{read.code}</Typography><Chip size="small" label="En espera" /></Stack>}
           {read.status === 'validating' && <Stack direction="row" justifyContent="space-between" flexWrap="wrap" sx={{ minWidth: 0 }}><Typography sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{read.code}</Typography><Chip size="small" label="Validando" color="info" /></Stack>}
           {read.status === 'accepted' && (() => {
-            const identity = outgoingIdentity(read.unit);
-            const transparent = isTransparentColor(identity.colorName);
-            const hasHex = validColorHex(identity.colorHex);
-            const colorName = transparent ? 'Transparente' : identity.colorName;
+            const identity = colorPresentation(read.unit);
+            const label = identity.m || 'Identidad incompleta';
+            const pieceName = identity.pieceName || 'Pieza no informada';
             return <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
               <Box sx={{ minWidth: 0, flex: '1 1 0', overflowWrap: 'anywhere' }}>
-                <Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{identity.of} · {identity.ot} · {identity.m}</Typography>
-                <Typography variant="body2" fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>{identity.pieceName ? `${identity.piece} · ${identity.pieceName}` : identity.piece}</Typography>
+                <Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{label}</Typography>
+                <Typography variant="body2" fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>{pieceName}</Typography>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-                  <Box
-                    aria-label={`Color ${colorName}`}
-                    sx={{
-                      width: 20,
-                      height: 20,
-                      flex: '0 0 auto',
-                      borderRadius: '50%',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      bgcolor: transparent || !hasHex ? 'grey.300' : identity.colorHex,
-                      ...(transparent ? { backgroundImage: 'repeating-linear-gradient(45deg, rgba(0,0,0,.25) 0 2px, transparent 2px 5px)' } : {}),
-                    }}
-                  />
-                  <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{colorName}</Typography>
+                  <ColorDot {...identity} />
+                  <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{identity.colorName}</Typography>
                 </Stack>
                 <Typography variant="caption" color="text.secondary" display="block">{unitKg(read.unit) ?? '-'} KG verificados</Typography>
               </Box>
-              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ minWidth: 0 }}><Chip size="small" label="Aceptada" color="success" /><Button size="small" color="error" disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${read.unit?.codigo || read.code}`}>Retirar</Button></Stack>
+              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ minWidth: 0 }}><Chip size="small" label="Aceptada" color="success" /><Button size="small" color="error" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${identity.m || read.code}`}>Retirar</Button></Stack>
             </Stack>;
           })()}
           {read.status === 'conflict' && <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
             <Box sx={{ minWidth: 0, flex: '1 1 0', overflowWrap: 'anywhere' }}><Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{read.code}</Typography><Typography variant="body2" color="error" sx={{ overflowWrap: 'anywhere' }}>{read.error || 'No se pudo validar.'}</Typography></Box>
-            <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ minWidth: 0 }}><Button size="small" disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => retryScanRead(read)} aria-label={`Reintentar ${read.code}`}>Reintentar</Button><Button size="small" color="error" disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${read.code}`}>Retirar</Button></Stack>
+            <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ minWidth: 0 }}><Button size="small" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => retryScanRead(read)} aria-label={`Reintentar ${read.code}`}>Reintentar</Button><Button size="small" color="error" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${read.code}`}>Retirar</Button></Stack>
           </Stack>}
         </Paper>)}
       </Stack>}
@@ -789,33 +799,30 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
         {hasConflict && <Chip label={`${candidates.filter((candidate) => candidate.status === 'conflict').length} en conflicto`} color="error" />}
         <Chip label={`${selectedKg.toLocaleString('es-PE', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} KG`} variant="outlined" />
       </Stack>
-      {displayedCandidates.length > 0 && <>
-        <Stack spacing={1} sx={{ display: { xs: 'flex', md: 'none' } }} aria-label="Mangas seleccionadas para salida directa">
-          {displayedCandidates.map((candidate) => <Paper key={`mobile-${candidate.unit?.id || 'conflict'}-${candidate.code}`} variant="outlined" sx={{ p: 1.5 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
-              <Box>
-                <Typography fontWeight={750}>{candidateLabel(candidate)}</Typography>
-                {candidate.unit?.articulo?.codigo && <Typography variant="caption" color="text.secondary" display="block">{candidate.unit.articulo.codigo}</Typography>}
+      {displayedCandidates.length > 0 && <Stack component="ul" role="list" aria-label="Mangas seleccionadas para salida directa" spacing={1} sx={{ p: 0, m: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: '1fr', '@media (min-width:600px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
+        {displayedCandidates.map((candidate) => {
+          const identity = colorPresentation(candidate.unit);
+          const label = identity.m || 'Identidad incompleta';
+          const pieceName = identity.pieceName || 'Pieza no informada';
+          const actionLabel = identity.m || candidateLabel(candidate);
+          return <Paper component="li" role="listitem" key={`${candidate.unit?.id || 'conflict'}-${candidate.code}`} variant="outlined" sx={{ p: 1.5, minWidth: 0 }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'flex-start' }} spacing={1} sx={{ minWidth: 0 }}>
+              <Box sx={{ minWidth: 0, flex: '1 1 0', overflowWrap: 'anywhere' }}>
+                <Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{label}</Typography>
+                <Typography variant="body2" fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>{pieceName}</Typography>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                  <ColorDot {...identity} />
+                  <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{identity.colorName}</Typography>
+                </Stack>
                 <Typography variant="body2">{unitKg(candidate.unit) == null ? 'KG no disponibles' : `${unitKg(candidate.unit)} KG`}</Typography>
               </Box>
-              <Button aria-label={`Retirar ${candidateLabel(candidate)}`} size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => removeCandidate(candidate)} disabled={readOnly || busy || !!pending || !!complete}>Retirar</Button>
+              <Button aria-label={`Retirar ${actionLabel}`} size="small" color="error" startIcon={<DeleteOutlineIcon />} sx={{ minWidth: 44, minHeight: 44, alignSelf: { xs: 'stretch', sm: 'auto' } }} onClick={() => removeCandidate(candidate)} disabled={readOnly || busy || !!pending || !!complete}>Retirar</Button>
             </Stack>
             <Box sx={{ mt: 1 }}>{candidate.status === 'ready' ? <Chip size="small" label="Lista para revisar" color="success" /> : candidate.status === 'needs_revalidation' ? <Chip size="small" label="Revalidar antes de confirmar" color="warning" /> : <Chip size="small" label={candidate.error || 'Conflicto'} color="error" />}</Box>
-          </Paper>)}
-        </Stack>
-        <TableContainer component={Paper} variant="outlined" sx={{ display: { xs: 'none', md: 'block' } }}>
-        <Table size="small" aria-label="Mangas seleccionadas para salida directa">
-          <TableHead><TableRow><TableCell>Manga</TableCell><TableCell>Estado</TableCell><TableCell align="right">KG verificados</TableCell><TableCell align="right">Acción</TableCell></TableRow></TableHead>
-          <TableBody>{displayedCandidates.map((candidate) => <TableRow key={`${candidate.unit?.id || 'conflict'}-${candidate.code}`}>
-            <TableCell><Typography fontWeight={750}>{candidateLabel(candidate)}</Typography>{candidate.unit?.articulo?.codigo && <Typography variant="caption" color="text.secondary" display="block">{candidate.unit.articulo.codigo}</Typography>}</TableCell>
-            <TableCell>{candidate.status === 'ready' ? <Chip size="small" label="Lista para revisar" color="success" /> : candidate.status === 'needs_revalidation' ? <Chip size="small" label="Revalidar antes de confirmar" color="warning" /> : <Chip size="small" label={candidate.error || 'Conflicto'} color="error" />}</TableCell>
-            <TableCell align="right">{unitKg(candidate.unit) == null ? '-' : `${unitKg(candidate.unit)} KG`}</TableCell>
-            <TableCell align="right"><Button aria-label={`Retirar ${candidateLabel(candidate)}`} size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => removeCandidate(candidate)} disabled={readOnly || busy || !!pending || !!complete}>Retirar</Button></TableCell>
-          </TableRow>)}</TableBody>
-        </Table>
-        </TableContainer>
-      </>}
-      <Button variant="contained" color="success" size="large" startIcon={<SendIcon />} onClick={confirm} disabled={readOnly || busy || pendingScanCount > 0 || !!pending || !!complete || !!storageError || !candidates.length || hasConflict || !draft.reason.trim() || !draft.holderId || !hasCapabilities}>
+          </Paper>;
+        })}
+      </Stack>}
+      <Button variant="contained" color="success" size="large" startIcon={<SendIcon />} sx={{ minWidth: 44, minHeight: 44 }} onClick={confirm} disabled={readOnly || busy || pendingScanCount > 0 || !!pending || !!complete || !!storageError || !candidates.length || hasConflict || !draft.reason.trim() || !draft.holderId || !hasCapabilities}>
         {confirming ? 'Validando y confirmando…' : pendingScanCount > 0 ? 'Validando lecturas…' : `Revisar y confirmar salida (${candidates.filter((candidate) => candidate.status === 'ready').length})`}
       </Button>
       {!candidates.length && <Alert severity="info">Aún no hay mangas seleccionadas. Escanea la primera manga para comenzar.</Alert>}

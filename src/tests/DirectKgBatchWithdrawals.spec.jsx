@@ -30,6 +30,7 @@ vi.mock('../services/scmEngineeringApi', () => ({ mensajeErrorScm: (error) => er
 const unit = (id, code, version = 3) => ({
   id, codigo: code, version, estado: 'ACTIVA', estado_logistico: 'DISPONIBLE_PRODUCCION',
   estado_calidad: 'LIBERADA', kg_verificados: '12.500', articulo: { codigo: 'PIEZA' },
+  identidad: { m: `OF-${code}-OT-${code}-M-${code}` },
 });
 
 const scan = async (value) => {
@@ -109,8 +110,8 @@ describe('salida directa KG a Armado', () => {
   it('permite excluir una lectura válida equivocada antes de confirmar', async () => {
     render(<DirectKgBatchWithdrawals />);
     await scan('A');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Retirar A', exact: true })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: 'Retirar A', exact: true }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retirar OF-A-OT-A-M-A', exact: true })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Retirar OF-A-OT-A-M-A', exact: true }));
     expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(0);
     expect(confirmButton()).toBeDisabled();
     expect(api.create).not.toHaveBeenCalled();
@@ -174,7 +175,7 @@ describe('salida directa KG a Armado', () => {
     api.resolve.mockResolvedValue({ unit: {
       ...unit('A', 'A'),
       identidad: {
-        of: 'OF-001', ot: 'OT-001', m: 'M-001',
+        of: 'OF-001', ot: 'OT-001', m: 'OF-001-OT-001-M-001',
         pieza: { codigo: 'PC-001', nombre: 'Tapa' },
         color: { nombre: 'Azul', hex: '#112233' },
       },
@@ -184,11 +185,59 @@ describe('salida directa KG a Armado', () => {
     await scan('A');
 
     const list = screen.getByRole('list', { name: 'Lecturas pendientes' });
-    expect(list).toHaveStyle({ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' });
-    expect(within(list).getByText(/OF-001.*OT-001.*M-001/)).toBeVisible();
-    expect(within(list).getByText(/PC-001.*Tapa/i)).toBeVisible();
+    expect(list).toHaveStyle({ gridTemplateColumns: '1fr' });
+    expect(within(list).getByText('OF-001-OT-001-M-001')).toBeVisible();
+    expect(within(list).queryByText('OF-001 · OT-001 · OF-001-OT-001-M-001')).not.toBeInTheDocument();
+    expect(within(list).getByText('Tapa')).toBeVisible();
+    expect(within(list).queryByText('PC-001')).not.toBeInTheDocument();
     expect(within(list).getByText('Azul')).toBeVisible();
     expect(within(list).getByLabelText('Color Azul')).toHaveStyle({ backgroundColor: '#112233' });
+  });
+
+  it('mantiene la misma ficha humana al restaurar una manga y oculta el código técnico del artículo', async () => {
+    localStorage.setItem(draftKey, JSON.stringify({ reason: 'Guardado', holderId: 9,
+      candidates: [{
+        code: 'QR-RESTORED',
+        unit: {
+          ...unit('u-restored', 'QR-RESTORED'),
+          identidad: {
+            m: 'OF-009-OT-010-M-002',
+            pieza: { codigo: 'PC-RESTORED', nombre: 'Manga restaurada' },
+            color: { nombre: 'Verde', hex: '#008000' },
+          },
+        },
+        status: 'ready',
+      }] }));
+    render(<DirectKgBatchWithdrawals />);
+
+    const list = await screen.findByRole('list', { name: 'Mangas seleccionadas para salida directa' });
+    expect(within(list).getByText('OF-009-OT-010-M-002')).toBeVisible();
+    expect(within(list).getByText('Manga restaurada')).toBeVisible();
+    expect(within(list).queryByText('PC-RESTORED')).not.toBeInTheDocument();
+    expect(within(list).getByText('Verde')).toBeVisible();
+    expect(within(list).getByLabelText('Color Verde')).toBeVisible();
+    expect(within(list).getByText('12.500 KG')).toBeVisible();
+    expect(within(list).getByRole('button', { name: 'Retirar OF-009-OT-010-M-002' })).toBeVisible();
+  });
+
+  it('rechaza una unidad sin identidad.m y conserva el código leído en conflicto', async () => {
+    api.resolve.mockResolvedValue({ unit: {
+      ...unit('A', 'QR-LEIDO'),
+      identidad: { of: 'OF-001', ot: 'OT-001', pieza: { codigo: 'PC-001', nombre: 'Tapa' }, color: { nombre: 'Azul' } },
+    } });
+    render(<DirectKgBatchWithdrawals />);
+    await scan('QR-LEIDO');
+
+    const list = screen.getByRole('list', { name: 'Lecturas pendientes' });
+    expect(within(list).getByText(/no tiene una identidad humana OF-OT-M/i)).toBeVisible();
+    expect(within(list).getByRole('button', { name: 'Reintentar QR-LEIDO' })).toBeVisible();
+    expect(within(list).queryByText('Aceptada')).not.toBeInTheDocument();
+    expect(within(list).queryByText(/OF-001.*OT-001/)).not.toBeInTheDocument();
+
+    api.resolve.mockRejectedValueOnce(new Error('Identidad no encontrada'));
+    sendScan('QR-CONFLICTO');
+    await waitFor(() => expect(within(list).getByText('QR-CONFLICTO')).toBeVisible());
+    expect(within(list).getByRole('button', { name: 'Reintentar QR-CONFLICTO' })).toBeVisible();
   });
 
   it('normaliza solo transparente exacto y conserva nombres parecidos con HEX neutral', async () => {
@@ -273,7 +322,7 @@ describe('salida directa KG a Armado', () => {
       key: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', body: { items: [] },
     }));
     render(<DirectKgBatchWithdrawals />);
-    expect((await screen.findAllByText('QR-1')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('OF-QR-1-OT-QR-1-M-QR-1')).length).toBeGreaterThan(0);
     expect(screen.getByText(/solicitud sin resultado confirmado/i)).toBeVisible();
     expect(screen.getByLabelText('Motivo operativo')).toHaveValue('Guardado');
   });
@@ -389,7 +438,7 @@ describe('salida directa KG a Armado', () => {
     await waitFor(() => expect(confirmButton()).toBeEnabled()); fireEvent.click(confirmButton());
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
       expect(audio.play).not.toHaveBeenCalledWith('confirmed');
-      expect(screen.getByRole('button', { name: 'Retirar A', exact: true })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Retirar OF-A-OT-A-M-A', exact: true })).toBeDisabled();
     await act(async () => response.resolve({ operation_id: 'op', cantidad_unidades: 1, total_kg: '12.500', retiros: [] }));
     await waitFor(() => expect(audio.play).toHaveBeenCalledWith('confirmed'));
   });
@@ -523,7 +572,7 @@ describe('salida directa KG a Armado', () => {
     expect(api.create).not.toHaveBeenCalled();
     view.unmount(); render(<DirectKgBatchWithdrawals />);
     expect(confirmButton()).toBeDisabled();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Retirar QR-2' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Retirar OF-QR-2-OT-QR-2-M-QR-2' })[0]);
     await waitFor(() => expect(confirmButton()).toBeEnabled());
     fireEvent.click(confirmButton());
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
