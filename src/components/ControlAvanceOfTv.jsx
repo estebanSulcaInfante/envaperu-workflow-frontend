@@ -17,6 +17,9 @@ const TV_VERTICAL_CHROME = 180;
 // browser fixture. Pieces and outputs are horizontal, so their count does not
 // consume additional vertical budget. Narrow layouts add their stacked rows.
 const TV_BASE_LANE_HEIGHT = 73;
+const TV_CARD_CHROME = 90;
+const TV_PIECE_HEIGHT = 24;
+const TV_ROW_GAP = 8;
 const ACTIVE = new Set(['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION', 'ABIERTA', 'EN_COBERTURA']);
 const statusLabels = {
   EN_AVANCE: 'En avance',
@@ -156,6 +159,99 @@ export function splitTvLanes(groups, { viewportHeight = 768, pieceCount = 1, lay
   });
   if (current.length) pages.push(current);
   return pages.length ? pages : [[]];
+}
+
+function partPieceCount(part) {
+  if (Array.isArray(part.pieceKeys)) return Math.max(1, part.pieceKeys.length);
+  if (Array.isArray(part.groups)) return Math.max(1, canonicalPieces(part.groups).length);
+  return Math.max(1, new Set((part.rows || []).map(({ output }) => output?.pieza_id ?? output?.pieza)).size);
+}
+
+// Estimate a complete compact card, not only one color lane. The estimate is
+// deliberately deterministic so TV packing can be tested without a browser
+// layout pass. Wide matrices spend a small amount of vertical space on each
+// additional piece header; lanes remain the dominant cost.
+// eslint-disable-next-line react-refresh/only-export-components
+export function estimateTvPartHeight(part, { layout = 'wide' } = {}) {
+  if (Number.isFinite(part?.estimatedHeight)) return Math.max(1, part.estimatedHeight);
+  const groups = part.groups || [];
+  const laneHeight = groups.length
+    ? groups.reduce((total, group) => total + estimateLaneHeight(group, partPieceCount(part), layout), 0)
+    : calculateTvPageBudget({ pieceCount: partPieceCount(part), layout }).laneHeight;
+  const pieceHeight = layout === 'wide' ? Math.max(0, partPieceCount(part) - 1) * TV_PIECE_HEIGHT : 0;
+  return TV_CARD_CHROME + laneHeight + pieceHeight;
+}
+
+function flushTvRow(rows, parts, height) {
+  if (parts.length) rows.push({ parts, height });
+}
+
+// Forms stable rows first. A row has at most two cards and never pairs two
+// parts from the same OF. Full-width/exclusive cards are barriers of their own.
+// Height is the maximum card height in the row, so a page can contain several
+// rows without using a masonry layout.
+// eslint-disable-next-line react-refresh/only-export-components
+export function packTvRows(parts, {
+  availableHeight = Number.POSITIVE_INFINITY,
+  maxColumns = 2,
+  layout = 'wide',
+} = {}) {
+  const rows = [];
+  let current = [];
+  let currentHeight = 0;
+  const limit = Math.max(1, Math.min(2, maxColumns));
+  const pushCurrent = () => {
+    flushTvRow(rows, current, currentHeight);
+    current = [];
+    currentHeight = 0;
+  };
+
+  parts.forEach((part) => {
+    const height = estimateTvPartHeight(part, { layout });
+    const fullWidth = part.exclusive || part.requiresFullWidth || limit < 2;
+    const sameOf = current.some((candidate) => candidate.of_id != null && candidate.of_id === part.of_id);
+    const wouldOverflow = current.length > 0 && currentHeight > availableHeight;
+    if (fullWidth) {
+      pushCurrent();
+      rows.push({ parts: [part], height });
+    } else if (current.length >= limit || sameOf || wouldOverflow) {
+      pushCurrent();
+      current = [part];
+      currentHeight = height;
+    } else {
+      current.push(part);
+      currentHeight = Math.max(currentHeight, height);
+    }
+  });
+  pushCurrent();
+  return rows;
+}
+
+// Converts stable rows into TV pages. A row that is taller than the available
+// viewport is kept intact (there is no safe way to split a card), while normal
+// rows are accumulated until the measured height budget is reached.
+// eslint-disable-next-line react-refresh/only-export-components
+export function packTvPages(parts, {
+  availableHeight = 588,
+  maxColumns = 2,
+  layout = 'wide',
+} = {}) {
+  const rows = packTvRows(parts, { availableHeight, maxColumns, layout });
+  const pages = [];
+  let currentRows = [];
+  let usedHeight = 0;
+  rows.forEach((row) => {
+    const nextHeight = usedHeight + (currentRows.length ? TV_ROW_GAP : 0) + row.height;
+    if (currentRows.length && nextHeight > availableHeight) {
+      pages.push({ rows: currentRows, usedHeight });
+      currentRows = [];
+      usedHeight = 0;
+    }
+    currentRows.push(row);
+    usedHeight += row.height + (currentRows.length > 1 ? TV_ROW_GAP : 0);
+  });
+  if (currentRows.length) pages.push({ rows: currentRows, usedHeight });
+  return pages.length ? pages : [{ rows: [], usedHeight: 0 }];
 }
 
 function groupByPiece(rows) {
@@ -341,6 +437,7 @@ function CanonicalMetricCell({ output, pieceName, colorName, groupId }) {
   const progressColor = progressTone(output.porcentaje);
   const advance = `${number(output.avance, output.unidad === 'KG' ? 1 : 0)} / ${number(output.meta, output.unidad === 'KG' ? 1 : 0)} ${output.unidad || ''}`.trim();
   const percentage = output.porcentaje == null ? '-' : `${number(output.porcentaje, 1)}%`;
+  const status = statusLabels[output.estado_avance] || output.estado_avance || 'Estado no disponible';
   return (
     <Box
       component="article"
@@ -348,16 +445,16 @@ function CanonicalMetricCell({ output, pieceName, colorName, groupId }) {
       data-canonical-piece={pieceName}
       data-group-id={groupId}
       data-output-key={outputIdentity(output)}
-      aria-label={`Color ${colorName}; pieza ${pieceName}; avance/meta ${advance}; porcentaje ${percentage}`}
+      aria-label={`Color ${colorName}; pieza ${pieceName}; avance/meta ${advance}; porcentaje ${percentage}; estado ${status}`}
       sx={{ minWidth: 0, p: { xs: 0.35, md: 0.5 }, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
     >
-      <Stack direction="row" spacing={0.5} alignItems="baseline" justifyContent="space-between" sx={{ minWidth: 0, mb: 0.1 }}>
-        {overTarget && <Chip data-testid="over-target-label" size="small" color="warning" label="Meta superada · exceso" sx={{ height: 20, fontWeight: 800, fontSize: 10, '& .MuiChip-label': { px: 0.6 } }} />}
+      <Stack direction="row" spacing={0.5} alignItems="baseline" sx={{ minWidth: 0, mb: 0.1, flexWrap: 'wrap' }}>
+        <Typography fontWeight={800} sx={{ minWidth: 0, fontSize: { xs: 12, md: 14 }, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
+          {advance}
+        </Typography>
+        {overTarget && <Chip data-testid="over-target-label" size="small" color="warning" label="Meta superada · exceso" sx={{ height: 20, maxWidth: '100%', fontWeight: 800, fontSize: 10, '& .MuiChip-label': { px: 0.6, overflow: 'hidden', textOverflow: 'ellipsis' } }} />}
       </Stack>
-      {exception && !overTarget && <Chip size="small" color="default" label={statusLabels[output.estado_avance] || output.estado_avance} sx={{ maxWidth: '100%', height: 18, fontSize: 9, mb: 0.25, '& .MuiChip-label': { px: 0.5, overflow: 'hidden', textOverflow: 'ellipsis' } }} />}
-      <Typography fontWeight={800} sx={{ display: 'block', fontSize: { xs: 12, md: 14 }, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
-        {advance}
-      </Typography>
+      {exception && !overTarget && <Chip size="small" color="default" label={status} sx={{ maxWidth: '100%', height: 18, fontSize: 9, mb: 0.25, '& .MuiChip-label': { px: 0.5, overflow: 'hidden', textOverflow: 'ellipsis' } }} />}
       <Typography data-testid="output-percent" color="text.secondary" sx={{ display: 'block', fontSize: { xs: 11, md: 12 }, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
         {percentage}
       </Typography>
@@ -367,6 +464,7 @@ function CanonicalMetricCell({ output, pieceName, colorName, groupId }) {
           value={barValue}
           data-progress-tone={progressColor}
           aria-label={`Cumplimiento ${number(output.porcentaje, 1)} por ciento`}
+          aria-valuetext={`${percentage}; estado ${status}`}
           sx={{ mt: 0.25, height: 3, borderRadius: 4, bgcolor: 'action.disabledBackground', '& .MuiLinearProgress-bar': { bgcolor: `${progressColor}.main` } }}
         />
       )}
@@ -631,41 +729,42 @@ export default function ControlAvanceOfTv() {
     const pieceChunks = wideViewport && minFullWidth > viewportWidth - 24
       ? chunkRows(allPieces, maxFullWidthPieces)
       : [null];
-    return chunks.flatMap((groups, index) => pieceChunks.map((pieceChunk, columnIndex) => ({
-      ...board,
-      key: `${chunks.length > 1 ? `${board.key}|parte-${index + 1}` : board.key}${pieceChunk ? `|columnas-${columnIndex + 1}` : ''}`,
-      groups,
-      pieceKeys: pieceChunk?.map((piece) => piece.key) || null,
-      partLabel: chunks.length > 1 || pieceChunks.length > 1
-        ? `${chunks.length > 1 ? `Parte ${index + 1} de ${chunks.length}` : ''}${pieceChunks.length > 1 ? ` · Piezas ${columnIndex + 1} de ${pieceChunks.length}` : ''}`.trim()
-        : null,
-      // Two half-width cards must not force the matrix below its measured
-      // minimum width. A full-width card is safe at 1366; narrower viewports
-      // split columns and repeat the board/color headers on each page.
-      requiresFullWidth: wideViewport && minFullWidth > (viewportWidth / 2 - 24),
-      exclusive: chunks.length > 1 || pieceChunks.length > 1,
-      laneBudget: budget.maxLanes,
-    })));
+    return chunks.flatMap((groups, index) => pieceChunks.map((pieceChunk, columnIndex) => {
+      const part = {
+        ...board,
+        key: `${chunks.length > 1 ? `${board.key}|parte-${index + 1}` : board.key}${pieceChunk ? `|columnas-${columnIndex + 1}` : ''}`,
+        groups,
+        pieceKeys: pieceChunk?.map((piece) => piece.key) || null,
+        partLabel: chunks.length > 1 || pieceChunks.length > 1
+          ? `${chunks.length > 1 ? `Parte ${index + 1} de ${chunks.length}` : ''}${pieceChunks.length > 1 ? ` · Piezas ${columnIndex + 1} de ${pieceChunks.length}` : ''}`.trim()
+          : null,
+        // Two half-width cards must not force the matrix below its measured
+        // minimum width. A full-width card is safe at 1366; narrower viewports
+        // split columns and repeat the board/color headers on each page.
+        requiresFullWidth: wideViewport && minFullWidth > (viewportWidth / 2 - 24),
+        exclusive: chunks.length > 1 || pieceChunks.length > 1,
+        laneBudget: budget.maxLanes,
+      };
+      return { ...part, estimatedHeight: estimateTvPartHeight(part, { layout: wideViewport ? 'wide' : 'narrow' }) };
+    }));
   }), [canonicalBoards, viewportHeight, viewportWidth, wideViewport]);
   const canonicalSlides = useMemo(() => {
-    const remaining = [...canonicalParts];
-    const pages = [];
-    while (remaining.length) {
-      const first = remaining.shift();
-      if (first.exclusive || first.requiresFullWidth || !wideViewport) {
-        pages.push([first]);
-        continue;
-      }
-      const nextIndex = remaining.findIndex((part) => !part.exclusive && part.of_id !== first.of_id);
-      pages.push(nextIndex < 0 ? [first] : [first, ...remaining.splice(nextIndex, 1)]);
-    }
-    return pages;
-  }, [canonicalParts, wideViewport]);
+    const budget = calculateTvPageBudget({
+      viewportHeight,
+      layout: wideViewport ? 'wide' : 'narrow',
+    });
+    return packTvPages(canonicalParts, {
+      availableHeight: budget.availableHeight,
+      maxColumns: wideViewport ? 2 : 1,
+      layout: wideViewport ? 'wide' : 'narrow',
+    });
+  }, [canonicalParts, viewportHeight, wideViewport]);
   const tvSlides = useMemo(() => hasCanonicalGroups
     ? canonicalSlides
     : wideViewport ? pairDistinctOrders(legacyTvParts) : legacyTvParts.map((part) => [part]), [legacyTvParts, wideViewport, hasCanonicalGroups, canonicalSlides]);
   const visibleSlide = slide % Math.max(1, tvSlides.length);
-  const currentPage = tvSlides[visibleSlide] || [];
+  const currentPage = tvSlides[visibleSlide] || (hasCanonicalGroups ? { rows: [], usedHeight: 0 } : []);
+  const currentRows = hasCanonicalGroups ? currentPage.rows : [currentPage];
 
   useEffect(() => {
     if (!tvMode || tvSlides.length < 2) return undefined;
@@ -736,7 +835,7 @@ export default function ControlAvanceOfTv() {
       {fullscreenWarning && <Alert severity="warning" sx={{ mb: 1 }}>{fullscreenWarning}</Alert>}
       {loading && !payload && <Stack alignItems="center" sx={{ py: 6 }}><CircularProgress /><Typography sx={{ mt: 1 }}>Consultando avance.</Typography></Stack>}
       {!loading && !legacyTvParts.length && !canonicalParts.length && <Alert severity="info">No hay salidas de OF activas para mostrar.</Alert>}
-      {tvMode && currentPage.length > 0 && (
+      {tvMode && (hasCanonicalGroups ? currentPage.rows.length > 0 : currentPage.length > 0) && (
         <Stack spacing={1}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
             <Typography variant="subtitle1" color="text.secondary" aria-live="polite" sx={{ fontSize: { xs: 14, md: 18 } }}>
@@ -748,30 +847,38 @@ export default function ControlAvanceOfTv() {
               <Button size="small" onClick={() => setSlide((current) => (current + 1) % tvSlides.length)}>Siguiente</Button>
             </Stack>
           </Stack>
-          <Grid container spacing={1} data-testid="of-progress-layout" data-columns={wideViewport ? '2' : '1'} data-page-columns={hasCanonicalGroups ? (currentPage.length === 1 ? '1' : '2') : undefined} data-tv-lane-budget={hasCanonicalGroups ? currentPage[0]?.laneBudget : undefined} data-tv-viewport-height={viewportHeight} key={`tv-page-${visibleSlide}`} sx={{ animation: 'tv-page-enter 180ms ease-out', '@keyframes tv-page-enter': { from: { opacity: 0.65, transform: 'translateY(6px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none' } }}>
+          <Stack spacing={1} data-testid="of-progress-layout" data-columns={wideViewport ? '2' : '1'} data-page-columns={hasCanonicalGroups ? String(currentPage.rows[0]?.parts.length || 1) : undefined} data-page-rows={hasCanonicalGroups ? String(currentPage.rows.length) : undefined} data-tv-used-height={hasCanonicalGroups ? String(currentPage.usedHeight) : undefined} data-tv-lane-budget={hasCanonicalGroups ? currentPage.rows[0]?.parts[0]?.laneBudget : undefined} data-tv-viewport-height={viewportHeight} key={`tv-page-${visibleSlide}`} sx={{ animation: 'tv-page-enter 180ms ease-out', '@keyframes tv-page-enter': { from: { opacity: 0.65, transform: 'translateY(6px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none' } }}>
             {hasCanonicalGroups
-              ? currentPage.map((board) => (
-                <Grid key={board.key} size={{ xs: 12, md: currentPage.length === 1 ? 12 : 6 }}>
-                  <CanonicalBoardCard board={board} compact wide={wideViewport} partLabel={board.partLabel} pieceKeys={board.pieceKeys} />
+              ? currentRows.map((row, rowIndex) => (
+                <Grid container spacing={1} key={`tv-row-${rowIndex}`} data-testid="tv-page-row" data-row-columns={row.parts.length} data-row-height={row.height}>
+                  {row.parts.map((board) => (
+                    <Grid key={board.key} size={{ xs: 12, md: row.parts.length === 1 ? 12 : 6 }}>
+                      <CanonicalBoardCard board={board} compact wide={wideViewport} partLabel={board.partLabel} pieceKeys={board.pieceKeys} />
+                    </Grid>
+                  ))}
                 </Grid>
               ))
-              : currentPage.map((part) => (
-                <Grid key={`${part.of.of_id}-${part.part}`} size={{ xs: 12, md: 6 }}>
-                  <Card variant="outlined" data-testid="of-progress-card" data-of-id={part.of.of_id} sx={{ boxShadow: 2, minHeight: 0 }}>
-                    <CardContent sx={{ p: { xs: 1, md: 1.25 }, '&:last-child': { pb: { xs: 1, md: 1.25 } } }}>
-                      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5, flexWrap: 'wrap' }}>
-                        <Typography variant="h4" fontWeight={900} sx={{ fontSize: { xs: 25, md: 32 }, lineHeight: 1.05 }}>{part.of.of}</Typography>
-                        <Chip size="small" label={part.of.estado} sx={{ height: 22, fontSize: 11 }} />
-                        <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto !important', fontSize: { xs: 11, md: 12 }, whiteSpace: 'nowrap' }}>
-                          Parte {part.part} de {part.partCount}{part.part < part.partCount ? ' · Continúa' : ''}
-                        </Typography>
-                      </Stack>
-                      <PieceGroups rows={part.rows} compact />
-                    </CardContent>
-                  </Card>
+              : (
+                <Grid container spacing={1} data-testid="tv-page-row" data-row-columns={currentPage.length}>
+                  {currentPage.map((part) => (
+                    <Grid key={`${part.of.of_id}-${part.part}`} size={{ xs: 12, md: 6 }}>
+                      <Card variant="outlined" data-testid="of-progress-card" data-of-id={part.of.of_id} sx={{ boxShadow: 2, minHeight: 0 }}>
+                        <CardContent sx={{ p: { xs: 1, md: 1.25 }, '&:last-child': { pb: { xs: 1, md: 1.25 } } }}>
+                          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5, flexWrap: 'wrap' }}>
+                            <Typography variant="h4" fontWeight={900} sx={{ fontSize: { xs: 25, md: 32 }, lineHeight: 1.05 }}>{part.of.of}</Typography>
+                            <Chip size="small" label={part.of.estado} sx={{ height: 22, fontSize: 11 }} />
+                            <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto !important', fontSize: { xs: 11, md: 12 }, whiteSpace: 'nowrap' }}>
+                              Parte {part.part} de {part.partCount}{part.part < part.partCount ? ' · Continúa' : ''}
+                            </Typography>
+                          </Stack>
+                          <PieceGroups rows={part.rows} compact />
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  ))}
                 </Grid>
-              ))}
-          </Grid>
+              )}
+          </Stack>
         </Stack>
       )}
       {!tvMode && (hasCanonicalGroups ? canonicalBoards.size : orderedGroups.size) > 0 && (

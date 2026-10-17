@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import ControlAvanceOfTv, { calculateTvPageBudget, splitTvLanes } from './ControlAvanceOfTv';
+import ControlAvanceOfTv, {
+  calculateTvPageBudget,
+  packTvPages,
+  packTvRows,
+  splitTvLanes,
+} from './ControlAvanceOfTv';
 import { listarAvanceOfTvScm } from '../services/scmProductionObservabilityApi';
 
 vi.mock('../services/scmProductionObservabilityApi', () => ({
@@ -114,6 +119,13 @@ describe('ControlAvanceOfTv', () => {
     const note = within(board).getByTestId('over-target-label');
     expect(note).toHaveTextContent('Meta superada');
     expect(note.parentElement).toHaveTextContent('Meta superada');
+    expect(note.parentElement).toHaveTextContent('120 / 100 KG');
+    expect(within(board).getAllByRole('progressbar')[3]).toHaveAttribute(
+      'aria-valuetext', '120%; estado Meta superada',
+    );
+    expect(within(board).getAllByTestId('output-progress-row')[3]).toHaveAttribute(
+      'aria-label', expect.stringContaining('estado Meta superada'),
+    );
     expect(within(board).queryByText('Sobre referencia estándar')).not.toBeInTheDocument();
   });
 
@@ -216,12 +228,13 @@ describe('ControlAvanceOfTv', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Modo TV' }));
     expect(screen.getByTestId('of-progress-layout')).toHaveAttribute('data-page-columns', '2');
 
+    expect(screen.getByTestId('of-progress-layout')).toHaveAttribute('data-page-rows', '2');
+    const layout = screen.getByTestId('of-progress-layout');
+    expect(Number(layout.getAttribute('data-tv-used-height'))).toBeLessThanOrEqual(
+      Number(layout.getAttribute('data-tv-viewport-height')) - 180,
+    );
+    expect(screen.getAllByTestId('tv-page-row')).toHaveLength(2);
     const seen = new Set();
-    for (let page = 0; page < 2; page += 1) {
-      screen.getAllByTestId('canonical-progress-group').forEach((group) => seen.add(group.getAttribute('data-group-id')));
-      fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
-      if (page === 0) expect(screen.getByTestId('of-progress-layout')).toHaveAttribute('data-page-columns', '1');
-    }
     screen.getAllByTestId('canonical-progress-group').forEach((group) => seen.add(group.getAttribute('data-group-id')));
     expect(seen).toEqual(new Set(groups.map((group) => group.group_id)));
   });
@@ -420,6 +433,7 @@ describe('ControlAvanceOfTv', () => {
 
     const firstCards = await screen.findAllByTestId('of-progress-card');
     expect(firstCards).toHaveLength(2);
+    expect(screen.getAllByTestId('tv-page-row')[0]).toHaveAttribute('data-row-columns', '2');
     expect(new Set(firstCards.map((card) => card.getAttribute('data-of-id'))).size).toBe(2);
     const seen = new Set(screen.getAllByTestId('output-progress-row').map((row) => row.getAttribute('data-output-key')));
 
@@ -629,5 +643,55 @@ describe('ControlAvanceOfTv', () => {
       groups,
       { viewportHeight: 640, pieceCount: 2, layout: 'narrow' },
     ).flat()).toHaveLength(7);
+  });
+
+  it('packs four distinct one-lane OFs into two rows on one 640/768 TV page', () => {
+    const parts = Array.from({ length: 4 }, (_, index) => ({
+      key: `of-${index + 1}`,
+      of_id: `of-${index + 1}`,
+      estimatedHeight: 180,
+      exclusive: false,
+      requiresFullWidth: false,
+    }));
+
+    [460, 588].forEach((availableHeight) => {
+      const rows = packTvRows(parts, { availableHeight, maxColumns: 2 });
+      const pages = packTvPages(parts, { availableHeight, maxColumns: 2 });
+      expect(rows).toHaveLength(2);
+      expect(rows.map((row) => row.parts.map((part) => part.of_id))).toEqual([
+        ['of-1', 'of-2'],
+        ['of-3', 'of-4'],
+      ]);
+      expect(pages).toHaveLength(1);
+      expect(pages[0].rows).toHaveLength(2);
+      expect(pages[0].usedHeight).toBeLessThanOrEqual(availableHeight);
+    });
+  });
+
+  it('keeps exclusive and full-width cards in their own rows without reordering', () => {
+    const parts = [
+      { key: 'normal-1', of_id: 'of-1', estimatedHeight: 120 },
+      { key: 'full', of_id: 'of-2', estimatedHeight: 140, requiresFullWidth: true },
+      { key: 'normal-3', of_id: 'of-3', estimatedHeight: 120 },
+      { key: 'exclusive', of_id: 'of-4', estimatedHeight: 140, exclusive: true },
+      { key: 'normal-5', of_id: 'of-5', estimatedHeight: 120 },
+    ];
+    const rows = packTvRows(parts, { availableHeight: 640, maxColumns: 2 });
+    expect(rows.map((row) => row.parts.map((part) => part.key))).toEqual([
+      ['normal-1'], ['full'], ['normal-3'], ['exclusive'], ['normal-5'],
+    ]);
+    expect(rows.every((row) => row.parts.length === 1 || row.parts[0].of_id !== row.parts[1].of_id)).toBe(true);
+  });
+
+  it('counts the 8px inter-row gap when deciding whether a page fits', () => {
+    const parts = Array.from({ length: 4 }, (_, index) => ({
+      key: `gap-of-${index + 1}`,
+      of_id: `gap-of-${index + 1}`,
+      estimatedHeight: 100,
+    }));
+    const pages = packTvPages(parts, { availableHeight: 207, maxColumns: 2 });
+    expect(pages).toHaveLength(2);
+    expect(pages[0].usedHeight).toBe(100);
+    expect(pages[1].usedHeight).toBe(100);
   });
 });
