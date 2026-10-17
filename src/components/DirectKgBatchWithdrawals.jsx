@@ -352,14 +352,16 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       if (eligibilityError) throw new Error(eligibilityError);
       const duplicateRead = scanReadsRef.current.find((read) => read.status === 'accepted' && String(read.unit?.id) === String(unit.id));
       if (duplicateRead) {
-        setNotice(`${unit.codigo || value} ya está incluida.`);
+        setNotice(`${unit.codigo || value} ya está aceptada.`);
+        setError('');
         safePlayFeedback('duplicate');
         removeScanRead(readId);
         return;
       }
       const duplicateCandidate = candidatesRef.current.some((candidate) => String(candidate.unit?.id) === String(unit.id));
       if (duplicateCandidate) {
-        setNotice(`${unit.codigo || value} ya está incluida.`);
+        setNotice(`${unit.codigo || value} ya está aceptada.`);
+        setError('');
         safePlayFeedback('duplicate');
         removeScanRead(readId);
         return;
@@ -421,9 +423,27 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
   const enqueueScan = (rawCode) => {
     const value = rawCode.trim();
     if (!value || pending || complete || confirming || confirmLockRef.current) return;
+    const duplicateRead = scanReadsRef.current.some((read) => read.code === value);
+    if (duplicateRead) {
+      const existingRead = scanReadsRef.current.find((read) => read.code === value);
+      if (existingRead?.status === 'conflict') {
+        setError(`${value} ya tiene un error pendiente. Usa Reintentar o Retirar.`);
+        setNotice('');
+      } else if (existingRead?.status === 'accepted') {
+        setNotice(`${value} ya está aceptada.`);
+        setError('');
+      } else {
+        setNotice(`${value} está pendiente de validación.`);
+        setError('');
+      }
+      safePlayFeedback('duplicate');
+      setCode('');
+      return;
+    }
     const pendingReads = scanReadsRef.current.filter((read) => read.status === 'waiting' || read.status === 'validating').length;
     if (scanPendingCodesRef.current.has(value)) {
-      setNotice(`${value} ya esta pendiente de validacion.`);
+      setNotice(`${value} está pendiente de validación.`);
+      setError('');
       safePlayFeedback('duplicate');
       setCode('');
       return;

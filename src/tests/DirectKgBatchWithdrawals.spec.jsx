@@ -86,6 +86,25 @@ const pendingFixture = () => {
 };
 
 describe('salida directa KG a Armado', () => {
+  it('deduplica lecturas repetidas del mismo código rechazado y conserva recuperación', async () => {
+    api.resolve.mockRejectedValue(new Error('Etiqueta no encontrada'));
+    render(<DirectKgBatchWithdrawals />);
+
+    await scan('QR-RECHAZADO');
+    const list = screen.getByRole('list', { name: 'Lecturas pendientes' });
+    await waitFor(() => expect(within(list).getAllByRole('listitem')).toHaveLength(1));
+    expect(api.resolve).toHaveBeenCalledTimes(1);
+
+    sendScan('QR-RECHAZADO');
+    sendScan('QR-RECHAZADO');
+
+    await waitFor(() => expect(within(list).getAllByRole('listitem')).toHaveLength(1));
+    expect(api.resolve).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/ya tiene un error pendiente/i)).toBeVisible();
+    expect(within(list).getByRole('button', { name: 'Reintentar QR-RECHAZADO' })).toBeVisible();
+    expect(audio.play.mock.calls.filter(([kind]) => kind === 'duplicate')).toHaveLength(2);
+  });
+
   it('reintenta una identidad conocida que recupera su elegibilidad', async () => {
     api.resolve.mockResolvedValueOnce({ unit: { ...unit('A', 'A'), estado_calidad: 'BLOQUEADA' } });
     render(<DirectKgBatchWithdrawals />);
