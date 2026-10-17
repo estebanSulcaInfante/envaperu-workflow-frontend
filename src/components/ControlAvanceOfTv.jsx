@@ -16,8 +16,8 @@ const ACTIVE = new Set(['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION', 'ABIERTA', 'EN
 const statusLabels = {
   EN_AVANCE: 'En avance',
   COMPLETADA: 'Completa',
-  SOBREPRODUCCION: 'Sobreproducción',
-  SOBRE_REFERENCIA: 'Sobre referencia estándar',
+  SOBREPRODUCCION: 'Meta superada',
+  SOBRE_REFERENCIA: 'Meta superada',
   SIN_META: 'Sin meta compatible',
   SIN_PESAJES: 'Sin pesajes vigentes',
   SIN_PERMISO_PESAJE: 'Pesajes no visibles',
@@ -48,6 +48,13 @@ function displayOt(value) {
   const ot = String(value || '').trim();
   if (!ot) return 'Sin OT';
   return /^OT(?:-|\s)/i.test(ot) ? ot : `OT ${ot}`;
+}
+
+function progressTone(percentage) {
+  if (percentage == null) return null;
+  if (percentage < 80) return 'error';
+  if (percentage < 95) return 'warning';
+  return 'success';
 }
 
 function metricLabel(output) {
@@ -116,6 +123,7 @@ function OutputRow({ output, compact = false, showColor = true }) {
     ? 'warning'
     : ['EN_AVANCE', 'COMPLETADA'].includes(output.estado_avance) ? 'success' : 'default';
   const barValue = output.porcentaje == null ? 0 : Math.max(0, Math.min(output.porcentaje, 100));
+  const progressColor = progressTone(output.porcentaje);
   return (
     <Box
       component="article"
@@ -204,7 +212,8 @@ function OutputRow({ output, compact = false, showColor = true }) {
         <LinearProgress
           variant="determinate"
           value={barValue}
-          aria-label={`Avance ${number(output.porcentaje, 1)} por ciento`}
+          data-progress-tone={progressColor}
+          aria-label={`Cumplimiento ${number(output.porcentaje, 1)} por ciento`}
           sx={{
             mt: compact ? 0.5 : 0.75,
             height: compact ? 4 : 7,
@@ -212,7 +221,7 @@ function OutputRow({ output, compact = false, showColor = true }) {
             border: '1px solid',
             borderColor: 'text.secondary',
             bgcolor: 'action.disabledBackground',
-            '& .MuiLinearProgress-bar': { bgcolor: swatch },
+            '& .MuiLinearProgress-bar': { bgcolor: `${progressColor}.main` },
           }}
         />
       )}
@@ -253,7 +262,8 @@ function CanonicalMetricCell({ output, pieceName, colorName, ot, groupId }) {
   }
   const barValue = output.porcentaje == null ? 0 : Math.max(0, Math.min(output.porcentaje, 100));
   const exception = !['EN_AVANCE', 'COMPLETADA'].includes(output.estado_avance);
-  const swatch = output.color_hex && /^#[\da-f]{6}$/i.test(output.color_hex) ? output.color_hex : '#94A3B8';
+  const overTarget = ['SOBREPRODUCCION', 'SOBRE_REFERENCIA'].includes(output.estado_avance);
+  const progressColor = progressTone(output.porcentaje);
   const advance = `${number(output.avance, output.unidad === 'KG' ? 1 : 0)} / ${number(output.meta, output.unidad === 'KG' ? 1 : 0)} ${output.unidad || ''}`.trim();
   const percentage = output.porcentaje == null ? '-' : `${number(output.porcentaje, 1)}%`;
   return (
@@ -266,8 +276,11 @@ function CanonicalMetricCell({ output, pieceName, colorName, ot, groupId }) {
       aria-label={`Color ${colorName}; pieza ${pieceName}; ${displayOt(ot)}; avance/meta ${advance}; porcentaje ${percentage}`}
       sx={{ minWidth: 0, p: { xs: 0.35, md: 0.5 }, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
     >
-      {exception && <Chip size="small" color={['SOBREPRODUCCION', 'SOBRE_REFERENCIA'].includes(output.estado_avance) ? 'warning' : 'default'} label={statusLabels[output.estado_avance] || output.estado_avance} sx={{ maxWidth: '100%', height: 18, fontSize: 9, mb: 0.25, '& .MuiChip-label': { px: 0.5, overflow: 'hidden', textOverflow: 'ellipsis' } }} />}
-      {ot && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 9, lineHeight: 1.05 }}>{displayOt(ot)}</Typography>}
+      <Stack direction="row" spacing={0.5} alignItems="baseline" justifyContent="space-between" sx={{ minWidth: 0, mb: 0.1 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0, fontSize: 9, lineHeight: 1.05, whiteSpace: 'nowrap' }}>{displayOt(ot)}</Typography>
+        {overTarget && <Typography data-testid="over-target-label" variant="caption" color="warning.dark" fontWeight={750} sx={{ fontSize: 9, lineHeight: 1.05, whiteSpace: 'nowrap' }}>Meta superada</Typography>}
+      </Stack>
+      {exception && !overTarget && <Chip size="small" color="default" label={statusLabels[output.estado_avance] || output.estado_avance} sx={{ maxWidth: '100%', height: 18, fontSize: 9, mb: 0.25, '& .MuiChip-label': { px: 0.5, overflow: 'hidden', textOverflow: 'ellipsis' } }} />}
       <Typography fontWeight={800} sx={{ display: 'block', fontSize: { xs: 12, md: 14 }, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
         {advance}
       </Typography>
@@ -278,8 +291,9 @@ function CanonicalMetricCell({ output, pieceName, colorName, ot, groupId }) {
         <LinearProgress
           variant="determinate"
           value={barValue}
-          aria-label={`Avance ${number(output.porcentaje, 1)} por ciento`}
-          sx={{ mt: 0.25, height: 3, borderRadius: 4, bgcolor: 'action.disabledBackground', '& .MuiLinearProgress-bar': { bgcolor: swatch } }}
+          data-progress-tone={progressColor}
+          aria-label={`Cumplimiento ${number(output.porcentaje, 1)} por ciento`}
+          sx={{ mt: 0.25, height: 3, borderRadius: 4, bgcolor: 'action.disabledBackground', '& .MuiLinearProgress-bar': { bgcolor: `${progressColor}.main` } }}
         />
       )}
     </Box>

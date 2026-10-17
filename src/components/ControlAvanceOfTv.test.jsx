@@ -78,6 +78,38 @@ describe('ControlAvanceOfTv', () => {
     expect(within(cards[0]).queryByText('Pendiente')).not.toBeInTheDocument();
   });
 
+  it('uses the agreed 80/95 traffic light and keeps the over-target note beside OT', async () => {
+    const percentages = [79.9, 80, 95, 120];
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: percentages.map((porcentaje, index) => ({
+        group_id: `traffic-${index + 1}`,
+        identity: { identity_status: 'COMPLETA', identity_issues: [] },
+        of_id: 'of-traffic', of: 'OF-TRAFFIC', estado: 'EN_EJECUCION',
+        ot: `OT-${index + 1}`, molde_id: 'ML-TRAFFIC',
+        molde: { codigo: 'ML-TRAFFIC', nombre: 'Molde semáforo' }, molde_visible: true,
+        color_id: index + 1, color: `Color ${index + 1}`, color_hex: '#123456',
+        salidas: [{
+          ...outputs[0], corrida_id: `traffic-run-${index + 1}`, pieza_id: 1,
+          pieza: 'Pieza semáforo', pieza_color_id: `traffic-pc-${index + 1}`,
+          meta: 100, avance: porcentaje, porcentaje,
+          estado_avance: index === 3 ? 'SOBRE_REFERENCIA' : 'EN_AVANCE',
+        }],
+      })),
+    });
+
+    render(<ControlAvanceOfTv />);
+
+    const board = await screen.findByTestId('of-progress-card');
+    expect(within(board).getAllByRole('progressbar').map((bar) => bar.getAttribute('data-progress-tone'))).toEqual([
+      'error', 'warning', 'success', 'success',
+    ]);
+    const note = within(board).getByTestId('over-target-label');
+    expect(note).toHaveTextContent('Meta superada');
+    expect(note.parentElement).toHaveTextContent('OT-4');
+    expect(within(board).queryByText('Sobre referencia estándar')).not.toBeInTheDocument();
+  });
+
   it('keys normal-view canonical cards by group_id and renders transparent semantics once', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
