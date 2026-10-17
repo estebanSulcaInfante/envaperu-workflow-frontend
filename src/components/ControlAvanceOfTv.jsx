@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress,
   IconButton, LinearProgress, Stack, TextField, Tooltip, Typography, Grid, MenuItem,
@@ -12,6 +12,11 @@ import { useScmActor } from '../context/ScmActorContext';
 const REFRESH_MS = 60_000;
 const PAGE_MS = 12_000;
 const TV_PART_SIZE = 4;
+const TV_VERTICAL_CHROME = 180;
+// Measured wide-TV lane height (including row spacing) from the target
+// browser fixture. Pieces and outputs are horizontal, so their count does not
+// consume additional vertical budget. Narrow layouts add their stacked rows.
+const TV_BASE_LANE_HEIGHT = 73;
 const ACTIVE = new Set(['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION', 'ABIERTA', 'EN_COBERTURA']);
 const statusLabels = {
   EN_AVANCE: 'En avance',
@@ -44,12 +49,6 @@ function isTransparentColor(value) {
   return /^transparente(?:\s+transparente)*$/i.test(String(value || '').trim().replace(/\s+/g, ' '));
 }
 
-function displayOt(value) {
-  const ot = String(value || '').trim();
-  if (!ot) return 'Sin OT';
-  return /^OT(?:-|\s)/i.test(ot) ? ot : `OT ${ot}`;
-}
-
 function progressTone(percentage) {
   if (percentage == null) return null;
   if (percentage < 80) return 'error';
@@ -79,8 +78,84 @@ function canonicalBoardKey(group) {
 }
 
 function canonicalColorKey(group) {
-  if (group.color_id != null) return `color-id:${group.color_id}`;
-  return `color-name:${String(group.color || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es-PE') || 'sin-color'}`;
+  const base = group.color_id != null
+    ? `color-id:${group.color_id}`
+    : `color-name:${String(group.color || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es-PE') || 'sin-color'}`;
+  // Distinct runs with the same display color remain separate objectives in
+  // the TV.  Legacy payloads without provenance retain their old lane shape.
+  return group.ots || group.provenance ? `${base}|run:${group.corrida_id ?? group.group_id}` : base;
+}
+
+function groupProvenanceNote(group) {
+  const issues = group.provenance?.issues || [];
+  if (issues.includes('OT_ID_AUSENTE') && group.identity?.identity_status === 'COMPLETA') {
+    return 'Incluye producción histórica sin OT vinculada';
+  }
+  return null;
+}
+
+function provenanceCount(group) {
+  if (Array.isArray(group.ots)) return group.ots.length;
+  return group.ot || group.ot_id ? 1 : 0;
+}
+
+function provenanceSummary(group) {
+  const count = provenanceCount(group);
+  if (!count) return groupProvenanceNote(group);
+  return `${count} OT${count === 1 ? '' : 's'} vinculada${count === 1 ? '' : 's'}`;
+}
+
+function groupIdentityWarning(group) {
+  if (group.identity?.identity_status === 'COMPLETA') return null;
+  return 'Avance no calculable: falta vincular producción';
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function calculateTvPageBudget({ viewportHeight = 768, pieceCount = 1, hasAlerts = false, layout = 'wide' } = {}) {
+  const availableHeight = Math.max(1, viewportHeight - TV_VERTICAL_CHROME);
+  const laneHeight = TV_BASE_LANE_HEIGHT
+    // Wide TV lanes render pieces and their outputs horizontally. Their
+    // count therefore does not consume additional vertical budget. Narrow
+    // layouts retain the conservative estimate because those columns stack.
+    + (layout === 'narrow' ? Math.max(0, pieceCount - 1) * 18 : 0)
+    + (hasAlerts ? 26 : 0);
+  return {
+    availableHeight,
+    laneHeight,
+    maxLanes: Math.max(1, Math.floor(availableHeight / laneHeight)),
+  };
+}
+
+function estimateLaneHeight(group, pieceCount, layout) {
+  const budget = calculateTvPageBudget({
+    pieceCount,
+    layout,
+    hasAlerts: group.identity?.identity_status !== 'COMPLETA',
+  });
+  // In wide TV mode output cells are horizontal columns in one lane. Only
+  // the narrow fallback stacks them and needs the extra conservative height.
+  const outputCount = Math.max(1, (group.salidas || []).length);
+  return budget.laneHeight + (layout === 'narrow' ? Math.max(0, outputCount - 1) * 42 : 0);
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function splitTvLanes(groups, { viewportHeight = 768, pieceCount = 1, layout = 'wide' } = {}) {
+  const { availableHeight } = calculateTvPageBudget({ viewportHeight, pieceCount, layout });
+  const pages = [];
+  let current = [];
+  let used = 0;
+  groups.forEach((group) => {
+    const laneHeight = estimateLaneHeight(group, pieceCount, layout);
+    if (current.length && used + laneHeight > availableHeight) {
+      pages.push(current);
+      current = [];
+      used = 0;
+    }
+    current.push(group);
+    used += laneHeight;
+  });
+  if (current.length) pages.push(current);
+  return pages.length ? pages : [[]];
 }
 
 function groupByPiece(rows) {
@@ -256,7 +331,7 @@ function PieceGroups({ rows, compact = false, showColor = true }) {
   );
 }
 
-function CanonicalMetricCell({ output, pieceName, colorName, ot, groupId }) {
+function CanonicalMetricCell({ output, pieceName, colorName, groupId }) {
   if (!output) {
     return <Box data-testid="canonical-piece-cell" sx={{ minWidth: 0, p: 0.4, color: 'text.disabled' }}>-</Box>;
   }
@@ -273,12 +348,11 @@ function CanonicalMetricCell({ output, pieceName, colorName, ot, groupId }) {
       data-canonical-piece={pieceName}
       data-group-id={groupId}
       data-output-key={outputIdentity(output)}
-      aria-label={`Color ${colorName}; pieza ${pieceName}; ${displayOt(ot)}; avance/meta ${advance}; porcentaje ${percentage}`}
+      aria-label={`Color ${colorName}; pieza ${pieceName}; avance/meta ${advance}; porcentaje ${percentage}`}
       sx={{ minWidth: 0, p: { xs: 0.35, md: 0.5 }, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}
     >
       <Stack direction="row" spacing={0.5} alignItems="baseline" justifyContent="space-between" sx={{ minWidth: 0, mb: 0.1 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0, fontSize: 9, lineHeight: 1.05, whiteSpace: 'nowrap' }}>{displayOt(ot)}</Typography>
-        {overTarget && <Typography data-testid="over-target-label" variant="caption" color="warning.dark" fontWeight={750} sx={{ fontSize: 9, lineHeight: 1.05, whiteSpace: 'nowrap' }}>Meta superada</Typography>}
+        {overTarget && <Chip data-testid="over-target-label" size="small" color="warning" label="Meta superada · exceso" sx={{ height: 20, fontWeight: 800, fontSize: 10, '& .MuiChip-label': { px: 0.6 } }} />}
       </Stack>
       {exception && !overTarget && <Chip size="small" color="default" label={statusLabels[output.estado_avance] || output.estado_avance} sx={{ maxWidth: '100%', height: 18, fontSize: 9, mb: 0.25, '& .MuiChip-label': { px: 0.5, overflow: 'hidden', textOverflow: 'ellipsis' } }} />}
       <Typography fontWeight={800} sx={{ display: 'block', fontSize: { xs: 12, md: 14 }, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
@@ -300,10 +374,10 @@ function CanonicalMetricCell({ output, pieceName, colorName, ot, groupId }) {
   );
 }
 
-function CanonicalBoardCard({ board, compact = false, wide = true, partLabel = null }) {
+function CanonicalBoardCard({ board, compact = false, wide = true, partLabel = null, pieceKeys = null }) {
   const groups = board.groups || [];
   const firstGroup = groups[0] || {};
-  const pieces = canonicalPieces(groups);
+  const pieces = canonicalPieces(groups).filter((piece) => !pieceKeys || pieceKeys.includes(piece.key));
   const colorLanes = [...groups.reduce((lanes, group) => {
     const key = canonicalColorKey(group);
     if (!lanes.has(key)) lanes.set(key, { key, groups: [] });
@@ -338,7 +412,14 @@ function CanonicalBoardCard({ board, compact = false, wide = true, partLabel = n
         <Box aria-label={`Color ${colorName}`} data-color-kind={transparent ? 'transparent' : 'named'} data-testid="group-color-swatch" sx={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid', borderColor: 'text.secondary', flex: '0 0 auto', ...swatchSx }} />
         <Typography fontWeight={800} sx={{ fontSize: { xs: 12, md: 14 }, overflowWrap: 'anywhere' }}>{colorName}</Typography>
         {!group.color_hex && !transparent && <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>(neutral)</Typography>}
-        {lane.groups.map((subgroup) => <Typography key={subgroup.group_id} component="span" variant="caption" color="text.secondary" data-testid="canonical-progress-group" data-group-id={subgroup.group_id} sx={{ width: '100%', fontSize: 10 }}>{displayOt(subgroup.ot)}</Typography>)}
+        {lane.groups.map((subgroup) => (
+          <Fragment key={subgroup.group_id}>
+            <Typography component="span" variant="caption" color="text.secondary" data-testid="canonical-progress-group" data-group-id={subgroup.group_id} sx={{ width: '100%', fontSize: 10 }}>
+              {provenanceSummary(subgroup)}
+            </Typography>
+            {groupProvenanceNote(subgroup) && <Typography component="span" variant="caption" color="text.secondary" data-testid="provenance-note" sx={{ width: '100%', fontSize: 10 }}>{groupProvenanceNote(subgroup)}</Typography>}
+          </Fragment>
+        ))}
       </Stack>
     );
   };
@@ -357,9 +438,9 @@ function CanonicalBoardCard({ board, compact = false, wide = true, partLabel = n
                   {pieces.map((piece) => {
                     const outputs = laneOutputs(lane, piece);
                     const colorName = displayColorName(lane.groups[0]?.color);
-                    return <Box key={`${lane.key}-${piece.key}`} data-testid="canonical-piece-cell" sx={{ minWidth: 0, p: 0.2 }}>{outputs.length ? outputs.map(({ output, group }) => <CanonicalMetricCell key={`${group.group_id}-${outputIdentity(output)}`} output={output} pieceName={piece.name} colorName={colorName} ot={group.ot} groupId={group.group_id} />) : '-'}</Box>;
+                    return <Box key={`${lane.key}-${piece.key}`} data-testid="canonical-piece-cell" sx={{ minWidth: 0, p: 0.2 }}>{outputs.length ? outputs.map(({ output, group }) => <CanonicalMetricCell key={`${group.group_id}-${outputIdentity(output)}`} output={output} pieceName={piece.name} colorName={colorName} groupId={group.group_id} />) : '-'}</Box>;
                   })}
-                  {lane.groups.filter((group) => group.identity?.identity_status !== 'COMPLETA').map((group) => <Alert key={`${group.group_id}-identity`} severity="warning" sx={{ gridColumn: '1 / -1', mt: 0.25, py: 0 }}>{`Identidad incompleta: avance y porcentaje no disponibles (${(group.identity?.identity_issues || []).join(', ') || 'evidencia insuficiente'}).`}</Alert>)}
+                  {lane.groups.map((group) => groupIdentityWarning(group) && <Alert key={`${group.group_id}-identity`} severity="warning" sx={{ gridColumn: '1 / -1', mt: 0.25, py: 0, fontSize: 12 }}>{groupIdentityWarning(group)}</Alert>)}
                 </Box>
               );
             })}
@@ -370,12 +451,12 @@ function CanonicalBoardCard({ board, compact = false, wide = true, partLabel = n
               return (
                 <Box key={lane.key} component="section" data-testid="canonical-color-lane" data-color-key={lane.key} sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 0.5, minWidth: 0 }}>
                   {colorCell(lane)}
-                  {lane.groups.filter((group) => group.identity?.identity_status !== 'COMPLETA').map((group) => <Alert key={`${group.group_id}-identity`} severity="warning" sx={{ my: 0.5, py: 0 }}>{`Identidad incompleta: avance y porcentaje no disponibles (${(group.identity?.identity_issues || []).join(', ') || 'evidencia insuficiente'}).`}</Alert>)}
+                  {lane.groups.map((group) => groupIdentityWarning(group) && <Alert key={`${group.group_id}-identity`} severity="warning" sx={{ my: 0.5, py: 0, fontSize: 12 }}>{groupIdentityWarning(group)}</Alert>)}
                   <Grid container spacing={0.35} sx={{ mt: 0.25 }}>
                     {pieces.map((piece) => {
                       const outputs = laneOutputs(lane, piece);
                       const colorName = displayColorName(lane.groups[0]?.color);
-                      return <Grid key={`${lane.key}-${piece.key}`} size={{ xs: 6, sm: 3 }} sx={{ minWidth: 0 }}><Typography variant="caption" fontWeight={750} sx={{ display: 'block', fontSize: 10, overflowWrap: 'anywhere' }}>{piece.name}</Typography>{outputs.length ? outputs.map(({ output, group }) => <CanonicalMetricCell key={`${group.group_id}-${outputIdentity(output)}`} output={output} pieceName={piece.name} colorName={colorName} ot={group.ot} groupId={group.group_id} />) : <CanonicalMetricCell pieceName={piece.name} colorName={colorName} />}</Grid>;
+                      return <Grid key={`${lane.key}-${piece.key}`} size={{ xs: 6, sm: 3 }} sx={{ minWidth: 0 }}><Typography variant="caption" fontWeight={750} sx={{ display: 'block', fontSize: 10, overflowWrap: 'anywhere' }}>{piece.name}</Typography>{outputs.length ? outputs.map(({ output, group }) => <CanonicalMetricCell key={`${group.group_id}-${outputIdentity(output)}`} output={output} pieceName={piece.name} colorName={colorName} groupId={group.group_id} />) : <CanonicalMetricCell pieceName={piece.name} colorName={colorName} />}</Grid>;
                     })}
                   </Grid>
                 </Box>
@@ -417,7 +498,9 @@ export default function ControlAvanceOfTv() {
   const [search, setSearch] = useState('');
   const [orderDirection, setOrderDirection] = useState('asc');
   const [tvMode, setTvMode] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth || 1366);
   const [wideViewport, setWideViewport] = useState(() => window.innerWidth >= 900);
+  const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight || 768);
   const [fullscreenWarning, setFullscreenWarning] = useState('');
   const [slide, setSlide] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -425,7 +508,11 @@ export default function ControlAvanceOfTv() {
   const requestSeq = useRef(0);
 
   useEffect(() => {
-    const updateViewport = () => setWideViewport(window.innerWidth >= 900);
+    const updateViewport = () => {
+      setViewportWidth(window.innerWidth || 1366);
+      setWideViewport(window.innerWidth >= 900);
+      setViewportHeight(window.innerHeight || 768);
+    };
     window.addEventListener('resize', updateViewport);
     return () => window.removeEventListener('resize', updateViewport);
   }, []);
@@ -471,7 +558,10 @@ export default function ControlAvanceOfTv() {
   const canonicalGroups = useMemo(() => (activePayload?.items || [])
     .filter((group) => group.group_id)
     .filter((group) => ACTIVE.has(String(group.estado || '').toUpperCase()))
-    .filter((group) => `${group.of || ''} ${group.ot || ''} ${group.molde?.nombre || ''} ${group.molde?.codigo || ''} ${group.color || ''} ${(group.salidas || []).map((output) => `${output.pieza || ''} ${output.sku || ''}`).join(' ')}`.toLowerCase().includes(search.toLowerCase()))
+    .filter((group) => {
+      const otValues = [group.ot, ...(group.ot_ids || []), ...(group.ots || []).flatMap((ot) => [ot.id, ot.codigo])];
+      return `${group.of || ''} ${otValues.join(' ')} ${group.molde?.nombre || ''} ${group.molde?.codigo || ''} ${group.color || ''} ${(group.salidas || []).map((output) => `${output.pieza || ''} ${output.sku || ''}`).join(' ')}`.toLowerCase().includes(search.toLowerCase());
+    })
     .sort((left, right) => {
       const order = String(left.of || '').localeCompare(String(right.of || ''), 'es', { numeric: true });
       const inner = String(left.group_id).localeCompare(String(right.group_id), 'es', { numeric: true });
@@ -525,17 +615,55 @@ export default function ControlAvanceOfTv() {
       partCount: chunks.length,
     }));
   });
-  const tvParts = hasCanonicalGroups
-    ? chunkRows([...canonicalBoards.values()], wideViewport ? 2 : 1).map((boards, index, pages) => ({
-      canonical: true,
-      boards,
-      part: index + 1,
-      partCount: pages.length,
-    }))
-    : legacyTvParts;
+  const canonicalParts = useMemo(() => [...canonicalBoards.values()].flatMap((board) => {
+    // The additive DTO marks the new aggregation/provenance shape.  Split a
+    // dense OF by visible color lanes; each part repeats the OF header and is
+    // presented alone so a TV never needs manual scrolling.
+    const isConsolidated = board.groups.some((group) => group.ots || group.provenance);
+    const allPieces = canonicalPieces(board.groups);
+    const pieceCount = allPieces.length;
+    const minFullWidth = 132 + pieceCount * 88 + 16;
+    const chunks = isConsolidated
+      ? splitTvLanes(board.groups, { viewportHeight, pieceCount, layout: wideViewport ? 'wide' : 'narrow' })
+      : [board.groups];
+    const budget = calculateTvPageBudget({ viewportHeight, pieceCount, layout: wideViewport ? 'wide' : 'narrow' });
+    const maxFullWidthPieces = Math.max(1, Math.floor((viewportWidth - 24 - 132 - 16) / 88));
+    const pieceChunks = wideViewport && minFullWidth > viewportWidth - 24
+      ? chunkRows(allPieces, maxFullWidthPieces)
+      : [null];
+    return chunks.flatMap((groups, index) => pieceChunks.map((pieceChunk, columnIndex) => ({
+      ...board,
+      key: `${chunks.length > 1 ? `${board.key}|parte-${index + 1}` : board.key}${pieceChunk ? `|columnas-${columnIndex + 1}` : ''}`,
+      groups,
+      pieceKeys: pieceChunk?.map((piece) => piece.key) || null,
+      partLabel: chunks.length > 1 || pieceChunks.length > 1
+        ? `${chunks.length > 1 ? `Parte ${index + 1} de ${chunks.length}` : ''}${pieceChunks.length > 1 ? ` · Piezas ${columnIndex + 1} de ${pieceChunks.length}` : ''}`.trim()
+        : null,
+      // Two half-width cards must not force the matrix below its measured
+      // minimum width. A full-width card is safe at 1366; narrower viewports
+      // split columns and repeat the board/color headers on each page.
+      requiresFullWidth: wideViewport && minFullWidth > (viewportWidth / 2 - 24),
+      exclusive: chunks.length > 1 || pieceChunks.length > 1,
+      laneBudget: budget.maxLanes,
+    })));
+  }), [canonicalBoards, viewportHeight, viewportWidth, wideViewport]);
+  const canonicalSlides = useMemo(() => {
+    const remaining = [...canonicalParts];
+    const pages = [];
+    while (remaining.length) {
+      const first = remaining.shift();
+      if (first.exclusive || first.requiresFullWidth || !wideViewport) {
+        pages.push([first]);
+        continue;
+      }
+      const nextIndex = remaining.findIndex((part) => !part.exclusive && part.of_id !== first.of_id);
+      pages.push(nextIndex < 0 ? [first] : [first, ...remaining.splice(nextIndex, 1)]);
+    }
+    return pages;
+  }, [canonicalParts, wideViewport]);
   const tvSlides = useMemo(() => hasCanonicalGroups
-    ? tvParts.map((part) => part.boards)
-    : wideViewport ? pairDistinctOrders(tvParts) : tvParts.map((part) => [part]), [tvParts, wideViewport, hasCanonicalGroups]);
+    ? canonicalSlides
+    : wideViewport ? pairDistinctOrders(legacyTvParts) : legacyTvParts.map((part) => [part]), [legacyTvParts, wideViewport, hasCanonicalGroups, canonicalSlides]);
   const visibleSlide = slide % Math.max(1, tvSlides.length);
   const currentPage = tvSlides[visibleSlide] || [];
 
@@ -579,7 +707,10 @@ export default function ControlAvanceOfTv() {
     <Box
       ref={rootRef}
       data-testid="control-avance-of-tv"
-      sx={{ maxWidth: tvMode ? 'none' : 1500, mx: 'auto', p: tvMode ? { xs: 1.5, md: 2 } : 0, bgcolor: 'background.default', minHeight: tvMode ? '100vh' : undefined, '&:fullscreen': { overflow: 'auto', bgcolor: 'background.default' } }}
+      data-tv-scroll="disabled"
+      data-tv-budget-method={tvMode ? 'conservative-lane-estimate' : undefined}
+      data-tv-viewport-height={tvMode ? viewportHeight : undefined}
+      sx={{ maxWidth: tvMode ? 'none' : 1500, mx: 'auto', p: tvMode ? { xs: 1.5, md: 2 } : 0, bgcolor: 'background.default', minHeight: tvMode ? '100vh' : undefined, overflow: tvMode ? 'hidden' : undefined, '&:fullscreen': { overflow: 'hidden', bgcolor: 'background.default' } }}
     >
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={1} sx={{ mb: tvMode ? 1 : 2 }}>
         <Box>
@@ -604,7 +735,7 @@ export default function ControlAvanceOfTv() {
       )}
       {fullscreenWarning && <Alert severity="warning" sx={{ mb: 1 }}>{fullscreenWarning}</Alert>}
       {loading && !payload && <Stack alignItems="center" sx={{ py: 6 }}><CircularProgress /><Typography sx={{ mt: 1 }}>Consultando avance.</Typography></Stack>}
-      {!loading && !tvParts.length && <Alert severity="info">No hay salidas de OF activas para mostrar.</Alert>}
+      {!loading && !legacyTvParts.length && !canonicalParts.length && <Alert severity="info">No hay salidas de OF activas para mostrar.</Alert>}
       {tvMode && currentPage.length > 0 && (
         <Stack spacing={1}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
@@ -617,11 +748,11 @@ export default function ControlAvanceOfTv() {
               <Button size="small" onClick={() => setSlide((current) => (current + 1) % tvSlides.length)}>Siguiente</Button>
             </Stack>
           </Stack>
-          <Grid container spacing={1} data-testid="of-progress-layout" data-columns={wideViewport ? '2' : '1'} data-page-columns={hasCanonicalGroups ? (currentPage.length === 1 ? '1' : '2') : undefined} key={`tv-page-${visibleSlide}`} sx={{ animation: 'tv-page-enter 180ms ease-out', '@keyframes tv-page-enter': { from: { opacity: 0.65, transform: 'translateY(6px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none' } }}>
+          <Grid container spacing={1} data-testid="of-progress-layout" data-columns={wideViewport ? '2' : '1'} data-page-columns={hasCanonicalGroups ? (currentPage.length === 1 ? '1' : '2') : undefined} data-tv-lane-budget={hasCanonicalGroups ? currentPage[0]?.laneBudget : undefined} data-tv-viewport-height={viewportHeight} key={`tv-page-${visibleSlide}`} sx={{ animation: 'tv-page-enter 180ms ease-out', '@keyframes tv-page-enter': { from: { opacity: 0.65, transform: 'translateY(6px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none' } }}>
             {hasCanonicalGroups
               ? currentPage.map((board) => (
                 <Grid key={board.key} size={{ xs: 12, md: currentPage.length === 1 ? 12 : 6 }}>
-                  <CanonicalBoardCard board={board} compact wide={wideViewport} />
+                  <CanonicalBoardCard board={board} compact wide={wideViewport} partLabel={board.partLabel} pieceKeys={board.pieceKeys} />
                 </Grid>
               ))
               : currentPage.map((part) => (

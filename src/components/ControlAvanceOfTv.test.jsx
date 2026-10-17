@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import ControlAvanceOfTv from './ControlAvanceOfTv';
+import ControlAvanceOfTv, { calculateTvPageBudget, splitTvLanes } from './ControlAvanceOfTv';
 import { listarAvanceOfTvScm } from '../services/scmProductionObservabilityApi';
 
 vi.mock('../services/scmProductionObservabilityApi', () => ({
@@ -51,6 +51,7 @@ describe('ControlAvanceOfTv', () => {
         identity: { identity_status: 'COMPLETA', identity_issues: [] },
         of_id: 'of-1', of: 'OF-0001', estado: 'EN_EJECUCION',
         ot_id: `ot-${suffix}`, ot: `OT-${suffix}`, corrida_id: `corrida-${suffix}`,
+        ots: [{ id: `ot-${suffix}`, codigo: `OT-${suffix}` }], ot_ids: [`ot-${suffix}`],
         corrida: 'Mismo nombre visual', molde_id: 'ML-1', molde: { codigo: 'ML-1', nombre: 'Molde común' },
         color_id: 1, color: 'Azul', color_hex: '#123456', molde_visible: true,
         salidas: outputs.slice(0, 2).map((output, outputIndex) => ({
@@ -70,15 +71,21 @@ describe('ControlAvanceOfTv', () => {
       'of-1|ot-a|corrida-a|ML-1|1',
       'of-1|ot-b|corrida-b|ML-1|2',
     ]);
-    expect(within(cards[0]).getAllByTestId('canonical-color-lane')).toHaveLength(1);
-    expect(within(cards[0]).getAllByTestId('group-color-swatch')).toHaveLength(1);
+    expect(within(cards[0]).getAllByTestId('canonical-color-lane')).toHaveLength(2);
+    expect(within(cards[0]).getAllByTestId('group-color-swatch')).toHaveLength(2);
     expect(within(cards[0]).getAllByTestId('output-progress-row')).toHaveLength(4);
-    expect(within(cards[0]).getAllByText('Azul')).toHaveLength(1);
+    expect(within(cards[0]).getAllByText('Azul')).toHaveLength(2);
     expect(within(cards[0]).queryByText(/Corrida/)).not.toBeInTheDocument();
     expect(within(cards[0]).queryByText('Pendiente')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Filtrar OF, pieza o objetivo de color'), { target: { value: 'OT-B' } });
+    const filteredBoard = await screen.findByTestId('of-progress-card');
+    expect(within(filteredBoard).getByTestId('canonical-progress-group')).toHaveAttribute(
+      'data-group-id', 'of-1|ot-b|corrida-b|ML-1|2',
+    );
   });
 
-  it('uses the agreed 80/95 traffic light and keeps the over-target note beside OT', async () => {
+  it('uses the agreed 80/95 traffic light and keeps the over-target note beside the bar', async () => {
     const percentages = [79.9, 80, 95, 120];
     listarAvanceOfTvScm.mockResolvedValueOnce({
       ...response,
@@ -106,7 +113,7 @@ describe('ControlAvanceOfTv', () => {
     ]);
     const note = within(board).getByTestId('over-target-label');
     expect(note).toHaveTextContent('Meta superada');
-    expect(note.parentElement).toHaveTextContent('OT-4');
+    expect(note.parentElement).toHaveTextContent('Meta superada');
     expect(within(board).queryByText('Sobre referencia estándar')).not.toBeInTheDocument();
   });
 
@@ -252,7 +259,7 @@ describe('ControlAvanceOfTv', () => {
 
   it('paginates one OF by four outputs, repeats piece headers, and exposes all nine outputs across parts', async () => {
     render(<ControlAvanceOfTv />);
-    await screen.findByTestId('of-progress-card');
+    await screen.findAllByTestId('of-progress-card');
     fireEvent.click(screen.getByRole('button', { name: 'Modo TV' }));
 
     expect(await screen.findByText(/Parte 1 de 3/)).toBeInTheDocument();
@@ -376,7 +383,7 @@ describe('ControlAvanceOfTv', () => {
     expect(within(board).getAllByTestId('output-percent')).toHaveLength(20);
     expect(within(board).getAllByTestId('output-progress-row')[0]).toHaveAttribute(
       'aria-label',
-      expect.stringContaining('Color Crema; pieza ESTRELLA; OT-ACCESORIOS; avance/meta'),
+      expect.stringContaining('Color Crema; pieza ESTRELLA; avance/meta'),
     );
 
     window.innerWidth = 390;
@@ -434,5 +441,193 @@ describe('ControlAvanceOfTv', () => {
     fireEvent(window, new Event('resize'));
     expect(await screen.findAllByTestId('of-progress-card')).toHaveLength(1);
     expect(screen.getAllByTestId('output-progress-row').length).toBeGreaterThan(0);
+  });
+
+  it('renders one consolidated color-piece bar and keeps OT provenance secondary', async () => {
+    const output = {
+      ...outputs[0], corrida_id: 'run-shared', pieza_id: 31, pieza: 'Pieza azul',
+      pieza_color_id: 'pc-shared', meta: 5, avance: 5, pendiente: 0, porcentaje: 100,
+      estado_avance: 'COMPLETADA',
+    };
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: [{
+        group_id: 'of-shared|run-shared|ML-1|7', identity: { identity_status: 'COMPLETA', identity_issues: [] },
+        of_id: 'of-shared', of: 'OF-SHARED', estado: 'EN_EJECUCION', corrida_id: 'run-shared',
+        color_id: 7, color: 'Azul', color_hex: '#123456', molde_id: 'ML-1', molde_visible: true,
+        molde: { codigo: 'ML-1', nombre: 'Molde 1' }, ots: [{ id: 'ot-a', codigo: 'OT-A' }, { id: 'ot-b', codigo: 'OT-B' }],
+        ot_ids: ['ot-a', 'ot-b'], provenance: { issues: [] }, salidas: [output],
+      }],
+    });
+
+    render(<ControlAvanceOfTv />);
+    const board = await screen.findByTestId('of-progress-card');
+
+    expect(within(board).getAllByTestId('output-progress-row')).toHaveLength(1);
+    expect(within(board).getAllByRole('progressbar')).toHaveLength(1);
+    expect(within(board).getByText('2 OTs vinculadas')).toBeInTheDocument();
+    expect(within(board).getByTestId('output-progress-row')).toHaveAttribute(
+      'aria-label',
+      expect.not.stringContaining('OT-'),
+    );
+    expect(screen.queryByText(/OT_ID_AUSENTE/)).not.toBeInTheDocument();
+  });
+
+  it('explains attributable missing OT without exposing internal issue codes', async () => {
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: [{
+        group_id: 'of-history|run-history|ML-1|7', identity: { identity_status: 'COMPLETA', identity_issues: ['OT_ID_AUSENTE'] },
+        of_id: 'of-history', of: 'OF-HISTORY', estado: 'EN_EJECUCION', corrida_id: 'run-history',
+        color_id: 7, color: 'Azul', color_hex: '#123456', molde_id: 'ML-1', molde_visible: true,
+        molde: { codigo: 'ML-1', nombre: 'Molde 1' }, ots: [], ot_ids: [], provenance: { issues: ['OT_ID_AUSENTE'] },
+        salidas: [{ ...outputs[0], corrida_id: 'run-history', pieza_id: 31, pieza: 'Pieza azul', meta: 5, avance: 4, porcentaje: 80, estado_avance: 'EN_AVANCE' }],
+      }],
+    });
+
+    render(<ControlAvanceOfTv />);
+
+    expect(await screen.findByTestId('provenance-note')).toHaveTextContent('Incluye producción histórica sin OT vinculada');
+    expect(screen.queryByText(/OT_ID_AUSENTE/)).not.toBeInTheDocument();
+  });
+
+  it('uses a compact blocking recovery note for unlinked production', async () => {
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: [{
+        group_id: 'of-blocked|run-blocked|ML-1|?', identity: { identity_status: 'INCOMPLETA', identity_issues: ['COLOR_ID_AUSENTE', 'OT_ID_AUSENTE'] },
+        of_id: 'of-blocked', of: 'OF-BLOCKED', estado: 'EN_EJECUCION', corrida_id: 'run-blocked',
+        color: 'Azul', color_hex: null, molde_id: 'ML-1', molde_visible: true,
+        molde: { codigo: 'ML-1', nombre: 'Molde 1' }, ots: [], provenance: { issues: ['COLOR_ID_AUSENTE', 'OT_ID_AUSENTE'] },
+        salidas: [{ ...outputs[0], corrida_id: 'run-blocked', pieza_id: 31, pieza: 'Pieza azul', meta: 5, avance: null, porcentaje: null, estado_avance: 'INCOMPLETO' }],
+      }],
+    });
+
+    render(<ControlAvanceOfTv />);
+
+    expect(await screen.findByText('Avance no calculable: falta vincular producción')).toBeInTheDocument();
+    expect(screen.queryByText(/COLOR_ID_AUSENTE|OT_ID_AUSENTE/)).not.toBeInTheDocument();
+  });
+
+  it('splits a dense consolidated OF by color lanes with no TV scroll', async () => {
+    const denseItems = Array.from({ length: 7 }, (_, index) => ({
+      group_id: `of-dense|run-${index}|ML-1|${index + 1}`,
+      identity: { identity_status: index === 0 ? 'INCOMPLETA' : 'COMPLETA', identity_issues: index === 0 ? ['COLOR_ID_AUSENTE'] : [] },
+      of_id: 'of-dense', of: 'OF-DENSE', estado: 'EN_EJECUCION', corrida_id: `run-${index}`,
+      color_id: index + 1, color: `Color ${index + 1}`, color_hex: '#123456', molde_id: 'ML-1', molde_visible: true,
+      molde: { codigo: 'ML-1', nombre: 'Molde 1' }, ots: [{ id: `ot-${index}`, codigo: `OT-${index}` }],
+      provenance: { issues: [] },
+      salidas: [31, 42].map((pieceId, pieceIndex) => ({ ...outputs[pieceIndex], corrida_id: `run-${index}`, pieza_id: pieceId, pieza: `Pieza ${pieceId}`, pieza_color_id: `pc-${index}-${pieceId}`, meta: 5, avance: 2, porcentaje: 40, estado_avance: index === 0 ? 'INCOMPLETO' : 'EN_AVANCE' })),
+    }));
+    listarAvanceOfTvScm.mockResolvedValueOnce({ ...response, items: denseItems });
+    window.innerWidth = 1366;
+
+    render(<ControlAvanceOfTv />);
+    await screen.findByTestId('of-progress-card');
+    fireEvent.click(screen.getByRole('button', { name: 'Modo TV' }));
+
+    expect(screen.getByTestId('control-avance-of-tv')).toHaveAttribute('data-tv-scroll', 'disabled');
+    const pageLabel = await screen.findByText(/Pantalla 1 de/);
+    const pageCount = Number(pageLabel.textContent.match(/de (\d+)/)?.[1]);
+    expect(pageCount).toBeGreaterThanOrEqual(1);
+    expect(screen.getByTestId('of-progress-layout')).toHaveAttribute('data-page-columns', '1');
+    expect(screen.getAllByTestId('of-progress-card')).toHaveLength(1);
+    const seen = new Set();
+    for (let page = 0; page < pageCount; page += 1) {
+      screen.getAllByTestId('output-progress-row').forEach((row) => seen.add(row.getAttribute('data-output-key')));
+      if (page < pageCount - 1) fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
+    }
+    expect(seen).toHaveLength(14);
+    expect(screen.queryByText(/OT_ID_AUSENTE/)).not.toBeInTheDocument();
+  });
+
+  it('keeps wide matrices full-width when two OFs would make a 7-piece half-screen overflow', async () => {
+    const wideItems = Array.from({ length: 2 }, (_, ofIndex) => ({
+      group_id: `of-wide-${ofIndex}|run-wide-${ofIndex}|ML-1|${ofIndex + 1}`,
+      identity: { identity_status: 'COMPLETA', identity_issues: [] },
+      of_id: `of-wide-${ofIndex}`, of: `OF-WIDE-${ofIndex}`, estado: 'EN_EJECUCION', corrida_id: `run-wide-${ofIndex}`,
+      color_id: ofIndex + 1, color: `Color ${ofIndex + 1}`, color_hex: '#123456', molde_id: 'ML-1', molde_visible: true,
+      molde: { codigo: 'ML-1', nombre: 'Molde 1' }, ots: [{ id: `ot-wide-${ofIndex}`, codigo: `OT-WIDE-${ofIndex}` }], provenance: { issues: [] },
+      salidas: Array.from({ length: 7 }, (_, pieceIndex) => ({
+        ...outputs[0], corrida_id: `run-wide-${ofIndex}`, pieza_id: 100 + pieceIndex,
+        pieza_color_id: `wide-${ofIndex}-${pieceIndex}`, pieza: `Pieza ${pieceIndex + 1}`,
+      })),
+    }));
+    listarAvanceOfTvScm.mockResolvedValueOnce({ ...response, items: wideItems });
+    window.innerWidth = 1366;
+
+    render(<ControlAvanceOfTv />);
+    await screen.findAllByTestId('of-progress-card');
+    fireEvent.click(screen.getByRole('button', { name: 'Modo TV' }));
+
+    const pageLabel = await screen.findByText(/Pantalla 1 de/);
+    const pageCount = Number(pageLabel.textContent.match(/de (\d+)/)?.[1]);
+    expect(pageCount).toBe(2);
+    expect(screen.getByTestId('of-progress-layout')).toHaveAttribute('data-page-columns', '1');
+    const seen = [];
+    for (let page = 0; page < pageCount; page += 1) {
+      seen.push(...screen.getAllByTestId('output-progress-row').map((row) => row.getAttribute('data-output-key')));
+      if (page < pageCount - 1) fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
+    }
+    expect(seen).toHaveLength(14);
+    expect(new Set(seen).size).toBe(14);
+  });
+
+  it('walks every column part for a 14-piece OF without losing or duplicating outputs', async () => {
+    const fourteenPieces = {
+      group_id: 'of-columns|run-columns|ML-1|1',
+      identity: { identity_status: 'COMPLETA', identity_issues: [] },
+      of_id: 'of-columns', of: 'OF-COLUMNS', estado: 'EN_EJECUCION', corrida_id: 'run-columns',
+      color_id: 1, color: 'Azul', color_hex: '#123456', molde_id: 'ML-1', molde_visible: true,
+      molde: { codigo: 'ML-1', nombre: 'Molde 1' }, ots: [{ id: 'ot-columns', codigo: 'OT-COLUMNS' }], provenance: { issues: [] },
+      salidas: Array.from({ length: 14 }, (_, pieceIndex) => ({
+        ...outputs[0], corrida_id: 'run-columns', pieza_id: 200 + pieceIndex,
+        pieza_color_id: `columns-${pieceIndex}`, pieza: `Pieza ${pieceIndex + 1}`,
+      })),
+    };
+    listarAvanceOfTvScm.mockResolvedValueOnce({ ...response, items: [fourteenPieces] });
+    window.innerWidth = 1366;
+
+    render(<ControlAvanceOfTv />);
+    await screen.findByTestId('of-progress-card');
+    fireEvent.click(screen.getByRole('button', { name: 'Modo TV' }));
+
+    const pageLabel = await screen.findByText(/Pantalla 1 de/);
+    const pageCount = Number(pageLabel.textContent.match(/de (\d+)/)?.[1]);
+    expect(pageCount).toBe(2);
+    const seen = [];
+    for (let page = 0; page < pageCount; page += 1) {
+      seen.push(...screen.getAllByTestId('output-progress-row').map((row) => row.getAttribute('data-output-key')));
+      if (page < pageCount - 1) fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
+    }
+    const expected = fourteenPieces.salidas.map((output) => `${output.corrida_id}-${output.pieza_color_id}`);
+    expect(seen.slice().sort()).toEqual(expected.slice().sort());
+    expect(new Set(seen).size).toBe(expected.length);
+  });
+
+  it('uses the measured wide-TV budget without losing lanes at 900p or 640p', () => {
+    const compact = calculateTvPageBudget({ viewportHeight: 640, pieceCount: 2 });
+    const large = calculateTvPageBudget({ viewportHeight: 900, pieceCount: 2 });
+    expect(compact.availableHeight).toBe(460);
+    expect(large.availableHeight).toBe(720);
+    expect(large.maxLanes).toBeGreaterThanOrEqual(compact.maxLanes);
+    const groups = Array.from({ length: 7 }, (_, index) => ({
+      id: `lane-${index}`,
+      identity: { identity_status: index === 0 ? 'INCOMPLETA' : 'COMPLETA' },
+      salidas: [{ id: index }, { id: `${index}-piece-2` }],
+    }));
+    const pages900 = splitTvLanes(groups, { viewportHeight: 900, pieceCount: 2, layout: 'wide' });
+    const pages640 = splitTvLanes(groups, { viewportHeight: 640, pieceCount: 2, layout: 'wide' });
+    expect(pages900).toHaveLength(1);
+    expect(pages640.length).toBeLessThanOrEqual(2);
+    expect(pages640[0]).toHaveLength(5);
+    expect([...pages900, ...pages640].flat().map((group) => group.id)).toEqual([
+      ...groups.map((group) => group.id),
+      ...groups.map((group) => group.id),
+    ]);
+    expect(splitTvLanes(
+      groups,
+      { viewportHeight: 640, pieceCount: 2, layout: 'narrow' },
+    ).flat()).toHaveLength(7);
   });
 });
