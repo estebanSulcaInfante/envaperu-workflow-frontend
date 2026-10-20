@@ -798,7 +798,7 @@ describe('tablero diario por máquina y selección humana de color', () => {
     expect(screen.getByRole('combobox', { name: 'OT de máquina' })).toHaveTextContent(
       'OT-000002',
     );
-    expect(screen.getByRole('heading', { name: /Detalle de OT-000002/i })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Contexto de OT' })).toBeVisible();
   });
 
   it('muestra un único color como configuración de solo lectura sin exponer C01', async () => {
