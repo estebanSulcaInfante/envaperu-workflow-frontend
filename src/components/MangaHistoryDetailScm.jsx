@@ -917,14 +917,17 @@ const formatTramos = (value) => {
   return `${value} ${Number(value) === 1 ? "tramo incluido" : "tramos incluidos"}`;
 };
 
+const EMPTY_GROUP = [];
+
 export default function MangaHistoryDetailScm({
   open,
   onClose,
   filters,
-  group = [],
+  group = EMPTY_GROUP,
   appliedContext = null,
   actorId = "unknown",
   canReprint = false,
+  directItem = null,
 }) {
   const [listState, setListState] = useState("idle");
   const [listError, setListError] = useState("");
@@ -980,31 +983,6 @@ export default function MangaHistoryDetailScm({
     setDetailError("");
     setDetailState("idle");
   }, []);
-  const loadList = useCallback(async () => {
-    cancelRequests();
-    const current = sequence.current;
-    const controller = new AbortController();
-    listController.current = controller;
-    setListState("loading");
-    resetData();
-    try {
-      const payload = await listarMangasHistoricoScm(
-        { ...filters, signal: controller.signal },
-        group,
-      );
-      if (controller.signal.aborted || current !== sequence.current) return;
-      const nextItems = Array.isArray(payload?.items) ? payload.items : [];
-      setItems(nextItems);
-      setListState("ready");
-      if (nextItems.length === 1) setSelected(nextItems[0]);
-    } catch (cause) {
-      if (controller.signal.aborted || current !== sequence.current) return;
-      setListError(
-        errorMessage(cause, "No se pudo cargar la lista de mangas."),
-      );
-      setListState("error");
-    }
-  }, [cancelRequests, filters, group, resetData]);
   const loadDetail = useCallback(async (item) => {
     if (!item?.id) return;
     sequence.current += 1;
@@ -1031,6 +1009,38 @@ export default function MangaHistoryDetailScm({
       setDetailState("error");
     }
   }, []);
+  const loadList = useCallback(async () => {
+    cancelRequests();
+    const current = sequence.current;
+    const controller = new AbortController();
+    listController.current = controller;
+    setListState("loading");
+    resetData();
+    if (directItem?.id) {
+      setItems([directItem]);
+      setSelected(directItem);
+      setListState("ready");
+      loadDetail(directItem);
+      return;
+    }
+    try {
+      const payload = await listarMangasHistoricoScm(
+        { ...filters, signal: controller.signal },
+        group,
+      );
+      if (controller.signal.aborted || current !== sequence.current) return;
+      const nextItems = Array.isArray(payload?.items) ? payload.items : [];
+      setItems(nextItems);
+      setListState("ready");
+      if (nextItems.length === 1) setSelected(nextItems[0]);
+    } catch (cause) {
+      if (controller.signal.aborted || current !== sequence.current) return;
+      setListError(
+        errorMessage(cause, "No se pudo cargar la lista de mangas."),
+      );
+      setListState("error");
+    }
+  }, [cancelRequests, directItem, filters, group, loadDetail, resetData]);
   useEffect(() => {
     if (!open) {
       cancelRequests();
@@ -1056,6 +1066,7 @@ export default function MangaHistoryDetailScm({
     groupKey,
     loadList,
     open,
+    directItem,
     resetData,
   ]);
   useEffect(() => {
@@ -1067,6 +1078,7 @@ export default function MangaHistoryDetailScm({
     return () => cancelAnimationFrame(frame);
   }, [detail]);
   useEffect(() => {
+    if (directItem?.id) return undefined;
     if (
       open &&
       listState === "ready" &&
@@ -1075,11 +1087,9 @@ export default function MangaHistoryDetailScm({
       !detail &&
       detailState === "idle"
     )
-      // The detail fetch is a remote synchronization; its state transitions
-      // are intentionally owned by loadDetail rather than this effect.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       loadDetail(items[0]);
-  }, [detail, detailState, items, listState, loadDetail, open, selected]);
+  }, [detail, detailState, directItem, items, listState, loadDetail, open, selected]);
   const retryDetail = () => loadDetail(selected);
   const openDetail = (item) => {
     selectedBeforeDetailRef.current = item?.id || null;

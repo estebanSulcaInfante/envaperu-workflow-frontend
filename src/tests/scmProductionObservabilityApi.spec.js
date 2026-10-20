@@ -17,6 +17,8 @@ import {
   exportarProduccionHistoricaScm,
   listarMangasHistoricoScm,
   obtenerDetalleMangaScm,
+  listarExploradorMangasScm,
+  exportarExploradorMangasScm,
 } from '../services/scmProductionObservabilityApi';
 
 describe('contrato frontend de observabilidad de OT', () => {
@@ -156,6 +158,19 @@ describe('contrato frontend de observabilidad de OT', () => {
       },
       signal,
     });
+  });
+
+  it('consulta el explorador de Fabricación con fecha operativa y exporta el modo elegido', async () => {
+    const signal = new AbortController().signal;
+    await listarExploradorMangasScm({ desde: '2026-08-01', hasta: '2026-08-10', q: 'M-01', estado: 'PESADA', signal });
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/observabilidad/mangas-fabricacion', expect.objectContaining({
+      params: expect.objectContaining({ tipo_ot: 'FABRICACION', fecha_desde: '2026-08-01', fecha_hasta: '2026-08-10', q: 'M-01', estado_manga: 'PESADA' }),
+      signal,
+    }));
+    await exportarExploradorMangasScm({ desde: '2026-08-01' }, 'DETALLADO');
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/observabilidad/mangas-fabricacion/export.xlsx', expect.objectContaining({
+      params: expect.objectContaining({ tipo_ot: 'FABRICACION', vista: 'DETALLADO' }), responseType: 'blob',
+    }));
   });
 
   it('pasa AbortSignal a Axios sin serializarlo como filtro del reporte OF', async () => {

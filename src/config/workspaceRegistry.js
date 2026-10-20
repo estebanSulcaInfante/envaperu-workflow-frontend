@@ -80,7 +80,6 @@ export const workspaceAreas = [
 ];
 
 export const workspaceFeatures = [
-  feature({ key: 'control.assistant', areaKey: 'control', sectionKey: 'assistant', label: 'Asistente de producción', description: 'Consulta de solo lectura sobre avance diario respaldado por pesajes.', path: '/control/asistente', requiredAny: ['ASISTENTE_PRODUCCION_USAR'], requiredAll: ['OT_VER', 'MANGA_PESAJE_VER'], icon: 'control', defaultPriority: 0.5, keywords: ['asistente', 'avance', 'producción', 'pesajes'], task: true, runtimeFlag: 'scmAssistantEnabled' }),
   feature({ key: 'home.workspace', areaKey: 'home', sectionKey: 'home', label: 'Inicio', description: 'Trabajo disponible para el perfil.', path: '/', icon: 'dashboard', defaultPriority: 0, exact: true }),
 
   feature({ key: 'planning.demand', areaKey: 'planning', sectionKey: 'demand', label: 'Demanda, OP y plan', description: 'Demanda, cobertura, metas y OF/OA generadas.', path: '/planificacion', matches: ['/planificacion/:solicitudId'], requiredAny: ['OP_VER', 'OP_CREAR', 'OP_APROBAR', 'PLANIFICACION_CALCULAR'], icon: 'planning', defaultPriority: 10, task: true }),
@@ -103,7 +102,7 @@ export const workspaceFeatures = [
 
   feature({ key: 'control.productionSupervision', areaKey: 'control', sectionKey: 'production-supervision', label: 'Supervisión de producción', description: 'Consulta OT, recursos, avance y excepciones sin mezclar acciones operativas.', path: '/control/supervision-produccion', aliases: ['/produccion/supervision'], requiredAny: ['OT_VER'], icon: 'control', defaultPriority: 0, keywords: ['OT', 'supervisión', 'jornadas', 'observabilidad'], task: true }),
   feature({ key: 'control.productionProgress', areaKey: 'control', sectionKey: 'production-progress', label: 'Avance de OF', description: 'Acceso compatible a Fabricación · OF.', path: '/control/avance-of', requiredAny: ['OT_VER'], icon: 'progress', defaultPriority: 1, keywords: ['OF', 'objetivo de color', 'avance', 'kg'], navigation: false, task: false }),
-  feature({ key: 'control.productionHistory', areaKey: 'control', sectionKey: 'production-history', label: 'Histórico de producción', description: 'Consulta y exporta producción histórica por rango operativo.', path: '/control/historico-produccion', requiredAny: ['OT_VER'], icon: 'records', defaultPriority: 2, keywords: ['histórico', 'producción', 'exportar'], task: true }),
+  feature({ key: 'control.mangaExplorer', areaKey: 'control', sectionKey: 'manga-explorer', label: 'Mangas de producción', description: 'Localiza mangas físicas de Fabricación por fecha operativa y exporta el conjunto consultado.', path: '/control/mangas', aliases: ['/control/historico-produccion'], requiredAny: ['OT_VER'], icon: 'records', defaultPriority: 2, keywords: ['mangas', 'fabricación', 'producción', 'exportar'], task: true }),
   feature({ key: 'control.productionProgressTv', areaKey: 'control', sectionKey: 'production-progress-tv', label: 'Avance OF', description: 'Consulta el avance físico de las salidas por orden y pieza-color.', path: '/control/avance-of-tv', requiredAny: ['OT_VER'], icon: 'progress', defaultPriority: 1, keywords: ['OF', 'pieza-color', 'avance', 'TV'], task: true }),
   feature({ key: 'control.inventory', areaKey: 'control', sectionKey: 'inventory-control', label: 'Control de inventario', description: 'Acceso compatible al resumen por almacén en Kardex.', path: '/control/inventario', requiredAny: ['INVENTARIO_CONTROL_TRANSVERSAL'], icon: 'inventory', defaultPriority: 2, keywords: ['kardex', 'almacenes', 'custodia'], navigation: false, task: false }),
   feature({ key: 'control.printJobs', areaKey: 'control', sectionKey: 'printing', label: 'Impresión y etiquetas', description: 'Supervisa la cola central y abre la vista previa en la estación.', path: '/control/impresion-etiquetas', requiredAny: ['OT_VER'], icon: 'documents', defaultPriority: 5, keywords: ['stickers', 'etiquetas', 'impresión', 'prepesaje', 'postpesaje'], task: true }),
@@ -175,7 +174,6 @@ export const defaultWorkspaceRuntimeFlags = {
     && String(import.meta.env.VITE_SCM_ENABLE_PROTOTYPES || 'true').toLowerCase() !== 'false',
   allowOutOfPilot: import.meta.env.DEV
     && String(import.meta.env.VITE_SCM_ENABLE_OUT_OF_PILOT || '').toLowerCase() === 'true',
-  scmAssistantEnabled: String(import.meta.env.VITE_SCM_ASSISTANT_ENABLED || '').toLowerCase() === 'true',
 };
 
 export const featureIsPlaceholder = (item) => Boolean(item?.placeholder);

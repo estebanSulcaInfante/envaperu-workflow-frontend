@@ -68,49 +68,33 @@ describe('guarda unificada por función del workspace', () => {
     expect(canAny).toHaveBeenCalledWith(['OT_VER']);
   });
 
-  it('protege el asistente con capacidad de rol y permisos de datos', () => {
-    const canAny = vi.fn((required) => required.includes('ASISTENTE_PRODUCCION_USAR'));
-    const can = vi.fn((capability) => ['OT_VER', 'MANGA_PESAJE_VER'].includes(capability));
+  it('protege el explorador de mangas con lectura de OT', () => {
+    const canAny = vi.fn((required) => required.includes('OT_VER'));
     actorState = {
-      actor: { nombre_corto: 'Asistente SCM' },
-      can,
+      actor: { nombre_corto: 'Supervisor' },
       canAny,
       error: '',
       loading: false,
       refreshActors: vi.fn(),
     };
 
-    renderRoute('control.assistant', {
-      showLegacy: false,
-      allowPrototype: false,
-      allowOutOfPilot: false,
-      scmAssistantEnabled: true,
-    });
+    renderRoute('control.mangaExplorer');
 
     expect(screen.getByText('Vista operativa montada')).toBeVisible();
-    expect(canAny).toHaveBeenCalledWith(['ASISTENTE_PRODUCCION_USAR']);
-    expect(can).toHaveBeenCalledWith('OT_VER');
-    expect(can).toHaveBeenCalledWith('MANGA_PESAJE_VER');
+    expect(canAny).toHaveBeenCalledWith(['OT_VER']);
   });
 
-  it('no monta el asistente si falta un permiso de datos', () => {
-    const canAny = vi.fn(() => true);
-    const can = vi.fn((capability) => capability === 'OT_VER');
+  it('no monta el explorador si falta lectura de OT', () => {
+    const canAny = vi.fn(() => false);
     actorState = {
-      actor: { nombre_corto: 'Asistente sin pesajes' },
-      can,
+      actor: { nombre_corto: 'Compras' },
       canAny,
       error: '',
       loading: false,
       refreshActors: vi.fn(),
     };
 
-    renderRoute('control.assistant', {
-      showLegacy: false,
-      allowPrototype: false,
-      allowOutOfPilot: false,
-      scmAssistantEnabled: true,
-    });
+    renderRoute('control.mangaExplorer');
 
     expect(screen.queryByText('Vista operativa montada')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Esta vista no corresponde a tu funci.n/ })).toBeVisible();

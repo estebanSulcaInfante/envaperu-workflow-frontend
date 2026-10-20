@@ -75,6 +75,40 @@ export const listarSupervisionMangasScm = (filters = {}) => get(
   { params: filterParams(filters), signal: filters.signal },
 );
 
+export const listarExploradorMangasScm = (filters = {}) => get(
+  '/scm/v1/observabilidad/mangas-fabricacion',
+  {
+    params: definedEntries({
+      fecha_desde: filters.desde,
+      fecha_hasta: filters.hasta,
+      estado_manga: filters.estado,
+      q: filters.q,
+      cursor: filters.cursor,
+      limit: filters.limit,
+      sort: 'FECHA_DESC',
+      tipo_ot: 'FABRICACION',
+    }),
+    signal: filters.signal,
+  },
+);
+
+export const exportarExploradorMangasScm = (filters = {}, vista = 'AMBOS') => api.get(
+  '/scm/v1/observabilidad/mangas-fabricacion/export.xlsx',
+  {
+    headers: headers(),
+    params: definedEntries({
+      fecha_desde: filters.desde,
+      fecha_hasta: filters.hasta,
+      estado_manga: filters.estado,
+      q: filters.q,
+      tipo_ot: 'FABRICACION',
+      vista,
+    }),
+    responseType: 'blob',
+    ...(filters.signal ? { signal: filters.signal } : {}),
+  },
+);
+
 export const obtenerResumenSupervisionOtsScm = (filters = {}) => get(
   '/scm/v1/observabilidad/resumen',
   { params: filterParams(filters, { paginated: false }), signal: filters.signal },
