@@ -741,10 +741,17 @@ function ColorWorkQueue({ works, selectedWorkId, onSelect, compact = false }) {
   return (
     <Stack direction="row" spacing={0.75} data-testid="color-work-queue"
       sx={{
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
         overflowX: 'auto',
         pb: 0.5,
         scrollSnapType: 'x proximity',
-        '& > *': { flex: compact ? '1 1 auto' : '0 0 260px', minWidth: 0 },
+        '& > *': {
+          flex: compact ? '1 1 100%' : '0 0 min(260px, 82vw)',
+          minWidth: 0,
+          maxWidth: '100%',
+        },
       }}>
       {works.map((work) => {
         const selected = work.id === selectedWorkId;
@@ -769,18 +776,38 @@ function ColorWorkQueue({ works, selectedWorkId, onSelect, compact = false }) {
                 direction={compact ? 'row' : 'column'}
                 spacing={compact ? 1 : 1}
                 alignItems={compact ? 'center' : 'stretch'}
+                useFlexGap
+                sx={{ minWidth: 0 }}
               >
-                <Box sx={{ minWidth: compact ? 0 : 38 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    {work.codigo || `Trabajo ${work.secuencia}`}{selected ? '\u200b' : ''}
-                  </Typography>
-                </Box>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography fontWeight={850}>{work.color || 'Sin color informado'}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {work.orden_fabricacion_codigo || 'Sin OF'}
-                  </Typography>
-                </Box>
+                {compact ? (
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography fontWeight={850} sx={{ overflowWrap: 'anywhere' }}>
+                      {work.color || 'Sin color informado'}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                      {work.orden_fabricacion_codigo || 'Sin OF'}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                      {work.codigo || `Trabajo ${work.secuencia}`}{selected ? '\u200b' : ''}
+                    </Typography>
+                  </Box>
+                ) : (
+                  <>
+                    <Box sx={{ minWidth: 38 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                        {work.codigo || `Trabajo ${work.secuencia}`}{selected ? '\u200b' : ''}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography fontWeight={850} sx={{ overflowWrap: 'anywhere' }}>
+                        {work.color || 'Sin color informado'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                        {work.orden_fabricacion_codigo || 'Sin OF'}
+                      </Typography>
+                    </Box>
+                  </>
+                )}
                 <Box sx={{ flexShrink: 0 }}>
                   <Chip
                     size="small"
@@ -899,8 +926,8 @@ function MangaTable({
         })}
       </Stack>
     </Box>}
-    {!compact && <TableContainer sx={{ display: 'block' }}>
-      <Table size="small">
+    {!compact && <TableContainer sx={{ display: 'block', maxWidth: '100%', overflowX: 'auto' }}>
+      <Table size="small" sx={{ minWidth: 760 }}>
         <TableHead>
           <TableRow>
             <TableCell padding="checkbox">Selección</TableCell>
@@ -2998,8 +3025,12 @@ export default function OtMangasScm({ view = 'all' }) {
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        title={isDetail ? (selectedOt?.codigo_ot || 'Detalle de OT') : 'OTs de planta'}
-        description="Consulta el turno completo y continúa el trabajo desde Máquinas o Centros de Armado sin mezclar sus responsabilidades."
+        title={isDetail
+          ? (selectedOt?.codigo_ot || 'Hoja de OT')
+          : 'OTs de planta'}
+        description={isDetail && selectedOt
+          ? `${machineNameFromOt(selectedOt)} · ${selectedOt.fecha_operativa} · turno ${stateLabel(selectedOt.turno)}`
+          : 'Consulta el turno completo y continúa el trabajo desde Máquinas o Centros de Armado sin mezclar sus responsabilidades.'}
         actions={(
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             {!isDetail && canCreateOt && (isGlobalView || perspective === 'FABRICACION') && (
@@ -3278,18 +3309,15 @@ export default function OtMangasScm({ view = 'all' }) {
             fontWeight={850}
             id="ot-machine-detail-heading"
           >
-            {selectedOt ? `Detalle de ${selectedOt.codigo_ot}` : 'Lista y detalle de OT'}
+            {selectedOt ? 'Contexto de OT' : 'Lista y detalle de OT'}
           </Typography>
         </Box>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Alternativa compacta para seleccionar cualquiera de las OT, incluidas coincidencias históricas en una misma máquina.
-        </Typography>
         {filteredOts.length > 0 && (
           <Stack
             direction={{ xs: 'column', md: 'row' }}
             spacing={2}
             alignItems={{ md: 'center' }}
-            sx={{ mb: 2 }}
+            sx={{ mt: 1.5, mb: 2 }}
           >
             <FormControl sx={{ width: { xs: '100%', md: 'auto' }, minWidth: { md: 310 } }}>
               <InputLabel id="ot-machine-select-label">OT de máquina</InputLabel>
@@ -3317,10 +3345,10 @@ export default function OtMangasScm({ view = 'all' }) {
             {selectedOt && (
               <Box sx={{ flex: 1 }}>
                 <Typography fontWeight={850}>
-                  {selectedOt.codigo_ot} · {selectedOt.maquina_codigo || selectedOt.maquina}
+                  {machineNameFromOt(selectedOt)}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {selectedOt.fecha_operativa} · turno {stateLabel(selectedOt.turno)} · {works.length} trabajos de color
+                  {selectedOt.codigo_ot} · {works.length} trabajos de color
                 </Typography>
               </Box>
             )}
@@ -3364,11 +3392,11 @@ export default function OtMangasScm({ view = 'all' }) {
       {selectedOt && selectedOt.estado !== 'ANULADA' && (
         <Paper component="section" data-testid="ot-work-queue" aria-labelledby="ot-work-navigation-title" variant="outlined"
           sx={{
-            p: 1.5, position: { xs: 'static', lg: 'sticky' }, top: 0, zIndex: 3, minWidth: 0,
+            p: 1.5, width: '100%', maxWidth: '100%', overflowX: 'hidden', minWidth: 0,
             scrollSnapType: { xs: 'x proximity', lg: 'none' },
           }}>
-          <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-            <Box>
+          <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" useFlexGap flexWrap="wrap" sx={{ mb: 1, minWidth: 0 }}>
+            <Box sx={{ minWidth: 0, flex: '1 1 240px' }}>
               <Typography component="h2" id="ot-work-navigation-title" variant="subtitle1" fontWeight={850}>
                 Trabajos de esta OT
               </Typography>
@@ -3388,7 +3416,7 @@ export default function OtMangasScm({ view = 'all' }) {
             )}
           </Stack>
           {works.length > 1 && (
-            <details open data-testid="ot-work-queue-disclosure">
+            <details open data-testid="ot-work-queue-disclosure" style={{ minWidth: 0 }}>
               <summary style={{ cursor: 'pointer', fontWeight: 700, padding: '4px 0 8px' }}>
                 Cola plegable · {works.length} trabajos · Consultando: {selectedWork?.color || 'sin color'}
               </summary>
@@ -3850,23 +3878,28 @@ export default function OtMangasScm({ view = 'all' }) {
             }
           }} tabIndex={-1}
           variant="outlined" sx={{
-            p: 2, minWidth: 0, scrollMarginTop: '290px', display: 'flex', flexDirection: 'column',
+            p: 2, minWidth: 0, scrollMarginTop: 16, display: 'flex', flexDirection: 'column',
           }}>
-          <Typography variant="overline" color="primary.main">
-            Trabajo consultado · {selectedWork.codigo || `Trabajo ${selectedWork.secuencia}`}
-          </Typography>
           <Stack
             direction={{ xs: 'column', md: 'row' }}
             spacing={1}
             alignItems={{ md: 'center' }}
-            sx={{ mb: 2 }}
+            useFlexGap
+            sx={{
+              mb: 2,
+              minWidth: 0,
+              flexWrap: 'wrap',
+              '& > *': { minWidth: 0, maxWidth: '100%' },
+              '& .MuiButton-root': { whiteSpace: 'normal', overflowWrap: 'anywhere' },
+            }}
           >
             <Box sx={{ flex: 1 }}>
-              <Typography component="h2" variant="h6" fontWeight={850}>
+              <Typography component="h2" variant="h6" fontWeight={850} sx={{ overflowWrap: 'anywhere' }}>
                 {selectedWork.color}
               </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {selectedWork.orden_fabricacion_codigo} · responsable {currentWorker?.trabajador || 'por asignar'}
+              <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                {selectedWork.codigo || `Trabajo ${selectedWork.secuencia}`} · {selectedWork.orden_fabricacion_codigo}
+                {' · responsable '}{currentWorker?.trabajador || 'por asignar'}
               </Typography>
             </Box>
             <Chip
@@ -3995,7 +4028,7 @@ export default function OtMangasScm({ view = 'all' }) {
                     : `Seleccionar los ${pendingReliefIds.length} stickers pendientes`}
                 </Button>
               )}
-              <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1}>
+              <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1} useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
                 <FormControl size="small" sx={{ minWidth: 240 }}>
                   <InputLabel id="relief-worker-label">Nuevo maquinista</InputLabel>
                   <Select
@@ -4078,7 +4111,7 @@ export default function OtMangasScm({ view = 'all' }) {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                 La salida y la solicitud quedan vinculadas únicamente a {selectedWork.color}.
               </Typography>
-              <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1}>
+              <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1} useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
                 <FormControl size="small" sx={{ minWidth: 280 }}>
                   <InputLabel id="manga-plan-line-label">Salida de este trabajo</InputLabel>
                   <Select
@@ -4176,7 +4209,7 @@ export default function OtMangasScm({ view = 'all' }) {
       <Box
         ref={mangaDocumentSlotRef}
         data-testid="manga-document-slot"
-        sx={{ gridColumn: { xs: '1', lg: '2' }, minWidth: 0 }}
+        sx={{ gridColumn: '1 / -1', minWidth: 0, width: '100%' }}
       />
       </Box>
       {printJob && (
@@ -4318,7 +4351,7 @@ export default function OtMangasScm({ view = 'all' }) {
         variant="outlined"
         sx={{
           mb: 2, borderColor: 'primary.main', overflow: 'hidden', minWidth: 0,
-          gridColumn: { xs: '1', lg: '2' },
+          gridColumn: '1 / -1',
           '& table': { minWidth: { xs: 0, sm: 520 } },
           '& .MuiTableContainer-root': { overflowX: { xs: 'hidden', sm: 'auto' } },
         }}

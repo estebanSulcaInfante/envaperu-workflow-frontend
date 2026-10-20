@@ -408,6 +408,21 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     expect(screen.queryByRole('dialog', { name: /Pesaje de/ })).not.toBeInTheDocument();
   });
 
+  it('ordena la cola compacta como color, OF y código antes del estado', async () => {
+    scmMocks.listarOtScm.mockResolvedValueOnce({
+      items: [{ ...machineOt, trabajos_color: [greenWork], mangas: greenWork.mangas }],
+    });
+    renderSubject();
+    const queue = await screen.findByTestId('color-work-queue');
+    const card = within(queue).getByRole('button', { name: 'Ver mangas de VERDE SÓLIDO' });
+    const color = within(card).getByText('VERDE SÓLIDO');
+    const order = within(card).getByText('OF-001');
+    const code = within(card).getByText((_, node) => node?.textContent?.startsWith('OT-000001-TC01'));
+    expect(color.compareDocumentPosition(order) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(order.compareDocumentPosition(code) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(card).getByText('PLANIFICADO')).toBeVisible();
+  });
+
   it('jerarquía: separa consultar mangas del formulario para agregar trabajo', async () => {
     const user = userEvent.setup();
     renderSubject();
@@ -1777,6 +1792,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('ot-work-detail')).not.toBeInTheDocument();
     expect(screen.getByTestId('ot-master-detail')).toContainElement(weighingDocument);
+    expect(getComputedStyle(weighingDocument).gridColumn).toBe('1/-1');
     await user.click(within(weighingDocument).getByRole('button', { name: 'Volver al Trabajo' }));
     const workRegion = await screen.findByRole('region', { name: 'Trabajo consultado' });
     expect(workRegion).toHaveAttribute('tabindex', '-1');
@@ -1834,6 +1850,50 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     const details = screen.getByText('Herramientas de relevo').closest('details');
     expect(details).not.toHaveAttribute('open');
     expect(list.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('mantiene el documento de Manga/Pesaje en el ancho completo de la hoja OT', async () => {
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-green',
+      ]}>
+        <OtMangasScm view="detail" />
+      </MemoryRouter>,
+    );
+    const slot = await screen.findByTestId('manga-document-slot');
+    expect(getComputedStyle(slot).gridColumn).toBe('1/-1');
+    expect(getComputedStyle(screen.getByTestId('ot-master-detail')).gridTemplateColumns)
+      .toBe('minmax(0, 1fr)');
+  });
+
+  it('prioriza máquina y código en una cabecera compacta sin kicker repetido', async () => {
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-green',
+      ]}>
+        <OtMangasScm view="detail" />
+      </MemoryRouter>,
+    );
+    const heading = await screen.findByRole('heading', { level: 1 });
+    expect(heading).toHaveTextContent('OT-000001');
+    expect(heading).not.toHaveTextContent('Detalle de');
+    expect(screen.getByText(/Sopladora 1.*2026-08-10.*turno DIA/i)).toBeVisible();
+  });
+
+  it('mantiene la cola horizontal y las acciones dentro del ancho disponible', async () => {
+    const longWorks = [
+      { ...greenWork, codigo: 'TRABAJO-CON-NOMBRE-LARGO-VERDE-2026', color: 'VERDE SÓLIDO CON IDENTIFICADOR OPERATIVO EXTENSO' },
+      { ...blueWork, codigo: 'TRABAJO-CON-NOMBRE-LARGO-AZUL-2026', color: 'AZUL CON IDENTIFICADOR OPERATIVO EXTENSO' },
+    ];
+    scmMocks.listarOtScm.mockResolvedValueOnce({
+      items: [{ ...machineOt, trabajos_color: longWorks, mangas: longWorks.flatMap((work) => work.mangas) }],
+    });
+    renderSubject();
+    const queue = await screen.findByTestId('color-work-queue');
+    expect(getComputedStyle(queue).minWidth).toBe('0px');
+    expect(getComputedStyle(queue.parentElement).minWidth).toBe('0px');
+    expect(getComputedStyle(queue).overflowX).toBe('auto');
+    expect(screen.getByTestId('manga-list-before-tools')).toBeVisible();
   });
 
   it('usa tarjetas de Manga/Pesaje en viewport móvil sin tabla ancha', async () => {
