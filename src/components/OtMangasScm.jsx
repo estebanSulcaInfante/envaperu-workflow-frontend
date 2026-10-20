@@ -1170,6 +1170,8 @@ export default function OtMangasScm({ view = 'all' }) {
   const actorIdRef = useRef(actorId);
   const [reliefRecoveryJobs, setReliefRecoveryJobs] = useState([]);
   const [reliefRecoveryMessages, setReliefRecoveryMessages] = useState([]);
+  const replacementPrintJobsRef = useRef([]);
+  const [reliefNotice, setReliefNotice] = useState(null);
   const [reliefForm, setReliefForm] = useState({
     workerId: '', reason: '', confirmEmptyStickers: false,
   });
@@ -1796,6 +1798,11 @@ export default function OtMangasScm({ view = 'all' }) {
     if (actorChanged) {
       reliefRequestRef.current += 1;
       reliefPendingRef.current = false;
+      replacementPrintJobsRef.current = [];
+      setReplacementPrintJobs([]);
+      setReliefRecoveryJobs([]);
+      setReliefRecoveryMessages([]);
+      setReliefNotice(null);
     }
   }, [actorId]);
 
@@ -1808,11 +1815,24 @@ export default function OtMangasScm({ view = 'all' }) {
       reliefPendingRef.current = false;
       setBusy(false);
     }
+    const currentReplacementJobs = replacementPrintJobsRef.current;
+    const recoveryOrigin = currentReplacementJobs[0]?.relief_origin;
+    if (currentReplacementJobs.length > 0 && recoveryOrigin) {
+      setReliefRecoveryJobs((current) => mergePrintJobs(current, currentReplacementJobs));
+      setReliefRecoveryMessages((current) => {
+        const message = 'El relevo terminó; recupera las etiquetas en la cola central.';
+        const key = `${recoveryOrigin.otId}|${recoveryOrigin.workId}|${message}`;
+        if (current.some((item) => item.key === key)) return current;
+        return [...current, { key, origin: recoveryOrigin, message }];
+      });
+    }
     selectedOtIdRef.current = selectedOtId;
     selectedWorkIdRef.current = selectedWorkId;
     setSelectedLabels([]);
     setSelectedRelief([]);
+    replacementPrintJobsRef.current = [];
     setReplacementPrintJobs([]);
+    setReliefNotice(null);
     setReliefDialogOpen(false);
     setReliefError('');
     setReliefForm((current) => ({ ...current, reason: '', confirmEmptyStickers: false }));
@@ -2467,11 +2487,20 @@ export default function OtMangasScm({ view = 'all' }) {
         }
         return;
       }
-      setReplacementPrintJobs((current) => mergePrintJobs(current, replacementJobs));
+      const replacementJobsWithOrigin = replacementJobs.map((job) => ({
+        ...job,
+        relief_origin: requestOrigin,
+      }));
+      const nextReplacementJobs = mergePrintJobs(
+        replacementPrintJobsRef.current,
+        replacementJobsWithOrigin,
+      );
+      replacementPrintJobsRef.current = nextReplacementJobs;
+      setReplacementPrintJobs(nextReplacementJobs);
       const replacementLabelCount = replacementJobs.reduce(
         (total, job) => total + (job.labels?.length || 0), 0,
       );
-      setNotice(selectedOpenRelief
+      const reliefSuccessMessage = selectedOpenRelief
         ? `${result.asignacion.trabajador} continúa ${result.mangas.length} manga(s) incompleta(s). Misma manga y QR; no se imprime otra preetiqueta.`
         : (
           `${result.asignacion.trabajador} quedó como responsable.`
@@ -2481,7 +2510,8 @@ export default function OtMangasScm({ view = 'all' }) {
           + (replacementLabelCount
             ? ` Reimprime ${replacementLabelCount} preetiqueta(s) de reemplazo.`
             : '')
-        ));
+        );
+      setReliefNotice({ origin: requestOrigin, message: reliefSuccessMessage });
       setSelectedRelief([]);
       setReliefForm((current) => ({
         ...current, reason: '', confirmEmptyStickers: false,
@@ -2491,7 +2521,10 @@ export default function OtMangasScm({ view = 'all' }) {
         await loadOts(selectedOt.public_id, selectedWork.id);
       } catch {
         if (isCurrentRequest()) {
-          setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+          setReliefNotice((current) => current ? {
+            ...current,
+            message: `${current.message} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`,
+          } : current);
         }
       }
     } catch (requestError) {
@@ -3321,6 +3354,12 @@ export default function OtMangasScm({ view = 'all' }) {
         </Alert>
       )}
       {error && !workCreateOpen && !creationOpen && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      {reliefNotice && (
+        <Alert severity="success" data-testid="relief-notice" onClose={() => setReliefNotice(null)}>
+          {reliefNotice.message} Origen: OT <strong>{reliefNotice.origin.otCode}</strong> · Trabajo{' '}
+          <strong>{reliefNotice.origin.workCode}</strong>.
+        </Alert>
+      )}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
 
       {isGlobalView && (
@@ -4412,8 +4451,8 @@ export default function OtMangasScm({ view = 'all' }) {
               Las mangas pesadas, recibidas o anuladas no son elegibles; no se reescribe su peso ni conteo.
             </Alert>
             <Alert severity="warning">
-              Antes de confirmar, si sales o recargas esta hoja no reenvíes el relevo: revisa el Trabajo de origen
-              y recupera las etiquetas pendientes desde la cola central.
+              Después de confirmar, si sales o recargas, el relevo puede haberse aplicado. Revisa el Trabajo de origen
+              y recupera las etiquetas en la cola central antes de reintentar; no reenvíes automáticamente.
             </Alert>
             {reliefEligibleMangas.length === 0 ? (
               <Alert severity="warning">

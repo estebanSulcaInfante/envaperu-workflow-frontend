@@ -1244,7 +1244,9 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       .toHaveAttribute('href', '/control/impresion-etiquetas');
     await user.click(await screen.findByRole('button', { name: 'Gestionar relevo' }));
     const reliefDialog = await screen.findByRole('dialog', { name: 'Gestionar relevo' });
-    expect(within(reliefDialog).getByText(/si sales o recargas esta hoja no reenvíes/i)).toBeVisible();
+    expect(within(reliefDialog).getByText(
+      /Después de confirmar, si sales o recargas, el relevo puede haberse aplicado\./i,
+    )).toBeVisible();
     await user.click(within(reliefDialog).getByRole('button', {
       name: 'Seleccionar los 1 stickers pendientes',
     }));
@@ -1431,6 +1433,99 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     await waitFor(() => expect(screen.queryByText(/Luis Relevo quedó como responsable/i))
       .not.toBeInTheDocument());
     expect(screen.queryByTestId('relief-recovery-alert')).not.toBeInTheDocument();
+  });
+
+  it('conserva los jobs de una respuesta de relevo al cambiar de Trabajo', async () => {
+    const user = userEvent.setup();
+    let resolveRelief;
+    const pendingRelief = new Promise((resolve) => { resolveRelief = resolve; });
+    scmMocks.reasignarMangasTrabajoColorScm.mockReturnValueOnce(pendingRelief);
+    render(
+      <MemoryRouter>
+        <ContextNavigationProbe />
+        <OtMangasScm />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Gestionar relevo' }));
+    const reliefDialog = await screen.findByRole('dialog', { name: 'Gestionar relevo' });
+    await user.click(within(reliefDialog).getByRole('checkbox', {
+      name: 'Incluir MNG-VERDE-001 en el relevo',
+    }));
+    await user.type(within(reliefDialog).getByLabelText('Motivo del relevo'), 'Cambio posterior');
+    await user.click(within(reliefDialog).getByRole('button', { name: 'Relevar y transferir 1 sticker' }));
+    await waitFor(() => expect(scmMocks.reasignarMangasTrabajoColorScm).toHaveBeenCalled());
+    await act(async () => {
+      resolveRelief({
+        trabajo_color: greenWork,
+        asignacion: { trabajador: 'Luis Relevo' },
+        mangas: [greenManga],
+        trabajos_impresion_reemplazo: [{ print_job_id: 'post-switch-job', labels: [{}] }],
+      });
+      await pendingRelief;
+    });
+    expect(await screen.findByText('post-switch-job')).toBeVisible();
+
+    fireEvent.click(document.querySelector('[data-testid="switch-work-context"]'));
+    expect(await screen.findByText('Mangas de AZUL')).toBeVisible();
+    const recovery = await screen.findByTestId('relief-recovery-alert');
+    expect(recovery).toHaveTextContent(/OT-000001.*OT-000001-TC01/);
+    expect(recovery).toHaveTextContent('post-switch-job');
+  });
+
+  it('limpia jobs de recuperación ya materializados al cambiar de actor', async () => {
+    const user = userEvent.setup();
+    let resolveRelief;
+    const pendingRelief = new Promise((resolve) => { resolveRelief = resolve; });
+    scmMocks.reasignarMangasTrabajoColorScm.mockReturnValueOnce(pendingRelief);
+    const view = render(
+      <MemoryRouter>
+        <ContextNavigationProbe />
+        <OtMangasScm />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Gestionar relevo' }));
+    const reliefDialog = await screen.findByRole('dialog', { name: 'Gestionar relevo' });
+    await user.click(within(reliefDialog).getByRole('checkbox', {
+      name: 'Incluir MNG-VERDE-001 en el relevo',
+    }));
+    await user.type(within(reliefDialog).getByLabelText('Motivo del relevo'), 'Recuperación actor');
+    await user.click(within(reliefDialog).getByRole('button', { name: 'Relevar y transferir 1 sticker' }));
+    await waitFor(() => expect(scmMocks.reasignarMangasTrabajoColorScm).toHaveBeenCalled());
+    fireEvent.click(document.querySelector('[data-testid="switch-work-context"]'));
+    expect(await screen.findByText('Mangas de AZUL')).toBeVisible();
+    await act(async () => {
+      resolveRelief({
+        trabajo_color: greenWork,
+        asignacion: { trabajador: 'Luis Relevo' },
+        mangas: [greenManga],
+        trabajos_impresion_reemplazo: [{ print_job_id: 'actor-recovery-job', labels: [{}] }],
+      });
+      await pendingRelief;
+    });
+    expect(await screen.findByTestId('relief-recovery-alert')).toBeVisible();
+
+    scmMocks.actorId = 'actor-2';
+    view.rerender(
+      <MemoryRouter>
+        <ContextNavigationProbe />
+        <OtMangasScm />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.queryByTestId('relief-recovery-alert'))
+      .not.toBeInTheDocument());
+  });
+
+  it('mantiene el acceso permanente a la cola tras remount sin reenviar relevo', async () => {
+    const firstRender = renderSubject();
+    expect(await screen.findByRole('link', { name: 'Recuperar etiquetas' }))
+      .toHaveAttribute('href', '/control/impresion-etiquetas');
+    firstRender.unmount();
+    renderSubject();
+    expect(await screen.findByRole('link', { name: 'Recuperar etiquetas' }))
+      .toHaveAttribute('href', '/control/impresion-etiquetas');
+    expect(scmMocks.reasignarMangasTrabajoColorScm).not.toHaveBeenCalled();
   });
 
   it('no libera busy ajeno cuando cambia de Trabajo sin un relevo activo', async () => {
