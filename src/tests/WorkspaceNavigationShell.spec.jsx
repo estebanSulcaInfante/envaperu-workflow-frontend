@@ -2,7 +2,7 @@ import { createTheme, ThemeProvider } from '@mui/material';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Sidebar from '../components/Sidebar';
 import FeatureAvailabilityRoute from '../components/FeatureAvailabilityRoute';
 import { buildAreaNavigation, workspaceFeatures } from '../config/workspaceRegistry';
@@ -25,6 +25,25 @@ const renderWithShell = (ui, path = '/produccion/kardex') => render(
 );
 
 describe('US-010N1: shell de navegación', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('contrae OT de planta por defecto y persiste una expansión explícita', async () => {
+    const user = userEvent.setup();
+    renderWithShell(<Sidebar />, '/produccion/ots-planta');
+
+    expect(screen.queryByText('EnvaPerú SCM')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expandir navegación' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Producción' })).toHaveAttribute('aria-label', 'Producción');
+
+    await user.click(screen.getByRole('button', { name: 'Expandir navegación' }));
+
+    expect(window.localStorage.getItem('enva-scm.sidebar-collapsed')).toBe('false');
+    expect(screen.getByText('EnvaPerú SCM')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Contraer navegación' })).toBeVisible();
+  });
+
   it('muestra áreas y secciones de Almacén sin pestañas horizontales', () => {
     renderWithShell(<Sidebar />);
 
@@ -58,9 +77,11 @@ describe('US-010N1: shell de navegación', () => {
     expect(screen.getByRole('link', { name: /Armado · OA/i })).toBeVisible();
   });
 
-  it('mantiene el área clicable del padre al ancho completo del sidebar', () => {
+  it('mantiene el área clicable del padre al ancho completo del sidebar', async () => {
     renderWithShell(<Sidebar />, '/produccion/ots-planta');
 
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Expandir navegación' }));
     const production = screen.getByRole('button', { name: /Producción/i });
     const currentSection = screen.getByRole('link', { name: /OTs de planta/i });
     expect(production).toHaveStyle({ width: '100%', boxSizing: 'border-box' });

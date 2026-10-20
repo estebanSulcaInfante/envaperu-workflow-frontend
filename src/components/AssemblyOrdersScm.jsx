@@ -41,7 +41,6 @@ import {
   listarOtScm,
 } from '../services/scmOtApi';
 import PageHeader from './ui/PageHeader';
-import ProcessJourney from './ui/ProcessJourney';
 import EmptyState from './ui/EmptyState';
 import OrderScheduleStrip from './ui/OrderScheduleStrip';
 import ExceptionalAssemblyOrderDialog from './ExceptionalAssemblyOrderDialog';
@@ -124,6 +123,10 @@ export default function AssemblyOrdersScm() {
     [orderId, orders],
   );
   const journeysReturnPath = useMemo(() => {
+    const requestedReturn = searchParams.get('return_to') || '';
+    const safeReturn = requestedReturn === '/produccion/ots-planta'
+      || requestedReturn.startsWith('/produccion/ots-planta?');
+    if (safeReturn) return requestedReturn;
     const params = new URLSearchParams();
     ['fecha', 'turno', 'modo', 'ot'].forEach((key) => {
       const value = searchParams.get(key);
@@ -133,6 +136,11 @@ export default function AssemblyOrdersScm() {
     const query = params.toString();
     return `/produccion/ots-planta${query ? `?${query}` : ''}`;
   }, [searchParams]);
+  const globalIndexReturn = useMemo(() => {
+    const requestedReturn = searchParams.get('return_to') || '';
+    if (!requestedReturn.startsWith('/produccion/ots-planta?')) return false;
+    return new URLSearchParams(requestedReturn.slice(requestedReturn.indexOf('?') + 1)).get('vista') === 'todas';
+  }, [searchParams]);
 
   const load = useCallback(async (preferredId = '', includeAnnulled = showAnnulled) => {
     setBusy(true);
@@ -140,16 +148,22 @@ export default function AssemblyOrdersScm() {
     try {
       const payload = await listarOrdenesArmadoScm();
       const items = (payload.items || []).filter((item) => includeAnnulled || item.estado !== 'ANULADA');
-      const nextId = items.some((item) => item.id === preferredId)
-        ? preferredId : items[0]?.id || '';
+      const requestedIdentityMissing = globalIndexReturn && !preferredId;
+      const nextId = requestedIdentityMissing
+        ? ''
+        : (items.some((item) => item.id === preferredId)
+          ? preferredId : items[0]?.id || '');
       setOrders(items);
       setOrderId(nextId);
+      if (requestedIdentityMissing) {
+        setError('La OT de Armado no incluye identidad de OA; no se abrió otra OA automáticamente. Vuelve al índice global.');
+      }
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudieron cargar las OA.'));
     } finally {
       setBusy(false);
     }
-  }, [showAnnulled]);
+  }, [globalIndexReturn, showAnnulled]);
 
   useEffect(() => { load(requestedOrderId); }, [load, requestedOrderId]);
 
@@ -521,7 +535,6 @@ export default function AssemblyOrdersScm() {
           </Stack>
         )}
       />
-      <ProcessJourney current="armado" />
       {!canRelease && !canExecute && (
         <Alert severity="info">
           Vista de consulta para {experience.label}. La liberación y el registro de ejecución

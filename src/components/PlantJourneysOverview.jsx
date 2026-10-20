@@ -3,6 +3,7 @@ import {
   MenuItem, Paper, Select, Stack, Tab, Tabs, TextField, Typography,
 } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
+import CheckIcon from '@mui/icons-material/Check';
 
 const stateLabel = (value) => String(value || '').replaceAll('_', ' ');
 const compactQuantity = (value) => {
@@ -17,7 +18,7 @@ const assemblyOrderCode = (ot) => ot?.orden_armado?.codigo
   || ot?.orden_fabricacion?.codigo
   || 'OA';
 const assemblyOrderId = (ot) => ot?.orden_armado?.id || ot?.orden_operacion_id || '';
-const journeyLink = ({ ot, filters }) => {
+const journeyLink = ({ ot, filters, returnTo }) => {
   const params = new URLSearchParams();
   const orderId = assemblyOrderId(ot);
   if (orderId) params.set('oa', orderId);
@@ -25,6 +26,7 @@ const journeyLink = ({ ot, filters }) => {
   if (filters?.fecha_operativa) params.set('fecha', filters.fecha_operativa);
   if (filters?.turno) params.set('turno', filters.turno);
   params.set('modo', 'armado');
+  if (returnTo) params.set('return_to', returnTo);
   return `/produccion/ordenes-armado?${params.toString()}`;
 };
 
@@ -33,7 +35,7 @@ const centerKey = (center) => String(
 );
 
 function AssemblyDailyBoard({
-  ots, centers, filters, selectedOtId,
+  ots, centers, filters, selectedOtId, journeysReturnTo,
 }) {
   const initialGroups = centers.reduce((result, center) => {
     result[centerKey(center)] = { center, ots: [] };
@@ -92,7 +94,7 @@ function AssemblyDailyBoard({
                     </Typography>
                     <Button
                       component={RouterLink}
-                      to={journeyLink({ filters })}
+                      to={journeyLink({ filters, returnTo: journeysReturnTo })}
                       size="small"
                       variant="outlined"
                     >
@@ -162,7 +164,7 @@ function AssemblyDailyBoard({
                       </Typography>
                       <Button
                         component={RouterLink}
-                        to={journeyLink({ ot, filters })}
+                        to={journeyLink({ ot, filters, returnTo: journeysReturnTo })}
                         size="small"
                         variant="outlined"
                         aria-label={`Abrir ${oaCode} y ${ot.codigo_ot}`}
@@ -194,13 +196,23 @@ export default function PlantJourneysOverview({
   assemblyCenterCount,
   assemblyOts = [],
   assemblyCenters = [],
+  journeysReturnTo = '',
   centerCatalogWarning,
   journeyWarnings = {},
   selectedAssemblyOtId = '',
+  machineOptions = [],
+  machineFilter = '',
+  onMachineFilterChange,
+  boardStateFilter = 'TODOS',
+  onBoardStateFilterChange,
+  boardStatusCounts = { all: 0, withOt: 0, running: 0, withoutOt: 0 },
+  embedded = false,
 }) {
+  const ControlSurface = embedded ? Box : Paper;
   return (
-    <Stack spacing={2.5}>
-      <Paper component="form" onSubmit={onSubmit} variant="outlined" sx={{ p: 1.5 }}>
+    <Stack spacing={1.5}>
+      <ControlSurface data-testid="plant-journeys-control-band" {...(!embedded ? { variant: 'outlined' } : {})} sx={{ p: 1.25 }}>
+      <Box component="form" onSubmit={onSubmit}>
         <Stack
           direction={{ xs: 'column', md: 'row' }}
           spacing={1.5}
@@ -245,9 +257,9 @@ export default function PlantJourneysOverview({
             Actualizar jornadas
           </Button>
         </Stack>
-      </Paper>
+      </Box>
 
-      <Stack
+      {!(embedded && perspective === 'FABRICACION') && <Stack
         data-testid="plant-journeys-summary"
         role="status"
         aria-live="polite"
@@ -256,43 +268,105 @@ export default function PlantJourneysOverview({
         spacing={0.75}
         useFlexGap
         flexWrap="wrap"
+        sx={{ mt: 1, columnGap: 2, rowGap: 0.75 }}
       >
-        <Chip color="primary" variant="outlined" label={`Jornadas ${journeyCount}`} />
-        <Chip
-          color={runningCount ? 'success' : 'default'}
-          variant="outlined"
-          label={`En ejecución ${runningCount}`}
+        {[
+          ['Jornadas', journeyCount],
+          ['En ejecución', runningCount],
+          ['Máquinas', machineCount],
+          ['Centros de armado', assemblyCenterCount],
+        ].map(([label, count]) => (
+          <Box key={label} aria-label={`${label} ${count}`}
+            sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
+            <Typography variant="caption" color="text.secondary">{label}</Typography>
+            <Typography variant="body2" fontWeight={800}
+              sx={{ fontVariantNumeric: 'tabular-nums' }}>{count}</Typography>
+          </Box>
+        ))}
+      </Stack>}
+
+      <Tabs
+        value={perspective}
+        onChange={(_event, value) => onPerspectiveChange(value)}
+        aria-label="Perspectiva de jornadas"
+        variant="fullWidth"
+        sx={{ '& .MuiTab-root': { minHeight: 44, fontWeight: 800 } }}
+      >
+        <Tab
+          id="plant-journeys-tab-fabrication"
+          aria-controls="plant-journeys-panel-fabrication"
+          value="FABRICACION"
+          label="Fabricación · Máquinas"
         />
-        <Chip variant="outlined" label={`Máquinas ${machineCount}`} />
-        <Chip variant="outlined" label={`Centros de armado ${assemblyCenterCount}`} />
-      </Stack>
+        <Tab
+          id="plant-journeys-tab-assembly"
+          aria-controls="plant-journeys-panel-assembly"
+          value="ENSAMBLE"
+          label="Armado · Centros"
+        />
+      </Tabs>
+      {perspective === 'FABRICACION' && (
+        <Stack spacing={1}>
+          <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 260 } }}>
+            <InputLabel>Filtrar lista por máquina</InputLabel>
+            <Select
+              label="Filtrar lista por máquina"
+              inputProps={{ 'aria-label': 'Filtrar lista por máquina' }}
+              value={machineFilter}
+              onChange={(event) => onMachineFilterChange?.(event.target.value)}
+            >
+              <MenuItem value=""><em>Todas las máquinas</em></MenuItem>
+              {machineOptions.map((item) => {
+                const primary = item.nombre || item.codigo || item.id;
+                const secondary = item.codigo && item.codigo !== primary ? item.codigo : item.id;
+                return (
+                  <MenuItem key={item.id} value={item.id}>
+                    <Box component="span" sx={{ display: 'grid', lineHeight: 1.15 }}>
+                      <Typography component="span" variant="body2">{primary}</Typography>
+                      {secondary && <Typography component="span" variant="caption" color="text.secondary">{secondary}</Typography>}
+                    </Box>
+                  </MenuItem>
+                );
+              })}
+            </Select>
+          </FormControl>
+          <Box
+            role="group"
+            aria-label="Filtrar máquinas por estado de OT"
+            sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}
+          >
+            {[
+              ['TODOS', 'Todas', boardStatusCounts.all],
+              ['CON_OT', 'Con OT', boardStatusCounts.withOt],
+              ['EN_EJECUCION', 'En ejecución', boardStatusCounts.running],
+              ['SIN_OT', 'Sin OT', boardStatusCounts.withoutOt],
+            ].map(([value, text, count]) => {
+              const selected = boardStateFilter === value;
+              return (
+                <Chip
+                  key={value}
+                  component="button"
+                  type="button"
+                  role="button"
+                  clickable
+                  color={selected ? 'primary' : 'default'}
+                  variant={selected ? 'filled' : 'outlined'}
+                  icon={selected ? <CheckIcon aria-hidden="true" /> : undefined}
+                  label={`${text} ${count}`}
+                  aria-pressed={selected}
+                  onClick={() => onBoardStateFilterChange?.(value)}
+                  sx={{ minHeight: 44, '&:focus-visible': { outline: '3px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}
+                />
+              );
+            })}
+          </Box>
+        </Stack>
+      )}
+      </ControlSurface>
 
       {Object.entries(journeyWarnings).map(([family, warning]) => warning && (
         <Alert key={family} severity="warning">{warning}</Alert>
       ))}
-
-      <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
-        <Tabs
-          value={perspective}
-          onChange={(_event, value) => onPerspectiveChange(value)}
-          aria-label="Perspectiva de jornadas"
-          variant="fullWidth"
-          sx={{ '& .MuiTab-root': { minHeight: 54, fontWeight: 800 } }}
-        >
-          <Tab
-            id="plant-journeys-tab-fabrication"
-            aria-controls="plant-journeys-panel-fabrication"
-            value="FABRICACION"
-            label="Fabricación · Máquinas"
-          />
-          <Tab
-            id="plant-journeys-tab-assembly"
-            aria-controls="plant-journeys-panel-assembly"
-            value="ENSAMBLE"
-            label="Armado · Centros"
-          />
-        </Tabs>
-      </Paper>
 
       {perspective === 'ENSAMBLE' && (
         <Paper
@@ -325,6 +399,7 @@ export default function PlantJourneysOverview({
                   centers={assemblyCenters}
                   filters={filters}
                   selectedOtId={selectedAssemblyOtId}
+                  journeysReturnTo={journeysReturnTo}
                 />
               )}
           </Stack>

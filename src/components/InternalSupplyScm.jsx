@@ -10,7 +10,6 @@ import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useSearchParams } from 'react-router-dom';
 import PageHeader from './ui/PageHeader';
-import ProcessJourney from './ui/ProcessJourney';
 import { useScmActor } from '../context/ScmActorContext';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
 import {
@@ -274,7 +273,6 @@ export default function InternalSupplyScm() {
         description="Reserva por QR, entrega con doble confirmación y retorno del remanente sin perder la identidad de la manga."
         actions={<Button startIcon={<RefreshIcon />} variant="outlined" onClick={() => load(selected?.id)}>Actualizar</Button>}
       />
-      <ProcessJourney current="armado" />
       <Alert severity="info">
         Perfil actual: <strong>{experience.label}</strong>. Reservar no descuenta stock;
         el Kardex cambia cuando se confirma el despacho y la recepción física.

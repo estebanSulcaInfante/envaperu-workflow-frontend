@@ -8,6 +8,7 @@ import OtMangasScm from '../components/OtMangasScm';
 const catalogMocks = vi.hoisted(() => ({
   getTrabajadores: vi.fn(),
   obtenerMaquinas: vi.fn(),
+  obtenerMoldes: vi.fn(),
 }));
 const scmMocks = vi.hoisted(() => ({
   listarOtScm: vi.fn(),
@@ -147,14 +148,15 @@ describe('OTs de planta', () => {
     await waitFor(() => expect(scmMocks.listarJornadasPlantaScm).toHaveBeenCalledWith({
       fecha_operativa: expect.any(String), turno: 'DIA',
     }));
-    const summary = screen.getByTestId('plant-journeys-summary');
-    expect(within(summary).getByText('Jornadas 2')).toBeVisible();
-    expect(within(summary).getByText('En ejecución 1')).toBeVisible();
-    expect(within(summary).getByText('Máquinas 1')).toBeVisible();
-    expect(within(summary).getByText('Centros de armado 2')).toBeVisible();
+    expect(screen.queryByTestId('plant-journeys-summary')).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Filtrar máquinas por estado de OT' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Todas 1' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'En ejecución 0' })).toBeVisible();
+    expect(screen.queryByTestId('plant-day-summary')).not.toBeInTheDocument();
   });
 
   it('explica que la tarjeta abre acciones y permite volver al tablero conservando el turno', async () => {
+    const user = userEvent.setup();
     const landing = renderJourneys(undefined, 'landing');
 
     const machineCard = await screen.findByRole('button', {
@@ -162,6 +164,9 @@ describe('OTs de planta', () => {
     });
     expect(within(machineCard).getByText('Ver detalle y gestionar')).toBeVisible();
     expect(within(machineCard).getByText('Trabajos, mangas y responsables')).toBeVisible();
+    await user.click(machineCard);
+    await waitFor(() => expect(screen.getByTestId('location-search').textContent)
+      .toContain('retorno=%2Fproduccion%2Fots-planta'));
     landing.unmount();
 
     renderJourneys(
@@ -196,7 +201,7 @@ describe('OTs de planta', () => {
     expect(within(board).getByRole('link', { name: /Abrir OA-000001.*OT-000002/i }))
       .toHaveAttribute(
         'href',
-        '/produccion/ordenes-armado?oa=oa-1&ot=ot-arm-1&fecha=2026-08-10&turno=DIA&modo=armado',
+        '/produccion/ordenes-armado?oa=oa-1&ot=ot-arm-1&fecha=2026-08-10&turno=DIA&modo=armado&return_to=%2Fproduccion%2Fots-planta%3Ffecha%3D2026-08-10%26turno%3DDIA%26modo%3Darmado',
       );
   });
 

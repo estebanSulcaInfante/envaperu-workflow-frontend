@@ -1,13 +1,15 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { act, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 
 import OtMangasScm from '../components/OtMangasScm';
 
 const catalogMocks = vi.hoisted(() => ({
   getTrabajadores: vi.fn(),
   obtenerMaquinas: vi.fn(),
+  obtenerMoldes: vi.fn(),
 }));
 
 const scmMocks = vi.hoisted(() => ({
@@ -23,6 +25,7 @@ const scmMocks = vi.hoisted(() => ({
 const actorMocks = vi.hoisted(() => ({
   can: vi.fn(),
   canAny: vi.fn(),
+  actorId: 1,
 }));
 
 vi.mock('../services/api', () => catalogMocks);
@@ -59,6 +62,7 @@ vi.mock('../services/scmEngineeringApi', () => ({
 
 vi.mock('../context/ScmActorContext', () => ({
   useScmActor: () => ({
+    actorId: actorMocks.actorId,
     can: actorMocks.can,
     canAny: actorMocks.canAny,
     experience: { label: 'Jefe de Producción' },
@@ -174,19 +178,31 @@ const makeOt = ({ machineId = 1, id = 'ot-1', works } = {}) => {
   };
 };
 
-const renderSubject = () => render(
-  <MemoryRouter>
+const renderSubject = (path = '/') => render(
+  <MemoryRouter initialEntries={[path]}>
     <OtMangasScm />
   </MemoryRouter>,
 );
 
+function UrlProbe() {
+  const location = useLocation();
+  return <output aria-label="URL actual">{location.pathname}{location.search}</output>;
+}
+
+function HistoryProbe() {
+  const navigate = useNavigate();
+  return <button type="button" onClick={() => navigate(-1)}>Volver</button>;
+}
+
 describe('tablero diario por máquina y selección humana de color', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    actorMocks.actorId = 1;
     actorMocks.can.mockReturnValue(true);
     actorMocks.canAny.mockReturnValue(true);
     catalogMocks.obtenerMaquinas.mockResolvedValue(machines);
     catalogMocks.getTrabajadores.mockResolvedValue(workers);
+    catalogMocks.obtenerMoldes.mockResolvedValue([]);
     scmMocks.listarOrdenesFabricacionScm.mockResolvedValue({
       items: [{
         id: 'of-green',
@@ -197,6 +213,8 @@ describe('tablero diario por máquina y selección humana de color', () => {
           id: 'run-green',
           codigo: 'C01',
           color_nombre: 'VERDE SÓLIDO',
+          color_identidad: { hex: '#2E7D32' },
+          color_hex: '#FF0000',
           estado: 'LIBERADA',
           ciclos_objetivo: 100,
           secuencia: 1,
@@ -218,11 +236,11 @@ describe('tablero diario por máquina y selección humana de color', () => {
     expect(within(board).getAllByText('Sin OT')).toHaveLength(13);
     expect(within(board).getByText('ID: SOP-01')).toBeVisible();
     expect(within(board).getByText('ID: SOP-13')).toBeVisible();
-    const summary = screen.getByTestId('plant-day-summary');
-    expect(within(summary).getByText('Máquinas 13')).toBeVisible();
-    expect(within(summary).getByText('Con OT 0')).toBeVisible();
-    expect(within(summary).getByText('En ejecución 0')).toBeVisible();
-    expect(within(summary).getByText('Sin OT 13')).toBeVisible();
+    const summary = screen.getByRole('group', { name: 'Filtrar máquinas por estado de OT' });
+    expect(within(summary).getByRole('button', { name: 'Todas 13' })).toBeVisible();
+    expect(within(summary).getByRole('button', { name: 'Con OT 0' })).toBeVisible();
+    expect(within(summary).getByRole('button', { name: 'En ejecución 0' })).toBeVisible();
+    expect(within(summary).getByRole('button', { name: 'Sin OT 13' })).toBeVisible();
     expect(scmMocks.listarOtScm).toHaveBeenCalledWith(
       undefined,
       'FABRICACION',
@@ -231,6 +249,293 @@ describe('tablero diario por máquina y selección humana de color', () => {
         turno: 'DIA',
       },
     );
+  });
+
+  it('habilita Crear OT en global después de cargar catálogos esenciales', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/produccion/ots-planta?vista=todas']}>
+        <OtMangasScm />
+      </MemoryRouter>,
+    );
+
+    const newOt = await screen.findByRole('button', { name: 'Nueva OT' });
+    await waitFor(() => expect(newOt).toBeEnabled());
+    await user.click(newOt);
+    const dialog = await screen.findByRole('dialog', { name: 'Nueva OT de máquina' });
+    const machine = within(dialog).getByRole('combobox', { name: 'Máquina' });
+    await user.click(machine);
+    await user.click(screen.getByRole('option', { name: 'Sopladora 1SOP-01' }));
+    expect(within(dialog).getByRole('button', { name: 'Crear OT de máquina' })).toBeEnabled();
+  });
+
+  it('conserva máquinas y maquinistas si falla el catálogo opcional de OF', async () => {
+    const user = userEvent.setup();
+    scmMocks.listarOrdenesFabricacionScm.mockRejectedValueOnce(new Error('OF temporalmente no disponible'));
+    render(
+      <MemoryRouter initialEntries={['/produccion/ots-planta?vista=todas']}>
+        <OtMangasScm />
+      </MemoryRouter>,
+    );
+
+    const newOt = await screen.findByRole('button', { name: 'Nueva OT' });
+    await waitFor(() => expect(newOt).toBeEnabled());
+    expect(screen.getByText(/No se pudieron cargar los nombres de OF\/molde/)).toBeVisible();
+    await user.click(newOt);
+    const dialog = await screen.findByRole('dialog', { name: 'Nueva OT de máquina' });
+    await user.click(within(dialog).getByRole('combobox', { name: 'Máquina' }));
+    expect(screen.getByRole('option', { name: 'Sopladora 1SOP-01' })).toBeVisible();
+  });
+
+  it('permite crear OT sin maquinista predeterminado si el catálogo de trabajadores falla', async () => {
+    const user = userEvent.setup();
+    catalogMocks.getTrabajadores.mockRejectedValueOnce(new Error('trabajadores no disponibles'));
+    render(
+      <MemoryRouter initialEntries={['/produccion/ots-planta?vista=todas']}>
+        <OtMangasScm />
+      </MemoryRouter>,
+    );
+
+    const newOt = await screen.findByRole('button', { name: 'Nueva OT' });
+    await waitFor(() => expect(newOt).toBeEnabled());
+    expect(screen.getByText(/No se pudieron cargar los maquinistas/)).toBeVisible();
+    await user.click(newOt);
+    const dialog = await screen.findByRole('dialog', { name: 'Nueva OT de máquina' });
+    await user.click(within(dialog).getByRole('combobox', { name: 'Máquina' }));
+    await user.click(screen.getByRole('option', { name: 'Sopladora 1SOP-01' }));
+    await user.click(within(dialog).getByRole('combobox', { name: 'Maquinista predeterminado' }));
+    expect(screen.getByRole('option', { name: 'Asignar en cada trabajo' })).toBeVisible();
+    await user.click(screen.getByRole('option', { name: 'Asignar en cada trabajo' }));
+    expect(within(dialog).getByRole('button', { name: 'Crear OT de máquina' })).toBeEnabled();
+  });
+
+  it('mantiene Crear OT bloqueado si falla un catálogo esencial', async () => {
+    catalogMocks.obtenerMaquinas.mockRejectedValueOnce(new Error('máquinas no disponibles'));
+    render(
+      <MemoryRouter initialEntries={['/produccion/ots-planta?vista=todas']}>
+        <OtMangasScm />
+      </MemoryRouter>,
+    );
+
+    const newOt = await screen.findByRole('button', { name: 'Nueva OT' });
+    await waitFor(() => expect(newOt).toBeDisabled());
+    expect(screen.getByText(/No se pudieron cargar máquinas y maquinistas/)).toBeVisible();
+  });
+
+  it('preserva filtros diarios y globales al alternar vistas y recargar la URL', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta?fecha=2026-10-19&turno=DIA&modo=fabricacion&ot_estado=SIN_OT&maquina_id=2&gq=soplado',
+      ]}>
+        <OtMangasScm />
+        <UrlProbe />
+      </MemoryRouter>,
+    );
+
+    await screen.findByTestId('daily-machine-board');
+    await user.click(screen.getByRole('button', { name: 'Todas las OT' }));
+    await waitFor(() => expect(screen.getByTestId('ot-global-index')).toBeVisible());
+    const globalUrl = screen.getByLabelText('URL actual').textContent;
+    expect(decodeURIComponent(globalUrl)).toContain('gq=soplado');
+    expect(decodeURIComponent(globalUrl)).toContain('ot_estado=SIN_OT');
+    expect(decodeURIComponent(globalUrl)).toContain('maquina_id=2');
+
+    await user.click(screen.getByRole('button', { name: 'Tablero diario' }));
+    await waitFor(() => expect(screen.getByTestId('daily-machine-board')).toBeVisible());
+    const dailyUrl = screen.getByLabelText('URL actual').textContent;
+    expect(dailyUrl).toContain('gq=soplado');
+    expect(dailyUrl).toContain('ot_estado=SIN_OT');
+    expect(dailyUrl).toContain('maquina_id=2');
+  });
+
+  it('integra el control de turno sin duplicar el resumen de Fabricación', async () => {
+    renderSubject();
+
+    await screen.findByTestId('daily-machine-board');
+    expect(screen.queryByTestId('plant-journeys-summary')).not.toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Filtrar máquinas por estado de OT' })).toBeVisible();
+    expect(screen.queryByTestId('plant-day-summary')).not.toBeInTheDocument();
+  });
+
+  it('filtra por los cuatro estados con conteos de jornada estables y recuperación del vacío', async () => {
+    const user = userEvent.setup();
+    scmMocks.listarOtScm.mockResolvedValue({ items: [makeOt()] });
+    renderSubject();
+
+    const board = await screen.findByTestId('daily-machine-board');
+    const filters = screen.getByRole('group', { name: 'Filtrar máquinas por estado de OT' });
+    expect(within(filters).getByRole('button', { name: 'Todas 13' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(filters).getByRole('button', { name: 'Con OT 1' })).toBeVisible();
+    expect(within(filters).getByRole('button', { name: 'En ejecución 1' })).toBeVisible();
+    expect(within(filters).getByRole('button', { name: 'Sin OT 12' })).toBeVisible();
+
+    const runningFilter = within(filters).getByRole('button', { name: 'En ejecución 1' });
+    act(() => runningFilter.focus());
+    await user.keyboard('{Enter}');
+    expect(within(board).getAllByTestId('machine-day-card')).toHaveLength(1);
+    expect(runningFilter).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('daily-board-visible-count')).toHaveTextContent('Mostrando 1 de 13 máquinas');
+    expect(within(filters).getByRole('button', { name: 'Todas 13' })).toBeVisible();
+
+    await user.click(within(filters).getByRole('button', { name: 'Sin OT 12' }));
+    expect(within(board).getAllByTestId('machine-day-card')).toHaveLength(12);
+    await user.click(within(filters).getByRole('button', { name: 'Con OT 1' }));
+    expect(within(board).getAllByTestId('machine-day-card')).toHaveLength(1);
+    await user.click(within(filters).getByRole('button', { name: 'Todas 13' }));
+    expect(within(board).getAllByTestId('machine-day-card')).toHaveLength(13);
+  });
+
+  it('rehidrata el chip de estado desde URL sin una nueva consulta', async () => {
+    renderSubject('/produccion/ots-planta?ot_estado=EN_EJECUCION');
+    const board = await screen.findByTestId('daily-machine-board');
+    const filters = screen.getByRole('group', { name: 'Filtrar máquinas por estado de OT' });
+    expect(within(filters).getByRole('button', { name: 'En ejecución 0' }))
+      .toHaveAttribute('aria-pressed', 'true');
+    expect(within(board).queryAllByTestId('machine-day-card')).toHaveLength(0);
+    expect(screen.getByText(/Restablece los filtros/)).toBeVisible();
+  });
+
+  it('combina máquina y estado por Y y recupera el vacío sin consultar ni mutar', async () => {
+    const user = userEvent.setup();
+    scmMocks.listarOtScm.mockResolvedValue({ items: [makeOt()] });
+    renderSubject();
+    const board = await screen.findByTestId('daily-machine-board');
+    const machineSelect = screen.getByRole('combobox', { name: 'Filtrar lista por máquina' });
+    await user.click(machineSelect);
+    await user.click(screen.getByRole('option', { name: /Sopladora 2/ }));
+    const filters = screen.getByRole('group', { name: 'Filtrar máquinas por estado de OT' });
+    await user.click(within(filters).getByRole('button', { name: 'Con OT 1' }));
+    expect(within(board).queryAllByTestId('machine-day-card')).toHaveLength(0);
+    expect(screen.getByTestId('daily-board-visible-count')).toHaveTextContent('Mostrando 0 de 13 máquinas');
+    const readCount = scmMocks.listarOtScm.mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'Restablecer filtros' }));
+    expect(within(board).getAllByTestId('machine-day-card')).toHaveLength(13);
+    expect(scmMocks.listarOtScm).toHaveBeenCalledTimes(readCount);
+    expect(scmMocks.crearOtFabricacionScm).not.toHaveBeenCalled();
+  });
+
+  it('sincroniza selección y limpieza de máquina en URL sin perder filtros globales', async () => {
+    const user = userEvent.setup();
+    scmMocks.listarOtScm.mockResolvedValue({ items: [makeOt()] });
+    render(
+      <MemoryRouter initialEntries={['/produccion/ots-planta?gq=soplado']}>
+        <OtMangasScm />
+        <UrlProbe />
+      </MemoryRouter>,
+    );
+
+    await screen.findByTestId('daily-machine-board');
+    const machineSelect = screen.getByRole('combobox', { name: 'Filtrar lista por máquina' });
+    await user.click(machineSelect);
+    await user.click(screen.getByRole('option', { name: /Sopladora 2/ }));
+    await waitFor(() => {
+      const url = screen.getByLabelText('URL actual').textContent;
+      expect(url).toContain('maquina_id=2');
+      expect(url).toContain('gq=soplado');
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Con OT 1' }));
+    await user.click(screen.getByRole('button', { name: 'Restablecer filtros' }));
+    await waitFor(() => {
+      const url = screen.getByLabelText('URL actual').textContent;
+      expect(url).not.toContain('maquina_id=');
+      expect(url).toContain('gq=soplado');
+    });
+  });
+
+  it('rehidrata máquina desde el historial y limpia la selección si la URL no la tiene', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/produccion/ots-planta?gq=soplado']}>
+        <OtMangasScm />
+        <UrlProbe />
+        <HistoryProbe />
+      </MemoryRouter>,
+    );
+
+    await screen.findByTestId('daily-machine-board');
+    await user.click(screen.getByRole('combobox', { name: 'Filtrar lista por máquina' }));
+    await user.click(screen.getByRole('option', { name: /Sopladora 2/ }));
+    await waitFor(() => expect(screen.getByLabelText('URL actual').textContent)
+      .toContain('maquina_id=2'));
+    await user.click(screen.getByRole('button', { name: 'Volver' }));
+    await waitFor(() => {
+      expect(screen.getByLabelText('URL actual').textContent).not.toContain('maquina_id=');
+      expect(screen.getAllByTestId('machine-day-card')).toHaveLength(13);
+    });
+  });
+
+  it('no rebota el chip SIN OT al volver a una URL sin estado', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta',
+        '/produccion/ots-planta?ot_estado=SIN_OT',
+      ]} initialIndex={1}>
+        <OtMangasScm />
+        <UrlProbe />
+        <HistoryProbe />
+      </MemoryRouter>,
+    );
+
+    await screen.findByTestId('daily-machine-board');
+    await user.click(screen.getByRole('button', { name: 'Volver' }));
+    await waitFor(() => {
+      expect(screen.getByLabelText('URL actual').textContent).not.toContain('ot_estado=');
+      expect(screen.getByRole('button', { name: 'Todas 13' })).toHaveAttribute('aria-pressed', 'true');
+    });
+  });
+
+  it('refresca jornadas y catálogos al cambiar actor conservando criterios y reemplazando datos', async () => {
+    const user = userEvent.setup();
+    scmMocks.listarOtScm.mockImplementation(() => Promise.resolve({
+      items: [makeOt({
+        machineId: actorMocks.actorId === 2 ? 2 : 1,
+        id: actorMocks.actorId === 2 ? 'actor-two' : 'actor-one',
+      })],
+    }));
+    const { rerender } = render(
+      <MemoryRouter initialEntries={['/produccion/ots-planta?fecha=2026-10-20&turno=NOCHE&gq=soplado']}>
+        <OtMangasScm />
+        <UrlProbe />
+      </MemoryRouter>,
+    );
+    await screen.findByTestId('daily-machine-board');
+    await user.click(screen.getByRole('combobox', { name: 'Filtrar lista por máquina' }));
+    await user.click(screen.getByRole('option', { name: /Sopladora 2/ }));
+    await waitFor(() => expect(screen.getByLabelText('URL actual').textContent)
+      .toContain('maquina_id=2'));
+    const firstCalls = scmMocks.listarOtScm.mock.calls.length;
+    actorMocks.actorId = 2;
+    rerender(
+      <MemoryRouter initialEntries={['/produccion/ots-planta?fecha=2026-10-20&turno=NOCHE&gq=soplado&maquina_id=2']}>
+        <OtMangasScm />
+        <UrlProbe />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(scmMocks.listarOtScm.mock.calls.length).toBeGreaterThan(firstCalls));
+    expect(await screen.findByText('OT-000002')).toBeVisible();
+    expect(screen.queryByText('OT-000001')).not.toBeInTheDocument();
+    const url = screen.getByLabelText('URL actual').textContent;
+    expect(url).toContain('fecha=2026-10-20');
+    expect(url).toContain('turno=NOCHE');
+    expect(url).toContain('gq=soplado');
+    expect(url).toContain('maquina_id=2');
+  });
+
+  it('abre el mismo modal de Nueva OT al preparar una máquina sin OT', async () => {
+    const user = userEvent.setup();
+    renderSubject();
+
+    await user.click(await screen.findByRole('button', { name: 'SOP-01 sin OT' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Nueva OT de máquina' });
+    expect(within(dialog).getByRole('combobox', { name: 'Máquina' })).toHaveTextContent('SOP-01');
+    expect(within(dialog).getByRole('button', { name: 'Crear OT de máquina' })).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Nueva OT de máquina' })).not.toBeInTheDocument());
+    expect(scmMocks.crearOtFabricacionScm).not.toHaveBeenCalled();
   });
 
   it('excluye del tablero las máquinas inactivas o fuera de servicio', async () => {
@@ -325,9 +630,7 @@ describe('tablero diario por máquina y selección humana de color', () => {
     await user.click(screen.getByRole('option', { name: /OT-LEGACY-002/ }));
     expect(card).toHaveAttribute('aria-current', 'true');
     expect(within(card).getByText('OT-LEGACY-002')).toBeVisible();
-    expect(within(screen.getByTestId('plant-day-summary')).getByText(
-      'En ejecución 1',
-    )).toBeVisible();
+    expect(screen.getByRole('button', { name: 'En ejecución 1' })).toBeVisible();
   });
 
   it('excluye la OT anulada del aviso sin retirarla de la consulta histórica', async () => {
@@ -386,9 +689,7 @@ describe('tablero diario por máquina y selección humana de color', () => {
     expect(within(card).queryByText(/Con sticker/)).not.toBeInTheDocument();
     expect(within(card).getByText('Pendientes 1')).toBeVisible();
     expect(within(card).getByText(/Siguiente: AZUL · OF-002/)).toBeVisible();
-    expect(within(screen.getByTestId('plant-day-summary')).getByText(
-      'En ejecución 1',
-    )).toBeVisible();
+    expect(screen.getByRole('button', { name: 'En ejecución 1' })).toBeVisible();
   });
 
   it('solo afirma impresión cuando la etiqueta vigente lo confirma', async () => {
@@ -508,6 +809,7 @@ describe('tablero diario por máquina y selección humana de color', () => {
     const colorSummary = await screen.findByTestId('single-production-color');
     expect(within(colorSummary).getByText('Color a fabricar')).toBeVisible();
     expect(within(colorSummary).getByText('VERDE SÓLIDO')).toBeVisible();
+    expect(within(colorSummary).getByTitle('Muestra de referencia: #2E7D32')).toBeVisible();
     expect(within(colorSummary).getByText(
       /Definido en la configuración liberada de la OF/i,
     )).toBeVisible();
@@ -532,6 +834,7 @@ describe('tablero diario por máquina y selección humana de color', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Agregar trabajo', exact: true }));
     const summary = await screen.findByTestId('single-production-color');
     expect(within(summary).getByText('Color no informado en la OF')).toBeVisible();
+    expect(within(summary).getByTitle('Sin hexadecimal de referencia')).toBeVisible();
     expect(within(summary).queryByText(/heredado/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', {
       name: 'Agregar a la cola de esta OT',
@@ -548,11 +851,13 @@ describe('tablero diario por máquina y selección humana de color', () => {
         corridas: [
           {
             id: 'run-green', codigo: 'C01', color_nombre: 'VERDE SÓLIDO',
+            color_identidad: { hex: '#2E7D32' },
             estado: 'LIBERADA', secuencia: 1,
             salidas: [{ articulo: { nombre: 'Alcancía Pablo grande' } }],
           },
           {
             id: 'run-blue', codigo: 'C02', color_nombre: 'AZUL MARINO',
+            color_hex: '#000080',
             estado: 'LIBERADA', secuencia: 2,
             salidas: [{ articulo: { nombre: 'Alcancía Pablo mediana' } }],
           },
@@ -573,5 +878,61 @@ describe('tablero diario por máquina y selección humana de color', () => {
     })).toBeVisible();
     expect(screen.queryByText('C01')).not.toBeInTheDocument();
     expect(screen.queryByText('C02')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('option', { name: /VERDE SÓLIDO · Alcancía Pablo grande/ }))
+      .getByTitle('Muestra de referencia: #2E7D32')).toBeVisible();
+    expect(within(screen.getByRole('option', { name: /AZUL MARINO · Alcancía Pablo mediana/ }))
+      .getByTitle('Muestra de referencia: #000080')).toBeVisible();
+    await user.click(screen.getByRole('option', { name: /AZUL MARINO · Alcancía Pablo mediana/ }));
+    expect(within(colorSelect).getByTitle('Muestra de referencia: #000080')).toBeVisible();
+  });
+
+  it('busca OF por nombre y código de molde y conserva la selección al escribir', async () => {
+    const user = userEvent.setup();
+    scmMocks.listarOtScm.mockResolvedValue({ items: [makeOt()] });
+    scmMocks.listarOrdenesFabricacionScm.mockResolvedValueOnce({
+      items: [{
+        id: 'of-mold-search',
+        codigo: 'OF-010',
+        estado: 'LIBERADA',
+        molde_id: 'ML-PRISMA',
+        corridas: [{
+          id: 'run-mold-search', color_nombre: 'AZUL', estado: 'LIBERADA',
+          salidas: [{ articulo: { nombre: 'Pieza prisma' } }],
+        }],
+      }],
+    });
+    catalogMocks.obtenerMoldes.mockResolvedValue([
+      { codigo: 'ML-PRISMA', nombre: 'Molde Prísma', activo: true },
+    ]);
+    renderSubject();
+    await user.click(await screen.findByRole('button', { name: 'Agregar trabajo', exact: true }));
+
+    const input = await screen.findByRole('combobox', { name: 'Orden de fabricación' });
+    await user.click(input);
+    await user.keyboard('{Control>}a{/Control}ML-PRISMA');
+    expect(await screen.findByRole('option', { name: /Molde Prísma.*OF: OF-010/i })).toBeVisible();
+    expect(screen.getByTestId('fabrication-order-selection')).toHaveTextContent('OF: OF-010');
+
+    await user.keyboard('{Control>}a{/Control}molde prisma');
+    expect(await screen.findByRole('option', { name: /Molde Prísma.*OF: OF-010/i })).toBeVisible();
+    await user.keyboard('{Control>}a{/Control}OF-010');
+    expect(await screen.findByRole('option', { name: /Molde Prísma.*OF: OF-010/i })).toBeVisible();
+  });
+
+  it('muestra sin resultados sin cambiar la OF seleccionada mientras se escribe', async () => {
+    const user = userEvent.setup();
+    scmMocks.listarOtScm.mockResolvedValue({ items: [makeOt()] });
+    renderSubject();
+    await user.click(await screen.findByRole('button', { name: 'Agregar trabajo', exact: true }));
+    const input = await screen.findByRole('combobox', { name: 'Orden de fabricación' });
+    expect(input).toHaveValue('OF-001');
+
+    await user.click(input);
+    await user.keyboard('{Control>}a{/Control}NO-EXISTE');
+
+    expect(await screen.findByText('Sin OF que coincida con molde, código o ID')).toBeVisible();
+    expect(screen.getByTestId('fabrication-order-selection')).toHaveTextContent('OF: OF-001');
+    expect(input).toHaveValue('NO-EXISTE');
+    expect(screen.getByRole('button', { name: 'Agregar a la cola de esta OT' })).toBeDisabled();
   });
 });

@@ -1,18 +1,21 @@
 import {
-  useCallback, useEffect, useMemo, useRef, useState,
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
-  Alert, AlertTitle, Box, Button, Card, CardActionArea, Checkbox, Chip, CircularProgress,
+  Alert, AlertTitle, Autocomplete, Box, Button, Card, CardActionArea, Checkbox, Chip, CircularProgress,
   Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl,
   FormControlLabel, InputLabel, MenuItem, Paper, Select, Stack, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, TextField, Typography,
+  TableContainer, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
+  Typography, useMediaQuery,
 } from '@mui/material';
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
+import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
-import { getTrabajadores, obtenerMaquinas } from '../services/api';
+import { getTrabajadores, obtenerMaquinas, obtenerMoldes } from '../services/api';
 import {
   agregarMangasTrabajoColorScm,
   anularMangaScm,
@@ -45,9 +48,10 @@ import {
   mensajeErrorScm,
 } from '../services/scmEngineeringApi';
 import PageHeader from './ui/PageHeader';
+import ProductionColorLabel from './ui/ProductionColorLabel';
 import CloseKgControlAction from './CloseKgControlAction';
-import ProcessJourney from './ui/ProcessJourney';
 import PlantJourneysOverview from './PlantJourneysOverview';
+import OtGlobalIndex from './OtGlobalIndex';
 import { OtCreationReview, OtAnnulmentAction } from './OtHeaderSafety';
 import PostWeighingLabelVisualization from './ui/PostWeighingLabelVisualization';
 import { selectCurrentPostLabel } from './ui/postWeighingReprintModel';
@@ -70,10 +74,38 @@ const journeyContextFromSearch = (searchParams) => {
     fecha_operativa: /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : today(),
     turno: ['DIA', 'NOCHE', 'EXTRA'].includes(requestedShift) ? requestedShift : 'DIA',
     perspective: requestedMode === 'armado' ? 'ENSAMBLE' : 'FABRICACION',
+    maquina_id: searchParams.get('maquina_id') || '',
     ot: searchParams.get('ot') || '',
+    trabajo: searchParams.get('trabajo') || '',
+    manga: searchParams.get('manga') || '',
   };
 };
 const stateLabel = (value) => String(value || '').replaceAll('_', ' ');
+const DAILY_BOARD_FILTERS = new Set(['TODOS', 'CON_OT', 'EN_EJECUCION', 'SIN_OT']);
+const normalizeDailyBoardFilter = (value) => (
+  DAILY_BOARD_FILTERS.has(value) ? value : 'TODOS'
+);
+const GLOBAL_QUERY_KEYS = ['gq', 'gestado', 'gtipo', 'gturno', 'gfrom', 'gto', 'gmaquina'];
+const copyGlobalQuery = (source, target) => {
+  GLOBAL_QUERY_KEYS.forEach((key) => {
+    const value = source.get(key);
+    if (value) target.set(key, value);
+    else target.delete(key);
+  });
+};
+const safePlantReturn = (value) => {
+  if (!value) return '';
+  try {
+    const parsed = new URL(value, window.location.origin);
+    if (parsed.origin !== window.location.origin
+      || parsed.pathname !== '/produccion/ots-planta') return '';
+    parsed.searchParams.delete('return_to');
+    parsed.searchParams.delete('retorno');
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return '';
+  }
+};
 const compactQuantity = (value) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? new Intl.NumberFormat('es-PE').format(parsed) : '0';
@@ -178,6 +210,9 @@ const productionRunArticleNames = (run, planLines = []) => {
   return [...new Set([...outputNames, ...planNames])];
 };
 
+// The swatch belongs to this exact released color, never a name-based guess.
+const productionColorHex = (run) => run?.color_identidad?.hex ?? run?.color_hex ?? null;
+
 const productionRunOptionLabel = (run, order, planLines, index) => {
   const articleNames = productionRunArticleNames(run, planLines);
   return [
@@ -186,6 +221,93 @@ const productionRunOptionLabel = (run, order, planLines, index) => {
     order?.codigo || 'OF',
     `secuencia ${run.secuencia || index + 1}`,
   ].join(' · ');
+};
+
+const normalizeCatalogSearch = (value) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLocaleLowerCase()
+  .trim();
+
+const fabricationOrderMoldLabel = (order) => {
+  const mold = order?.molde;
+  return mold?.nombre
+    || mold?.codigo
+    || order?.molde_nombre
+    || order?.molde_id
+    || '';
+};
+
+const fabricationOrderLabel = (order) => {
+  const code = order?.codigo || '';
+  const mold = fabricationOrderMoldLabel(order);
+  return mold ? `${mold} · ${code}` : code;
+};
+
+const fabricationOrderSearchText = (order) => [
+  order?.id,
+  order?.codigo,
+  order?.molde?.codigo,
+  order?.molde_id,
+  fabricationOrderMoldLabel(order),
+].filter(Boolean).map(normalizeCatalogSearch).join(' ');
+
+const machineNameFromOt = (ot) => {
+  const machine = ot?.maquina;
+  return ot?.maquina_nombre
+    || (typeof machine === 'object' ? machine?.nombre : machine)
+    || ot?.maquina_codigo
+    || (ot?.maquina_id ? `Máquina ${ot.maquina_id}` : 'Máquina no informada');
+};
+
+const machineCodeFromOt = (ot) => {
+  const machine = ot?.maquina;
+  return ot?.maquina_codigo
+    || (typeof machine === 'object' ? machine?.codigo : '')
+    || '';
+};
+
+const colorWorkBlockReason = ({
+  busy,
+  continuityBusy,
+  draftPlan,
+  fabricationOrderInputDirty,
+  hasRunLines,
+  hasWorkAllocation,
+  hasPendingKg,
+  initialWorkWorker,
+  planBusy,
+  planConsulted,
+  planLoadError,
+  planReady,
+  selectedOrder,
+  selectedRun,
+  selectedRunHasColor,
+  validWorkQuantities,
+}) => {
+  if (busy) return 'Guardando el trabajo…';
+  if (fabricationOrderInputDirty) {
+    return 'Selecciona una OF de los resultados para confirmar la búsqueda';
+  }
+  if (!selectedOrder) return 'Selecciona una OF liberada para continuar.';
+  if (planBusy) return 'Preparando la propuesta de mangas…';
+  if (planLoadError) return 'Reintenta la consulta de mangas antes de agregar.';
+  if (!planConsulted || !planReady || !draftPlan) {
+    return 'Calcula la propuesta de mangas antes de agregar.';
+  }
+  if (!selectedRun) return 'Selecciona un color a fabricar.';
+  if (!selectedRunHasColor) return 'La OF no tiene un color liberado para fabricar.';
+  if (!hasRunLines) return 'La propuesta no tiene salidas para este color.';
+  if (!initialWorkWorker) return 'Selecciona un maquinista inicial.';
+  if (continuityBusy) return 'Buscando mangas abiertas compatibles…';
+  if (!validWorkQuantities) return 'Corrige las cantidades teóricas de las salidas.';
+  if (!hasWorkAllocation) {
+    if (!hasPendingKg && !continuityBusy) {
+      return 'Esta OF y color no tienen saldo planificable; revisa otra salida o continuidad.';
+    }
+    return 'Asigna una cantidad mayor que cero o selecciona una manga abierta compatible.';
+  }
+  return '';
 };
 
 const currentWorkerName = (work, ot, workers) => {
@@ -301,7 +423,8 @@ const machineBoardModel = (machine, allOts, workers, orders, selectedOtId) => {
 };
 
 function DailyMachineBoard({
-  machines, ots, workers, orders, selectedOtId, canCreateOt, onOpen,
+  machines, ots, workers, orders, selectedOtId, canCreateOt, onOpen, machineFilter = '',
+  stateFilter = 'TODOS', onResetFilters, hideSummary = false,
 }) {
   const cards = machines.map(
     (machine) => machineBoardModel(machine, ots, workers, orders, selectedOtId),
@@ -310,40 +433,79 @@ function DailyMachineBoard({
   const machinesRunning = cards.filter(
     (card) => card.machineRunning,
   ).length;
+  const visibleCards = cards.filter((card) => {
+    const machineMatches = !machineFilter || String(card.machine.id) === String(machineFilter);
+    const stateMatches = stateFilter === 'TODOS'
+      || (stateFilter === 'CON_OT' && Boolean(card.ot))
+      || (stateFilter === 'EN_EJECUCION' && card.machineRunning)
+      || (stateFilter === 'SIN_OT' && !card.ot);
+    return machineMatches && stateMatches;
+  });
   return (
     <Stack spacing={1.5}>
-      <Stack
+      {!hideSummary && <Box
         data-testid="plant-day-summary"
         role="status"
         aria-live="polite"
         aria-label="Resumen de planta para el turno"
-        direction="row"
-        spacing={0.75}
-        useFlexGap
-        flexWrap="wrap"
+        component="dl"
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+          gap: 0,
+          m: 0,
+          borderTop: 1,
+          borderBottom: 1,
+          borderColor: 'divider',
+          '& > div + div': { borderLeft: 1, borderColor: 'divider' },
+          '@media (max-width: 599px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
+        }}
       >
-        <Chip color="primary" variant="outlined" label={`Máquinas ${cards.length}`} />
-        <Chip variant="outlined" label={`Con OT ${machinesWithOt}`} />
-        <Chip
-          color={machinesRunning ? 'success' : 'default'}
-          variant="outlined"
-          label={`En ejecución ${machinesRunning}`}
-        />
-        <Chip
-          color={cards.length - machinesWithOt ? 'warning' : 'default'}
-          variant="outlined"
-          label={`Sin OT ${cards.length - machinesWithOt}`}
-        />
-      </Stack>
+        <Box component="div" sx={{ px: 1, py: 0.75, minWidth: 0 }}>
+          <Typography component="dt" variant="body2" fontWeight={800} sx={{ fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>
+            Máquinas <Box component="span" sx={{ fontSize: { xs: '1.2rem', md: '1.4rem' }, fontWeight: 900 }}>{cards.length}</Box>
+          </Typography>
+          <Typography component="dd" variant="caption" color="text.secondary" sx={{ m: 0 }}>
+            disponibles
+          </Typography>
+        </Box>
+        <Box component="div" sx={{ px: 1, py: 0.75, minWidth: 0 }}>
+          <Typography component="dt" variant="body2" fontWeight={800} sx={{ fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>
+            Con OT <Box component="span" sx={{ fontSize: { xs: '1.2rem', md: '1.4rem' }, fontWeight: 900 }}>{machinesWithOt}</Box>
+          </Typography>
+          <Typography component="dd" variant="caption" color="text.secondary" sx={{ m: 0 }}>
+            jornada consultable
+          </Typography>
+        </Box>
+        <Box component="div" sx={{ px: 1, py: 0.75, minWidth: 0 }}>
+          <Typography component="dt" variant="body2" fontWeight={800} color={machinesRunning ? 'success.dark' : 'text.primary'} sx={{ fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>
+            En ejecución <Box component="span" sx={{ fontSize: { xs: '1.2rem', md: '1.4rem' }, fontWeight: 900 }}>{machinesRunning}</Box>
+          </Typography>
+          <Typography component="dd" variant="caption" color="text.secondary" sx={{ m: 0 }}>
+            trabajos activos
+          </Typography>
+        </Box>
+        <Box component="div" sx={{ px: 1, py: 0.75, minWidth: 0 }}>
+          <Typography component="dt" variant="body2" fontWeight={800} color={cards.length - machinesWithOt ? 'warning.dark' : 'text.primary'} sx={{ fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>
+            Sin OT <Box component="span" sx={{ fontSize: { xs: '1.2rem', md: '1.4rem' }, fontWeight: 900 }}>{cards.length - machinesWithOt}</Box>
+          </Typography>
+          <Typography component="dd" variant="caption" color="text.secondary" sx={{ m: 0 }}>
+            por preparar
+          </Typography>
+        </Box>
+      </Box>}
       <Box
         data-testid="daily-machine-board"
         sx={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 285px), 1fr))',
-          gap: 1.5,
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 210px), 1fr))',
+          gap: 1,
+          justifyContent: 'start',
+          '& > *': { minWidth: 0 },
+          ...(visibleCards.length <= 2 ? { '& > *': { minWidth: 0, maxWidth: 320 } } : {}),
         }}
       >
-      {cards.map((card) => {
+      {visibleCards.map((card) => {
         const selected = card.otIds.includes(selectedOtId);
         const running = card.activeWork?.estado === 'EN_EJECUCION';
         const actionable = Boolean(card.ot || canCreateOt);
@@ -363,7 +525,7 @@ function DailyMachineBoard({
             data-testid="machine-day-card"
             variant="outlined"
             sx={{
-              minHeight: 250,
+              minHeight: 190,
               borderColor: selected ? 'primary.main' : (running ? 'success.main' : 'divider'),
               borderWidth: selected ? 2 : 1,
               bgcolor: card.machine.boardUnavailable
@@ -380,13 +542,13 @@ function DailyMachineBoard({
               onClick={actionable ? () => onOpen(card) : undefined}
               sx={{ p: 2, height: '100%', alignItems: 'stretch' }}
             >
-              <Stack spacing={1.25} sx={{ height: '100%' }}>
-                <Stack direction="row" justifyContent="space-between" spacing={1}>
-                  <Box>
-                    <Typography component="h3" variant="h6" fontWeight={900}>
+              <Stack spacing={0.75} sx={{ height: '100%' }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1} useFlexGap flexWrap="wrap">
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography component="h3" variant="subtitle1" fontWeight={900}>
                       {card.machine.nombre || card.machine.codigo}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
+                    <Typography variant="caption" color="text.secondary" noWrap>
                       {`ID: ${card.machine.codigo}`}
                     </Typography>
                   </Box>
@@ -394,6 +556,7 @@ function DailyMachineBoard({
                     size="small"
                     color={operationalState.color}
                     label={operationalState.label}
+                    sx={{ maxWidth: '100%', flexShrink: 0 }}
                   />
                 </Stack>
 
@@ -405,18 +568,18 @@ function DailyMachineBoard({
 
                 {!card.ot ? (
                   <Box sx={{ flex: 1, display: 'grid', alignContent: 'center' }}>
-                    <Typography fontWeight={800}>Sin jornada para este turno</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {canCreateOt
-                        ? 'Selecciona la tarjeta para preparar una OT en esta máquina.'
-                        : 'No hay jornada registrada para este turno.'}
-                    </Typography>
+                    <Typography variant="body2" fontWeight={800}>Sin jornada para este turno</Typography>
                     {canCreateOt ? (
-                      <Typography color="primary.main" fontWeight={900} sx={{ mt: 1 }}>
+                        <Typography variant="caption" color="primary.main" fontWeight={900} sx={{ mt: 0.5 }}>
                         Preparar OT →
                       </Typography>
                     ) : (
-                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                        No hay jornada registrada para este turno.
+                      </Typography>
+                    )}
+                    {!canCreateOt && (
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25 }}>
                         Sin acciones disponibles para tu perfil.
                       </Typography>
                     )}
@@ -424,11 +587,11 @@ function DailyMachineBoard({
                 ) : (
                   <>
                     <Box>
-                      <Typography fontWeight={900}>{card.ot.codigo_ot}</Typography>
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" fontWeight={900}>{card.ot.codigo_ot}</Typography>
+                      <Typography variant="caption" color="text.secondary" display="block">
                         Maquinista: {card.workerName}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary">
+                      <Typography variant="caption" color="text.secondary" display="block">
                         Estado OT: {stateLabel(card.ot.estado)}
                       </Typography>
                     </Box>
@@ -443,8 +606,8 @@ function DailyMachineBoard({
                                 ? 'Próximo trabajo'
                                 : 'Último trabajo'))}
                         </Typography>
-                        <Typography fontWeight={900}>{card.activeWork.color || 'Color por confirmar'}</Typography>
-                        <Typography variant="body2" color="text.secondary">
+                        <Typography variant="body2" fontWeight={900}>{card.activeWork.color || 'Color por confirmar'}</Typography>
+                        <Typography variant="caption" color="text.secondary" display="block">
                           {card.articleName} · {card.activeWork.orden_fabricacion_codigo || 'OF por confirmar'}
                         </Typography>
                       </Box>
@@ -453,7 +616,7 @@ function DailyMachineBoard({
                         OT sin trabajo de color
                       </Alert>
                     )}
-                    <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+                    <Stack direction="row" spacing={0.35} useFlexGap flexWrap="wrap">
                       <Chip size="small" label={`Cerradas ${card.mangaCounts.closed}`} />
                       {card.mangaCounts.open > 0 && (
                         <Chip
@@ -504,11 +667,11 @@ function DailyMachineBoard({
                       }}
                     >
                       <Stack direction="row" alignItems="center" justifyContent="space-between">
-                        <Typography variant="body2" color="text.secondary">
+                        <Typography variant="caption" color="text.secondary">
                           Trabajos, mangas y responsables
                         </Typography>
                         <Stack direction="row" alignItems="center" spacing={0.5}>
-                          <Typography color="primary.main" fontWeight={900}>
+                            <Typography variant="caption" color="primary.main" fontWeight={900}>
                             Ver detalle y gestionar
                           </Typography>
                           <ArrowForwardIcon color="primary" fontSize="small" />
@@ -522,7 +685,19 @@ function DailyMachineBoard({
           </Card>
         );
       })}
+      {!visibleCards.length && (
+        <Alert
+          severity="info"
+          action={<Button size="small" onClick={onResetFilters}>Restablecer filtros</Button>}
+          sx={{ gridColumn: '1 / -1' }}
+        >
+          No hay máquinas para este filtro. Restablece los filtros para volver a ver el tablero.
+        </Alert>
+      )}
       </Box>
+      <Typography variant="caption" color="text.secondary" data-testid="daily-board-visible-count">
+        Mostrando {visibleCards.length} de {cards.length} máquinas
+      </Typography>
     </Stack>
   );
 }
@@ -555,7 +730,7 @@ const normalizeOt = (ot) => ({
     : (ot.corrida_fabricacion_id ? [legacyWork(ot)] : []),
 });
 
-function ColorWorkQueue({ works, selectedWorkId, onSelect }) {
+function ColorWorkQueue({ works, selectedWorkId, onSelect, compact = false }) {
   if (!works.length) {
     return (
       <Alert severity="info">
@@ -564,8 +739,13 @@ function ColorWorkQueue({ works, selectedWorkId, onSelect }) {
     );
   }
   return (
-    <Stack direction="row" spacing={1} data-testid="color-work-queue"
-      sx={{ overflowX: 'auto', pb: 0.5, '& > *': { flex: '0 0 260px' } }}>
+    <Stack direction="row" spacing={0.75} data-testid="color-work-queue"
+      sx={{
+        overflowX: 'auto',
+        pb: 0.5,
+        scrollSnapType: 'x proximity',
+        '& > *': { flex: compact ? '1 1 auto' : '0 0 260px', minWidth: 0 },
+      }}>
       {works.map((work) => {
         const selected = work.id === selectedWorkId;
         const running = work.estado === 'EN_EJECUCION';
@@ -576,6 +756,7 @@ function ColorWorkQueue({ works, selectedWorkId, onSelect }) {
             sx={{
               borderColor: selected ? 'primary.main' : (running ? 'success.main' : 'divider'),
               borderWidth: selected ? 2 : 1,
+              scrollSnapAlign: 'start',
             }}
           >
             <CardActionArea
@@ -585,32 +766,32 @@ function ColorWorkQueue({ works, selectedWorkId, onSelect }) {
               sx={{ p: 1.25, height: '100%' }}
             >
               <Stack
-                direction="column"
-                spacing={1}
-                alignItems="stretch"
+                direction={compact ? 'row' : 'column'}
+                spacing={compact ? 1 : 1}
+                alignItems={compact ? 'center' : 'stretch'}
               >
-                <Box sx={{ minWidth: 38 }}>
+                <Box sx={{ minWidth: compact ? 0 : 38 }}>
                   <Typography variant="caption" color="text.secondary">
-                    {work.codigo || `Trabajo ${work.secuencia}`} {selected ? '· Consultando' : ''}
+                    {work.codigo || `Trabajo ${work.secuencia}`}{selected ? '\u200b' : ''}
                   </Typography>
                 </Box>
-                <Box sx={{ flex: 1 }}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography fontWeight={850}>{work.color || 'Sin color informado'}</Typography>
                   <Typography variant="body2" color="text.secondary">
                     {work.orden_fabricacion_codigo || 'Sin OF'}
                   </Typography>
                 </Box>
-                <Box>
+                <Box sx={{ flexShrink: 0 }}>
                   <Chip
                     size="small"
                     label={stateLabel(work.estado)}
                     color={running ? 'success' : (work.estado === 'PAUSADO' ? 'warning' : 'default')}
                   />
-                  <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                  {!compact && <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
                     {work.mangas?.some((manga) => manga.unidad_inventario === 'KG')
                       ? `Plan: ${compactQuantity(work.cantidad_objetivo_un)} un de referencia`
                       : `${compactQuantity(work.cantidad_confirmada_un)} / ${compactQuantity(work.cantidad_objetivo_un)} un`}
-                  </Typography>
+                  </Typography>}
                 </Box>
               </Stack>
             </CardActionArea>
@@ -640,19 +821,93 @@ function MangaTable({
   weighingBusy,
 }) {
   const mangas = work?.mangas || [];
+  const compact = useMediaQuery('(max-width:899px)');
   if (!mangas.length) return <Alert severity="info">Este trabajo todavía no tiene mangas.</Alert>;
   return (
-    <TableContainer>
+    <>
+    {compact && <Box
+      data-testid="manga-mobile-list"
+      sx={{ display: 'block' }}
+    >
+      <Stack spacing={1}>
+        {mangas.map((manga) => {
+          const labelChecked = selectedLabels.includes(manga.public_id);
+          const reliefChecked = selectedRelief.includes(manga.public_id);
+          const labelEligible = !manga.etiqueta_vigente && manga.estado === 'PLANIFICADA';
+          const reliefEligible = [
+            'PLANIFICADA', 'PREETIQUETADA', 'CONTINUIDAD_PENDIENTE',
+          ].includes(manga.estado);
+          const weighable = [
+            'PESADA', 'ETIQUETADA_FINAL', 'PENDIENTE_RECEPCION_ALMACEN', 'ANULADA',
+          ].includes(manga.estado) || (canReattributeManga && manga.continuidad?.ultimo_control);
+          return (
+            <Card key={manga.public_id} variant="outlined" data-testid="manga-mobile-card">
+              <Stack spacing={1} sx={{ p: 1.25 }}>
+                <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="flex-start">
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography fontWeight={850}>{manga.codigo}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {manga.articulo_nombre || 'Salida no informada'} · {manga.color || 'Color no informado'}
+                    </Typography>
+                  </Box>
+                  <Chip size="small" label={stateLabel(manga.estado)} />
+                </Stack>
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                  <Typography variant="body2"><strong>Responsable:</strong> {manga.maquinista_actual || manga.maquinista || 'Por asignar'}</Typography>
+                  <Typography variant="body2"><strong>Cantidad:</strong> {manga.unidad_inventario === 'KG' ? `${manga.kg_medido ?? '—'} kg` : compactQuantity(manga.cantidad_asignada_un)}</Typography>
+                </Stack>
+                {manga.heredada_de_ot_anterior && (
+                  <Typography variant="caption" color="warning.dark">Heredada de OT anterior · QR conservado</Typography>
+                )}
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+                  <FormControlLabel
+                    control={<Checkbox
+                      size="small"
+                      inputProps={{ 'aria-label': `Seleccionar manga ${manga.codigo}` }}
+                      checked={labelChecked}
+                      disabled={!canPrelabel || !labelEligible || (!labelChecked && selectedLabels.length >= 2)}
+                      onChange={() => onToggleLabel(manga.public_id)}
+                    />}
+                    label="Imprimir"
+                  />
+                  <FormControlLabel
+                    control={<Checkbox
+                      size="small"
+                      inputProps={{ 'aria-label': `Incluir ${manga.codigo} en el relevo` }}
+                      checked={reliefChecked}
+                      disabled={!reliefEligible}
+                      onChange={() => onToggleRelief(manga.public_id)}
+                    />}
+                    label="Relevo"
+                  />
+                </Stack>
+                <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+                  {canAnnulManga && <Button size="small" color="error" disabled={!['PLANIFICADA', 'PREETIQUETADA'].includes(manga.estado)} onClick={() => onAnnul(manga)}>Anular manga</Button>}
+                  {canReplaceLabel && <Button size="small" disabled={
+                    !manga.etiqueta_vigente || manga.estado === 'ANULADA'
+                    || (
+                      manga.etiqueta_vigente?.tipo === 'PREPESAJE'
+                      && !['PLANIFICADA', 'PREETIQUETADA'].includes(manga.estado)
+                    )
+                  } onClick={() => onReplace(manga)}>Reemplazar etiqueta</Button>}
+                  {canCloseControl && manga.unidad_inventario === 'KG' && manga.estado === 'EN_LLENADO' && manga.continuidad?.ultimo_control && <CloseKgControlAction manga={manga} onClosed={onControlClosed} />}
+                  {canViewWeighing && <Button size="small" aria-label={`Ver pesaje de ${manga.codigo}`} disabled={weighingBusy || !weighable} onClick={(event) => onWeighing(manga, event.currentTarget)}>Ver pesaje</Button>}
+                </Stack>
+              </Stack>
+            </Card>
+          );
+        })}
+      </Stack>
+    </Box>}
+    {!compact && <TableContainer sx={{ display: 'block' }}>
       <Table size="small">
         <TableHead>
           <TableRow>
-            <TableCell padding="checkbox">Imprimir</TableCell>
-            <TableCell>Manga</TableCell>
-            <TableCell>Salida</TableCell>
+            <TableCell padding="checkbox">Selección</TableCell>
+            <TableCell>Manga y salida</TableCell>
             <TableCell>Responsable</TableCell>
             <TableCell align="right">Cantidad</TableCell>
             <TableCell>Estado</TableCell>
-            <TableCell padding="checkbox">Relevo</TableCell>
             <TableCell>Acciones</TableCell>
           </TableRow>
         </TableHead>
@@ -667,28 +922,39 @@ function MangaTable({
             return (
               <TableRow key={manga.public_id} selected={labelChecked || reliefChecked}>
                 <TableCell padding="checkbox">
-                  <Checkbox
-                    inputProps={{ 'aria-label': `Seleccionar manga ${manga.codigo}` }}
-                    checked={labelChecked}
-                    disabled={
-                      !canPrelabel || !labelEligible
-                      || (!labelChecked && selectedLabels.length >= 2)
-                    }
-                    onChange={() => onToggleLabel(manga.public_id)}
-                  />
+                  <Stack spacing={0.25}>
+                    <Checkbox
+                      size="small"
+                      inputProps={{ 'aria-label': `Seleccionar manga ${manga.codigo}` }}
+                      checked={labelChecked}
+                      disabled={
+                        !canPrelabel || !labelEligible
+                        || (!labelChecked && selectedLabels.length >= 2)
+                      }
+                      onChange={() => onToggleLabel(manga.public_id)}
+                    />
+                    <Checkbox
+                      size="small"
+                      inputProps={{ 'aria-label': `Incluir ${manga.codigo} en el relevo` }}
+                      checked={reliefChecked}
+                      disabled={!reliefEligible}
+                      onChange={() => onToggleRelief(manga.public_id)}
+                    />
+                  </Stack>
                 </TableCell>
                 <TableCell>
-                  <Typography fontWeight={800}>{manga.codigo}</Typography>
-                  <Typography variant="caption">{manga.tipo_manga || manga.tipo}</Typography>
-                  {manga.heredada_de_ot_anterior && (
-                    <Typography display="block" variant="caption" color="warning.dark">
-                      Heredada de {manga.continuidad?.tramos?.[0]?.ot_codigo || 'OT anterior'} · QR conservado
+                  <Stack spacing={0.25}>
+                    <Typography fontWeight={800}>{manga.codigo}</Typography>
+                    <Typography variant="body2">{manga.articulo_nombre || 'Salida no informada'}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {manga.color || 'Color no informado'} · {manga.tipo_manga || manga.tipo}
                     </Typography>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {manga.articulo_nombre}
-                  <Typography display="block" variant="caption">{manga.color}</Typography>
+                    {manga.heredada_de_ot_anterior && (
+                      <Typography display="block" variant="caption" color="warning.dark">
+                        Heredada de {manga.continuidad?.tramos?.[0]?.ot_codigo || 'OT anterior'} · QR conservado
+                      </Typography>
+                    )}
+                  </Stack>
                 </TableCell>
                 <TableCell>
                   {manga.maquinista_actual || manga.maquinista || 'Por asignar'}
@@ -708,14 +974,6 @@ function MangaTable({
                         : `Corte ${compactQuantity(manga.continuidad.conteo_acumulado_un)} · faltan ${compactQuantity(manga.continuidad.cantidad_pendiente_un)}`}
                     </Typography>
                   )}
-                </TableCell>
-                <TableCell padding="checkbox">
-                  <Checkbox
-                    inputProps={{ 'aria-label': `Incluir ${manga.codigo} en el relevo` }}
-                    checked={reliefChecked}
-                    disabled={!reliefEligible}
-                    onChange={() => onToggleRelief(manga.public_id)}
-                  />
                 </TableCell>
                 <TableCell>
                   <Stack direction={{ xs: 'column', xl: 'row' }} spacing={0.5}>
@@ -758,7 +1016,7 @@ function MangaTable({
                             || (canReattributeManga && manga.continuidad?.ultimo_control)
                           )
                         }
-                        onClick={() => onWeighing(manga)}
+                        onClick={(event) => onWeighing(manga, event.currentTarget)}
                       >
                         Ver pesaje
                       </Button>
@@ -770,7 +1028,8 @@ function MangaTable({
           })}
         </TableBody>
       </Table>
-    </TableContainer>
+    </TableContainer>}
+    </>
   );
 }
 
@@ -780,6 +1039,7 @@ export default function OtMangasScm({ view = 'all' }) {
   const isDetail = view === 'detail';
   const { actorId, can, canAny, experience } = useScmActor();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isGlobalView = !isDetail && searchParams.get('vista') === 'todas';
   const initialJourneyContextRef = useRef(null);
   if (initialJourneyContextRef.current === null) {
     initialJourneyContextRef.current = journeyContextFromSearch(searchParams);
@@ -813,8 +1073,12 @@ export default function OtMangasScm({ view = 'all' }) {
   ]);
 
   const [catalogs, setCatalogs] = useState({
-    orders: [], machines: [], allMachines: [], workers: [],
+    orders: [], machines: [], allMachines: [], workers: [], molds: [],
   });
+  const [globalCatalogState, setGlobalCatalogState] = useState('idle');
+  const [globalCatalogError, setGlobalCatalogError] = useState('');
+  const [globalWorkerWarning, setGlobalWorkerWarning] = useState('');
+  const [moldCatalogWarning, setMoldCatalogWarning] = useState('');
   const [ots, setOts] = useState([]);
   const [assemblyOts, setAssemblyOts] = useState([]);
   const [assemblyCenters, setAssemblyCenters] = useState([]);
@@ -822,23 +1086,36 @@ export default function OtMangasScm({ view = 'all' }) {
   const [journeyWarnings, setJourneyWarnings] = useState({
     FABRICACION: '', ENSAMBLE: '',
   });
+  const journeyRequestRef = useRef(0);
+  const journeyContextRef = useRef('');
   const [perspective, setPerspective] = useState(initialJourneyContext.perspective);
+  const [dailyBoardFilter, setDailyBoardFilter] = useState(() => normalizeDailyBoardFilter(
+    searchParams.get('ot_estado'),
+  ));
   const [selectedOtId, setSelectedOtId] = useState(
     initialJourneyContext.perspective === 'FABRICACION' ? initialJourneyContext.ot : '',
   );
   const [assemblyContextOtId, setAssemblyContextOtId] = useState(
     initialJourneyContext.perspective === 'ENSAMBLE' ? initialJourneyContext.ot : '',
   );
-  const [selectedWorkId, setSelectedWorkId] = useState('');
+  // Keep explicit URL identities while the response is loading. An URL that
+  // names a missing OT/work is an error, never a reason to select another row.
+  const [selectedWorkId, setSelectedWorkId] = useState(initialJourneyContext.trabajo);
+  const [selectedMangaId, setSelectedMangaId] = useState(initialJourneyContext.manga);
+  const [identityError, setIdentityError] = useState('');
+  const mangaOpenRequestedRef = useRef(false);
+  const identityNavigationRef = useRef(false);
   const [workCreateOpen, setWorkCreateOpen] = useState(false);
+  const [creationOpen, setCreationOpen] = useState(false);
+  const [globalReloadSignal, setGlobalReloadSignal] = useState(0);
   const workDetailRef = useRef(null);
   const selectedWorkIdRef = useRef('');
-  const creationRef = useRef(null);
   const detailRef = useRef(null);
+  const compactCreation = useMediaQuery('(max-width:599px)');
   const [listFilters, setListFilters] = useState({
     fecha_operativa: initialJourneyContext.fecha_operativa,
     turno: initialJourneyContext.turno,
-    maquina_id: '',
+    maquina_id: initialJourneyContext.maquina_id,
   });
   const [headerForm, setHeaderForm] = useState({
     fecha_operativa: initialJourneyContext.fecha_operativa,
@@ -848,6 +1125,7 @@ export default function OtMangasScm({ view = 'all' }) {
   const [workForm, setWorkForm] = useState({
     orderId: '', runId: '', quantities: {}, kgEdits: {},
   });
+  const [fabricationOrderInputDirty, setFabricationOrderInputDirty] = useState(false);
   const [workWorkerOverride, setWorkWorkerOverride] = useState(null);
   useEffect(() => {
     setWorkCreateOpen(false);
@@ -859,10 +1137,16 @@ export default function OtMangasScm({ view = 'all' }) {
   const [planReload, setPlanReload] = useState(0);
   const planRequestRef = useRef(0);
   const [continuityCandidates, setContinuityCandidates] = useState([]);
+  const [continuityError, setContinuityError] = useState('');
+  const [continuityReload, setContinuityReload] = useState(0);
   const [selectedContinuities, setSelectedContinuities] = useState([]);
   const [continuityBusy, setContinuityBusy] = useState(false);
   const [selectedWorkPlan, setSelectedWorkPlan] = useState(null);
+  const [selectedWorkPlanError, setSelectedWorkPlanError] = useState('');
+  const [selectedWorkPlanReload, setSelectedWorkPlanReload] = useState(0);
+  const selectedWorkPlanKeyRef = useRef('');
   const [extraRequests, setExtraRequests] = useState([]);
+  const [extraRequestsError, setExtraRequestsError] = useState('');
   const [mangaAllocation, setMangaAllocation] = useState({
     plan_linea_id: '', cantidad_un: '', motivo: '',
   });
@@ -883,6 +1167,11 @@ export default function OtMangasScm({ view = 'all' }) {
   const [workActionDialog, setWorkActionDialog] = useState(null);
   const [workActionReason, setWorkActionReason] = useState('');
   const [weighingDialog, setWeighingDialog] = useState(null);
+  const weighingInvokerRef = useRef(null);
+  const weighingDocumentRef = useRef(null);
+  const mangaDocumentSlotRef = useRef(null);
+  const focusAfterWeighingRef = useRef('');
+  const compactWeighing = useMediaQuery('(max-width:599px)');
   const [weighingBusy, setWeighingBusy] = useState(false);
   const [correctionForm, setCorrectionForm] = useState({
     peso_bruto_kg: '', tara_kg: '', cantidad_confirmada: '', motivo: '',
@@ -923,15 +1212,30 @@ export default function OtMangasScm({ view = 'all' }) {
     [works, selectedWorkId],
   );
   const [assignmentCorrectionTargets, setAssignmentCorrectionTargets] = useState([]);
+  const ordersWithMoldCatalog = useMemo(() => {
+    const moldsByCode = new Map(catalogs.molds.map((mold) => [
+      String(mold.codigo), mold,
+    ]));
+    return catalogs.orders.map((order) => {
+      if (order?.molde?.nombre) return order;
+      const moldCode = order?.molde_id || order?.molde?.codigo;
+      const mold = moldsByCode.get(String(moldCode || ''));
+      if (!mold) return order;
+      return {
+        ...order,
+        molde: { ...(order.molde || {}), codigo: mold.codigo, nombre: mold.nombre },
+      };
+    });
+  }, [catalogs.molds, catalogs.orders]);
   const selectedOrder = useMemo(
-    () => catalogs.orders.find((item) => item.id === workForm.orderId) || null,
-    [catalogs.orders, workForm.orderId],
+    () => ordersWithMoldCatalog.find((item) => item.id === workForm.orderId) || null,
+    [ordersWithMoldCatalog, workForm.orderId],
   );
   const eligibleOrders = useMemo(
-    () => catalogs.orders.filter(
+    () => ordersWithMoldCatalog.filter(
       (item) => ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION'].includes(item.estado),
     ),
-    [catalogs.orders],
+    [ordersWithMoldCatalog],
   );
   const boardMachines = useMemo(() => {
     const resources = new Map(
@@ -953,6 +1257,18 @@ export default function OtMangasScm({ view = 'all' }) {
     });
     return [...resources.values()];
   }, [catalogs.allMachines, catalogs.machines, ots]);
+  const boardCards = useMemo(
+    () => boardMachines.map((machine) => machineBoardModel(
+      machine, ots, catalogs.workers, catalogs.orders, selectedOtId,
+    )),
+    [boardMachines, catalogs.orders, catalogs.workers, ots, selectedOtId],
+  );
+  const boardStatusCounts = useMemo(() => ({
+    all: boardCards.length,
+    withOt: boardCards.filter((card) => Boolean(card.ot)).length,
+    running: boardCards.filter((card) => card.machineRunning).length,
+    withoutOt: boardCards.filter((card) => !card.ot).length,
+  }), [boardCards]);
   const selectedRun = useMemo(
     () => selectedOrder?.corridas?.find((item) => item.id === workForm.runId) || null,
     [selectedOrder, workForm.runId],
@@ -1005,10 +1321,30 @@ export default function OtMangasScm({ view = 'all' }) {
       initialUnits: workForm.quantities[line.id], edit: workForm.kgEdits[line.id] }),
   }));
   const validWorkQuantities = kgAssignments.every(({ model }) => model.valid);
+  const hasPendingKg = kgAssignments.some(({ model }) => Number(model.pendingKg) > 0);
   const hasWorkAllocation = kgAssignments.some(({ model }) => model.valid && model.units > 0)
     || selectedContinuities.length > 0;
   const canAddColorWork = planReady && validWorkQuantities && hasWorkAllocation
-    && !busy && !continuityBusy && selectedRun && selectedRunHasColor && initialWorkWorker;
+    && !busy && !continuityBusy && !fabricationOrderInputDirty
+    && selectedRun && selectedRunHasColor && initialWorkWorker;
+  const colorWorkBlocker = colorWorkBlockReason({
+    busy,
+    continuityBusy,
+    draftPlan,
+    fabricationOrderInputDirty,
+    hasRunLines: draftRunLines.length > 0,
+    hasPendingKg,
+    hasWorkAllocation,
+    initialWorkWorker,
+    planBusy,
+    planConsulted,
+    planLoadError,
+    planReady,
+    selectedOrder,
+    selectedRun,
+    selectedRunHasColor,
+    validWorkQuantities,
+  });
   const selectedWorkLines = useMemo(
     () => (selectedWorkPlan?.lineas || []).filter(
       (line) => line.corrida_fabricacion_id === selectedWork?.corrida_fabricacion_id,
@@ -1052,28 +1388,45 @@ export default function OtMangasScm({ view = 'all' }) {
   const loadExtraRequests = useCallback(async (orderId, workId) => {
     if (!orderId || !workId) {
       setExtraRequests([]);
+      setExtraRequestsError('');
       return;
     }
-    const payload = await listarSolicitudesMangaExtraScm(orderId, 'PENDIENTE');
-    if (selectedWorkIdRef.current === workId) {
-      setExtraRequests((payload.items || []).filter(
-        (item) => item.trabajo_color_id === workId,
-      ));
+    try {
+      const payload = await listarSolicitudesMangaExtraScm(orderId, 'PENDIENTE');
+      if (selectedWorkIdRef.current === workId) {
+        setExtraRequests((payload.items || []).filter(
+          (item) => item.trabajo_color_id === workId,
+        ));
+        setExtraRequestsError('');
+      }
+    } catch (requestError) {
+      if (selectedWorkIdRef.current === workId) {
+        setExtraRequestsError(mensajeErrorScm(
+          requestError, 'No se pudieron consultar las solicitudes EXTRA. La lectura anterior sigue visible.',
+        ));
+      }
+      throw requestError;
     }
   }, []);
 
   const applyOtPayload = useCallback((items, preferredOtId, preferredWorkId) => {
     const normalized = (items || []).map(normalizeOt);
     setOts(normalized);
+    const explicitOt = Boolean(preferredOtId);
     const nextOt = normalized.find((item) => item.public_id === preferredOtId)
-      || normalized[0]
+      || (explicitOt ? null : normalized[0])
       || null;
     const nextWorks = nextOt?.trabajos_color || [];
     const nextWork = nextWorks.find((item) => item.id === preferredWorkId)
-      || nextWorks[0]
+      || (preferredWorkId ? null : nextWorks[0])
       || null;
-    setSelectedOtId(nextOt?.public_id || '');
-    setSelectedWorkId(nextWork?.id || '');
+    setSelectedOtId(nextOt?.public_id || (explicitOt ? preferredOtId : ''));
+    setSelectedWorkId(nextWork?.id || (preferredWorkId && nextOt ? preferredWorkId : ''));
+    setIdentityError(explicitOt && !nextOt
+      ? `La OT solicitada (${preferredOtId}) no está disponible para la fecha y turno consultados.`
+      : (preferredWorkId && nextOt && !nextWork
+        ? `El Trabajo solicitado (${preferredWorkId}) no pertenece a la OT ${nextOt.codigo_ot || preferredOtId}.`
+        : ''));
   }, []);
 
   const applyJourneyPayload = useCallback((
@@ -1093,7 +1446,9 @@ export default function OtMangasScm({ view = 'all' }) {
     setCenterCatalogWarning('');
     setHeaderForm((current) => ({
       ...current,
-      maquina_id: current.maquina_id || operationalMachines[0]?.id || '',
+      // Keep the creation form explicit. A machine is only preselected when
+      // the operator entered from that machine's card.
+      maquina_id: current.maquina_id || '',
     }));
     applyOtPayload(
       payload.ots_fabricacion || [],
@@ -1107,6 +1462,10 @@ export default function OtMangasScm({ view = 'all' }) {
   const fetchJourneys = useCallback(async (
     preferredOtId, preferredWorkId, filters,
   ) => {
+    const requestId = journeyRequestRef.current + 1;
+    journeyRequestRef.current = requestId;
+    const requestContext = `${actorId}|${filters.fecha_operativa}|${filters.turno}`;
+    journeyContextRef.current = requestContext;
     const query = {
       fecha_operativa: filters.fecha_operativa,
       turno: filters.turno,
@@ -1142,8 +1501,15 @@ export default function OtMangasScm({ view = 'all' }) {
           ots_armado: assembly.items || [],
         };
       }
+      // A slow response from an older URL/filter must not replace the newer
+      // context with a false empty board or a stale OT identity.
+      if (requestId !== journeyRequestRef.current
+        || requestContext !== journeyContextRef.current) return { stale: true };
       applyJourneyPayload(payload, preferredOtId, preferredWorkId);
+      return { stale: false };
     } catch (requestError) {
+      if (requestId !== journeyRequestRef.current
+        || requestContext !== journeyContextRef.current) return { stale: true };
       const warning = 'No se pudieron actualizar las jornadas. Se conserva la última información visible.';
       setJourneyWarnings({ FABRICACION: warning, ENSAMBLE: warning });
       setCenterCatalogWarning(
@@ -1151,7 +1517,7 @@ export default function OtMangasScm({ view = 'all' }) {
       );
       throw requestError;
     }
-  }, [applyJourneyPayload]);
+  }, [actorId, applyJourneyPayload]);
 
   const loadOts = useCallback((
     preferredOtId, preferredWorkId, filters = listFilters,
@@ -1159,6 +1525,70 @@ export default function OtMangasScm({ view = 'all' }) {
     fetchJourneys,
     listFilters,
   ]);
+
+  // Browser Back/Forward changes the query without going through a click
+  // handler. Rehydrate identity and filters from that URL before the
+  // state-to-URL effect normalizes it again.
+  const lastObservedSearchRef = useRef(searchParams.toString());
+  const currentSearchSnapshotRef = useRef(searchParams.toString());
+  currentSearchSnapshotRef.current = searchParams.toString();
+  const historySyncRef = useRef(false);
+  const skipUrlSyncRef = useRef(false);
+  const skipDailyBoardUrlSyncRef = useRef(false);
+  const ignoreHistorySyncRef = useRef(false);
+  useEffect(() => {
+    const rawSearch = searchParams.toString();
+    if (ignoreHistorySyncRef.current) {
+      ignoreHistorySyncRef.current = false;
+      return;
+    }
+    if (rawSearch === lastObservedSearchRef.current) return;
+    lastObservedSearchRef.current = rawSearch;
+    historySyncRef.current = true;
+    const context = journeyContextFromSearch(searchParams);
+    const filtersChanged = context.fecha_operativa !== listFilters.fecha_operativa
+      || context.turno !== listFilters.turno;
+    const nextFilters = {
+      fecha_operativa: context.fecha_operativa,
+      turno: context.turno,
+      // A chip-only query change must not clear the current machine filter.
+      maquina_id: context.maquina_id,
+    };
+    skipDailyBoardUrlSyncRef.current = true;
+    setDailyBoardFilter(normalizeDailyBoardFilter(searchParams.get('ot_estado')));
+    setPerspective(context.perspective);
+    setListFilters((current) => ({ ...current, ...nextFilters }));
+    setHeaderForm((current) => ({
+      ...current,
+      fecha_operativa: context.fecha_operativa,
+      turno: context.turno,
+       maquina_id: context.maquina_id,
+    }));
+    if (context.perspective === 'ENSAMBLE') {
+      setAssemblyContextOtId(context.ot);
+      setSelectedOtId('');
+      setSelectedWorkId('');
+      setSelectedMangaId('');
+    } else {
+      setSelectedOtId(context.ot);
+      setAssemblyContextOtId('');
+      setSelectedWorkId(context.trabajo);
+      setSelectedMangaId(context.manga);
+      setIdentityError('');
+    }
+    if (filtersChanged) {
+      setBusy(true);
+      fetchJourneys(
+        context.perspective === 'FABRICACION' ? context.ot : undefined,
+        context.perspective === 'FABRICACION' ? context.trabajo : undefined,
+        nextFilters,
+      )
+        .catch((requestError) => setError(
+          mensajeErrorScm(requestError, 'No se pudieron cargar las jornadas del historial.'),
+        ))
+        .finally(() => setBusy(false));
+    }
+  }, [fetchJourneys, listFilters.fecha_operativa, listFilters.turno, listFilters.maquina_id, searchParams]);
 
   const reloadFabricationOrders = useCallback(async () => {
     if (!canViewFabricationOrders) return [];
@@ -1184,32 +1614,123 @@ export default function OtMangasScm({ view = 'all' }) {
     return orders;
   }, [canViewFabricationOrders]);
 
+  const loadMoldCatalog = useCallback(async () => {
+    if (!canViewFabricationOrders || typeof obtenerMoldes !== 'function') return [];
+    try {
+      const payload = await obtenerMoldes();
+      const molds = Array.isArray(payload) ? payload : (payload?.items || []);
+      setCatalogs((current) => ({ ...current, molds }));
+      setMoldCatalogWarning('');
+      return molds;
+    } catch {
+      setMoldCatalogWarning(
+        'No se pudieron consultar los nombres de moldes; puedes buscar por código de molde u OF.',
+      );
+      return [];
+    }
+  }, [canViewFabricationOrders]);
+
   useEffect(() => {
+    if (!isGlobalView) return undefined;
+    let active = true;
     setBusy(true);
+    setGlobalCatalogState('loading');
+    setGlobalCatalogError('');
+    setGlobalWorkerWarning('');
+    setCatalogs({ orders: [], machines: [], allMachines: [], workers: [], molds: [] });
+    Promise.allSettled([
+      typeof obtenerMaquinas === 'function' ? obtenerMaquinas() : Promise.resolve([]),
+      getTrabajadores({ rol: 'MAQUINISTA', activo: true }),
+      canViewFabricationOrders ? listarOrdenesFabricacionScm() : Promise.resolve({ items: [] }),
+      canViewFabricationOrders && typeof obtenerMoldes === 'function'
+        ? obtenerMoldes()
+        : Promise.resolve([]),
+    ]).then(([machinesResult, workersResult, orderResult, moldResult]) => {
+      if (!active) return;
+      const essentialFailure = [machinesResult]
+        .find((result) => result.status === 'rejected');
+      if (essentialFailure) throw essentialFailure.reason;
+      const machines = machinesResult.value || [];
+      const workers = workersResult.status === 'fulfilled' ? (workersResult.value || []) : [];
+      const orderPayload = orderResult.status === 'fulfilled' ? orderResult.value : { items: [] };
+      const moldPayload = moldResult.status === 'fulfilled' ? moldResult.value : [];
+      const availableMachines = (machines || []).filter(isOperationalMachine);
+      setCatalogs((current) => ({
+        ...current,
+        machines: availableMachines,
+        allMachines: machines || [],
+        workers: (workers || []).filter((item) => item.activo !== false),
+        orders: orderPayload?.items || [],
+        molds: Array.isArray(moldPayload) ? moldPayload : (moldPayload?.items || []),
+      }));
+      if (orderResult.status === 'rejected' || moldResult.status === 'rejected') {
+        setMoldCatalogWarning(
+          'No se pudieron cargar los nombres de OF/molde; se muestran los identificadores disponibles en las OT. Reintenta Actualizar para volver a consultar.',
+        );
+      } else setMoldCatalogWarning('');
+      if (workersResult.status === 'rejected') {
+        setGlobalWorkerWarning(
+          'No se pudieron cargar los maquinistas; puedes asignarlos en cada trabajo. Reintenta Actualizar para volver a consultar.',
+        );
+      } else setGlobalWorkerWarning('');
+      setGlobalCatalogState('ready');
+    }).catch((requestError) => {
+      if (!active) return;
+      setGlobalCatalogState('error');
+      setGlobalCatalogError(mensajeErrorScm(
+        requestError,
+        'No se pudieron cargar máquinas y maquinistas. Reintenta Actualizar antes de crear una OT.',
+      ));
+    }).finally(() => {
+      if (active) setBusy(false);
+    });
+    return () => { active = false; };
+  }, [actorId, canViewFabricationOrders, globalReloadSignal, isGlobalView]);
+
+  useEffect(() => {
+    if (isGlobalView) return undefined;
+    setBusy(true);
+    setOts([]);
+    setAssemblyOts([]);
+    setCatalogs((current) => ({ ...current, machines: [], allMachines: [] }));
+    let active = true;
+    const currentJourneyContext = journeyContextFromSearch(
+      new URLSearchParams(currentSearchSnapshotRef.current),
+    );
     const initialFilters = {
-      fecha_operativa: initialJourneyContext.fecha_operativa,
-      turno: initialJourneyContext.turno,
-      maquina_id: '',
+      fecha_operativa: currentJourneyContext.fecha_operativa,
+      turno: currentJourneyContext.turno,
+      maquina_id: currentJourneyContext.maquina_id,
     };
     setListFilters(initialFilters);
     fetchJourneys(
-      initialJourneyContext.perspective === 'FABRICACION'
-        ? initialJourneyContext.ot : undefined,
-      undefined,
+      currentJourneyContext.perspective === 'FABRICACION'
+        ? currentJourneyContext.ot : undefined,
+      currentJourneyContext.perspective === 'FABRICACION'
+        ? currentJourneyContext.trabajo : undefined,
       initialFilters,
     )
-      .catch((requestError) => setError(
-        mensajeErrorScm(requestError, 'No se pudieron cargar jornadas y recursos.'),
-      ))
-      .finally(() => setBusy(false));
+      .catch((requestError) => {
+        if (active) setError(mensajeErrorScm(
+          requestError, 'No se pudieron cargar jornadas y recursos.',
+        ));
+      })
+      .finally(() => { if (active) setBusy(false); });
     Promise.all([
       canViewFabricationOrders
         ? listarOrdenesFabricacionScm()
         : Promise.resolve({ items: [] }),
       getTrabajadores({ rol: 'MAQUINISTA', activo: true }),
+      canViewFabricationOrders && typeof obtenerMoldes === 'function'
+        ? loadMoldCatalog()
+        : Promise.resolve([]),
     ])
-      .then(([orderPayload, workers]) => {
+      .then(([orderPayload, workers, moldPayload]) => {
+        if (!active) return;
         const orders = orderPayload.items || [];
+        const molds = Array.isArray(moldPayload)
+          ? moldPayload
+          : (moldPayload?.items || []);
         const selectableOrders = orders.filter(
           (item) => ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION'].includes(item.estado),
         );
@@ -1217,6 +1738,7 @@ export default function OtMangasScm({ view = 'all' }) {
         setCatalogs((current) => ({
           ...current,
           orders,
+          molds,
           workers: activeWorkers,
         }));
         const firstOrder = selectableOrders[0];
@@ -1237,10 +1759,13 @@ export default function OtMangasScm({ view = 'all' }) {
           ...current, workerId: current.workerId || activeWorkers[0]?.id || '',
         }));
       })
-      .catch((requestError) => setError(
-        mensajeErrorScm(requestError, 'No se pudieron cargar OF y maquinistas.'),
-      ));
-  }, [canViewFabricationOrders, fetchJourneys, initialJourneyContext]);
+      .catch((requestError) => {
+        if (active) setError(mensajeErrorScm(
+          requestError, 'No se pudieron cargar OF y maquinistas.',
+        ));
+      });
+    return () => { active = false; };
+  }, [actorId, canViewFabricationOrders, fetchJourneys, initialJourneyContext, isGlobalView, loadMoldCatalog]);
 
   useEffect(() => {
     selectedWorkIdRef.current = selectedWorkId;
@@ -1264,9 +1789,22 @@ export default function OtMangasScm({ view = 'all' }) {
   }, [printJob]);
 
   useEffect(() => {
+    if (isGlobalView) return undefined;
     const contextualOt = perspective === 'ENSAMBLE'
       ? assemblyContextOtId
       : selectedOtId;
+    const syncingFromHistory = historySyncRef.current;
+    historySyncRef.current = false;
+    const replaceUrl = !identityNavigationRef.current;
+    identityNavigationRef.current = false;
+    // The history effect above updates identity state in a separate render.
+    // Do not normalize the old state back into the URL during that render;
+    // the following state commit will reconcile the complete URL context.
+    if (syncingFromHistory) return;
+    if (skipUrlSyncRef.current) {
+      skipUrlSyncRef.current = false;
+      return;
+    }
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.set('fecha', listFilters.fecha_operativa);
@@ -1274,14 +1812,26 @@ export default function OtMangasScm({ view = 'all' }) {
       next.set('modo', perspective === 'ENSAMBLE' ? 'armado' : 'fabricacion');
       if (contextualOt) next.set('ot', contextualOt);
       else next.delete('ot');
-      return next.toString() === current.toString() ? current : next;
-    }, { replace: true });
+      if (perspective === 'FABRICACION' && selectedWorkId) next.set('trabajo', selectedWorkId);
+      else next.delete('trabajo');
+      if (perspective === 'FABRICACION' && selectedMangaId) next.set('manga', selectedMangaId);
+      else next.delete('manga');
+      if (listFilters.maquina_id) next.set('maquina_id', listFilters.maquina_id);
+      else next.delete('maquina_id');
+      const nextSearch = next.toString();
+      lastObservedSearchRef.current = nextSearch;
+      return nextSearch === current.toString() ? current : next;
+    }, { replace: replaceUrl });
   }, [
     assemblyContextOtId,
     listFilters.fecha_operativa,
+    listFilters.maquina_id,
     listFilters.turno,
     perspective,
     selectedOtId,
+    selectedWorkId,
+    selectedMangaId,
+    isGlobalView,
     setSearchParams,
   ]);
 
@@ -1290,6 +1840,7 @@ export default function OtMangasScm({ view = 'all' }) {
     const nextOt = filteredOts[0] || null;
     setSelectedOtId(nextOt?.public_id || '');
     setSelectedWorkId(nextOt?.trabajos_color?.[0]?.id || '');
+    setSelectedMangaId('');
   }, [filteredOts, listFilters.maquina_id, selectedFilteredOtId]);
 
   useEffect(() => {
@@ -1329,6 +1880,7 @@ export default function OtMangasScm({ view = 'all' }) {
     if (!selectedOt?.public_id || !workForm.runId) {
       setContinuityCandidates([]);
       setSelectedContinuities([]);
+      setContinuityError('');
       return undefined;
     }
     let active = true;
@@ -1341,15 +1893,18 @@ export default function OtMangasScm({ view = 'all' }) {
         const items = payload.items || [];
         setContinuityCandidates(items);
         setSelectedContinuities(items.map((item) => item.manga.public_id));
+        setContinuityError('');
       })
-      .catch(() => {
+      .catch((requestError) => {
         if (!active) return;
-        setContinuityCandidates([]);
-        setSelectedContinuities([]);
+        setContinuityError(mensajeErrorScm(
+          requestError,
+          'No se pudieron consultar las continuidades. La lectura anterior sigue visible.',
+        ));
       })
       .finally(() => { if (active) setContinuityBusy(false); });
     return () => { active = false; };
-  }, [selectedOt?.public_id, workForm.runId]);
+  }, [selectedOt?.public_id, workForm.runId, continuityReload]);
 
   const selectedWorkOrderId = selectedWork?.orden_fabricacion_id;
   const selectedWorkRunId = selectedWork?.corrida_fabricacion_id;
@@ -1357,10 +1912,16 @@ export default function OtMangasScm({ view = 'all' }) {
 
   useEffect(() => {
     if (!selectedWorkOrderId || selectedWorkIsLegacy) {
+      selectedWorkPlanKeyRef.current = '';
       setSelectedWorkPlan(null);
+      setSelectedWorkPlanError('');
       setMangaAllocation({ plan_linea_id: '', cantidad_un: '', motivo: '' });
       return undefined;
     }
+    const planKey = `${selectedWorkOrderId}:${selectedWorkRunId || ''}`;
+    if (selectedWorkPlanKeyRef.current !== planKey) setSelectedWorkPlan(null);
+    selectedWorkPlanKeyRef.current = planKey;
+    setSelectedWorkPlanError('');
     let active = true;
     obtenerPlanMangas(selectedWorkOrderId)
       .then((payload) => {
@@ -1373,22 +1934,32 @@ export default function OtMangasScm({ view = 'all' }) {
           plan_linea_id: String(firstLine?.id || ''), cantidad_un: '', motivo: '',
         });
       })
-      .catch(() => { if (active) setSelectedWorkPlan(null); });
+      .catch((requestError) => {
+        if (active) setSelectedWorkPlanError(mensajeErrorScm(
+          requestError,
+          'No se pudo consultar el plan del Trabajo. La lectura anterior sigue visible.',
+        ));
+      });
     return () => { active = false; };
-  }, [selectedWorkOrderId, selectedWorkRunId, selectedWorkIsLegacy]);
+  }, [selectedWorkOrderId, selectedWorkRunId, selectedWorkIsLegacy, selectedWorkPlanReload]);
 
   useEffect(() => {
     if (!selectedWorkOrderId || !selectedWorkId || selectedWorkIsLegacy) {
       setExtraRequests([]);
+      setExtraRequestsError('');
       return;
     }
     loadExtraRequests(selectedWorkOrderId, selectedWorkId)
-      .catch(() => setExtraRequests([]));
+      .catch(() => {});
   }, [
     loadExtraRequests, selectedWorkId, selectedWorkIsLegacy, selectedWorkOrderId,
   ]);
 
   const refresh = async () => {
+    if (isGlobalView) {
+      setGlobalReloadSignal((current) => current + 1);
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -1425,7 +1996,63 @@ export default function OtMangasScm({ view = 'all' }) {
     if (nextPerspective === 'ENSAMBLE') setAssemblyContextOtId('');
   };
 
+  const changeDailyBoardFilter = (nextFilter) => {
+    setDailyBoardFilter(normalizeDailyBoardFilter(nextFilter));
+  };
+
+  useEffect(() => {
+    if (skipDailyBoardUrlSyncRef.current) {
+      skipDailyBoardUrlSyncRef.current = false;
+      return;
+    }
+    const current = normalizeDailyBoardFilter(searchParams.get('ot_estado'));
+    if (current === dailyBoardFilter && (dailyBoardFilter !== 'TODOS' || !searchParams.get('ot_estado'))) return;
+    const next = new URLSearchParams(searchParams);
+    if (dailyBoardFilter === 'TODOS') next.delete('ot_estado');
+    else next.set('ot_estado', dailyBoardFilter);
+    lastObservedSearchRef.current = next.toString();
+    setSearchParams(next, { replace: true });
+  }, [dailyBoardFilter, searchParams, setSearchParams]);
+
+  const changeMachineFilter = (machineId) => {
+    identityNavigationRef.current = true;
+    setListFilters((current) => ({ ...current, maquina_id: machineId }));
+    const nextOt = machineId
+      ? ots.find((item) => String(machineIdFromOt(item)) === String(machineId))
+      : ots[0];
+    if (nextOt) {
+      setSelectedOtId(nextOt.public_id);
+      setSelectedWorkId(nextOt.trabajos_color?.[0]?.id || '');
+      setSelectedMangaId('');
+      setIdentityError('');
+    } else {
+      setSelectedOtId('');
+      setSelectedWorkId('');
+      setSelectedMangaId('');
+      setIdentityError('');
+    }
+  };
+
+  const resetDailyBoardFilters = () => {
+    identityNavigationRef.current = true;
+    skipUrlSyncRef.current = true;
+    skipDailyBoardUrlSyncRef.current = true;
+    ignoreHistorySyncRef.current = true;
+    setDailyBoardFilter('TODOS');
+    setListFilters((current) => ({ ...current, maquina_id: '' }));
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('maquina_id');
+      next.delete('ot_estado');
+      lastObservedSearchRef.current = next.toString();
+      return next;
+    }, { replace: true });
+  };
+
   const createHeader = async (reviewedForm, operationId) => {
+    const globalCreationReturnTo = isGlobalView
+      ? `/produccion/ots-planta?${searchParams.toString()}`
+      : '';
     if (!reviewedForm.maquina_id || !reviewedForm.fecha_operativa || !reviewedForm.turno) {
       throw new Error('Selecciona máquina, fecha y turno.');
     }
@@ -1441,14 +2068,34 @@ export default function OtMangasScm({ view = 'all' }) {
         } : {}),
       };
       const result = await crearOtFabricacionScm(payload, operationId);
-      setNotice(`${result.ot.codigo_ot} creada como jornada de máquina, todavía sin color.`);
+      const successMessage = `${result.ot.codigo_ot} creada como jornada de máquina, todavía sin color.`;
+      setNotice(successMessage);
       const creationFilters = {
         fecha_operativa: reviewedForm.fecha_operativa,
         turno: reviewedForm.turno,
         maquina_id: '',
       };
+      setCreationOpen(false);
+      skipUrlSyncRef.current = true;
       setListFilters(creationFilters);
-      await loadOts(result.ot.public_id, undefined, creationFilters);
+      setPerspective('FABRICACION');
+      setSelectedOtId(result.ot.public_id);
+      setSelectedWorkId('');
+      setSelectedMangaId('');
+      identityNavigationRef.current = true;
+      const params = new URLSearchParams({
+        fecha: creationFilters.fecha_operativa,
+        turno: creationFilters.turno,
+        modo: 'fabricacion',
+        ot: result.ot.public_id,
+        ...(globalCreationReturnTo ? { retorno: globalCreationReturnTo } : {}),
+      });
+      navigate('/produccion/ots-planta/trabajo?' + params.toString());
+      try {
+        await loadOts(result.ot.public_id, undefined, creationFilters);
+      } catch {
+        setNotice(`${successMessage} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+      }
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo crear la OT de máquina.'));
       throw requestError;
@@ -1485,10 +2132,14 @@ export default function OtMangasScm({ view = 'all' }) {
           ? ` con ${selectedContinuities.length} manga(s) abierta(s), mismo QR y sin reimpresión.`
           : '.'),
       );
-      await Promise.all([
-        loadOts(selectedOt.public_id, result.trabajo_color.id),
-        reloadFabricationOrders(),
-      ]);
+      try {
+        await Promise.all([
+          loadOts(selectedOt.public_id, result.trabajo_color.id),
+          reloadFabricationOrders(),
+        ]);
+      } catch {
+        setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+      }
       setWorkWorkerOverride(null);
       setPlanReload((value) => value + 1);
       setWorkCreateOpen(false);
@@ -1558,7 +2209,11 @@ export default function OtMangasScm({ view = 'all' }) {
       );
       setWorkActionDialog(null);
       setWorkActionReason('');
-      await loadOts(selectedOt.public_id, selectedWork.id);
+      try {
+        await loadOts(selectedOt.public_id, selectedWork.id);
+      } catch {
+        setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+      }
     } catch (requestError) {
       const code = requestError.response?.data?.error?.code;
       setError(code === 'OT_WORK_ALREADY_RUNNING'
@@ -1594,7 +2249,11 @@ export default function OtMangasScm({ view = 'all' }) {
       });
       setNotice(`${result.mangas.length} manga(s) agregadas a ${selectedWork.color}.`);
       setMangaAllocation((current) => ({ ...current, cantidad_un: '' }));
-      await loadOts(selectedOt.public_id, selectedWork.id);
+      try {
+        await loadOts(selectedOt.public_id, selectedWork.id);
+      } catch {
+        setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+      }
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudieron agregar las mangas.'));
     } finally {
@@ -1624,7 +2283,11 @@ export default function OtMangasScm({ view = 'all' }) {
       setMangaAllocation((current) => ({
         ...current, cantidad_un: '', motivo: '',
       }));
-      await loadExtraRequests(selectedWorkOrderId, selectedWork.id);
+      try {
+        await loadExtraRequests(selectedWorkOrderId, selectedWork.id);
+      } catch {
+        setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+      }
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo solicitar la manga EXTRA.'));
     } finally {
@@ -1638,10 +2301,14 @@ export default function OtMangasScm({ view = 'all' }) {
     try {
       const result = await aprobarMangaExtraScm(requestId);
       setNotice(`Solicitud aprobada: ${result.mangas.length} manga(s) EXTRA creadas.`);
-      await Promise.all([
-        loadOts(selectedOt.public_id, selectedWork.id),
-        loadExtraRequests(selectedWorkOrderId, selectedWork.id),
-      ]);
+      try {
+        await Promise.all([
+          loadOts(selectedOt.public_id, selectedWork.id),
+          loadExtraRequests(selectedWorkOrderId, selectedWork.id),
+        ]);
+      } catch {
+        setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+      }
     } catch (requestError) {
       setError(mensajeErrorScm(
         requestError,
@@ -1702,7 +2369,11 @@ export default function OtMangasScm({ view = 'all' }) {
       setReliefForm((current) => ({
         ...current, reason: '', confirmEmptyStickers: false,
       }));
-      await loadOts(selectedOt.public_id, selectedWork.id);
+      try {
+        await loadOts(selectedOt.public_id, selectedWork.id);
+      } catch {
+        setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+      }
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo registrar el relevo.'));
     } finally {
@@ -1752,7 +2423,11 @@ export default function OtMangasScm({ view = 'all' }) {
         `Trabajo ${result.print_job_id}: preetiqueta generada y pendiente de impresión.`,
       );
       setSelectedLabels([]);
-      await loadOts(selectedOt.public_id, selectedWork.id);
+      try {
+        await loadOts(selectedOt.public_id, selectedWork.id);
+      } catch {
+        setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+      }
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se generaron las preetiquetas.'));
     } finally {
@@ -1783,7 +2458,11 @@ export default function OtMangasScm({ view = 'all' }) {
       }
       setMangaActionDialog(null);
       setMangaActionReason('');
-      await loadOts(selectedOt.public_id, selectedWork.id);
+      try {
+        await loadOts(selectedOt.public_id, selectedWork.id);
+      } catch {
+        setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+      }
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se completó la acción de manga.'));
     } finally {
@@ -1791,7 +2470,15 @@ export default function OtMangasScm({ view = 'all' }) {
     }
   };
 
-  const openWeighing = async (manga) => {
+  const openWeighing = async (manga, invoker = null) => {
+    if (!canViewWeighing) {
+      setIdentityError('La consulta de Manga/Pesaje requiere la capacidad MANGA_PESAJE_VER.');
+      return;
+    }
+    weighingInvokerRef.current = invoker || null;
+    mangaOpenRequestedRef.current = true;
+    identityNavigationRef.current = true;
+    setSelectedMangaId(manga.public_id);
     setWeighingBusy(true);
     setError('');
     try {
@@ -1836,11 +2523,107 @@ export default function OtMangasScm({ view = 'all' }) {
         setNotice('Se abrió la manga, pero no se pudieron cargar los Trabajos destino. Reintenta al volver a abrirla.');
       }
     } catch (requestError) {
+      mangaOpenRequestedRef.current = false;
       setError(mensajeErrorScm(requestError, 'No se pudo consultar el pesaje.'));
     } finally {
       setWeighingBusy(false);
     }
   };
+
+  const closeWeighing = () => {
+    mangaOpenRequestedRef.current = false;
+    const invoker = weighingInvokerRef.current;
+    const invokerLabel = weighingDialog?.manga?.codigo
+      ? `Ver pesaje de ${weighingDialog.manga.codigo}` : '';
+    focusAfterWeighingRef.current = invoker
+      ? { type: 'invoker', element: invoker, label: invokerLabel }
+      : { type: 'work' };
+    setWeighingDialog(null);
+    setSelectedMangaId('');
+    const workDetail = workDetailRef.current;
+    globalThis.setTimeout?.(() => {
+      const currentInvoker = invoker && document.contains(invoker)
+        ? invoker
+        : (invokerLabel ? document.querySelector(`[aria-label="${invokerLabel}"]`) : null);
+      if (currentInvoker) currentInvoker.focus();
+      else if (invoker && document.contains(invoker)) invoker.focus();
+      else {
+        const currentWorkDetail = document.querySelector('[data-testid="ot-work-detail"]')
+          || workDetail;
+        currentWorkDetail?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+        currentWorkDetail?.focus?.({ preventScroll: true });
+      }
+    }, 50);
+  };
+
+  useLayoutEffect(() => {
+    if (weighingDialog || !focusAfterWeighingRef.current) return;
+    const focusTarget = focusAfterWeighingRef.current;
+    focusAfterWeighingRef.current = null;
+    globalThis.requestAnimationFrame?.(() => {
+      if (focusTarget.type === 'invoker') {
+        const currentInvoker = focusTarget.element && document.contains(focusTarget.element)
+          ? focusTarget.element
+          : (focusTarget.label
+            ? document.querySelector(`[aria-label="${focusTarget.label}"]`) : null);
+        currentInvoker?.focus?.();
+        return;
+      }
+      const currentWorkDetail = document.querySelector('[data-testid="ot-work-detail"]');
+      currentWorkDetail?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+      currentWorkDetail?.focus?.({ preventScroll: true });
+    });
+  }, [weighingDialog]);
+
+  useEffect(() => {
+    if (!weighingDialog) return;
+    const documentNode = weighingDocumentRef.current;
+    globalThis.requestAnimationFrame?.(() => {
+      documentNode?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+      documentNode?.querySelector?.('#manga-weighing-document-title')?.focus?.();
+    });
+  }, [weighingDialog]);
+
+  // A shared/bookmarked URL can reopen the same weighing document after a
+  // reload. Do not substitute another manga when the requested identity is
+  // absent; keep the URL and expose the explicit identity error instead.
+  useEffect(() => {
+    if (!selectedWork) {
+      if (weighingDialog) {
+        setWeighingDialog(null);
+      }
+      mangaOpenRequestedRef.current = false;
+      return;
+    }
+    if (!selectedMangaId) {
+      // Back/Forward may remove manga before the document state commits.
+      // Release the guard so a later Forward can retry the explicit URL.
+      mangaOpenRequestedRef.current = false;
+    }
+    const documentBelongsToWork = weighingDialog?.manga?.trabajo_color_actual_id
+      ? weighingDialog.manga.trabajo_color_actual_id === selectedWork.id
+      : (selectedWork.mangas || []).some((item) => item.public_id === selectedMangaId);
+    if (weighingDialog && (!selectedMangaId
+      || weighingDialog.manga?.public_id !== selectedMangaId
+      || !documentBelongsToWork)) {
+      setWeighingDialog(null);
+      mangaOpenRequestedRef.current = false;
+      return;
+    }
+    if (!selectedMangaId || weighingDialog || mangaOpenRequestedRef.current) return;
+    if (!canViewWeighing) {
+      setIdentityError('La consulta de Manga/Pesaje requiere la capacidad MANGA_PESAJE_VER.');
+      return;
+    }
+    const manga = (selectedWork.mangas || []).find(
+      (item) => item.public_id === selectedMangaId,
+    );
+    if (!manga) {
+      setIdentityError(`La manga solicitada (${selectedMangaId}) no pertenece al Trabajo seleccionado.`);
+      return;
+    }
+    openWeighing(manga);
+  }, [canViewWeighing, selectedMangaId, selectedWork, weighingDialog]);
 
   const previewAssignmentCorrection = async () => {
     if (!weighingDialog?.manga?.public_id || !assignmentCorrectionForm.destinoTrabajoId) {
@@ -1881,7 +2664,7 @@ export default function OtMangasScm({ view = 'all' }) {
         version: weighingDialog.detail.manga_version,
         motivo: assignmentCorrectionForm.motivo.trim(),
       }, operationId);
-      setWeighingDialog(null);
+      closeWeighing();
       setAssignmentCorrectionPreview(null);
       setNotice(
         `Corrección ${result.correccion.id} aplicada. Se conservaron manga, QR, pesajes y saldo KG. No continúes con el rótulo anterior; coordina su actualización según el procedimiento del piloto.`,
@@ -1941,9 +2724,13 @@ export default function OtMangasScm({ view = 'all' }) {
         },
         motivo: correctionForm.motivo.trim(),
       });
-      await refreshWeighing();
       setCorrectionForm((current) => ({ ...current, motivo: '' }));
       setNotice('Corrección solicitada. Debe aprobarla otro actor autorizado.');
+      try {
+        await refreshWeighing();
+      } catch {
+        setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+      }
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo solicitar la corrección.'));
     } finally {
@@ -1959,9 +2746,13 @@ export default function OtMangasScm({ view = 'all' }) {
         motivo_aprobacion: 'Validación de Jefe de Producción',
       });
       setPrintJob({ print_job_id: result.print_job_id, labels: [result.post_label] });
-      await refreshWeighing();
-      await loadOts(selectedOt.public_id, selectedWork.id);
       setNotice('Corrección aplicada; la nueva etiqueta final quedó lista para imprimir.');
+      try {
+        await refreshWeighing();
+        await loadOts(selectedOt.public_id, selectedWork.id);
+      } catch {
+        setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+      }
     } catch (requestError) {
       setError(mensajeErrorScm(
         requestError, 'No se aprobó. Usa un actor autorizado distinto del solicitante.',
@@ -1984,9 +2775,13 @@ export default function OtMangasScm({ view = 'all' }) {
         motivo: annulmentForm.motivo.trim(),
         evidencia: annulmentForm.evidencia.trim() || null,
       });
-      await refreshWeighing();
-      await loadOts(selectedOt.public_id, selectedWork.id);
       setNotice('Pesaje anulado; los QR quedaron invalidados y el cupo volvió al trabajo.');
+      try {
+        await refreshWeighing();
+        await loadOts(selectedOt.public_id, selectedWork.id);
+      } catch {
+        setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+      }
     } catch (requestError) {
       const code = requestError.response?.data?.error?.code;
       setError(code === 'RECEIPT_REVERSAL_REQUIRED'
@@ -2014,7 +2809,7 @@ export default function OtMangasScm({ view = 'all' }) {
       });
       const continuedFilling = reopeningForm.tipo_reapertura === 'CONTINUAR_LLENADO';
       const retainedNet = weighingDialog.detail.vigente.peso_fisico_neto_kg;
-      setWeighingDialog(null);
+      closeWeighing();
       setReopeningForm({ tipo_reapertura: '', motivo: '', evidencia: '' });
       setNotice(
         continuedFilling
@@ -2044,6 +2839,7 @@ export default function OtMangasScm({ view = 'all' }) {
     setPlanLoadedFor('');
     setPlanLoadError('');
     setPackagingBlocker(null);
+    setFabricationOrderInputDirty(false);
     const order = catalogs.orders.find((item) => item.id === orderId);
     const run = order?.corridas?.find(
       (item) => ['LIBERADA', 'EN_EJECUCION'].includes(item.estado),
@@ -2061,28 +2857,28 @@ export default function OtMangasScm({ view = 'all' }) {
         turno: listFilters.turno,
         maquina_id: card.machine.id,
       }));
-      setListFilters((current) => ({ ...current, maquina_id: card.machine.id }));
-      setSelectedOtId('');
-      setSelectedWorkId('');
-      setNotice(`${card.machine.codigo} quedó seleccionada para crear su jornada.`);
-      globalThis.requestAnimationFrame?.(() => {
-        creationRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
-        creationRef.current?.focus?.({ preventScroll: true });
-      });
+      setError('');
+      setIdentityError('');
+      setCreationOpen(true);
       return;
     }
+    identityNavigationRef.current = true;
     setSelectedOtId(card.ot.public_id);
+    setIdentityError('');
     if (isLanding) {
       const params = new URLSearchParams({
         fecha: listFilters.fecha_operativa,
         turno: listFilters.turno,
         modo: 'fabricacion',
         ot: card.ot.public_id,
+        ...(card.activeWork?.id ? { trabajo: card.activeWork.id } : {}),
+        retorno: boardReturnUrl,
       });
       navigate('/produccion/ots-planta/trabajo?' + params.toString());
       return;
     }
     setSelectedWorkId(card.activeWork?.id || card.ot.trabajos_color?.[0]?.id || '');
+    setSelectedMangaId('');
     setListFilters((current) => ({ ...current, maquina_id: card.machine.id }));
     globalThis.requestAnimationFrame?.(() => {
       detailRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
@@ -2097,7 +2893,107 @@ export default function OtMangasScm({ view = 'all' }) {
     turno: listFilters.turno,
     modo: perspective === 'ENSAMBLE' ? 'armado' : 'fabricacion',
   });
-  const overviewUrl = `/produccion/ots-planta?${overviewParams.toString()}`;
+  const safeRequestedReturn = safePlantReturn(searchParams.get('retorno'));
+  const overviewUrl = safeRequestedReturn
+    ? safeRequestedReturn
+    : `/produccion/ots-planta?${overviewParams.toString()}`;
+
+  const dailyBoardParams = new URLSearchParams({
+    fecha: listFilters.fecha_operativa,
+    turno: listFilters.turno,
+    modo: perspective === 'ENSAMBLE' ? 'armado' : 'fabricacion',
+  });
+  if (listFilters.maquina_id) dailyBoardParams.set('maquina_id', listFilters.maquina_id);
+  if (dailyBoardFilter !== 'TODOS') dailyBoardParams.set('ot_estado', dailyBoardFilter);
+  copyGlobalQuery(searchParams, dailyBoardParams);
+  const dailyBoardUrl = `/produccion/ots-planta?${dailyBoardParams.toString()}`;
+  const globalIndexParams = new URLSearchParams({
+    vista: 'todas',
+    fecha: listFilters.fecha_operativa,
+    turno: listFilters.turno,
+    modo: perspective === 'ENSAMBLE' ? 'armado' : 'fabricacion',
+    return_to: dailyBoardUrl,
+  });
+  if (listFilters.maquina_id) globalIndexParams.set('maquina_id', listFilters.maquina_id);
+  if (dailyBoardFilter !== 'TODOS') globalIndexParams.set('ot_estado', dailyBoardFilter);
+  copyGlobalQuery(searchParams, globalIndexParams);
+  const globalIndexUrl = `/produccion/ots-planta?${globalIndexParams.toString()}`;
+  const safeBoardReturn = safePlantReturn(searchParams.get('return_to'));
+  const boardReturnParams = new URLSearchParams(safeBoardReturn ? safeBoardReturn.split('?')[1] : '');
+  boardReturnParams.set('fecha', listFilters.fecha_operativa);
+  boardReturnParams.set('turno', listFilters.turno);
+  boardReturnParams.set('modo', perspective === 'ENSAMBLE' ? 'armado' : 'fabricacion');
+  if (listFilters.maquina_id) boardReturnParams.set('maquina_id', listFilters.maquina_id);
+  else boardReturnParams.delete('maquina_id');
+  if (dailyBoardFilter !== 'TODOS') boardReturnParams.set('ot_estado', dailyBoardFilter);
+  else boardReturnParams.delete('ot_estado');
+  copyGlobalQuery(searchParams, boardReturnParams);
+  const boardReturnUrl = `/produccion/ots-planta?${boardReturnParams.toString()}`;
+  const DailyBoardSurface = isDetail ? Box : Paper;
+  const FabricationSurface = isDetail ? Paper : Box;
+  const mangaList = selectedWork && (
+    <>
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        spacing={1}
+        alignItems={{ md: 'center' }}
+        sx={{ mb: 1.5 }}
+      >
+        <Typography fontWeight={850} sx={{ flex: 1 }}>
+          Mangas de {selectedWork.color}
+        </Typography>
+        {canPrelabel && (
+          <Button
+            variant="contained"
+            startIcon={<PrintOutlinedIcon />}
+            disabled={!selectedLabels.length || selectedLabels.length > 2}
+            onClick={generateLabels}
+          >
+            {prelabelButtonText}
+          </Button>
+        )}
+      </Stack>
+      <MangaTable
+        work={selectedWork}
+        canPrelabel={canPrelabel}
+        canAnnulManga={canAnnulManga}
+        canReplaceLabel={canReplaceLabel}
+        canViewWeighing={canViewWeighing}
+        canReattributeManga={canReattributeManga}
+        canCloseControl={can('MANGA_FINALIZAR_PARCIAL')}
+        onControlClosed={() => loadOts(selectedOtId, selectedWorkId)}
+        selectedLabels={selectedLabels}
+        selectedRelief={selectedRelief}
+        onToggleLabel={(id) => setSelectedLabels((current) => (
+          current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+        ))}
+        onToggleRelief={(id) => setSelectedRelief((current) => {
+          if (current.includes(id)) return current.filter((item) => item !== id);
+          const manga = (selectedWork.mangas || []).find((item) => item.public_id === id);
+          const selectsOpen = manga?.estado === 'CONTINUIDAD_PENDIENTE';
+          return [
+            ...current.filter((itemId) => {
+              const item = (selectedWork.mangas || []).find(
+                (candidate) => candidate.public_id === itemId,
+              );
+              return (item?.estado === 'CONTINUIDAD_PENDIENTE') === selectsOpen;
+            }),
+            id,
+          ];
+        })}
+        onAnnul={(manga) => {
+          setMangaActionReason('');
+          setMangaActionDialog({ type: 'annul', manga });
+        }}
+        onReplace={(manga) => {
+          setMangaActionReason('');
+          setMangaActionDialog({ type: 'replace', manga });
+        }}
+        onWeighing={openWeighing}
+        weighingBusy={weighingBusy}
+      />
+    </>
+  );
 
   return (
     <Stack spacing={2.5}>
@@ -2106,6 +3002,25 @@ export default function OtMangasScm({ view = 'all' }) {
         description="Consulta el turno completo y continúa el trabajo desde Máquinas o Centros de Armado sin mezclar sus responsabilidades."
         actions={(
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            {!isDetail && canCreateOt && (isGlobalView || perspective === 'FABRICACION') && (
+              <Button
+                startIcon={<AddOutlinedIcon />}
+                variant="contained"
+                disabled={isGlobalView && (busy || globalCatalogState !== 'ready')}
+                onClick={() => {
+                  setError('');
+                  setHeaderForm((current) => ({
+                    ...current,
+                    fecha_operativa: listFilters.fecha_operativa,
+                    turno: listFilters.turno,
+                    maquina_id: '',
+                  }));
+                  setCreationOpen(true);
+                }}
+              >
+                Nueva OT
+              </Button>
+            )}
             {isDetail && (
               <Button
                 component={RouterLink}
@@ -2122,7 +3037,134 @@ export default function OtMangasScm({ view = 'all' }) {
           </Stack>
         )}
       />
-      <ProcessJourney current="jornada" />
+      {!isDetail && (
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={isGlobalView ? 'global' : 'board'}
+          aria-label="Vista de OTs"
+          onChange={(_event, nextView) => {
+            if (!nextView) return;
+            navigate(nextView === 'global' ? globalIndexUrl : boardReturnUrl);
+          }}
+          sx={{ alignSelf: 'flex-start' }}
+        >
+          <ToggleButton value="board">Tablero diario</ToggleButton>
+          <ToggleButton value="global">Todas las OT</ToggleButton>
+        </ToggleButtonGroup>
+      )}
+      {canCreateOt && (
+        <Dialog
+          open={creationOpen}
+          onClose={() => setCreationOpen(false)}
+          fullWidth
+          fullScreen={compactCreation}
+          maxWidth="md"
+          aria-labelledby="ot-create-title"
+        >
+          <DialogTitle id="ot-create-title">Nueva OT de máquina</DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={2} sx={{ pt: 0.5 }}>
+              <Typography variant="body2" color="text.secondary">
+                Define dónde y cuándo se trabajará. Los trabajos de color se agregan después como una cola.
+              </Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
+                  gap: 1.5,
+                }}
+              >
+                <TextField
+                  label="Fecha operativa"
+                  type="date"
+                  autoFocus
+                  value={headerForm.fecha_operativa}
+                  InputLabelProps={{ shrink: true }}
+                  onChange={(event) => setHeaderForm((current) => ({
+                    ...current, fecha_operativa: event.target.value,
+                  }))}
+                  fullWidth
+                />
+                <FormControl fullWidth>
+                  <InputLabel>Máquina</InputLabel>
+                  <Select
+                    label="Máquina"
+                    inputProps={{ 'aria-label': 'Máquina' }}
+                    value={headerForm.maquina_id}
+                    onChange={(event) => setHeaderForm((current) => ({
+                      ...current, maquina_id: event.target.value,
+                    }))}
+                  >
+                    <MenuItem value=""><em>Seleccionar máquina</em></MenuItem>
+                    {catalogs.machines.map((item) => (
+                      <MenuItem key={item.id} value={item.id}>
+                        <Box component="span" sx={{ display: 'grid', lineHeight: 1.15 }}>
+                          <Typography component="span" variant="body2">{item.nombre || item.codigo || item.id}</Typography>
+                          {item.codigo && item.codigo !== item.nombre && <Typography component="span" variant="caption" color="text.secondary">{item.codigo}</Typography>}
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl fullWidth>
+                  <InputLabel>Turno</InputLabel>
+                  <Select
+                    label="Turno"
+                    inputProps={{ 'aria-label': 'Turno' }}
+                    value={headerForm.turno}
+                    onChange={(event) => setHeaderForm((current) => ({
+                      ...current, turno: event.target.value,
+                    }))}
+                  >
+                    <MenuItem value="DIA">Día</MenuItem>
+                    <MenuItem value="NOCHE">Noche</MenuItem>
+                    <MenuItem value="EXTRA">Extra</MenuItem>
+                  </Select>
+                </FormControl>
+                <FormControl fullWidth>
+                  <InputLabel>Maquinista predeterminado</InputLabel>
+                  <Select
+                    label="Maquinista predeterminado"
+                    inputProps={{ 'aria-label': 'Maquinista predeterminado' }}
+                    value={headerForm.maquinista_predeterminado_id}
+                    onChange={(event) => setHeaderForm((current) => ({
+                      ...current, maquinista_predeterminado_id: event.target.value,
+                    }))}
+                  >
+                    <MenuItem value=""><em>Asignar en cada trabajo</em></MenuItem>
+                    {catalogs.workers.map((item) => (
+                      <MenuItem key={item.id} value={item.id}>{item.nombre_completo}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+              {error && (
+                <Alert severity="error" onClose={() => setError('')}>
+                  {error}
+                </Alert>
+              )}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => {
+                setCreationOpen(false);
+              }}
+            >
+              Cancelar
+            </Button>
+            <OtCreationReview
+              form={headerForm}
+              disabled={busy || (isGlobalView && globalCatalogState !== 'ready')}
+              onConfirm={createHeader}
+              onRefresh={() => loadOts(selectedOtId)}
+              machine={catalogs.machines.find((item) => String(item.id) === String(headerForm.maquina_id))?.codigo}
+              worker={catalogs.workers.find((item) => String(item.id) === String(headerForm.maquinista_predeterminado_id))?.nombre_completo}
+            />
+          </DialogActions>
+        </Dialog>
+      )}
       {!hasOperationalActions && (
         <Alert severity="info">
           Vista de consulta para {experience.label}. Las acciones se muestran a los responsables de la jornada.
@@ -2134,11 +3176,41 @@ export default function OtMangasScm({ view = 'all' }) {
           onClose={() => setPackagingBlocker(null)}
         />
       )}
-      {error && !workCreateOpen && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      {identityError && (
+        <Alert severity="error" role="alert" data-testid="ot-identity-error">
+          <AlertTitle>Identidad no encontrada</AlertTitle>
+          {identityError} No se seleccionó otra OT, Trabajo ni manga automáticamente.
+        </Alert>
+      )}
+      {error && !workCreateOpen && !creationOpen && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
       {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
 
-      {!isDetail && (
-      <PlantJourneysOverview
+      {isGlobalView && (
+        <>
+          {globalCatalogError && (
+            <Alert severity="error" action={<Button color="inherit" size="small" onClick={refresh}>Reintentar</Button>}>
+              {globalCatalogError}
+            </Alert>
+          )}
+          {globalWorkerWarning && (
+            <Alert severity="warning" action={<Button color="inherit" size="small" onClick={refresh}>Reintentar</Button>}>
+              {globalWorkerWarning}
+            </Alert>
+          )}
+          <OtGlobalIndex
+            actorId={actorId}
+            reloadSignal={globalReloadSignal}
+            orders={catalogs.orders}
+            molds={catalogs.molds}
+            machines={catalogs.allMachines}
+            catalogWarning={moldCatalogWarning}
+          />
+        </>
+      )}
+
+      {!isGlobalView && <DailyBoardSurface data-testid="daily-board-surface" {...(!isDetail ? { variant: 'outlined' } : {})} sx={{ p: isDetail ? 0 : { xs: 1.25, md: 2 } }}>
+      {!isDetail && <Typography component="h2" variant="h6" fontWeight={850}>Tablero diario</Typography>}
+      {!isDetail && <PlantJourneysOverview
         filters={listFilters}
         onFiltersChange={setListFilters}
         onSubmit={applyListFilters}
@@ -2151,152 +3223,36 @@ export default function OtMangasScm({ view = 'all' }) {
         assemblyCenterCount={assemblyCenterCount}
         assemblyOts={assemblyOts}
         assemblyCenters={assemblyCenters}
+        journeysReturnTo={boardReturnUrl}
         centerCatalogWarning={centerCatalogWarning}
         journeyWarnings={journeyWarnings}
         selectedAssemblyOtId={assemblyContextOtId}
-      />
-      )}
+        machineOptions={boardMachines}
+        machineFilter={listFilters.maquina_id}
+        onMachineFilterChange={changeMachineFilter}
+         boardStateFilter={dailyBoardFilter}
+         onBoardStateFilterChange={changeDailyBoardFilter}
+         boardStatusCounts={boardStatusCounts}
+        embedded
+      />}
 
       <Stack
         id="plant-journeys-panel-fabrication"
-        role="tabpanel"
-        aria-labelledby="plant-journeys-tab-fabrication"
-        hidden={perspective !== 'FABRICACION'}
+        aria-hidden={isGlobalView ? 'true' : undefined}
+        role={!isDetail ? 'tabpanel' : undefined}
+        aria-labelledby={!isDetail ? 'plant-journeys-tab-fabrication' : undefined}
+        hidden={isGlobalView || perspective !== 'FABRICACION'}
         spacing={2.5}
-        sx={{ display: perspective === 'FABRICACION' ? 'flex' : 'none' }}
+        sx={{ display: isGlobalView ? 'none' : (perspective === 'FABRICACION' ? 'flex' : 'none') }}
       >
 
-      {!isDetail && (
-      <Paper
-        ref={creationRef}
-        tabIndex={-1}
-        aria-label="Preparar OT de máquina"
-        variant="outlined"
-        sx={{ p: 2 }}
-      >
-        <Typography variant="overline" color="primary.main">1 · Jornada de máquina</Typography>
-        <Typography component="h2" variant="h6" fontWeight={850}>
-          Crear una OT sin amarrarla a un color
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Define solamente dónde y cuándo se trabajará. Los colores se agregan después como una cola.
-        </Typography>
-        <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5}>
-          <TextField
-            label="Fecha operativa"
-            type="date"
-            value={headerForm.fecha_operativa}
-            InputLabelProps={{ shrink: true }}
-            onChange={(event) => setHeaderForm({
-              ...headerForm, fecha_operativa: event.target.value,
-            })}
-          />
-          <FormControl sx={{ minWidth: 230 }}>
-            <InputLabel>Máquina</InputLabel>
-            <Select
-              label="Máquina"
-              value={headerForm.maquina_id}
-              onChange={(event) => setHeaderForm({
-                ...headerForm, maquina_id: event.target.value,
-              })}
-            >
-              {catalogs.machines.map((item) => (
-                <MenuItem key={item.id} value={item.id}>{item.codigo} · {item.nombre}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl sx={{ minWidth: 130 }}>
-            <InputLabel>Turno</InputLabel>
-            <Select
-              label="Turno"
-              value={headerForm.turno}
-              onChange={(event) => setHeaderForm({ ...headerForm, turno: event.target.value })}
-            >
-              <MenuItem value="DIA">Día</MenuItem>
-              <MenuItem value="NOCHE">Noche</MenuItem>
-              <MenuItem value="EXTRA">Extra</MenuItem>
-            </Select>
-          </FormControl>
-          <FormControl sx={{ minWidth: 230 }}>
-            <InputLabel>Maquinista predeterminado</InputLabel>
-            <Select
-              label="Maquinista predeterminado"
-              value={headerForm.maquinista_predeterminado_id}
-              onChange={(event) => setHeaderForm({
-                ...headerForm, maquinista_predeterminado_id: event.target.value,
-              })}
-            >
-              <MenuItem value=""><em>Asignar en cada trabajo</em></MenuItem>
-              {catalogs.workers.map((item) => (
-                <MenuItem key={item.id} value={item.id}>{item.nombre_completo}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          {canCreateOt && (
-            <OtCreationReview form={headerForm} disabled={busy} onConfirm={createHeader} onRefresh={() => loadOts(selectedOtId)}
-              machine={catalogs.machines.find((item) => String(item.id) === String(headerForm.maquina_id))?.codigo}
-              worker={catalogs.workers.find((item) => String(item.id) === String(headerForm.maquinista_predeterminado_id))?.nombre_completo} />
-          )}
-        </Stack>
-      </Paper>
-
-      )}
       {busy && <Box sx={{ display: 'grid', placeItems: 'center', py: 2 }}><CircularProgress /></Box>}
 
-      <Paper variant="outlined" sx={{ p: 2 }}>
+      <FabricationSurface {...(isDetail ? { variant: 'outlined' } : {})} sx={{ p: 2 }}>
         {!isDetail && (<>
-        <Typography variant="overline" color="primary.main">2 · Tablero diario por máquina</Typography>
-        <Typography component="h2" variant="h6" fontWeight={850}>
-          Estado del turno de un vistazo
-        </Typography>
         <Typography variant="body2" color="text.secondary">
-          Cada máquina permanece visible aunque todavía no tenga OT. Abre una tarjeta para continuar en su detalle.
+           Filtra las máquinas de la jornada y abre una tarjeta para consultar o continuar su detalle.
         </Typography>
-        <Paper variant="outlined" sx={{ p: 1.5, my: 1.5, bgcolor: 'grey.50' }}>
-          <Stack
-            direction={{ xs: 'column', md: 'row' }}
-            spacing={1.5}
-            alignItems={{ md: 'center' }}
-          >
-            <Box sx={{ flex: 1 }}>
-              <Typography fontWeight={850}>Detalle de Máquinas</Typography>
-              <Typography variant="body2" color="text.secondary">
-                Este selector enfoca el detalle; no cambia el tablero ni el turno consultado.
-              </Typography>
-            </Box>
-            <FormControl size="small" sx={{ minWidth: 260 }}>
-              <InputLabel>Filtrar lista por máquina</InputLabel>
-              <Select
-                label="Filtrar lista por máquina"
-                value={listFilters.maquina_id}
-                onChange={(event) => {
-                  const machineId = event.target.value;
-                  setListFilters({ ...listFilters, maquina_id: machineId });
-                  const nextOt = machineId
-                    ? ots.find(
-                      (item) => String(machineIdFromOt(item)) === String(machineId),
-                    )
-                    : ots[0];
-                  if (nextOt) {
-                    setSelectedOtId(nextOt.public_id);
-                    setSelectedWorkId(nextOt.trabajos_color?.[0]?.id || '');
-                  } else {
-                    setSelectedOtId('');
-                    setSelectedWorkId('');
-                  }
-                }}
-              >
-                <MenuItem value=""><em>Todas las máquinas</em></MenuItem>
-                {boardMachines.map((item) => (
-                  <MenuItem key={item.id} value={item.id}>
-                    {item.codigo} · {item.nombre}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Stack>
-        </Paper>
-
         <DailyMachineBoard
           machines={boardMachines}
           ots={ots}
@@ -2305,6 +3261,10 @@ export default function OtMangasScm({ view = 'all' }) {
           selectedOtId={selectedOtId}
           canCreateOt={canCreateOt}
           onOpen={openMachineCard}
+           machineFilter={listFilters.maquina_id}
+           stateFilter={dailyBoardFilter}
+           hideSummary
+           onResetFilters={resetDailyBoardFilters}
         />
 
         <Divider sx={{ my: 2.5 }} />
@@ -2339,9 +3299,12 @@ export default function OtMangasScm({ view = 'all' }) {
                 label="OT de máquina"
                 value={selectedFilteredOtId}
                 onChange={(event) => {
+                  identityNavigationRef.current = true;
                   setSelectedOtId(event.target.value);
                   const next = ots.find((item) => item.public_id === event.target.value);
                   setSelectedWorkId(next?.trabajos_color?.[0]?.id || '');
+                  setSelectedMangaId('');
+                  setIdentityError('');
                 }}
               >
                 {filteredOts.map((item) => (
@@ -2380,7 +3343,7 @@ export default function OtMangasScm({ view = 'all' }) {
           </Alert>
         ) : null}
         </>)}
-      </Paper>
+      </FabricationSurface>
 
       {!isLanding && (<>
       {selectedOt?.cierre_kg && <Alert severity="info">
@@ -2388,9 +3351,22 @@ export default function OtMangasScm({ view = 'all' }) {
         {selectedOt.cierre_kg.kg_fabricacion_estimado != null && ` Fabricación estimada desde WIP concurrente: ${selectedOt.cierre_kg.kg_fabricacion_estimado} kg.`}
         {' '}El cierre no acredita stock.
       </Alert>}
+      <Box
+        data-testid="ot-master-detail"
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr)',
+          gap: 1.5,
+          alignItems: 'start',
+          minWidth: 0,
+        }}
+      >
       {selectedOt && selectedOt.estado !== 'ANULADA' && (
-        <Paper component="section" aria-labelledby="ot-work-navigation-title" variant="outlined"
-          sx={{ p: 1.5, position: 'sticky', top: 0, zIndex: 3, minWidth: 0 }}>
+        <Paper component="section" data-testid="ot-work-queue" aria-labelledby="ot-work-navigation-title" variant="outlined"
+          sx={{
+            p: 1.5, position: { xs: 'static', lg: 'sticky' }, top: 0, zIndex: 3, minWidth: 0,
+            scrollSnapType: { xs: 'x proximity', lg: 'none' },
+          }}>
           <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
             <Box>
               <Typography component="h2" id="ot-work-navigation-title" variant="subtitle1" fontWeight={850}>
@@ -2402,85 +3378,212 @@ export default function OtMangasScm({ view = 'all' }) {
             </Box>
             {canCreateOt && ['PLANIFICADA', 'EN_EJECUCION'].includes(selectedOt.estado) && (
               <Button variant={works.length ? 'outlined' : 'contained'} disabled={busy}
-                onClick={() => { setError(''); setWorkCreateOpen(true); }}>
+                onClick={() => {
+                  setError('');
+                  setFabricationOrderInputDirty(false);
+                  setWorkCreateOpen(true);
+                }}>
                 Agregar trabajo
               </Button>
             )}
           </Stack>
-          <ColorWorkQueue works={works} selectedWorkId={selectedWorkId} onSelect={(id) => {
+          {works.length > 1 && (
+            <details open data-testid="ot-work-queue-disclosure">
+              <summary style={{ cursor: 'pointer', fontWeight: 700, padding: '4px 0 8px' }}>
+                Cola plegable · {works.length} trabajos · Consultando: {selectedWork?.color || 'sin color'}
+              </summary>
+              <ColorWorkQueue works={works} selectedWorkId={selectedWorkId} onSelect={(id) => {
+                identityNavigationRef.current = true;
+                setSelectedWorkId(id);
+                setSelectedMangaId('');
+                setIdentityError('');
+                workDetailRef.current?.scrollIntoView?.({ block: 'start' });
+              }} />
+            </details>
+          )}
+          {works.length === 1 && <ColorWorkQueue compact works={works} selectedWorkId={selectedWorkId} onSelect={(id) => {
+            identityNavigationRef.current = true;
             setSelectedWorkId(id);
+            setSelectedMangaId('');
+            setIdentityError('');
             workDetailRef.current?.scrollIntoView?.({ block: 'start' });
-          }} />
+          }} />}
         </Paper>
       )}
       {selectedOt && canCreateOt && ['PLANIFICADA', 'EN_EJECUCION'].includes(selectedOt.estado) && (
-        <Dialog open={workCreateOpen} onClose={() => { if (!busy) setWorkCreateOpen(false); }}
-          fullWidth maxWidth="md" aria-labelledby="add-color-work-title">
+        <Dialog open={workCreateOpen} onClose={() => {
+          if (!busy) {
+            setFabricationOrderInputDirty(false);
+            setWorkCreateOpen(false);
+          }
+        }}
+          fullWidth maxWidth="md" aria-labelledby="add-color-work-title"
+          fullScreen={compactCreation}
+          slotProps={{
+            paper: {
+              sx: {
+                m: { xs: 0.5, sm: 2 },
+                width: { xs: 'calc(100% - 8px)', sm: 'calc(100% - 32px)' },
+                maxHeight: { xs: 'calc(100dvh - 8px)', sm: 'calc(100dvh - 32px)' },
+              },
+            },
+          }}>
           <DialogTitle id="add-color-work-title">
             Agregar Trabajo de color
           </DialogTitle>
           <DialogContent dividers>
-          <Typography fontWeight={800} sx={{ mb: 1 }}>
-            Destino: {selectedOt.codigo_ot} · {selectedOt.maquina_codigo || selectedOt.maquina}
-          </Typography>
+          <Box sx={{ mb: 1.5, minWidth: 0 }} data-testid="color-work-destination">
+            <Typography fontWeight={800} sx={{ overflowWrap: 'anywhere' }}>
+              Destino: {machineNameFromOt(selectedOt)}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+              OT {selectedOt.codigo_ot}
+              {machineCodeFromOt(selectedOt) && ` · código ${machineCodeFromOt(selectedOt)}`}
+            </Typography>
+          </Box>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            Este formulario prepara un nuevo trabajo. No modifica el trabajo que estabas consultando.
+            Agrega un trabajo nuevo sin modificar el trabajo consultado. La OF define el color y las salidas desde su configuración liberada; no se escriben manualmente.
           </Typography>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
           {packagingBlocker && <PackagingConfigurationBlocker blocker={packagingBlocker}
             onClose={() => setPackagingBlocker(null)} />}
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Selecciona la OF. El color y las salidas provienen de su configuración liberada; no se escriben manualmente.
-          </Typography>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
-            <FormControl sx={{ minWidth: 260 }}>
-              <InputLabel id="fabrication-order-select-label">
-                Orden de fabricación
-              </InputLabel>
-              <Select
+          {moldCatalogWarning && (
+            <Alert severity="warning" sx={{ mb: 2 }} action={(
+              <Button color="inherit" size="small" onClick={loadMoldCatalog}>
+                Reintentar moldes
+              </Button>
+            )}>
+              {moldCatalogWarning}
+            </Alert>
+          )}
+          <Stack spacing={1.25} sx={{ mb: 2 }}>
+            <Autocomplete
                 id="fabrication-order-select"
-                labelId="fabrication-order-select-label"
-                label="Orden de fabricación"
-                value={workForm.orderId}
-                onChange={(event) => selectOrder(event.target.value)}
-              >
-                {eligibleOrders.map((item) => (
-                  <MenuItem key={item.id} value={item.id}>{item.codigo}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+                options={eligibleOrders}
+                value={selectedOrder}
+                fullWidth
+                clearOnBlur={false}
+                sx={{ width: '100%', minWidth: 0 }}
+                isOptionEqualToValue={(option, value) => String(option.id) === String(value.id)}
+                getOptionLabel={fabricationOrderLabel}
+                filterOptions={(options, state) => {
+                  const query = normalizeCatalogSearch(state.inputValue);
+                  if (!query) return options;
+                  return options.filter((item) => fabricationOrderSearchText(item).includes(query));
+                }}
+                onInputChange={(_event, _value, reason) => {
+                  if (reason === 'input') {
+                    setFabricationOrderInputDirty(true);
+                    return;
+                  }
+                  if (reason === 'selectOption') {
+                    setFabricationOrderInputDirty(false);
+                  }
+                }}
+                onClose={(_event, reason) => {
+                  if (reason === 'selectOption') setFabricationOrderInputDirty(false);
+                }}
+                onChange={(_event, nextOrder, reason) => {
+                  // Clearing is an explicit reset; typing alone never changes
+                  // the selected OF or its already-consulted plan.
+                  if (reason === 'clear') {
+                    selectOrder('');
+                    return;
+                  }
+                  selectOrder(nextOrder?.id || '');
+                }}
+                noOptionsText="Sin OF que coincida con molde, código o ID"
+                renderOption={(props, item) => {
+                  const mold = fabricationOrderMoldLabel(item);
+                  const { key, ...optionProps } = props;
+                  return (
+                    <Box component="li" key={key} {...optionProps} aria-label={mold ? undefined : item.codigo}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography fontWeight={850} sx={{ overflowWrap: 'anywhere' }}>
+                          {mold || 'Molde no informado'}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                          OF: {item.codigo} · ID: {item.id}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  );
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Orden de fabricación"
+                    placeholder="Buscar por molde, código o ID de OF"
+                    helperText={fabricationOrderInputDirty
+                      ? 'Selecciona una OF de los resultados para confirmar la búsqueda'
+                      : undefined}
+                  />
+                )}
+              />
+            {selectedOrder && canViewFabricationOrders && (
+              <Box data-testid="fabrication-order-selection" sx={{ minWidth: 0 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: { xs: 'block', sm: 'none' }, overflowWrap: 'anywhere' }}
+                >
+                  OF: {selectedOrder.codigo}
+                </Typography>
+                <Button component={RouterLink} target="_blank" rel="noopener noreferrer"
+                  to={`/produccion/ordenes-fabricacion?of=${encodeURIComponent(selectedOrder.id)}`}
+                  size="small" sx={{ alignSelf: 'flex-start', px: 0.5 }}>
+                  Ver OF
+                </Button>
+              </Box>
+            )}
             {availableRuns.length === 1 && (
-              <Paper
+              <Box
                 data-testid="single-production-color"
-                variant="outlined"
-                sx={{ px: 1.75, py: 1.25, minWidth: { md: 280 }, flex: 1 }}
+                sx={{
+                  minWidth: 0,
+                  py: 0.75,
+                  borderBottom: 1,
+                  borderColor: 'divider',
+                }}
               >
                 <Typography variant="caption" color="text.secondary">
                   Color a fabricar
                 </Typography>
-                <Typography fontWeight={900}>
-                  {productionColorName(availableRuns[0], draftPlan?.lineas)}
-                </Typography>
+                <ProductionColorLabel
+                  name={productionColorName(availableRuns[0], draftPlan?.lineas)}
+                  hex={productionColorHex(availableRuns[0])}
+                />
                 <Typography variant="body2" color="text.secondary">
                   {productionRunArticleNames(
                     availableRuns[0], draftPlan?.lineas,
-                  ).join(', ') || 'Artículo no informado en la OF'} · {selectedOrder.codigo}
+                  ).join(', ') || 'Artículo no informado en la OF'}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" display="block">
                   {selectedRunHasColor
                     ? 'Definido en la configuración liberada de la OF; no se edita aquí.'
                     : 'Completa el color en la configuración de la OF y libérala nuevamente.'}
                 </Typography>
-              </Paper>
+              </Box>
             )}
             {availableRuns.length > 1 && (
-              <FormControl sx={{ minWidth: 260 }}>
+              <FormControl fullWidth sx={{ minWidth: 0 }}>
                 <InputLabel id="production-color-select-label">Color a fabricar</InputLabel>
                 <Select
                   id="production-color-select"
                   labelId="production-color-select-label"
                   label="Color a fabricar"
                   value={workForm.runId}
+                  sx={{ '& .MuiSelect-select': { whiteSpace: 'normal', overflowWrap: 'anywhere' } }}
+                  renderValue={(value) => {
+                    const index = availableRuns.findIndex((run) => run.id === value);
+                    const run = availableRuns[index];
+                    return run ? (
+                      <ProductionColorLabel
+                        name={productionRunOptionLabel(run, selectedOrder, draftPlan?.lineas, index)}
+                        hex={productionColorHex(run)}
+                      />
+                    ) : '';
+                  }}
                   onChange={(event) => setWorkForm({
                     ...workForm, runId: event.target.value,
                   })}
@@ -2489,28 +3592,45 @@ export default function OtMangasScm({ view = 'all' }) {
                     <MenuItem
                       key={item.id}
                       value={item.id}
+                      sx={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}
                       disabled={productionColorName(
                         item, draftPlan?.lineas,
                       ) === UNKNOWN_PRODUCTION_COLOR}
                     >
-                      {productionRunOptionLabel(
-                        item, selectedOrder, draftPlan?.lineas, index,
-                      )}
+                      <ProductionColorLabel
+                        name={productionRunOptionLabel(item, selectedOrder, draftPlan?.lineas, index)}
+                        hex={productionColorHex(item)}
+                      />
                     </MenuItem>
                   ))}
                 </Select>
               </FormControl>
             )}
             {selectedOrder && availableRuns.length === 0 && (
-              <Alert severity="warning" sx={{ minWidth: { md: 280 } }}>
+              <Alert severity="warning">
                 Esta OF no tiene colores liberados para fabricar.
               </Alert>
             )}
-            <Stack spacing={0.5} sx={{ minWidth: 240 }} data-testid="work-initial-worker">
+            <Stack
+              direction="row"
+              spacing={0.75}
+              useFlexGap
+              alignItems="center"
+              flexWrap="wrap"
+              sx={{ minWidth: 0, py: 0.75, borderBottom: 1, borderColor: 'divider' }}
+              data-testid="work-initial-worker"
+            >
               {defaultWorkWorker && !editingWorkWorker ? (
                 <>
-                  <Typography fontWeight={700}>Maquinista: {defaultWorkWorker.nombre_completo}</Typography>
-                  <Typography variant="caption" color="text.secondary">Tomado de la OT</Typography>
+                  <Typography variant="body2" fontWeight={700} sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                    Maquinista: {defaultWorkWorker.nombre_completo}
+                    <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.75 }}>
+                      ·
+                    </Typography>{' '}
+                    <Typography component="span" variant="caption" color="text.secondary">
+                      Tomado de la OT
+                    </Typography>
+                  </Typography>
                   <Button
                     size="small"
                     disabled={busy}
@@ -2551,13 +3671,6 @@ export default function OtMangasScm({ view = 'all' }) {
                 </>
               )}
             </Stack>
-            {selectedOrder && canViewFabricationOrders && (
-              <Button component={RouterLink} target="_blank" rel="noopener noreferrer"
-                to={`/produccion/ordenes-fabricacion?of=${encodeURIComponent(selectedOrder.id)}`}
-                sx={{ alignSelf: 'flex-start' }}>
-                Ver OF
-              </Button>
-            )}
           </Stack>
           <Stack spacing={1} sx={{ mb: 2 }}>
             <Typography component="h3" variant="subtitle1" fontWeight={800}>Propuesta de mangas</Typography>
@@ -2580,18 +3693,31 @@ export default function OtMangasScm({ view = 'all' }) {
             )}
             {planReady && (
               <>
-                <Typography variant="body2">{selectedOrder?.codigo} · Revisión {draftPlan.revision}. Son unidades de planificación, no un conteo físico confirmado.</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Recalcula solo si necesitas actualizar la propuesta con la configuración liberada de la OF y las reglas de empaque aprobadas. Genera otra revisión; no modifica la OF ni crea mangas.
-                </Typography>
+                <Typography variant="body2">Revisión {draftPlan.revision}. Son unidades de planificación, no un conteo físico confirmado.</Typography>
+                <details data-testid="manga-plan-tools">
+                  <summary style={{ cursor: 'pointer', fontWeight: 700 }}>
+                    Herramientas de propuesta
+                  </summary>
+                  <Stack spacing={0.75} sx={{ pt: 0.75 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Recalcula solo si necesitas actualizar la propuesta con la configuración liberada de la OF y las reglas de empaque aprobadas. Genera otra revisión; no modifica la OF ni crea mangas.
+                    </Typography>
+                    {planConsulted && !planLoadError && canManagePlan && (
+                      <Button variant="text" sx={{ alignSelf: 'flex-start' }}
+                        disabled={planBusy || busy} onClick={recalculateDraftPlan}>
+                        Recalcular propuesta
+                      </Button>
+                    )}
+                  </Stack>
+                </details>
                 {draftRunLines.length === 0 && <Alert severity="warning">La propuesta no tiene salidas para este color.</Alert>}
               </>
             )}
-            {planConsulted && !planLoadError && (
+            {planConsulted && !planLoadError && !draftPlan && (
               canManagePlan ? (
-                <Button variant={draftPlan ? 'text' : 'outlined'} sx={{ alignSelf: 'flex-start' }}
+                <Button variant="outlined" sx={{ alignSelf: 'flex-start' }}
                   disabled={planBusy || busy} onClick={recalculateDraftPlan}>
-                  {draftPlan ? 'Recalcular propuesta' : 'Calcular propuesta de mangas'}
+                  Calcular propuesta de mangas
                 </Button>
               ) : (
                 <Typography variant="body2">Para calcular o recalcular la propuesta, solicita apoyo a una persona autorizada.</Typography>
@@ -2603,6 +3729,19 @@ export default function OtMangasScm({ view = 'all' }) {
               <CircularProgress size={20} />
               <Typography variant="body2">Buscando mangas abiertas compatibles…</Typography>
             </Stack>
+          )}
+          {!continuityBusy && continuityError && (
+            <Alert
+              severity="error"
+              sx={{ mb: 2 }}
+              action={(
+                <Button onClick={() => setContinuityReload((value) => value + 1)}>
+                  Reintentar consulta
+                </Button>
+              )}
+            >
+              {continuityError}
+            </Alert>
           )}
           {!continuityBusy && continuityCandidates.length > 0 && (
             <Paper
@@ -2660,31 +3799,59 @@ export default function OtMangasScm({ view = 'all' }) {
               {kgAssignments.map(({ line, model }) => (
                 <WorkKgAllocation key={line.id}
                   line={{ ...line, color: line.color || productionColorName(selectedRun, draftPlan.lineas) }}
-                  model={model} disabled={busy || planBusy}
+                  model={model} disabled={busy || planBusy} compact
                   onEdit={(edit) => setWorkForm((current) => ({ ...current,
                     kgEdits: { ...current.kgEdits, [line.id]: edit },
                   }))} />
               ))}
             </Stack>
           )}
-          {planReady && validWorkQuantities && !hasWorkAllocation && (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Asigna una cantidad mayor que cero o selecciona una manga abierta compatible para continuar.
-            </Typography>
-          )}
           </DialogContent>
           <DialogActions>
-            <Button disabled={busy} onClick={() => setWorkCreateOpen(false)}>Volver sin agregar</Button>
-            <Button variant="contained" disabled={!canAddColorWork} onClick={createWork}>
-              {busy ? 'Agregando trabajo…' : 'Agregar a la cola de esta OT'}
-            </Button>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              alignItems={{ sm: 'center' }}
+              justifyContent={{ xs: 'flex-start', sm: 'flex-end' }}
+              sx={{ width: '100%', minWidth: 0 }}
+            >
+              {!canAddColorWork && colorWorkBlocker && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  data-testid="color-work-block-reason"
+                  role="status"
+                  sx={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}
+                >
+                  {colorWorkBlocker}
+                </Typography>
+              )}
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ width: { xs: '100%', sm: 'auto' } }}
+              >
+                <Button disabled={busy} onClick={() => setWorkCreateOpen(false)}>Volver sin agregar</Button>
+                <Button variant="contained" disabled={!canAddColorWork} onClick={createWork}>
+                  {busy ? 'Agregando trabajo…' : 'Agregar a la cola de esta OT'}
+                </Button>
+              </Stack>
+            </Stack>
           </DialogActions>
         </Dialog>
       )}
 
-      {selectedWork && (
-        <Paper component="section" aria-label="Trabajo consultado" ref={workDetailRef}
-          variant="outlined" sx={{ p: 2, minWidth: 0, scrollMarginTop: '290px' }}>
+      {selectedWork && !weighingDialog && (
+        <Paper component="section" data-testid="ot-work-detail" aria-label="Trabajo consultado"
+          ref={(node) => {
+            workDetailRef.current = node;
+            if (node && focusAfterWeighingRef.current?.type === 'work') {
+              node.focus({ preventScroll: true });
+            }
+          }} tabIndex={-1}
+          variant="outlined" sx={{
+            p: 2, minWidth: 0, scrollMarginTop: '290px', display: 'flex', flexDirection: 'column',
+          }}>
           <Typography variant="overline" color="primary.main">
             Trabajo consultado · {selectedWork.codigo || `Trabajo ${selectedWork.secuencia}`}
           </Typography>
@@ -2770,9 +3937,41 @@ export default function OtMangasScm({ view = 'all' }) {
               No se puede completar todavía: {pendingWorkMangas.length} manga(s) siguen sin pesar o anular.
             </Alert>
           )}
+          {selectedWorkPlanError && (
+            <Alert
+              severity="error"
+              sx={{ mb: 2 }}
+              action={(
+                <Button onClick={() => setSelectedWorkPlanReload((value) => value + 1)}>
+                  Reintentar consulta
+                </Button>
+              )}
+            >
+              {selectedWorkPlanError}
+            </Alert>
+          )}
+          {extraRequestsError && (
+            <Alert
+              severity="error"
+              sx={{ mb: 2 }}
+              action={(
+                <Button onClick={() => loadExtraRequests(selectedWorkOrderId, selectedWork.id).catch(() => {})}>
+                  Reintentar consulta
+                </Button>
+              )}
+            >
+              {extraRequestsError}
+            </Alert>
+          )}
+
+          <Box sx={{ minWidth: 0 }} data-testid="manga-list-before-tools">
+            {mangaList}
+          </Box>
 
           {!selectedWork.legacy && canCreateOt && (
-            <Paper variant="outlined" sx={{ p: 1.5, mb: 2, bgcolor: 'grey.50' }}>
+            <details open={selectedRelief.length > 0} style={{ order: 3 }}>
+            <summary>Herramientas de relevo</summary>
+            <Paper variant="outlined" sx={{ p: 1.5, mb: 2, bgcolor: 'grey.50', order: 3 }}>
               <Typography fontWeight={850}>Asignar o relevar maquinista</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                 Selecciona una manga controlada para conservarla incompleta con el nuevo responsable. Las mangas vacías transfieren su sticker; sin selección solo cambia el responsable del Trabajo.
@@ -2798,8 +3997,10 @@ export default function OtMangasScm({ view = 'all' }) {
               )}
               <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1}>
                 <FormControl size="small" sx={{ minWidth: 240 }}>
-                  <InputLabel>Nuevo maquinista</InputLabel>
+                  <InputLabel id="relief-worker-label">Nuevo maquinista</InputLabel>
                   <Select
+                    id="relief-worker"
+                    labelId="relief-worker-label"
                     label="Nuevo maquinista"
                     value={reliefForm.workerId}
                     onChange={(event) => setReliefForm({
@@ -2863,20 +4064,26 @@ export default function OtMangasScm({ view = 'all' }) {
                 Si la manga ya fue controlada en Pesaje, puedes relevarla aquí dentro de la misma OT. Para pasarla a otra OT usa la continuidad al agregar el Trabajo de color posterior. En ambos casos conserva manga y QR; el cierre final parcial solo sirve para terminarla definitivamente.
               </Alert>
             </Paper>
+            </details>
           )}
 
           {!selectedWork.legacy
+            && selectedWork.estado !== 'COMPLETADO'
             && (canPlanMangas || canRequestExtra)
             && selectedWorkLines.length > 0 && (
-            <Paper variant="outlined" sx={{ p: 1.5, mb: 2 }}>
+            <details style={{ order: 4 }}>
+            <summary>Herramientas de ampliación</summary>
+            <Paper variant="outlined" sx={{ p: 1.5, mb: 2, order: 4 }}>
               <Typography fontWeight={850}>Mangas adicionales para este color</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                 La salida y la solicitud quedan vinculadas únicamente a {selectedWork.color}.
               </Typography>
               <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1}>
                 <FormControl size="small" sx={{ minWidth: 280 }}>
-                  <InputLabel>Salida de este trabajo</InputLabel>
+                  <InputLabel id="manga-plan-line-label">Salida de este trabajo</InputLabel>
                   <Select
+                    id="manga-plan-line"
+                    labelId="manga-plan-line-label"
                     label="Salida de este trabajo"
                     value={mangaAllocation.plan_linea_id}
                     onChange={(event) => setMangaAllocation({
@@ -2928,12 +4135,13 @@ export default function OtMangasScm({ view = 'all' }) {
                 )}
               </Stack>
             </Paper>
+            </details>
           )}
 
           {canApproveExtra && extraRequests.length > 0 && (
             <Paper
               variant="outlined"
-              sx={{ p: 1.5, mb: 2, borderColor: 'warning.light' }}
+              sx={{ p: 1.5, mb: 2, borderColor: 'warning.light', order: 5 }}
             >
               <Typography fontWeight={850}>Autorizaciones EXTRA de este color</Typography>
               <Stack spacing={1} sx={{ mt: 1 }}>
@@ -2963,70 +4171,14 @@ export default function OtMangasScm({ view = 'all' }) {
             </Paper>
           )}
 
-          <Stack
-            direction={{ xs: 'column', md: 'row' }}
-            spacing={1}
-            alignItems={{ md: 'center' }}
-            sx={{ mb: 1.5 }}
-          >
-            <Typography fontWeight={850} sx={{ flex: 1 }}>
-              Mangas de {selectedWork.color}
-            </Typography>
-            {canPrelabel && (
-              <Button
-                variant="contained"
-                startIcon={<PrintOutlinedIcon />}
-                disabled={!selectedLabels.length || selectedLabels.length > 2}
-                onClick={generateLabels}
-              >
-                {prelabelButtonText}
-              </Button>
-            )}
-          </Stack>
-          <MangaTable
-            work={selectedWork}
-            canPrelabel={canPrelabel}
-            canAnnulManga={canAnnulManga}
-            canReplaceLabel={canReplaceLabel}
-            canViewWeighing={canViewWeighing}
-            canReattributeManga={canReattributeManga}
-            canCloseControl={can('MANGA_FINALIZAR_PARCIAL')}
-            onControlClosed={() => loadOts(selectedOtId, selectedWorkId)}
-            selectedLabels={selectedLabels}
-            selectedRelief={selectedRelief}
-            onToggleLabel={(id) => setSelectedLabels((current) => (
-              current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
-            ))}
-            onToggleRelief={(id) => setSelectedRelief((current) => {
-              if (current.includes(id)) return current.filter((item) => item !== id);
-              const manga = (selectedWork.mangas || []).find(
-                (item) => item.public_id === id,
-              );
-              const selectsOpen = manga?.estado === 'CONTINUIDAD_PENDIENTE';
-              return [
-                ...current.filter((itemId) => {
-                  const item = (selectedWork.mangas || []).find(
-                    (candidate) => candidate.public_id === itemId,
-                  );
-                  return (item?.estado === 'CONTINUIDAD_PENDIENTE') === selectsOpen;
-                }),
-                id,
-              ];
-            })}
-            onAnnul={(manga) => {
-              setMangaActionReason('');
-              setMangaActionDialog({ type: 'annul', manga });
-            }}
-            onReplace={(manga) => {
-              setMangaActionReason('');
-              setMangaActionDialog({ type: 'replace', manga });
-            }}
-            onWeighing={openWeighing}
-            weighingBusy={weighingBusy}
-          />
         </Paper>
       )}
-
+      <Box
+        ref={mangaDocumentSlotRef}
+        data-testid="manga-document-slot"
+        sx={{ gridColumn: { xs: '1', lg: '2' }, minWidth: 0 }}
+      />
+      </Box>
       {printJob && (
         <Alert severity="info">
           <Stack spacing={1}>
@@ -3086,6 +4238,7 @@ export default function OtMangasScm({ view = 'all' }) {
 
       </>)}
       </Stack>
+      </DailyBoardSurface>}
 
       <Dialog open={Boolean(workActionDialog)} onClose={() => setWorkActionDialog(null)} fullWidth maxWidth="sm">
         <DialogTitle>
@@ -3155,8 +4308,24 @@ export default function OtMangasScm({ view = 'all' }) {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={Boolean(weighingDialog)} onClose={() => setWeighingDialog(null)} fullWidth maxWidth="md">
-        <DialogTitle>Pesaje de {weighingDialog?.manga?.codigo}</DialogTitle>
+      {weighingDialog && mangaDocumentSlotRef.current && createPortal(
+        (
+      <Paper
+        ref={weighingDocumentRef}
+        component="article"
+        data-testid="manga-weighing-document"
+        aria-labelledby="manga-weighing-document-title"
+        variant="outlined"
+        sx={{
+          mb: 2, borderColor: 'primary.main', overflow: 'hidden', minWidth: 0,
+          gridColumn: { xs: '1', lg: '2' },
+          '& table': { minWidth: { xs: 0, sm: 520 } },
+          '& .MuiTableContainer-root': { overflowX: { xs: 'hidden', sm: 'auto' } },
+        }}
+      >
+        <DialogTitle id="manga-weighing-document-title" tabIndex={-1}>
+          Pesaje de {weighingDialog?.manga?.codigo}
+        </DialogTitle>
         <DialogContent>
           {weighingBusy && <CircularProgress size={24} />}
           {weighingDialog?.detail && (
@@ -3198,7 +4367,7 @@ export default function OtMangasScm({ view = 'all' }) {
                       Motivo: {weighingDialog.detail.correccion_asignacion.motivo}
                       {' · '}Actor: {weighingDialog.detail.correccion_asignacion.actor_id}
                     </Typography>
-                    <Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>
+                    <Typography variant="caption">
                       Operación: {weighingDialog.detail.correccion_asignacion.operation_id}
                     </Typography>
                     <Typography variant="body2">
@@ -3320,26 +4489,41 @@ export default function OtMangasScm({ view = 'all' }) {
                             {' / '}{assignmentCorrectionPreview.destino.trabajo_codigo}
                           </Typography>
                         </Alert>
-                        <TableContainer component={Paper} variant="outlined">
-                          <Table size="small" aria-label="Verificaciones de compatibilidad">
-                            <TableHead><TableRow>
-                              <TableCell>Verificación</TableCell>
-                              <TableCell>Origen</TableCell>
-                              <TableCell>Destino</TableCell>
-                              <TableCell>Resultado</TableCell>
-                            </TableRow></TableHead>
-                            <TableBody>
-                              {(assignmentCorrectionPreview.verificaciones || []).map((check) => (
-                                <TableRow key={check.campo}>
-                                  <TableCell>{check.etiqueta}</TableCell>
-                                  <TableCell>{check.origen ?? '—'}</TableCell>
-                                  <TableCell>{check.destino ?? '—'}</TableCell>
-                                  <TableCell>{check.coincide ? 'PASS' : 'FAIL'}</TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </TableContainer>
+                        {compactWeighing ? (
+                          <Stack spacing={1} data-testid="assignment-preview-cards">
+                            {(assignmentCorrectionPreview.verificaciones || []).map((check) => (
+                              <Paper key={check.campo} variant="outlined" sx={{ p: 1.25 }}>
+                                <Typography fontWeight={800}>{check.etiqueta}</Typography>
+                                <Typography variant="body2">Origen: {check.origen ?? '—'}</Typography>
+                                <Typography variant="body2">Destino: {check.destino ?? '—'}</Typography>
+                                <Typography variant="body2">
+                                  Resultado: {check.coincide ? 'PASS' : 'FAIL'}
+                                </Typography>
+                              </Paper>
+                            ))}
+                          </Stack>
+                        ) : (
+                          <TableContainer component={Paper} variant="outlined">
+                            <Table size="small" aria-label="Verificaciones de compatibilidad">
+                              <TableHead><TableRow>
+                                <TableCell>Verificación</TableCell>
+                                <TableCell>Origen</TableCell>
+                                <TableCell>Destino</TableCell>
+                                <TableCell>Resultado</TableCell>
+                              </TableRow></TableHead>
+                              <TableBody>
+                                {(assignmentCorrectionPreview.verificaciones || []).map((check) => (
+                                  <TableRow key={check.campo}>
+                                    <TableCell>{check.etiqueta}</TableCell>
+                                    <TableCell>{check.origen ?? '—'}</TableCell>
+                                    <TableCell>{check.destino ?? '—'}</TableCell>
+                                    <TableCell>{check.coincide ? 'PASS' : 'FAIL'}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        )}
                       </Stack>
                     )}
                     <TextField
@@ -3365,33 +4549,53 @@ export default function OtMangasScm({ view = 'all' }) {
                 </Paper>
               )}
               {weighingDialog.detail.original && (
-              <TableContainer component={Paper} variant="outlined">
-                <Table size="small">
-                  <TableHead><TableRow>
-                    <TableCell>Versión</TableCell>
-                    <TableCell align="right">Peso bruto (kg)</TableCell>
-                    <TableCell align="right">Tara (kg)</TableCell>
-                    <TableCell align="right">Peso neto real (kg)</TableCell>
-                    <TableCell align="right">Cantidad (un)</TableCell>
-                    <TableCell align="right">Peso fabricado teórico (kg)</TableCell>
-                  </TableRow></TableHead>
-                  <TableBody>
-                    {[
-                      ['Original', weighingDialog.detail.original],
-                      ['Vigente', weighingDialog.detail.vigente],
-                    ].filter(([, value]) => value).map(([label, value]) => (
-                      <TableRow key={label}>
-                        <TableCell>{label}</TableCell>
-                        <TableCell align="right">{value.peso_bruto_kg}</TableCell>
-                        <TableCell align="right">{value.tara_kg}</TableCell>
-                        <TableCell align="right">{value.peso_fisico_neto_kg}</TableCell>
-                        <TableCell align="right">{value.cantidad_confirmada}</TableCell>
-                        <TableCell align="right">{value.kg_produccion_ot}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+              compactWeighing ? (
+                <Stack spacing={1} data-testid="weighing-version-cards">
+                  {[
+                    ['Original', weighingDialog.detail.original],
+                    ['Vigente', weighingDialog.detail.vigente],
+                  ].filter(([, value]) => value).map(([label, value]) => (
+                    <Paper key={label} variant="outlined" sx={{ p: 1.25 }}>
+                      <Typography fontWeight={800}>{label}</Typography>
+                      <Stack spacing={0.25} sx={{ mt: 0.5 }}>
+                        <Typography variant="body2">Peso bruto: {value.peso_bruto_kg} kg</Typography>
+                        <Typography variant="body2">Tara: {value.tara_kg} kg</Typography>
+                        <Typography variant="body2">Peso neto real: {value.peso_fisico_neto_kg} kg</Typography>
+                        <Typography variant="body2">Cantidad: {value.cantidad_confirmada} un</Typography>
+                        <Typography variant="body2">Peso fabricado teórico: {value.kg_produccion_ot} kg</Typography>
+                      </Stack>
+                    </Paper>
+                  ))}
+                </Stack>
+              ) : (
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small">
+                    <TableHead><TableRow>
+                      <TableCell>Versión</TableCell>
+                      <TableCell align="right">Peso bruto (kg)</TableCell>
+                      <TableCell align="right">Tara (kg)</TableCell>
+                      <TableCell align="right">Peso neto real (kg)</TableCell>
+                      <TableCell align="right">Cantidad (un)</TableCell>
+                      <TableCell align="right">Peso fabricado teórico (kg)</TableCell>
+                    </TableRow></TableHead>
+                    <TableBody>
+                      {[
+                        ['Original', weighingDialog.detail.original],
+                        ['Vigente', weighingDialog.detail.vigente],
+                      ].filter(([, value]) => value).map(([label, value]) => (
+                        <TableRow key={label}>
+                          <TableCell>{label}</TableCell>
+                          <TableCell align="right">{value.peso_bruto_kg}</TableCell>
+                          <TableCell align="right">{value.tara_kg}</TableCell>
+                          <TableCell align="right">{value.peso_fisico_neto_kg}</TableCell>
+                          <TableCell align="right">{value.cantidad_confirmada}</TableCell>
+                          <TableCell align="right">{value.kg_produccion_ot}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )
               )}
 
               <PostWeighingLabelVisualization
@@ -3612,8 +4816,11 @@ export default function OtMangasScm({ view = 'all' }) {
             </Stack>
           )}
         </DialogContent>
-        <DialogActions><Button onClick={() => setWeighingDialog(null)}>Cerrar</Button></DialogActions>
-      </Dialog>
+        <DialogActions><Button onClick={closeWeighing}>Volver al Trabajo</Button></DialogActions>
+      </Paper>
+        ),
+        mangaDocumentSlotRef.current,
+      )}
     </Stack>
   );
 }

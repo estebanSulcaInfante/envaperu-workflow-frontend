@@ -41,6 +41,26 @@ import { activateScanAudio } from '../services/scmScanAudio';
 
 const expandedWidth = 248;
 const collapsedWidth = 76;
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'enva-scm.sidebar-collapsed';
+
+function readSidebarPreference() {
+  try {
+    const stored = window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
+    if (stored === 'true') return true;
+    if (stored === 'false') return false;
+  } catch {
+    // Storage can be unavailable in privacy-restricted or embedded browsers.
+  }
+  return null;
+}
+
+function writeSidebarPreference(collapsed) {
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));
+  } catch {
+    // Keep the in-memory preference usable when persistence is unavailable.
+  }
+}
 
 const icons = {
   dashboard: DashboardOutlinedIcon,
@@ -136,6 +156,7 @@ function NavigationList({
               <ListItemButton
                 {...parentProps}
                 selected={active}
+                aria-label={collapsed ? area.label : undefined}
                 sx={navButtonSx(active, false, collapsed)}
               >
                 <ListItemIcon sx={{ minWidth: collapsed ? 0 : 40, color: 'inherit' }}>
@@ -219,8 +240,13 @@ function Sidebar() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isIntermediate = useMediaQuery(theme.breakpoints.between('md', 'lg'));
+  const isOtRoute = location.pathname === '/produccion/ots-planta'
+    || location.pathname.startsWith('/produccion/ots-planta/');
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(isIntermediate);
+  const [storedPreference, setStoredPreference] = useState(readSidebarPreference);
+  const [collapsed, setCollapsed] = useState(
+    () => storedPreference ?? (isOtRoute || isIntermediate),
+  );
   const workspace = useActorWorkspace();
   const value = `${location.pathname}${location.search}`;
   const registeredFeature = getWorkspaceFeature(value);
@@ -229,16 +255,18 @@ function Sidebar() {
     () => new Set(activeFeature?.areaKey ? [activeFeature.areaKey] : []),
   );
   useEffect(() => {
-    setCollapsed(isIntermediate);
-  }, [isIntermediate]);
-  useEffect(() => {
     if (!activeFeature?.areaKey) return;
+    // The active route owns its section expansion; preserve manual toggles elsewhere.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setExpandedAreas((current) => new Set([...current, activeFeature.areaKey]));
   }, [activeFeature?.areaKey]);
   const areas = workspace.areas;
   const primaryAreas = areas.filter((area) => !area.support);
   const supportAreas = areas.filter((area) => area.support);
-  const compact = !isMobile && collapsed;
+  const effectiveCollapsed = storedPreference === null
+    ? (isOtRoute || isIntermediate)
+    : collapsed;
+  const compact = !isMobile && effectiveCollapsed;
   const width = compact ? collapsedWidth : expandedWidth;
   const handleNavigate = (path) => {
     if (path === '/almacen/salidas-retornos' || path === '/almacen/operaciones') {
@@ -253,6 +281,8 @@ function Sidebar() {
     return next;
   });
   const expandFromRail = (areaKey) => {
+    writeSidebarPreference(false);
+    setStoredPreference(false);
     setCollapsed(false);
     setExpandedAreas((current) => new Set([...current, areaKey]));
   };
@@ -269,7 +299,12 @@ function Sidebar() {
         )}
         {!isMobile ? (
           <IconButton
-            onClick={() => setCollapsed((current) => !current)}
+            onClick={() => setCollapsed((current) => {
+              const next = !current;
+              writeSidebarPreference(next);
+              setStoredPreference(next);
+              return next;
+            })}
             aria-label={compact ? 'Expandir navegación' : 'Contraer navegación'}
             sx={{ color: 'inherit', ml: compact ? 0 : 'auto' }}
           >

@@ -530,6 +530,18 @@ describe('OA y OT diaria de Armado', () => {
     expect(screen.getByRole('combobox', { name: 'Turno' })).toHaveTextContent('Noche');
   });
 
+  it('conserva el retorno interno a la bandeja global de OT', async () => {
+    listarOrdenesArmadoScm.mockResolvedValue({ items: [order] });
+    listarOtArmadoScm.mockResolvedValue({ items: [ot] });
+    renderView('/produccion/ordenes-armado?oa=oa-1&return_to=%2Fproduccion%2Fots-planta%3Fvista%3Dtodas%26gq%3DOT-1');
+
+    await waitFor(() => expect(listarOtArmadoScm).toHaveBeenCalledWith('oa-1'));
+    expect(await screen.findByRole('link', { name: 'Volver a Jornadas' })).toHaveAttribute(
+      'href',
+      '/produccion/ots-planta?vista=todas&gq=OT-1',
+    );
+  });
+
   it('limpia modalidad y contextos al cambiar de OA', async () => {
     const nextOrder = {
       ...order,

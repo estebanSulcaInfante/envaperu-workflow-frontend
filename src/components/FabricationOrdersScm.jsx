@@ -28,7 +28,6 @@ import {
 } from '../services/scmEngineeringApi';
 import * as scmEngineeringApi from '../services/scmEngineeringApi';
 import PageHeader from './ui/PageHeader';
-import ProcessJourney from './ui/ProcessJourney';
 import EmptyState from './ui/EmptyState';
 import OrderScheduleStrip from './ui/OrderScheduleStrip';
 import { useScmActor } from '../context/ScmActorContext';
@@ -1097,7 +1096,6 @@ export default function FabricationOrdersScm() {
           </Stack>
         )}
       />}
-      {!requestedOrderId && <ProcessJourney current="fabricacion" />}
       {!canEdit && !canRelease && (
         <Alert severity="info">
           Vista de consulta para {experience.label}. La configuración técnica y la liberación

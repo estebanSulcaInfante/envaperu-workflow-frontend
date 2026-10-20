@@ -18,7 +18,6 @@ import {
   mensajeErrorScm,
 } from '../services/scmEngineeringApi';
 import PageHeader from './ui/PageHeader';
-import ProcessJourney from './ui/ProcessJourney';
 import { buscarProductos } from '../services/api';
 import { listarPresentacionesComercialesScm } from '../services/scmCatalogApi';
 import { useScmActor } from '../context/ScmActorContext';
@@ -462,7 +461,6 @@ export default function ProductionPlanningScm() {
           </Stack>
         )}
       />
-      <ProcessJourney current="demanda" />
       {isReadOnly && (
         <Alert severity="info">
           Vista de consulta para {experience.label}. Las acciones de creación, cálculo y

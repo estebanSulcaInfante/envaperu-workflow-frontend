@@ -3,7 +3,7 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 
 import OtMangasScm from '../components/OtMangasScm';
 import { getTrabajadores } from '../services/api';
@@ -53,6 +53,7 @@ vi.mock('../services/api', () => ({
   obtenerMaquinas: vi.fn().mockResolvedValue([
     { id: 4, codigo: 'SOP-01', nombre: 'Sopladora 1' },
   ]),
+  obtenerMoldes: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('../services/scmOtApi', () => ({
@@ -223,6 +224,21 @@ const weighingDetail = {
   correcciones: [],
 };
 
+function UrlProbe() {
+  const location = useLocation();
+  return <output aria-label="URL actual">{location.pathname}{location.search}</output>;
+}
+
+function HistoryProbe() {
+  const navigate = useNavigate();
+  return <button type="button" onClick={() => navigate(-1)}>Volver historial</button>;
+}
+
+function HistoryForwardProbe() {
+  const navigate = useNavigate();
+  return <button type="button" onClick={() => navigate(1)}>Avanzar historial</button>;
+}
+
 describe('OT de máquina, Trabajos de color y mangas', () => {
   it('permite solicitar cierre documental KG sin conteo ni bloquear continuidad por estado global', async () => {
     const kgManga = { ...greenManga, unidad_inventario: 'KG', kg_medido: '5.000', estado: 'CONTINUIDAD_PENDIENTE' };
@@ -334,10 +350,63 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     </MemoryRouter>,
   );
 
+  const renderSubjectWithUrl = (initialEntries = ['/']) => render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <OtMangasScm />
+      <UrlProbe />
+    </MemoryRouter>,
+  );
+
   const openWorkCreator = async () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Agregar trabajo', exact: true }));
     return screen.findByRole('dialog', { name: 'Agregar Trabajo de color' });
   };
+
+  it('compone la bandeja con banda de filtros, tablero y alta secundaria', async () => {
+    const user = userEvent.setup();
+    renderSubject();
+    expect(await screen.findByTestId('plant-journeys-control-band')).toBeVisible();
+    expect(screen.getByTestId('daily-machine-board')).toBeVisible();
+    expect(screen.queryByText('Detalle de Máquinas')).not.toBeInTheDocument();
+    const newOt = screen.getByRole('button', { name: 'Nueva OT' });
+    expect(newOt).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Crear OT de máquina' })).not.toBeInTheDocument();
+    await user.click(newOt);
+    const dialog = await screen.findByRole('dialog', { name: 'Nueva OT de máquina' });
+    expect(within(dialog).getByRole('button', { name: 'Crear OT de máquina' })).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: 'Cancelar' })).toBeVisible();
+  });
+
+  it('sincroniza fecha y turno del tablero al abrir Nueva OT y cancela sin cambiar la URL', async () => {
+    const user = userEvent.setup();
+    renderSubjectWithUrl(['/produccion/ots-planta?fecha=2026-08-11&turno=DIA&modo=fabricacion']);
+    await screen.findByTestId('daily-machine-board');
+
+    const dateFilter = screen.getByLabelText('Fecha de jornada');
+    await user.clear(dateFilter);
+    await user.type(dateFilter, '2026-08-12');
+    await user.click(screen.getByRole('button', { name: 'Actualizar jornadas' }));
+    await waitFor(() => expect(screen.getByLabelText('URL actual')).toHaveTextContent('fecha=2026-08-12'));
+
+    const newOt = screen.getByRole('button', { name: 'Nueva OT' });
+    const urlBefore = screen.getByLabelText('URL actual').textContent;
+    await user.click(newOt);
+    const dialog = await screen.findByRole('dialog', { name: 'Nueva OT de máquina' });
+    expect(within(dialog).getByLabelText('Fecha operativa')).toHaveValue('2026-08-12');
+    expect(within(dialog).getByRole('combobox', { name: 'Turno' })).toHaveTextContent('Día');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Nueva OT de máquina' })).not.toBeInTheDocument());
+    expect(screen.getByLabelText('URL actual')).toHaveTextContent(urlBefore);
+    expect(document.activeElement).toBe(newOt);
+  });
+
+  it('expone la cola compacta y el documento de pesaje como artículo, no diálogo', async () => {
+    renderSubject();
+    const queue = await screen.findByTestId('color-work-queue');
+    expect(queue).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Trabajo consultado' })).toBeVisible();
+    expect(screen.queryByRole('dialog', { name: /Pesaje de/ })).not.toBeInTheDocument();
+  });
 
   it('jerarquía: separa consultar mangas del formulario para agregar trabajo', async () => {
     const user = userEvent.setup();
@@ -347,7 +416,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     expect(screen.getByRole('region', { name: 'Trabajo consultado' })).toHaveTextContent('OT-000001-TC01');
     await user.click(screen.getByRole('button', { name: 'Agregar trabajo', exact: true }));
     const dialog = screen.getByRole('dialog', { name: 'Agregar Trabajo de color' });
-    expect(within(dialog).getByText(/Destino: OT-000001/)).toBeVisible();
+    expect(within(dialog).getByText('Destino: Sopladora 1')).toBeVisible();
     const kg = await within(dialog).findByRole('textbox', { name: 'Kg teóricos a asignar' });
     fireEvent.change(kg, { target: { value: '13' } });
     await user.click(within(dialog).getByRole('button', { name: 'Volver sin agregar' }));
@@ -413,6 +482,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     renderSubject();
     await screen.findByRole('region', { name: 'Trabajo consultado' });
     expect(screen.queryByRole('button', { name: 'Agregar trabajo', exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Nueva OT', exact: true })).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -470,7 +540,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     await waitFor(() => expect(scmMocks.listarOrdenesFabricacionScm).toHaveBeenCalledTimes(2));
     await openWorkCreator();
     expect(await screen.findByRole('combobox', { name: 'Orden de fabricación' }))
-      .toHaveTextContent('OF-002');
+      .toHaveValue('OF-002');
   });
 
   it('explica el estado vacío cuando los filtros no encuentran jornadas', async () => {
@@ -485,7 +555,12 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
 
   it('crea una cabecera OT de máquina sin OF ni objetivo de fabricación', async () => {
     const user = userEvent.setup();
-    renderSubject();
+    renderSubjectWithUrl();
+
+    await user.click(await screen.findByRole('button', { name: 'Nueva OT' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Nueva OT de máquina' }))
+      .getByRole('combobox', { name: 'Máquina' }));
+    await user.click(screen.getByRole('option', { name: /SOP-01/ }));
 
     await user.click(await screen.findByRole('button', {
       name: 'Crear OT de máquina',
@@ -508,6 +583,28 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     expect(payload).not.toHaveProperty('corrida_fabricacion_id');
     expect(payload).not.toHaveProperty('color');
     expect(payload).not.toHaveProperty('asignaciones');
+    await waitFor(() => expect(screen.getByLabelText('URL actual')).toHaveTextContent(
+      '/produccion/ots-planta/trabajo?fecha=',
+    ));
+    expect(screen.getByLabelText('URL actual')).toHaveTextContent('ot=ot-machine-2');
+  });
+
+  it('conserva el éxito de crear OT aunque falle la actualización posterior', async () => {
+    const user = userEvent.setup();
+    renderSubject();
+    await waitFor(() => expect(scmMocks.listarOtScm).toHaveBeenCalledTimes(2));
+    scmMocks.listarOtScm.mockRejectedValue(new Error('refresh caído'));
+    await user.click(await screen.findByRole('button', { name: 'Nueva OT' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Nueva OT de máquina' }))
+      .getByRole('combobox', { name: 'Máquina' }));
+    await user.click(screen.getByRole('option', { name: /SOP-01/ }));
+    await user.click(await screen.findByRole('button', { name: 'Crear OT de máquina' }));
+    await user.click(screen.getByRole('button', { name: 'Confirmar creación' }));
+    await waitFor(() => expect(scmMocks.crearOtFabricacionScm).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(
+      /OT-000002 creada como jornada de máquina.*Aplicado, pero no actualizado.*no reenvíes la acción/i,
+    )).toBeVisible();
+    expect(screen.queryByText(/No se pudo crear la OT de máquina/i)).not.toBeInTheDocument();
   });
 
   it('ofrece maquinistas activos con la proyección operativa limitada por permisos', async () => {
@@ -557,6 +654,115 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
         continuidad_manga_ids: [],
       },
     ));
+  });
+
+  it('bloquea el alta mientras la búsqueda de OF sigue sin confirmar', async () => {
+    const user = userEvent.setup();
+    renderSubject();
+    await openWorkCreator();
+    await screen.findByText('Manga 100');
+    const orderSearch = screen.getByRole('combobox', { name: 'Orden de fabricación' });
+    await user.click(orderSearch);
+    await user.keyboard('{Control>}a{/Control}OF-INEXISTENTE');
+    expect(screen.getByRole('button', {
+      name: 'Agregar a la cola de esta OT',
+    })).toBeDisabled();
+    await user.tab();
+    expect(screen.getByRole('button', {
+      name: 'Agregar a la cola de esta OT',
+    })).toBeDisabled();
+    await user.click(orderSearch);
+    await user.keyboard('{Control>}a{/Control}OF-001');
+    await screen.findByRole('option', { name: /OF-001/ });
+    await user.keyboard('{ArrowDown}{Enter}');
+    await screen.findByText('Manga 100');
+    expect(screen.getByRole('button', {
+      name: 'Agregar a la cola de esta OT',
+    })).toBeEnabled();
+    expect(screen.queryByText('Selecciona una OF de los resultados para confirmar la búsqueda'))
+      .not.toBeInTheDocument();
+    expect(scmMocks.crearTrabajoColorScm).not.toHaveBeenCalled();
+  });
+
+  it('muestra el motivo de bloqueo junto al CTA cuando la búsqueda no está confirmada', async () => {
+    const user = userEvent.setup();
+    renderSubject();
+    await openWorkCreator();
+    await screen.findByText('Manga 100');
+    const orderSearch = screen.getByRole('combobox', { name: 'Orden de fabricación' });
+    await user.click(orderSearch);
+    await user.keyboard('{Control>}a{/Control}OF-INEXISTENTE');
+
+    expect(screen.getByTestId('color-work-block-reason'))
+      .toHaveTextContent('Selecciona una OF de los resultados para confirmar la búsqueda');
+  });
+
+  it('busca la OF por su ID canónico además de nombre y código', async () => {
+    const user = userEvent.setup();
+    const orders = await scmMocks.listarOrdenesFabricacionScm();
+    scmMocks.listarOrdenesFabricacionScm.mockResolvedValue({
+      items: [{
+        ...orders.items[0],
+        id: 'of-canonical-5176',
+        molde: { codigo: 'M-01', nombre: 'Molde de prueba' },
+      }],
+    });
+    renderSubject();
+    await openWorkCreator();
+    const orderSearch = screen.getByRole('combobox', { name: 'Orden de fabricación' });
+    await user.click(orderSearch);
+    await user.clear(orderSearch);
+    await user.type(orderSearch, 'of-canonical-5176');
+    await user.click(await screen.findByRole('option', { name: /Molde de prueba/ }));
+
+    expect(orderSearch).toHaveValue('Molde de prueba · OF-001');
+    expect(screen.getByRole('link', { name: 'Ver OF' })).toHaveAttribute(
+      'href', '/produccion/ordenes-fabricacion?of=of-canonical-5176',
+    );
+  });
+
+  it('prioriza el nombre real de la máquina y deja el código como dato secundario', async () => {
+    scmMocks.listarOtScm.mockResolvedValue({ items: [{
+      ...machineOt,
+      maquina_nombre: 'Prensa de inyección real',
+      maquina_codigo: 'PR-01',
+    }] });
+    renderSubject();
+    await openWorkCreator();
+
+    const dialog = screen.getByRole('dialog', { name: 'Agregar Trabajo de color' });
+    expect(within(dialog).getByText('Destino: Prensa de inyección real')).toBeVisible();
+    expect(within(dialog).getByText(/OT OT-000001 · código PR-01/)).toBeVisible();
+  });
+
+  it('explica cuando la propuesta no tiene salidas para el color seleccionado', async () => {
+    const user = userEvent.setup();
+    scmMocks.obtenerPlanMangas.mockResolvedValueOnce({
+      plan: {
+        revision: 1,
+        lineas: [{
+          id: 11,
+          corrida_fabricacion_id: 'run-otra',
+          articulo: { nombre: 'Alcancía Pablo verde' },
+          orden_operacion_salida_id: 'out-1',
+          tipo_manga: { nombre: 'Manga 100' },
+          cantidad_objetivo_un: '100',
+          capacidad_efectiva_un: 100,
+          mangas_propuestas: 1,
+          saldo_un: '0',
+        }],
+      },
+    });
+    renderSubject();
+    await openWorkCreator();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'La propuesta no tiene salidas para este color.',
+    );
+    expect(screen.getByTestId('color-work-block-reason'))
+      .toHaveTextContent('La propuesta no tiene salidas para este color.');
+    expect(screen.getByRole('button', { name: 'Agregar a la cola de esta OT' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Volver sin agregar' }));
   });
 
   it('hereda el maquinista de la OT aunque no sea el primero del catálogo', async () => {
@@ -862,6 +1068,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     renderSubject();
 
     await openWorkCreator();
+    await user.click(screen.getByText('Herramientas de propuesta'));
     await user.click(await screen.findByRole('button', {
       name: 'Recalcular propuesta',
     }));
@@ -918,6 +1125,8 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     });
     renderSubject();
 
+    expect(await screen.findByRole('combobox', { name: 'Salida de este trabajo' }))
+      .toHaveAttribute('id', 'manga-plan-line');
     await user.type(await screen.findByLabelText('Cantidad (un)'), '50');
     await user.type(screen.getByLabelText('Motivo para manga EXTRA'), 'Faltante de turno');
     await user.click(screen.getByRole('button', { name: 'Solicitar EXTRA' }));
@@ -1274,9 +1483,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       name: 'Ver pesaje de MNG-PESADA-001',
     }));
 
-    const dialog = await screen.findByRole('dialog', {
-      name: 'Pesaje de MNG-PESADA-001',
-    });
+    const dialog = await screen.findByTestId('manga-weighing-document');
     expect(within(dialog).getByText('Corregir OT / Trabajo de color')).toBeVisible();
     expect(within(dialog).getByText(/conserva manga, QR, pesajes y saldo KG/i)).toBeVisible();
   });
@@ -1293,12 +1500,12 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     });
     renderSubject();
 
+    expect(await screen.findByRole('combobox', { name: 'Nuevo maquinista' }))
+      .toHaveAttribute('id', 'relief-worker');
     await user.click(await screen.findByRole('button', {
       name: 'Ver pesaje de MNG-PESADA-001',
     }));
-    const dialog = await screen.findByRole('dialog', {
-      name: 'Pesaje de MNG-PESADA-001',
-    });
+    const dialog = await screen.findByTestId('manga-weighing-document');
 
     expect(within(dialog).queryByText('Corregir OT / Trabajo de color')).toBeNull();
   });
@@ -1309,9 +1516,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     await user.click(await screen.findByRole('button', {
       name: 'Ver pesaje de MNG-PESADA-001',
     }));
-    const dialog = await screen.findByRole('dialog', {
-      name: 'Pesaje de MNG-PESADA-001',
-    });
+    const dialog = await screen.findByTestId('manga-weighing-document');
 
     await user.click(within(dialog).getByLabelText('Trabajo destino'));
     await user.click(await screen.findByRole('option', { name: /OT-000001-TC02.*AZUL/i }));
@@ -1347,9 +1552,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     await user.click(await screen.findByRole('button', {
       name: 'Ver pesaje de MNG-PESADA-001',
     }));
-    const dialog = await screen.findByRole('dialog', {
-      name: 'Pesaje de MNG-PESADA-001',
-    });
+    const dialog = await screen.findByTestId('manga-weighing-document');
     await user.click(within(dialog).getByLabelText('Trabajo destino'));
     await user.click(await screen.findByRole('option', { name: /OT-000001-TC02.*AZUL/i }));
     await user.click(within(dialog).getByLabelText('Asignación destino'));
@@ -1384,9 +1587,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     await user.click(await screen.findByRole('button', {
       name: 'Ver pesaje de MNG-PESADA-001',
     }));
-    const dialog = await screen.findByRole('dialog', {
-      name: 'Pesaje de MNG-PESADA-001',
-    });
+    const dialog = await screen.findByTestId('manga-weighing-document');
     await user.click(within(dialog).getByLabelText('Trabajo destino'));
     await user.click(await screen.findByRole('option', { name: /OT-000001-TC02.*AZUL/i }));
     await user.click(within(dialog).getByLabelText('Asignación destino'));
@@ -1443,9 +1644,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     expect(openButton).toBeEnabled();
     await user.click(openButton);
 
-    const dialog = await screen.findByRole('dialog', {
-      name: 'Pesaje de MNG-VERDE-001',
-    });
+    const dialog = await screen.findByTestId('manga-weighing-document');
     expect(within(dialog).getByText(/manga abierta con control vigente de 3.250 kg/i)).toBeVisible();
     expect(within(dialog).getByText('Corregir OT / Trabajo de color')).toBeVisible();
   });
@@ -1457,9 +1656,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     await user.click(await screen.findByRole('button', {
       name: 'Ver pesaje de MNG-PESADA-001',
     }));
-    const dialog = await screen.findByRole('dialog', {
-      name: 'Pesaje de MNG-PESADA-001',
-    });
+    const dialog = await screen.findByTestId('manga-weighing-document');
     const reopeningPanel = within(dialog).getByText('Reabrir manga').closest('.MuiPaper-root');
     expect(reopeningPanel).toHaveTextContent(/Conserva su ID, QR, controles/);
     expect(reopeningPanel).toHaveTextContent(/cierre anterior en el historial/);
@@ -1493,9 +1690,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
       },
     ));
     expect(await screen.findByText(/reabierta para continuar llenado.*línea base/i)).toBeVisible();
-    expect(screen.queryByRole('dialog', {
-      name: 'Pesaje de MNG-PESADA-001',
-    })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('manga-weighing-document')).not.toBeInTheDocument();
     expect(scmMocks.anularPesajeScm).not.toHaveBeenCalled();
   });
 
@@ -1506,9 +1701,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     await user.click(await screen.findByRole('button', {
       name: 'Ver pesaje de MNG-PESADA-001',
     }));
-    const dialog = await screen.findByRole('dialog', {
-      name: 'Pesaje de MNG-PESADA-001',
-    });
+    const dialog = await screen.findByTestId('manga-weighing-document');
     await user.click(within(dialog).getByLabelText('Tipo de reapertura'));
     await user.click(screen.getByRole('option', { name: 'Cierre accidental' }));
     expect(within(dialog).getByText(/NET anterior quedará solo en el historial/i))
@@ -1532,5 +1725,268 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     ));
     expect(await screen.findByText(/reabierta por cierre accidental.*solo en el historial/i))
       .toBeVisible();
+  });
+
+  it('mantiene una OT explícita inválida como error y no cae a la primera OT', async () => {
+    render(
+      <MemoryRouter initialEntries={['/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-missing']}>
+        <OtMangasScm view="detail" />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId('ot-identity-error')).toHaveTextContent(
+      'La OT solicitada (ot-missing) no está disponible',
+    );
+    expect(screen.queryByRole('region', { name: 'Trabajo consultado' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Detalle de OT-000001/i })).not.toBeInTheDocument();
+  });
+
+  it('persiste Trabajo y manga seleccionados en la URL documental', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <UrlProbe />
+        <OtMangasScm view="detail" />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Ver mangas de AZUL' }));
+    await waitFor(() => expect(screen.getByLabelText('URL actual')).toHaveTextContent('trabajo=work-blue'));
+    await user.click(screen.getByRole('button', { name: 'Ver mangas de VERDE SÓLIDO' }));
+    const weighingInvoker = await screen.findByRole('button', { name: 'Ver pesaje de MNG-PESADA-001' });
+    await user.click(weighingInvoker);
+    const weighingDocument = await screen.findByTestId('manga-weighing-document');
+    await waitFor(() => expect(document.activeElement)
+      .toHaveAttribute('id', 'manga-weighing-document-title'));
+    expect(screen.getByLabelText('URL actual')).toHaveTextContent('manga=manga-weighed-1');
+    await user.click(within(weighingDocument).getByRole('button', { name: 'Volver al Trabajo' }));
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: 'Ver pesaje de MNG-PESADA-001',
+    })).toHaveFocus());
+  });
+
+  it('cierra un documento abierto por URL directa y devuelve el foco al Trabajo', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-green&manga=manga-weighed-1',
+      ]}>
+        <OtMangasScm view="detail" />
+      </MemoryRouter>,
+    );
+    const weighingDocument = await screen.findByTestId('manga-weighing-document');
+    expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ot-work-detail')).not.toBeInTheDocument();
+    expect(screen.getByTestId('ot-master-detail')).toContainElement(weighingDocument);
+    await user.click(within(weighingDocument).getByRole('button', { name: 'Volver al Trabajo' }));
+    const workRegion = await screen.findByRole('region', { name: 'Trabajo consultado' });
+    expect(workRegion).toHaveAttribute('tabindex', '-1');
+    await waitFor(() => expect(screen.getByTestId('ot-work-detail')).toHaveFocus());
+    expect(screen.queryByTestId('manga-weighing-document')).not.toBeInTheDocument();
+  });
+
+  it('cierra el documento Manga/Pesaje al retirar manga del historial', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-green',
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-green&manga=manga-weighed-1',
+      ]} initialIndex={1}>
+        <HistoryProbe />
+        <UrlProbe />
+        <OtMangasScm view="detail" />
+      </MemoryRouter>,
+    );
+    await screen.findByTestId('manga-weighing-document');
+    await user.click(screen.getByRole('button', { name: 'Volver historial' }));
+    await waitFor(() => expect(screen.queryByTestId('manga-weighing-document')).not.toBeInTheDocument());
+    expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('manga=');
+  });
+
+  it('reintenta Manga/Pesaje tras un GET fallido al recorrer Back/Forward', async () => {
+    const user = userEvent.setup();
+    scmMocks.obtenerPesajeMangaScm
+      .mockRejectedValueOnce(new Error('pesaje temporalmente no disponible'))
+      .mockResolvedValueOnce(weighingDetail);
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-green',
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-green&manga=manga-weighed-1',
+      ]} initialIndex={1}>
+        <HistoryProbe />
+        <HistoryForwardProbe />
+        <UrlProbe />
+        <OtMangasScm view="detail" />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('region', { name: 'Trabajo consultado' });
+    await waitFor(() => expect(scmMocks.obtenerPesajeMangaScm).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('No se pudo consultar el pesaje.')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Volver historial' }));
+    await waitFor(() => expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('manga='));
+    await user.click(screen.getByRole('button', { name: 'Avanzar historial' }));
+    expect(await screen.findByTestId('manga-weighing-document')).toBeVisible();
+    expect(scmMocks.obtenerPesajeMangaScm).toHaveBeenCalledTimes(2);
+  });
+
+  it('deja herramientas cerradas y lista de mangas antes en el DOM', async () => {
+    renderSubject();
+    const list = await screen.findByTestId('manga-list-before-tools');
+    const details = screen.getByText('Herramientas de relevo').closest('details');
+    expect(details).not.toHaveAttribute('open');
+    expect(list.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('usa tarjetas de Manga/Pesaje en viewport móvil sin tabla ancha', async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn((query) => ({
+      matches: query.includes('max-width:899px') || query.includes('max-width:599px'),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }));
+    try {
+      const user = userEvent.setup();
+      renderSubject();
+      expect(await screen.findByTestId('manga-mobile-list')).toBeVisible();
+      await user.click(await screen.findByRole('button', {
+        name: 'Ver pesaje de MNG-PESADA-001',
+      }));
+      expect(await screen.findByTestId('weighing-version-cards')).toBeVisible();
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
+      const weighingDocument = screen.getByTestId('manga-weighing-document');
+      await user.click(within(weighingDocument).getByRole('combobox', { name: 'Trabajo destino' }));
+      await user.click(screen.getByRole('option', { name: /OT-000001.*OT-000001-TC02/i }));
+      await user.click(within(weighingDocument).getByRole('button', {
+        name: 'Revisar compatibilidad y bloqueos',
+      }));
+      expect(await screen.findByTestId('assignment-preview-cards')).toBeVisible();
+      expect(screen.queryByRole('table', { name: 'Verificaciones de compatibilidad' }))
+        .not.toBeInTheDocument();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('bloquea una consulta Manga/Pesaje directa sin MANGA_PESAJE_VER', async () => {
+    scmMocks.can.mockImplementation((code) => code !== 'MANGA_PESAJE_VER');
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-green&manga=manga-weighed-1',
+      ]}>
+        <OtMangasScm view="detail" />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId('ot-identity-error')).toHaveTextContent(
+      'requiere la capacidad MANGA_PESAJE_VER',
+    );
+    expect(screen.queryByTestId('manga-weighing-document'))
+      .not.toBeInTheDocument();
+    expect(scmMocks.obtenerPesajeMangaScm).not.toHaveBeenCalled();
+  });
+
+  it('oculta ampliación para un Trabajo COMPLETADO', async () => {
+    scmMocks.listarOtScm.mockResolvedValueOnce({
+      items: [{
+        ...machineOt,
+        trabajos_color: [{ ...greenWork, estado: 'COMPLETADO' }, blueWork],
+      }],
+    });
+    renderSubject();
+    await screen.findByRole('region', { name: 'Trabajo consultado' });
+    expect(screen.queryByText('Herramientas de ampliación')).not.toBeInTheDocument();
+    expect(screen.queryByText('Mangas adicionales para este color')).not.toBeInTheDocument();
+  });
+
+  it('reemplaza el documento cuando el historial cambia de manga', async () => {
+    const user = userEvent.setup();
+    const blueWeighed = { ...blueManga, estado: 'PESADA' };
+    scmMocks.listarOtScm.mockResolvedValueOnce({
+      items: [{
+        ...machineOt,
+        trabajos_color: [greenWork, { ...blueWork, mangas: [blueWeighed] }],
+        mangas: [...greenWork.mangas, blueWeighed],
+      }],
+    });
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-green&manga=manga-weighed-1',
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-blue&manga=manga-blue-1',
+      ]} initialIndex={1}>
+        <HistoryProbe />
+        <OtMangasScm view="detail" />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId('manga-weighing-document'))
+      .toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Volver historial' }));
+    expect(await screen.findByTestId('manga-weighing-document'))
+      .toBeVisible();
+  });
+
+  it('resincroniza OT y Trabajo al volver en el historial del navegador', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-green',
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-blue',
+      ]} initialIndex={1}>
+        <HistoryProbe />
+        <UrlProbe />
+        <OtMangasScm view="detail" />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('region', { name: 'Trabajo consultado' }))
+      .toHaveTextContent('OT-000001-TC02');
+    await user.click(screen.getByRole('button', { name: 'Volver historial' }));
+    await waitFor(() => expect(screen.getByLabelText('URL actual'))
+      .toHaveTextContent('trabajo=work-green'));
+    expect(screen.getByRole('region', { name: 'Trabajo consultado' }))
+      .toHaveTextContent('OT-000001-TC01');
+  });
+
+  it('ignora una respuesta tardía de un contexto anterior al recargar una URL válida', async () => {
+    const user = userEvent.setup();
+    const deferred = () => {
+      let resolve;
+      const promise = new Promise((nextResolve) => { resolve = nextResolve; });
+      return { promise, resolve };
+    };
+    const oldFabrication = deferred();
+    const oldAssembly = deferred();
+    const nextFabrication = deferred();
+    const nextAssembly = deferred();
+    scmMocks.listarOtScm.mockImplementation((_id, mode, query) => {
+      if (query.fecha_operativa === '2026-08-10' && mode === 'FABRICACION') return oldFabrication.promise;
+      if (query.fecha_operativa === '2026-08-10') return oldAssembly.promise;
+      if (mode === 'FABRICACION') return nextFabrication.promise;
+      return nextAssembly.promise;
+    });
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-green',
+        '/produccion/ots-planta/trabajo?fecha=2026-08-11&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-green',
+      ]} initialIndex={0}>
+        <HistoryForwardProbe />
+        <OtMangasScm view="detail" />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Avanzar historial' }));
+    await act(async () => {
+      nextFabrication.resolve({ items: [machineOt] });
+      nextAssembly.resolve({ items: [] });
+    });
+    expect(await screen.findByRole('region', { name: 'Trabajo consultado' }))
+      .toHaveTextContent('OT-000001-TC01');
+    await act(async () => {
+      oldFabrication.resolve({ items: [] });
+      oldAssembly.resolve({ items: [] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByRole('region', { name: 'Trabajo consultado' }))
+      .toHaveTextContent('OT-000001-TC01');
   });
 });
