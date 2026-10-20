@@ -173,6 +173,17 @@ describe('contrato frontend de observabilidad de OT', () => {
     }));
   });
 
+  it('serializa el criterio de fecha de OT o pesaje final también para exportación', async () => {
+    await listarExploradorMangasScm({ fechaTipo: 'PESAJE_FINAL', desde: '2026-08-10', hasta: '2026-08-12' });
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/observabilidad/mangas-fabricacion', expect.objectContaining({
+      params: expect.objectContaining({ fecha_tipo: 'PESAJE_FINAL', fecha_desde: '2026-08-10', fecha_hasta: '2026-08-12' }),
+    }));
+    await exportarExploradorMangasScm({ fechaTipo: 'PESAJE_FINAL', desde: '2026-08-10' }, 'RESUMIDO');
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/observabilidad/mangas-fabricacion/export.xlsx', expect.objectContaining({
+      params: expect.objectContaining({ fecha_tipo: 'PESAJE_FINAL', fecha_desde: '2026-08-10', vista: 'RESUMIDO' }),
+    }));
+  });
+
   it('pasa AbortSignal a Axios sin serializarlo como filtro del reporte OF', async () => {
     const signal = new AbortController().signal;
     await listarAvanceOfScm({ signal, q: 'OF-1' });

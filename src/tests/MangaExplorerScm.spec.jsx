@@ -54,6 +54,37 @@ describe('explorador simple de mangas', () => {
     expect(screen.queryByText('Agrupar')).not.toBeInTheDocument();
   });
 
+  it('ofrece los dos criterios de fecha con nomenclatura operativa exacta', async () => {
+    open();
+    await screen.findByText('Pieza crema');
+    expect(screen.getByLabelText('Fecha del pesaje final')).toBeInTheDocument();
+    expect(screen.getByLabelText('Fecha de OT')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Fecha del pesaje final'));
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar' }));
+    await waitFor(() => expect(listarExploradorMangasScm).toHaveBeenLastCalledWith(expect.objectContaining({ fechaTipo: 'PESAJE_FINAL', cursor: '' })));
+  });
+
+  it('conserva fecha_tipo al volver del detalle y muestra recuperación explícita de permiso', async () => {
+    const router = createMemoryRouter([{ path: '*', element: <MangaExplorerScm /> }], { initialEntries: ['/control/mangas?fecha_tipo=PESAJE_FINAL'] });
+    listarExploradorMangasScm.mockRejectedValueOnce({ response: { status: 403, data: { error: { message: 'Se requiere MANGA_PESAJE_VER para consultar por Fecha del pesaje final.' } } } });
+    render(<RouterProvider router={router} />);
+    expect(await screen.findByText(/Se requiere MANGA_PESAJE_VER/)).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Fecha del pesaje final' })).toBeChecked();
+  });
+
+  it('reinicia el cursor final cuando el backend detecta datos mutados', async () => {
+    listarExploradorMangasScm
+      .mockResolvedValueOnce({ items: [item], page: { next_cursor: 'cursor-final', has_more: true, limit: 25 } })
+      .mockRejectedValueOnce({ response: { status: 409, data: { error: { code: 'STALE_MANGA_EXPLORER_CURSOR', message: 'Los datos cambiaron; actualiza la consulta antes de continuar.' } } } })
+      .mockResolvedValueOnce({ items: [item], page: { next_cursor: null, has_more: false, limit: 25 } });
+    open();
+    await screen.findByText('Pieza crema');
+    fireEvent.click(screen.getByRole('button', { name: 'Página siguiente' }));
+    expect(await screen.findByText(/Los datos cambiaron/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Actualizar consulta' }));
+    await waitFor(() => expect(listarExploradorMangasScm).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: '', page: 0 })));
+  });
+
   it('conserva criterios al buscar y permite escoger Excel detallado', async () => {
     open();
     await screen.findByText('Pieza crema');
@@ -92,6 +123,22 @@ describe('explorador simple de mangas', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }));
     expect(router.state.location.pathname).toBe('/control/mangas');
     expect(router.state.location.search).toBe('?q=M-0001&desde=2026-08-01&pagina=2');
+  });
+
+  it('serializa fechaTipo como fecha_tipo al volver del detalle final', async () => {
+    const router = createMemoryRouter(
+      [{ path: '/control/mangas/:publicId', element: <MangaExplorerDetailRoute /> }],
+      {
+        initialEntries: [{
+          pathname: '/control/mangas/manga-1',
+          state: { returnFilters: { fechaTipo: 'PESAJE_FINAL', page: 1 } },
+        }],
+      },
+    );
+    render(<RouterProvider router={router} />);
+    await screen.findByText('Pieza crema');
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }));
+    expect(router.state.location.search).toBe('?fecha_tipo=PESAJE_FINAL&pagina=1');
   });
 
   it('muestra el rango visible real y bloquea el siguiente cursor cuando termina', async () => {

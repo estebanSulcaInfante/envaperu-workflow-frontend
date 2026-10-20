@@ -1,7 +1,7 @@
 import { Box, Stack, Typography } from '@mui/material';
 
 /** A reference swatch supplements the color name; it never conveys status. */
-export default function ProductionColorLabel({ name, hex }) {
+export default function ProductionColorLabel({ name, hex, compact = false }) {
   const reference = typeof hex === 'string' && /^#[0-9a-f]{6}$/i.test(hex.trim())
     ? hex.trim().toUpperCase()
     : null;
@@ -22,8 +22,8 @@ export default function ProductionColorLabel({ name, hex }) {
         {!reference && '—'}
       </Box>
       <Box component="span" sx={{ minWidth: 0 }}>
-        <Typography component="span" fontWeight={800}>{name}</Typography>
-        {!reference && <Typography component="span" display="block" variant="caption" color="text.secondary">Sin muestra</Typography>}
+        <Typography component="span" fontWeight={compact ? 700 : 800} sx={compact ? { fontSize: '13px', lineHeight: 1.25 } : undefined}>{name}</Typography>
+        {!reference && <Typography component="span" display="block" variant="caption" color="text.secondary" sx={compact ? { fontSize: '12px', lineHeight: 1.2 } : undefined}>Sin muestra</Typography>}
       </Box>
     </Stack>
   );
