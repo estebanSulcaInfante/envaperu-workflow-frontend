@@ -110,6 +110,16 @@ const compactQuantity = (value) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? new Intl.NumberFormat('es-PE').format(parsed) : '0';
 };
+const printJobId = (job) => String(job?.print_job_id || '').trim();
+const mergePrintJobs = (current, incoming) => {
+  const seen = new Set(current.map((job) => printJobId(job)).filter(Boolean));
+  return [...current, ...incoming.filter((job) => {
+    const id = printJobId(job);
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  })];
+};
 
 const PRODUCTION_CLOSED_MANGA_STATES = new Set([
   'PESADA', 'ETIQUETADA_FINAL', 'PENDIENTE_RECEPCION_ALMACEN', 'RECIBIDA',
@@ -839,9 +849,7 @@ function MangaTable({
   canCloseControl,
   onControlClosed,
   selectedLabels,
-  selectedRelief,
   onToggleLabel,
-  onToggleRelief,
   onAnnul,
   onReplace,
   onWeighing,
@@ -859,11 +867,7 @@ function MangaTable({
       <Stack spacing={1}>
         {mangas.map((manga) => {
           const labelChecked = selectedLabels.includes(manga.public_id);
-          const reliefChecked = selectedRelief.includes(manga.public_id);
           const labelEligible = !manga.etiqueta_vigente && manga.estado === 'PLANIFICADA';
-          const reliefEligible = [
-            'PLANIFICADA', 'PREETIQUETADA', 'CONTINUIDAD_PENDIENTE',
-          ].includes(manga.estado);
           const weighable = [
             'PESADA', 'ETIQUETADA_FINAL', 'PENDIENTE_RECEPCION_ALMACEN', 'ANULADA',
           ].includes(manga.estado) || (canReattributeManga && manga.continuidad?.ultimo_control);
@@ -890,22 +894,12 @@ function MangaTable({
                   <FormControlLabel
                     control={<Checkbox
                       size="small"
-                      inputProps={{ 'aria-label': `Seleccionar manga ${manga.codigo}` }}
+                      inputProps={{ 'aria-label': `Imprimir manga ${manga.codigo}` }}
                       checked={labelChecked}
                       disabled={!canPrelabel || !labelEligible || (!labelChecked && selectedLabels.length >= 2)}
                       onChange={() => onToggleLabel(manga.public_id)}
                     />}
                     label="Imprimir"
-                  />
-                  <FormControlLabel
-                    control={<Checkbox
-                      size="small"
-                      inputProps={{ 'aria-label': `Incluir ${manga.codigo} en el relevo` }}
-                      checked={reliefChecked}
-                      disabled={!reliefEligible}
-                      onChange={() => onToggleRelief(manga.public_id)}
-                    />}
-                    label="Relevo"
                   />
                 </Stack>
                 <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
@@ -930,7 +924,7 @@ function MangaTable({
       <Table size="small" sx={{ minWidth: 760 }}>
         <TableHead>
           <TableRow>
-            <TableCell padding="checkbox">Selección</TableCell>
+            <TableCell padding="checkbox">Imprimir</TableCell>
             <TableCell>Manga y salida</TableCell>
             <TableCell>Responsable</TableCell>
             <TableCell align="right">Cantidad</TableCell>
@@ -941,31 +935,20 @@ function MangaTable({
         <TableBody>
           {mangas.map((manga) => {
             const labelChecked = selectedLabels.includes(manga.public_id);
-            const reliefChecked = selectedRelief.includes(manga.public_id);
             const labelEligible = !manga.etiqueta_vigente && manga.estado === 'PLANIFICADA';
-            const reliefEligible = [
-              'PLANIFICADA', 'PREETIQUETADA', 'CONTINUIDAD_PENDIENTE',
-            ].includes(manga.estado);
             return (
-              <TableRow key={manga.public_id} selected={labelChecked || reliefChecked}>
+              <TableRow key={manga.public_id} selected={labelChecked}>
                 <TableCell padding="checkbox">
                   <Stack spacing={0.25}>
                     <Checkbox
                       size="small"
-                      inputProps={{ 'aria-label': `Seleccionar manga ${manga.codigo}` }}
+                      inputProps={{ 'aria-label': `Imprimir manga ${manga.codigo}` }}
                       checked={labelChecked}
                       disabled={
                         !canPrelabel || !labelEligible
                         || (!labelChecked && selectedLabels.length >= 2)
                       }
                       onChange={() => onToggleLabel(manga.public_id)}
-                    />
-                    <Checkbox
-                      size="small"
-                      inputProps={{ 'aria-label': `Incluir ${manga.codigo} en el relevo` }}
-                      checked={reliefChecked}
-                      disabled={!reliefEligible}
-                      onChange={() => onToggleRelief(manga.public_id)}
                     />
                   </Stack>
                 </TableCell>
@@ -1137,6 +1120,7 @@ export default function OtMangasScm({ view = 'all' }) {
   const [globalReloadSignal, setGlobalReloadSignal] = useState(0);
   const workDetailRef = useRef(null);
   const selectedWorkIdRef = useRef('');
+  const selectedOtIdRef = useRef('');
   const detailRef = useRef(null);
   const compactCreation = useMediaQuery('(max-width:599px)');
   const [listFilters, setListFilters] = useState({
@@ -1179,6 +1163,13 @@ export default function OtMangasScm({ view = 'all' }) {
   });
   const [selectedLabels, setSelectedLabels] = useState([]);
   const [selectedRelief, setSelectedRelief] = useState([]);
+  const [reliefDialogOpen, setReliefDialogOpen] = useState(false);
+  const [reliefError, setReliefError] = useState('');
+  const reliefRequestRef = useRef(0);
+  const reliefPendingRef = useRef(false);
+  const actorIdRef = useRef(actorId);
+  const [reliefRecoveryJobs, setReliefRecoveryJobs] = useState([]);
+  const [reliefRecoveryMessages, setReliefRecoveryMessages] = useState([]);
   const [reliefForm, setReliefForm] = useState({
     workerId: '', reason: '', confirmEmptyStickers: false,
   });
@@ -1392,6 +1383,11 @@ export default function OtMangasScm({ view = 'all' }) {
   const pendingReliefIds = (selectedWork?.mangas || [])
     .filter((manga) => ['PLANIFICADA', 'PREETIQUETADA'].includes(manga.estado))
     .map((manga) => manga.public_id);
+  const allPendingReliefSelected = pendingReliefIds.length > 0
+    && pendingReliefIds.every((id) => selectedRelief.includes(id));
+  const reliefEligibleMangas = (selectedWork?.mangas || []).filter((manga) => [
+    'PLANIFICADA', 'PREETIQUETADA', 'CONTINUIDAD_PENDIENTE',
+  ].includes(manga.estado));
   const openReliefIds = (selectedWork?.mangas || [])
     .filter((manga) => manga.estado === 'CONTINUIDAD_PENDIENTE')
     .map((manga) => manga.public_id);
@@ -1795,11 +1791,32 @@ export default function OtMangasScm({ view = 'all' }) {
   }, [actorId, canViewFabricationOrders, fetchJourneys, initialJourneyContext, isGlobalView, loadMoldCatalog]);
 
   useEffect(() => {
+    const actorChanged = actorIdRef.current !== actorId;
+    actorIdRef.current = actorId;
+    if (actorChanged) {
+      reliefRequestRef.current += 1;
+      reliefPendingRef.current = false;
+    }
+  }, [actorId]);
+
+  useEffect(() => {
+    const changedWorkContext = selectedOtIdRef.current || selectedWorkIdRef.current;
+    if (changedWorkContext && (
+      selectedOtIdRef.current !== selectedOtId || selectedWorkIdRef.current !== selectedWorkId
+    ) && reliefPendingRef.current) {
+      reliefRequestRef.current += 1;
+      reliefPendingRef.current = false;
+      setBusy(false);
+    }
+    selectedOtIdRef.current = selectedOtId;
     selectedWorkIdRef.current = selectedWorkId;
     setSelectedLabels([]);
     setSelectedRelief([]);
     setReplacementPrintJobs([]);
-  }, [selectedWorkId]);
+    setReliefDialogOpen(false);
+    setReliefError('');
+    setReliefForm((current) => ({ ...current, reason: '', confirmEmptyStickers: false }));
+  }, [selectedOtId, selectedWorkId]);
 
   useEffect(() => {
     setReliefForm((current) => {
@@ -2346,9 +2363,53 @@ export default function OtMangasScm({ view = 'all' }) {
     }
   };
 
+  const toggleReliefSelection = (id) => {
+    setSelectedRelief((current) => {
+      if (current.includes(id)) return current.filter((item) => item !== id);
+      const manga = (selectedWork?.mangas || []).find((item) => item.public_id === id);
+      const selectsOpen = manga?.estado === 'CONTINUIDAD_PENDIENTE';
+      return [
+        ...current.filter((itemId) => {
+          const item = (selectedWork?.mangas || []).find(
+            (candidate) => candidate.public_id === itemId,
+          );
+          return (item?.estado === 'CONTINUIDAD_PENDIENTE') === selectsOpen;
+        }),
+        id,
+      ];
+    });
+  };
+
+  const openReliefDialog = () => {
+    setReliefError('');
+    setSelectedRelief([]);
+    setReliefForm((current) => ({ ...current, reason: '', confirmEmptyStickers: false }));
+    setReliefDialogOpen(true);
+  };
+
+  const closeReliefDialog = () => {
+    if (busy) return;
+    setReliefDialogOpen(false);
+    setSelectedRelief([]);
+    setReliefForm((current) => ({ ...current, reason: '', confirmEmptyStickers: false }));
+    setReliefError('');
+  };
+
+  const recordReliefRecovery = (origin, jobs, message) => {
+    const originJobs = jobs.map((job) => ({ ...job, relief_origin: origin }));
+    if (originJobs.length) {
+      setReliefRecoveryJobs((current) => mergePrintJobs(current, originJobs));
+    }
+    setReliefRecoveryMessages((current) => {
+      const key = `${origin.otId}|${origin.workId}|${message}`;
+      if (current.some((item) => item.key === key)) return current;
+      return [...current, { key, origin, message }];
+    });
+  };
+
   const relieveWorker = async () => {
     if (!selectedWork || !reliefForm.workerId || !reliefForm.reason.trim()) {
-      setError('El relevo requiere maquinista y motivo.');
+      setReliefError('El relevo requiere maquinista y motivo.');
       return;
     }
     const transfersPrintedStickers = (selectedWork.mangas || []).some(
@@ -2356,17 +2417,34 @@ export default function OtMangasScm({ view = 'all' }) {
         && manga.estado === 'PREETIQUETADA',
     );
     if (transfersPrintedStickers && !reliefForm.confirmEmptyStickers) {
-      setError('Confirma que las mangas seleccionadas están vacías y los stickers no fueron utilizados.');
+      setReliefError('Confirma que las mangas seleccionadas están vacías y los stickers no fueron utilizados.');
       return;
     }
     if (!reliefWorkers.some(
       (worker) => String(worker.id) === String(reliefForm.workerId),
     )) {
-      setError('El nuevo maquinista debe ser distinto del responsable actual.');
+      setReliefError('El nuevo maquinista debe ser distinto del responsable actual.');
       return;
     }
+    const requestId = ++reliefRequestRef.current;
+    const requestActorId = actorId;
+    const requestOtId = selectedOt.public_id;
+    const requestWorkId = selectedWork.id;
+    const requestOrigin = {
+      actorId: requestActorId,
+      otId: requestOtId,
+      otCode: selectedOt.codigo_ot || requestOtId,
+      workId: requestWorkId,
+      workCode: selectedWork.codigo || requestWorkId,
+      color: selectedWork.color || '',
+    };
+    const isCurrentRequest = () => requestId === reliefRequestRef.current
+      && actorIdRef.current === requestActorId
+      && selectedOtIdRef.current === requestOtId
+      && selectedWorkIdRef.current === requestWorkId;
+    reliefPendingRef.current = true;
     setBusy(true);
-    setError('');
+    setReliefError('');
     try {
       const result = await reasignarMangasTrabajoColorScm(selectedWork.id, {
         trabajador_id: Number(reliefForm.workerId),
@@ -2377,7 +2455,19 @@ export default function OtMangasScm({ view = 'all' }) {
         ...(transfersPrintedStickers ? { confirmacion_stickers_vacios: true } : {}),
       });
       const replacementJobs = result.trabajos_impresion_reemplazo || [];
-      setReplacementPrintJobs(replacementJobs);
+      if (!isCurrentRequest()) {
+        if (actorIdRef.current === requestActorId) {
+          recordReliefRecovery(
+            requestOrigin,
+            replacementJobs,
+            replacementJobs.length
+              ? 'El relevo terminó; recupera las etiquetas en la cola central.'
+              : 'El relevo terminó fuera de esta hoja; revisa la OT y el Trabajo de origen.',
+          );
+        }
+        return;
+      }
+      setReplacementPrintJobs((current) => mergePrintJobs(current, replacementJobs));
       const replacementLabelCount = replacementJobs.reduce(
         (total, job) => total + (job.labels?.length || 0), 0,
       );
@@ -2396,15 +2486,31 @@ export default function OtMangasScm({ view = 'all' }) {
       setReliefForm((current) => ({
         ...current, reason: '', confirmEmptyStickers: false,
       }));
+      setReliefDialogOpen(false);
       try {
         await loadOts(selectedOt.public_id, selectedWork.id);
       } catch {
-        setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+        if (isCurrentRequest()) {
+          setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
+        }
       }
     } catch (requestError) {
-      setError(mensajeErrorScm(requestError, 'No se pudo registrar el relevo.'));
+      if (isCurrentRequest()) {
+        setReliefError(requestError?.response
+          ? mensajeErrorScm(requestError, 'No se pudo registrar el relevo.')
+          : 'Resultado no confirmado. Revisa el Trabajo de origen y la cola central; no reenvíes el relevo automáticamente.');
+      } else if (!requestError?.response && actorIdRef.current === requestActorId) {
+        recordReliefRecovery(
+          requestOrigin,
+          [],
+          'Resultado no confirmado; revisa el Trabajo y la cola central de impresión. No reenvíes el relevo automáticamente.',
+        );
+      }
     } finally {
-      setBusy(false);
+      if (isCurrentRequest()) {
+        reliefPendingRef.current = false;
+        setBusy(false);
+      }
     }
   };
 
@@ -2958,6 +3064,14 @@ export default function OtMangasScm({ view = 'all' }) {
   const boardReturnUrl = `/produccion/ots-planta?${boardReturnParams.toString()}`;
   const DailyBoardSurface = isDetail ? Box : Paper;
   const FabricationSurface = isDetail ? Paper : Box;
+  const recoveryJobGroups = reliefRecoveryJobs.reduce((groups, job) => {
+    const origin = job.relief_origin || {};
+    const key = `${origin.otId || ''}|${origin.workId || ''}`;
+    const current = groups.get(key) || { origin, jobs: [] };
+    current.jobs = [...current.jobs, job];
+    groups.set(key, current);
+    return groups;
+  }, new Map());
   const mangaList = selectedWork && (
     <>
       <Stack
@@ -2979,6 +3093,14 @@ export default function OtMangasScm({ view = 'all' }) {
             {prelabelButtonText}
           </Button>
         )}
+        <Button
+          component={RouterLink}
+          to="/control/impresion-etiquetas"
+          variant="outlined"
+          size="small"
+        >
+          Recuperar etiquetas
+        </Button>
       </Stack>
       <MangaTable
         work={selectedWork}
@@ -2990,24 +3112,9 @@ export default function OtMangasScm({ view = 'all' }) {
         canCloseControl={can('MANGA_FINALIZAR_PARCIAL')}
         onControlClosed={() => loadOts(selectedOtId, selectedWorkId)}
         selectedLabels={selectedLabels}
-        selectedRelief={selectedRelief}
         onToggleLabel={(id) => setSelectedLabels((current) => (
           current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
         ))}
-        onToggleRelief={(id) => setSelectedRelief((current) => {
-          if (current.includes(id)) return current.filter((item) => item !== id);
-          const manga = (selectedWork.mangas || []).find((item) => item.public_id === id);
-          const selectsOpen = manga?.estado === 'CONTINUIDAD_PENDIENTE';
-          return [
-            ...current.filter((itemId) => {
-              const item = (selectedWork.mangas || []).find(
-                (candidate) => candidate.public_id === itemId,
-              );
-              return (item?.estado === 'CONTINUIDAD_PENDIENTE') === selectsOpen;
-            }),
-            id,
-          ];
-        })}
         onAnnul={(manga) => {
           setMangaActionReason('');
           setMangaActionDialog({ type: 'annul', manga });
@@ -3902,6 +4009,11 @@ export default function OtMangasScm({ view = 'all' }) {
                 {' · responsable '}{currentWorker?.trabajador || 'por asignar'}
               </Typography>
             </Box>
+            {!selectedWork.legacy && canCreateOt && (
+              <Button variant="outlined" size="small" onClick={openReliefDialog}>
+                Gestionar relevo
+              </Button>
+            )}
             <Chip
               label={stateLabel(selectedWork.estado)}
               color={selectedWork.estado === 'EN_EJECUCION' ? 'success' : 'default'}
@@ -4000,105 +4112,6 @@ export default function OtMangasScm({ view = 'all' }) {
           <Box sx={{ minWidth: 0 }} data-testid="manga-list-before-tools">
             {mangaList}
           </Box>
-
-          {!selectedWork.legacy && canCreateOt && (
-            <details open={selectedRelief.length > 0} style={{ order: 3 }}>
-            <summary>Herramientas de relevo</summary>
-            <Paper variant="outlined" sx={{ p: 1.5, mb: 2, bgcolor: 'grey.50', order: 3 }}>
-              <Typography fontWeight={850}>Asignar o relevar maquinista</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Selecciona una manga controlada para conservarla incompleta con el nuevo responsable. Las mangas vacías transfieren su sticker; sin selección solo cambia el responsable del Trabajo.
-              </Typography>
-              {openReliefIds.length > 0 && (
-                <Alert severity="warning" sx={{ mb: 1 }}>
-                  {openReliefIds.length} manga(s) tienen un control vigente y esperan relevo. Selecciónalas en la columna “Relevo”; no vuelvas a escribir su peso ni conteo.
-                </Alert>
-              )}
-              {pendingReliefIds.length > 0 && (
-                <Button
-                  size="small"
-                  sx={{ mb: 1 }}
-                  onClick={() => setSelectedRelief(
-                    selectedRelief.length === pendingReliefIds.length
-                      ? [] : pendingReliefIds,
-                  )}
-                >
-                  {selectedRelief.length === pendingReliefIds.length
-                    ? 'Quitar selección de stickers pendientes'
-                    : `Seleccionar los ${pendingReliefIds.length} stickers pendientes`}
-                </Button>
-              )}
-              <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1} useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
-                <FormControl size="small" sx={{ minWidth: 240 }}>
-                  <InputLabel id="relief-worker-label">Nuevo maquinista</InputLabel>
-                  <Select
-                    id="relief-worker"
-                    labelId="relief-worker-label"
-                    label="Nuevo maquinista"
-                    value={reliefForm.workerId}
-                    onChange={(event) => setReliefForm({
-                      ...reliefForm, workerId: event.target.value,
-                    })}
-                  >
-                    {reliefWorkers.map((item) => (
-                      <MenuItem key={item.id} value={item.id}>{item.nombre_completo}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <TextField
-                  size="small"
-                  label="Motivo del relevo"
-                  value={reliefForm.reason}
-                  onChange={(event) => setReliefForm({
-                    ...reliefForm, reason: event.target.value,
-                  })}
-                  sx={{ flex: 1 }}
-                />
-                <Button
-                  variant="outlined"
-                  disabled={
-                    busy
-                    || !reliefForm.reason.trim()
-                    || (selectedRelief.length === 0 && selectedWork.estado !== 'EN_EJECUCION')
-                  }
-                  onClick={relieveWorker}
-                >
-                  {selectedRelief.length
-                    ? (selectedOpenRelief
-                      ? 'Registrar relevo · continúa incompleta'
-                      : `Relevar y transferir ${selectedRelief.length} sticker${selectedRelief.length > 1 ? 's' : ''}`)
-                    : 'Registrar relevo sin stickers'}
-                </Button>
-              </Stack>
-              {selectedRelief.length === 0 && selectedWork.estado !== 'EN_EJECUCION' && (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                  El relevo sin stickers se registra cuando el Trabajo de color está en ejecución. Antes de iniciarlo, selecciona las identidades que deseas asignar.
-                </Typography>
-              )}
-              {(selectedWork.mangas || []).some(
-                (manga) => selectedRelief.includes(manga.public_id)
-                  && manga.estado === 'PREETIQUETADA',
-              ) && (
-                <FormControlLabel
-                  sx={{ mt: 1 }}
-                  control={(
-                    <Checkbox
-                      checked={reliefForm.confirmEmptyStickers}
-                      onChange={(event) => setReliefForm({
-                        ...reliefForm,
-                        confirmEmptyStickers: event.target.checked,
-                      })}
-                    />
-                  )}
-                  label="Confirmo que estas mangas están vacías y sus stickers no fueron utilizados"
-                />
-              )}
-              <Alert severity="info" sx={{ mt: 1 }}>
-                Si la manga ya fue controlada en Pesaje, puedes relevarla aquí dentro de la misma OT. Para pasarla a otra OT usa la continuidad al agregar el Trabajo de color posterior. En ambos casos conserva manga y QR; el cierre final parcial solo sirve para terminarla definitivamente.
-              </Alert>
-            </Paper>
-            </details>
-          )}
 
           {!selectedWork.legacy
             && selectedWork.estado !== 'COMPLETADO'
@@ -4269,6 +4282,41 @@ export default function OtMangasScm({ view = 'all' }) {
         </Alert>
       )}
 
+      {reliefRecoveryMessages.length > 0 && (
+        <Alert severity="warning" data-testid="relief-recovery-alert">
+          <Stack spacing={1}>
+            <Typography fontWeight={850}>Recuperación de relevo</Typography>
+            {reliefRecoveryMessages.map((item) => {
+              const group = recoveryJobGroups.get(`${item.origin.otId}|${item.origin.workId}`);
+              const ids = (group?.jobs || []).map(printJobId).filter(Boolean);
+              return (
+                <Box key={item.key}>
+                  <Typography variant="body2">
+                    {item.message} Origen: OT <strong>{item.origin.otCode}</strong> · Trabajo{' '}
+                    <strong>{item.origin.workCode}</strong>
+                    {item.origin.color ? ` · ${item.origin.color}` : ''}.
+                  </Typography>
+                  {ids.length > 0 && (
+                    <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
+                      Trabajos de impresión: {ids.join(', ')}.
+                    </Typography>
+                  )}
+                </Box>
+              );
+            })}
+            <Button
+              component={RouterLink}
+              to="/control/impresion-etiquetas"
+              variant="outlined"
+              size="small"
+              sx={{ alignSelf: 'flex-start' }}
+            >
+              Recuperar etiquetas en cola central
+            </Button>
+          </Stack>
+        </Alert>
+      )}
+
       </>)}
       </Stack>
       </DailyBoardSurface>}
@@ -4337,6 +4385,152 @@ export default function OtMangasScm({ view = 'all' }) {
             onClick={submitMangaAction}
           >
             Confirmar acción
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={reliefDialogOpen}
+        onClose={closeReliefDialog}
+        fullWidth
+        maxWidth="sm"
+        scroll="paper"
+        aria-labelledby="relief-dialog-title"
+      >
+        <DialogTitle id="relief-dialog-title">Gestionar relevo</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.5} sx={{ pt: 0.5 }}>
+            <Typography variant="body2" color="text.secondary">
+              {selectedOt?.codigo_ot} · {selectedWork?.codigo || 'Trabajo'} · {selectedWork?.color || 'Color'}
+            </Typography>
+            <Typography variant="body2">
+              Responsable actual: <strong>{currentWorker?.trabajador || 'Por asignar'}</strong>
+            </Typography>
+            {reliefError && <Alert severity="error" role="alert">{reliefError}</Alert>}
+            <Alert severity="info">
+              Selecciona mangas pendientes o controladas para el mismo relevo, sin mezclar ambos grupos.
+              Las mangas pesadas, recibidas o anuladas no son elegibles; no se reescribe su peso ni conteo.
+            </Alert>
+            <Alert severity="warning">
+              Antes de confirmar, si sales o recargas esta hoja no reenvíes el relevo: revisa el Trabajo de origen
+              y recupera las etiquetas pendientes desde la cola central.
+            </Alert>
+            {reliefEligibleMangas.length === 0 ? (
+              <Alert severity="warning">
+                No hay mangas elegibles para relevo en este Trabajo de color.
+              </Alert>
+            ) : (
+              <Stack spacing={0.75} sx={{ maxHeight: 250, overflowY: 'auto' }}>
+                {(selectedWork?.mangas || []).map((manga) => {
+                const eligible = [
+                  'PLANIFICADA', 'PREETIQUETADA', 'CONTINUIDAD_PENDIENTE',
+                ].includes(manga.estado);
+                return (
+                  <FormControlLabel
+                    key={manga.public_id}
+                    sx={{ minWidth: 0, alignItems: 'flex-start' }}
+                    control={(
+                      <Checkbox
+                        checked={selectedRelief.includes(manga.public_id)}
+                        disabled={!eligible}
+                        onChange={() => toggleReliefSelection(manga.public_id)}
+                        inputProps={{ 'aria-label': `Incluir ${manga.codigo} en el relevo` }}
+                      />
+                    )}
+                    label={(
+                      <Box sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                        <Typography variant="body2" fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>
+                          {manga.codigo} · {manga.articulo_nombre || 'Salida no informada'}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {stateLabel(manga.estado)} · {manga.maquinista_actual || manga.maquinista || 'Por asignar'}
+                          {!eligible ? ' · No elegible para relevo' : ''}
+                        </Typography>
+                      </Box>
+                    )}
+                  />
+                );
+                })}
+              </Stack>
+            )}
+            {pendingReliefIds.length > 0 && (
+              <Button
+                size="small"
+                onClick={() => setSelectedRelief(
+                  allPendingReliefSelected ? [] : pendingReliefIds,
+                )}
+              >
+                {allPendingReliefSelected
+                  ? 'Quitar selección de stickers pendientes'
+                  : `Seleccionar los ${pendingReliefIds.length} stickers pendientes`}
+              </Button>
+            )}
+            {openReliefIds.length > 0 && (
+              <Alert severity="warning">
+                {openReliefIds.length} manga(s) tienen un control vigente. Selecciona sólo ese grupo
+                para conservar manga y QR; no vuelvas a escribir su peso o conteo. Si la manga debe pasar
+                a otra OT, usa la continuidad al agregar el Trabajo de color posterior.
+              </Alert>
+            )}
+            <FormControl fullWidth size="small">
+              <InputLabel id="relief-worker-label">Nuevo maquinista</InputLabel>
+              <Select
+                id="relief-worker"
+                labelId="relief-worker-label"
+                label="Nuevo maquinista"
+                value={reliefForm.workerId}
+                onChange={(event) => setReliefForm({ ...reliefForm, workerId: event.target.value })}
+              >
+                {reliefWorkers.map((item) => (
+                  <MenuItem key={item.id} value={item.id}>{item.nombre_completo}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              fullWidth
+              size="small"
+              label="Motivo del relevo"
+              value={reliefForm.reason}
+              onChange={(event) => setReliefForm({ ...reliefForm, reason: event.target.value })}
+            />
+            {selectedRelief.length === 0 && selectedWork?.estado !== 'EN_EJECUCION' && (
+              <Typography variant="caption" color="text.secondary">
+                El relevo sin stickers se registra cuando el Trabajo de color está en ejecución.
+              </Typography>
+            )}
+            {(selectedWork?.mangas || []).some(
+              (manga) => selectedRelief.includes(manga.public_id) && manga.estado === 'PREETIQUETADA',
+            ) && (
+              <FormControlLabel
+                control={(
+                  <Checkbox
+                    checked={reliefForm.confirmEmptyStickers}
+                    onChange={(event) => setReliefForm({
+                      ...reliefForm, confirmEmptyStickers: event.target.checked,
+                    })}
+                  />
+                )}
+                label="Confirmo que estas mangas están vacías y sus stickers no fueron utilizados"
+              />
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeReliefDialog} disabled={busy}>Cancelar</Button>
+          <Button
+            variant="contained"
+            disabled={
+              busy
+              || !reliefForm.reason.trim()
+              || (selectedRelief.length === 0 && selectedWork?.estado !== 'EN_EJECUCION')
+            }
+            onClick={relieveWorker}
+          >
+            {selectedRelief.length
+              ? (selectedOpenRelief
+                ? 'Registrar relevo · continúa incompleta'
+                : `Relevar y transferir ${selectedRelief.length} sticker${selectedRelief.length > 1 ? 's' : ''}`)
+              : 'Registrar relevo sin stickers'}
           </Button>
         </DialogActions>
       </Dialog>
