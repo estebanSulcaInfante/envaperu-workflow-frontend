@@ -9,7 +9,6 @@ import {
   FormControlLabel,
   FormLabel,
   IconButton,
-  Menu,
   MenuItem,
   Paper,
   Radio,
@@ -93,8 +92,6 @@ export default function MangaExplorerScm() {
   const [cursorInvalidated, setCursorInvalidated] = useState(false);
   const [exportState, setExportState] = useState('idle');
   const [exportError, setExportError] = useState('');
-  const [exportMode, setExportMode] = useState('AMBOS');
-  const [exportAnchor, setExportAnchor] = useState(null);
   const [cursorStack, setCursorStack] = useState(['']);
   const listSequence = useRef(0);
   const exportSequence = useRef(0);
@@ -174,9 +171,7 @@ export default function MangaExplorerScm() {
     setCursorStack(nextStack);
     load({ ...filters, cursor: nextStack[nextStack.length - 1] || '', page: Math.max(0, filters.page - 1) });
   };
-  const exportFile = async (vista) => {
-    setExportAnchor(null);
-    setExportMode(vista);
+  const exportFile = async () => {
     setExportState('loading');
     setExportError('');
     const current = ++exportSequence.current;
@@ -184,13 +179,13 @@ export default function MangaExplorerScm() {
     const nextController = new AbortController();
     exportController.current = nextController;
     try {
-      const response = await exportarExploradorMangasScm({ ...filters, cursor: '', page: 0, signal: nextController.signal }, vista);
+      const response = await exportarExploradorMangasScm({ ...filters, cursor: '', page: 0, signal: nextController.signal }, 'AMBOS');
       if (nextController.signal.aborted || current !== exportSequence.current || actorRef.current !== actorId) return;
       const blob = response.data;
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `mangas-fabricacion-${vista.toLowerCase()}.xlsx`;
+      anchor.download = 'mangas-fabricacion-ambos.xlsx';
       anchor.click();
       URL.revokeObjectURL(url);
       setExportState('success');
@@ -206,14 +201,9 @@ export default function MangaExplorerScm() {
       <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => load(filters)} disabled={state === 'loading'}>
         Actualizar
       </Button>
-      <Button variant="contained" startIcon={<DownloadIcon />} onClick={(event) => setExportAnchor(event.currentTarget)} disabled={state === 'idle' || state === 'loading' || state === 'error' || exportState === 'loading' || exportState === 'error' || !draftIsApplied || !canSeeWeight}>
+      <Button variant="contained" startIcon={<DownloadIcon />} onClick={exportFile} disabled={state === 'idle' || state === 'loading' || state === 'error' || exportState === 'loading' || exportState === 'error' || !draftIsApplied || !canSeeWeight}>
         Exportar Excel
       </Button>
-      <Menu anchorEl={exportAnchor} open={Boolean(exportAnchor)} onClose={() => setExportAnchor(null)}>
-        <MenuItem onClick={() => exportFile('RESUMIDO')}>Resumido</MenuItem>
-        <MenuItem onClick={() => exportFile('DETALLADO')}>Detallado</MenuItem>
-        <MenuItem onClick={() => exportFile('AMBOS')}>Ambos</MenuItem>
-      </Menu>
     </Stack>
   );
 
@@ -253,7 +243,7 @@ export default function MangaExplorerScm() {
       </Typography>
       {exportState === 'loading' && <Alert severity="info">Generando Excel con el conjunto completo…</Alert>}
       {exportState === 'success' && <Alert severity="success" onClose={() => setExportState('idle')}>Excel descargado.</Alert>}
-      {exportError && <Alert severity="error" action={<Button color="inherit" size="small" onClick={() => exportFile(exportMode)}>Reintentar</Button>}>{exportError}</Alert>}
+      {exportError && <Alert severity="error" action={<Button color="inherit" size="small" onClick={exportFile}>Reintentar</Button>}>{exportError}</Alert>}
       {state === 'loading' && (
         <Paper variant="outlined" aria-label="Cargando mangas" aria-busy="true" sx={{ overflow: 'hidden' }}>
           <TableContainer sx={{ overflowX: 'auto' }}>

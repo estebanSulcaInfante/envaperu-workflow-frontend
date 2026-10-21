@@ -85,7 +85,7 @@ describe('explorador simple de mangas', () => {
     await waitFor(() => expect(listarExploradorMangasScm).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: '', page: 0 })));
   });
 
-  it('conserva criterios al buscar y permite escoger Excel detallado', async () => {
+  it('descarga ambos reportes con un solo click y conserva el gating de filtros', async () => {
     open();
     await screen.findByText('Pieza crema');
     fireEvent.change(screen.getByRole('textbox', { name: /Buscar manga/i }), { target: { value: 'M-0001' } });
@@ -94,8 +94,25 @@ describe('explorador simple de mangas', () => {
     await waitFor(() => expect(listarExploradorMangasScm).toHaveBeenLastCalledWith(expect.objectContaining({ q: 'M-0001', cursor: '' })));
     expect(screen.getByRole('button', { name: /Exportar Excel/i })).not.toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: /Exportar Excel/i }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Detallado' }));
-    await waitFor(() => expect(exportarExploradorMangasScm).toHaveBeenCalledWith(expect.objectContaining({ q: 'M-0001' }), 'DETALLADO'));
+    await waitFor(() => expect(exportarExploradorMangasScm).toHaveBeenCalledWith(expect.objectContaining({ q: 'M-0001' }), 'AMBOS'));
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+  });
+
+  it('reintenta el Excel fallido usando ambos reportes y conserva el gating de carga', async () => {
+    exportarExploradorMangasScm
+      .mockRejectedValueOnce(new Error('export failed'))
+      .mockResolvedValueOnce({ data: new Blob(['xlsx']) });
+    open();
+    await screen.findByText('Pieza crema');
+    fireEvent.click(screen.getByRole('button', { name: /Exportar Excel/i }));
+    await waitFor(() => expect(exportarExploradorMangasScm).toHaveBeenNthCalledWith(1, expect.anything(), 'AMBOS'));
+    expect(await screen.findByText(/No se pudo generar el Excel/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Exportar Excel/i })).toBeDisabled();
+    const retry = screen.getByRole('button', { name: 'Reintentar' });
+    expect(screen.getByRole('button', { name: /Exportar Excel/i })).toBeDisabled();
+    fireEvent.click(retry);
+    await waitFor(() => expect(exportarExploradorMangasScm).toHaveBeenNthCalledWith(2, expect.anything(), 'AMBOS'));
+    await waitFor(() => expect(screen.getByText('Excel descargado.')).toBeInTheDocument());
   });
 
   it('carga el detalle directo desde la ruta física y no deja la ficha vacía', async () => {
