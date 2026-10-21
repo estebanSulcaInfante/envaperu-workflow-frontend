@@ -2120,6 +2120,30 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     expect(screen.queryByTestId('manga-weighing-document')).not.toBeInTheDocument();
   });
 
+  it('descarta la restauración tardía cuando el documento se desmonta tras cerrarlo', async () => {
+    const rendered = render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-machine-1&trabajo=work-green&manga=manga-weighed-1',
+      ]}>
+        <OtMangasScm view="detail" />
+      </MemoryRouter>,
+    );
+    const weighingDocument = await screen.findByTestId('manga-weighing-document');
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        fireEvent.click(within(weighingDocument).getByRole('button', { name: 'Volver al Trabajo' }));
+      });
+      rendered.unmount();
+      render(<section data-testid="ot-work-detail" tabIndex={-1} />);
+      act(() => vi.advanceTimersByTime(50));
+      expect(screen.getByTestId('ot-work-detail')).not.toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('cierra el documento Manga/Pesaje al retirar manga del historial', async () => {
     const user = userEvent.setup();
     render(

@@ -1193,7 +1193,7 @@ export default function OtMangasScm({ view = 'all' }) {
   const weighingInvokerRef = useRef(null);
   const weighingDocumentRef = useRef(null);
   const mangaDocumentSlotRef = useRef(null);
-  const focusAfterWeighingRef = useRef('');
+  const focusAfterWeighingRef = useRef(null);
   const compactWeighing = useMediaQuery('(max-width:599px)');
   const [weighingBusy, setWeighingBusy] = useState(false);
   const [correctionForm, setCorrectionForm] = useState({
@@ -2781,52 +2781,67 @@ export default function OtMangasScm({ view = 'all' }) {
     const invokerLabel = weighingDialog?.manga?.codigo
       ? `Ver pesaje de ${weighingDialog.manga.codigo}` : '';
     focusAfterWeighingRef.current = invoker
-      ? { type: 'invoker', element: invoker, label: invokerLabel }
-      : { type: 'work' };
+      ? { type: 'invoker', element: invoker, label: invokerLabel, workId: selectedWorkId }
+      : { type: 'work', workId: selectedWorkId };
     setWeighingDialog(null);
     setSelectedMangaId('');
-    const workDetail = workDetailRef.current;
-    globalThis.setTimeout?.(() => {
-      const currentInvoker = invoker && document.contains(invoker)
-        ? invoker
-        : (invokerLabel ? document.querySelector(`[aria-label="${invokerLabel}"]`) : null);
-      if (currentInvoker) currentInvoker.focus();
-      else if (invoker && document.contains(invoker)) invoker.focus();
-      else {
-        const currentWorkDetail = document.querySelector('[data-testid="ot-work-detail"]')
-          || workDetail;
-        currentWorkDetail?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
-        currentWorkDetail?.focus?.({ preventScroll: true });
-      }
-    }, 50);
   };
 
   useLayoutEffect(() => {
-    if (weighingDialog || !focusAfterWeighingRef.current) return;
+    if (weighingDialog || !focusAfterWeighingRef.current) return undefined;
     const focusTarget = focusAfterWeighingRef.current;
-    focusAfterWeighingRef.current = null;
-    globalThis.requestAnimationFrame?.(() => {
+    if (focusTarget.workId && focusTarget.workId !== selectedWorkId) {
+      focusAfterWeighingRef.current = null;
+      return undefined;
+    }
+    let cancelled = false;
+    const restoreFocus = () => {
+      if (cancelled || focusAfterWeighingRef.current !== focusTarget) return;
+      const currentWorkDetail = document.querySelector('[data-testid="ot-work-detail"]');
       if (focusTarget.type === 'invoker') {
         const currentInvoker = focusTarget.element && document.contains(focusTarget.element)
           ? focusTarget.element
           : (focusTarget.label
             ? document.querySelector(`[aria-label="${focusTarget.label}"]`) : null);
-        currentInvoker?.focus?.();
+        if (currentInvoker) {
+          currentInvoker.focus();
+          focusAfterWeighingRef.current = null;
+        } else if (currentWorkDetail) {
+          currentWorkDetail.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+          currentWorkDetail.focus?.({ preventScroll: true });
+          focusAfterWeighingRef.current = null;
+        }
         return;
       }
-      const currentWorkDetail = document.querySelector('[data-testid="ot-work-detail"]');
-      currentWorkDetail?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
-      currentWorkDetail?.focus?.({ preventScroll: true });
-    });
-  }, [weighingDialog]);
+      if (currentWorkDetail) {
+        currentWorkDetail.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+        currentWorkDetail.focus?.({ preventScroll: true });
+        focusAfterWeighingRef.current = null;
+      }
+    };
+    const frame = globalThis.requestAnimationFrame?.(restoreFocus);
+    if (frame == null) restoreFocus();
+    return () => {
+      cancelled = true;
+      if (frame != null) globalThis.cancelAnimationFrame?.(frame);
+    };
+  }, [selectedWorkId, weighingDialog]);
 
   useEffect(() => {
     if (!weighingDialog) return;
     const documentNode = weighingDocumentRef.current;
-    globalThis.requestAnimationFrame?.(() => {
+    let cancelled = false;
+    const focusDocument = () => {
+      if (cancelled || !documentNode || !document.contains(documentNode)) return;
       documentNode?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
       documentNode?.querySelector?.('#manga-weighing-document-title')?.focus?.();
-    });
+    };
+    const frame = globalThis.requestAnimationFrame?.(focusDocument);
+    if (frame == null) focusDocument();
+    return () => {
+      cancelled = true;
+      if (frame != null) globalThis.cancelAnimationFrame?.(frame);
+    };
   }, [weighingDialog]);
 
   // A shared/bookmarked URL can reopen the same weighing document after a
@@ -4099,8 +4114,14 @@ export default function OtMangasScm({ view = 'all' }) {
         <Paper component="section" data-testid="ot-work-detail" aria-label="Trabajo consultado"
           ref={(node) => {
             workDetailRef.current = node;
-            if (node && focusAfterWeighingRef.current?.type === 'work') {
-              node.focus({ preventScroll: true });
+            const focusTarget = focusAfterWeighingRef.current;
+            if (node && focusTarget?.type === 'work') {
+              if (focusTarget.workId && focusTarget.workId !== selectedWorkId) {
+                focusAfterWeighingRef.current = null;
+              } else {
+                focusAfterWeighingRef.current = null;
+                node.focus({ preventScroll: true });
+              }
             }
           }} tabIndex={-1}
           variant="outlined" sx={{
