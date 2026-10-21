@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -799,6 +799,203 @@ describe('tablero diario por máquina y selección humana de color', () => {
       'OT-000002',
     );
     expect(screen.getByRole('heading', { name: 'Contexto de OT' })).toBeVisible();
+  });
+
+  it('limpia la identidad al cambiar fecha y no auto-selecciona una OT de la nueva jornada', async () => {
+    const user = userEvent.setup();
+    const firstOt = { ...makeOt({ machineId: 1, id: 'ot-1' }), fecha_operativa: '2026-10-02' };
+    const nextOt = { ...makeOt({ machineId: 2, id: 'ot-2' }), fecha_operativa: '2026-10-07' };
+    scmMocks.listarOtScm
+      .mockResolvedValueOnce({ items: [firstOt] })
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({ items: [nextOt] })
+      .mockResolvedValueOnce({ items: [] });
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta?fecha=2026-10-02&turno=DIA&modo=fabricacion',
+      ]}>
+        <UrlProbe />
+        <OtMangasScm />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole('button', { name: /Abrir jornada de SOP-01/i });
+    await waitFor(() => expect(screen.getByLabelText('URL actual')).toHaveTextContent('ot=ot-1'));
+
+    fireEvent.change(screen.getByLabelText('Fecha de jornada'), {
+      target: { value: '2026-10-07' },
+    });
+    await waitFor(() => expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('ot=ot-1'));
+    await user.click(screen.getByRole('button', { name: 'Actualizar jornadas' }));
+
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: /Abrir jornada de SOP-02/i,
+    })).toBeVisible());
+    expect(screen.getByLabelText('URL actual')).toHaveTextContent('fecha=2026-10-07');
+    expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('ot=');
+    expect(screen.queryByText(/OT solicitada .* no está disponible/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Lista y detalle de OT' })).toBeVisible();
+  });
+
+  it('ignora la respuesta de la jornada anterior si llega después de editar la fecha antes de enviar', async () => {
+    const user = userEvent.setup();
+    let resolveOldJourney;
+    const oldJourney = new Promise((resolve) => { resolveOldJourney = resolve; });
+    const oldOt = { ...makeOt({ machineId: 1, id: 'ot-old' }), fecha_operativa: '2026-10-02' };
+    const nextOt = { ...makeOt({ machineId: 1, id: 'ot-next' }), fecha_operativa: '2026-10-07' };
+    scmMocks.listarOtScm.mockImplementation((_id, type, query) => {
+      if (query?.fecha_operativa === '2026-10-02' && type === 'FABRICACION') return oldJourney;
+      if (query?.fecha_operativa === '2026-10-07' && type === 'FABRICACION') {
+        return Promise.resolve({ items: [nextOt] });
+      }
+      return Promise.resolve({ items: [] });
+    });
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta?fecha=2026-10-02&turno=DIA&modo=fabricacion',
+      ]}>
+        <UrlProbe />
+        <OtMangasScm />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(await screen.findByLabelText('Fecha de jornada'), {
+      target: { value: '2026-10-07' },
+    });
+    await waitFor(() => expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('ot='));
+    await act(async () => {
+      resolveOldJourney({ items: [oldOt] });
+      await oldJourney;
+    });
+    expect(screen.queryByRole('button', { name: /Abrir jornada de SOP-01/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('ot=ot-old');
+
+    await user.click(screen.getByRole('button', { name: 'Actualizar jornadas' }));
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: /Abrir jornada de SOP-01/i,
+    })).toBeVisible());
+    expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('ot=');
+  });
+
+  it('limpia la identidad al cambiar turno y conserva el tablero sin auto-seleccionar OT', async () => {
+    const user = userEvent.setup();
+    const firstOt = { ...makeOt({ machineId: 1, id: 'ot-day' }), fecha_operativa: '2026-10-02' };
+    const nextOt = { ...makeOt({ machineId: 1, id: 'ot-night' }), fecha_operativa: '2026-10-02', turno: 'NOCHE' };
+    scmMocks.listarOtScm
+      .mockResolvedValueOnce({ items: [firstOt] })
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValueOnce({ items: [nextOt] })
+      .mockResolvedValueOnce({ items: [] });
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta?fecha=2026-10-02&turno=DIA&modo=fabricacion',
+      ]}>
+        <UrlProbe />
+        <OtMangasScm />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('URL actual')).toHaveTextContent('ot=ot-day'));
+    await user.click(screen.getByRole('combobox', { name: 'Turno' }));
+    await user.click(screen.getByRole('option', { name: 'Noche' }));
+    await waitFor(() => expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('ot=ot-day'));
+    await user.click(screen.getByRole('button', { name: 'Actualizar jornadas' }));
+
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: /Abrir jornada de SOP-01/i,
+    })).toBeVisible());
+    expect(screen.getByLabelText('URL actual')).toHaveTextContent('turno=NOCHE');
+    expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('ot=');
+    expect(screen.getByRole('heading', { name: 'Lista y detalle de OT' })).toBeVisible();
+  });
+
+  it('conserva un deep link de OT inválida aunque la máquina tenga otra OT disponible', async () => {
+    const alternativeOt = { ...makeOt({ machineId: 1, id: 'ot-alternative' }), fecha_operativa: '2026-10-02' };
+    scmMocks.listarOtScm.mockResolvedValue({ items: [alternativeOt] });
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta/trabajo?fecha=2026-10-02&turno=DIA&modo=fabricacion&ot=ot-missing&maquina_id=1',
+      ]}>
+        <UrlProbe />
+        <OtMangasScm view="detail" />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('ot-identity-error')).toHaveTextContent(
+      'La OT solicitada (ot-missing) no está disponible',
+    ));
+    expect(screen.getByLabelText('URL actual')).toHaveTextContent('ot=ot-missing');
+    expect(screen.getByLabelText('URL actual')).toHaveTextContent('maquina_id=1');
+    expect(screen.getByRole('heading', { name: 'Lista y detalle de OT' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Contexto de OT' })).not.toBeInTheDocument();
+  });
+
+  it('limpia la identidad de Fabricación al cambiar directamente a Armado', async () => {
+    const user = userEvent.setup();
+    const fabricationOt = { ...makeOt({ machineId: 1, id: 'ot-fabricacion' }), fecha_operativa: '2026-10-02' };
+    scmMocks.listarOtScm.mockImplementation((_id, type) => Promise.resolve({
+      items: type === 'FABRICACION' ? [fabricationOt] : [],
+    }));
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta?fecha=2026-10-02&turno=DIA&modo=fabricacion&ot=ot-fabricacion&trabajo=work-green',
+      ]}>
+        <UrlProbe />
+        <OtMangasScm />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('URL actual')).toHaveTextContent('ot=ot-fabricacion'));
+    await user.click(screen.getByRole('tab', { name: /Armado · Centros/i }));
+    await waitFor(() => expect(screen.getByLabelText('URL actual')).toHaveTextContent('modo=armado'));
+    expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('ot=ot-fabricacion');
+    expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('trabajo=work-green');
+  });
+
+  it('permite reintentar una jornada con error sin restaurar la OT anterior', async () => {
+    const user = userEvent.setup();
+    let retryFabricationAttempt = 0;
+    const firstOt = { ...makeOt({ machineId: 1, id: 'ot-before' }), fecha_operativa: '2026-10-02' };
+    const retryOt = { ...makeOt({ machineId: 1, id: 'ot-retry' }), fecha_operativa: '2026-10-07' };
+    scmMocks.listarOtScm.mockImplementation((_id, type, query) => {
+      if (query?.fecha_operativa === '2026-10-02') {
+        return Promise.resolve({ items: type === 'FABRICACION' ? [firstOt] : [] });
+      }
+      if (type === 'FABRICACION') {
+        retryFabricationAttempt += 1;
+        if (retryFabricationAttempt === 1) {
+          return Promise.reject(new Error('new journey unavailable'));
+        }
+        return Promise.resolve({ items: [retryOt] });
+      }
+      return Promise.resolve({ items: [] });
+    });
+    render(
+      <MemoryRouter initialEntries={[
+        '/produccion/ots-planta?fecha=2026-10-02&turno=DIA&modo=fabricacion',
+      ]}>
+        <UrlProbe />
+        <OtMangasScm />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText('URL actual')).toHaveTextContent('ot=ot-before'));
+    fireEvent.change(screen.getByLabelText('Fecha de jornada'), {
+      target: { value: '2026-10-07' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Actualizar jornadas' }));
+    await waitFor(() => expect(screen.getByText('No se pudieron buscar las OT.')).toBeVisible());
+    expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('ot=');
+    expect(screen.queryByRole('button', { name: /Abrir jornada de SOP-01/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Actualizar jornadas' }));
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: /Abrir jornada de SOP-01/i,
+    })).toBeVisible());
+    expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('ot=');
+    expect(screen.getByLabelText('URL actual')).not.toHaveTextContent('trabajo=');
+    expect(screen.getByRole('heading', { name: 'Lista y detalle de OT' })).toBeVisible();
+    expect(screen.queryByText(/Identidad no encontrada/i)).not.toBeInTheDocument();
   });
 
   it('muestra un único color como configuración de solo lectura sin exponer C01', async () => {

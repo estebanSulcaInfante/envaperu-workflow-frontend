@@ -1055,6 +1055,7 @@ export default function OtMangasScm({ view = 'all' }) {
     initialJourneyContextRef.current = journeyContextFromSearch(searchParams);
   }
   const initialJourneyContext = initialJourneyContextRef.current;
+  const explicitJourneyIdentityRef = useRef(initialJourneyContext.ot || '');
   const canManagePlan = can('PLAN_MANGA_ADMINISTRAR');
   const canViewFabricationOrders = can('OF_VER');
   const canCreateOt = can('OT_CREAR');
@@ -1098,6 +1099,8 @@ export default function OtMangasScm({ view = 'all' }) {
   });
   const journeyRequestRef = useRef(0);
   const journeyContextRef = useRef('');
+  const journeySnapshotRef = useRef(false);
+  const suppressMachineAutoSelectionRef = useRef('');
   const [perspective, setPerspective] = useState(initialJourneyContext.perspective);
   const [dailyBoardFilter, setDailyBoardFilter] = useState(() => normalizeDailyBoardFilter(
     searchParams.get('ot_estado'),
@@ -1434,12 +1437,17 @@ export default function OtMangasScm({ view = 'all' }) {
     }
   }, []);
 
-  const applyOtPayload = useCallback((items, preferredOtId, preferredWorkId) => {
+  const applyOtPayload = useCallback((
+    items,
+    preferredOtId,
+    preferredWorkId,
+    { autoSelectFirst = true } = {},
+  ) => {
     const normalized = (items || []).map(normalizeOt);
     setOts(normalized);
     const explicitOt = Boolean(preferredOtId);
     const nextOt = normalized.find((item) => item.public_id === preferredOtId)
-      || (explicitOt ? null : normalized[0])
+      || (explicitOt ? null : (autoSelectFirst ? normalized[0] : null))
       || null;
     const nextWorks = nextOt?.trabajos_color || [];
     const nextWork = nextWorks.find((item) => item.id === preferredWorkId)
@@ -1455,8 +1463,9 @@ export default function OtMangasScm({ view = 'all' }) {
   }, []);
 
   const applyJourneyPayload = useCallback((
-    payload, preferredOtId, preferredWorkId,
+    payload, preferredOtId, preferredWorkId, options,
   ) => {
+    journeySnapshotRef.current = true;
     const machines = payload.maquinas || [];
     const operationalMachines = machines.filter(isOperationalMachine);
     setCatalogs((current) => ({
@@ -1479,13 +1488,14 @@ export default function OtMangasScm({ view = 'all' }) {
       payload.ots_fabricacion || [],
       preferredOtId,
       preferredWorkId,
+      options,
     );
     setAssemblyOts(payload.ots_armado || []);
     setJourneyWarnings({ FABRICACION: '', ENSAMBLE: '' });
   }, [applyOtPayload]);
 
   const fetchJourneys = useCallback(async (
-    preferredOtId, preferredWorkId, filters,
+    preferredOtId, preferredWorkId, filters, options,
   ) => {
     const requestId = journeyRequestRef.current + 1;
     journeyRequestRef.current = requestId;
@@ -1530,23 +1540,27 @@ export default function OtMangasScm({ view = 'all' }) {
       // context with a false empty board or a stale OT identity.
       if (requestId !== journeyRequestRef.current
         || requestContext !== journeyContextRef.current) return { stale: true };
-      applyJourneyPayload(payload, preferredOtId, preferredWorkId);
+      applyJourneyPayload(payload, preferredOtId, preferredWorkId, options);
       return { stale: false };
     } catch (requestError) {
       if (requestId !== journeyRequestRef.current
         || requestContext !== journeyContextRef.current) return { stale: true };
-      const warning = 'No se pudieron actualizar las jornadas. Se conserva la última información visible.';
+      const warning = journeySnapshotRef.current
+        ? 'No se pudieron actualizar las jornadas. Se conserva la última información visible.'
+        : 'No se pudieron actualizar las jornadas. Reintenta para consultar la jornada solicitada.';
       setJourneyWarnings({ FABRICACION: warning, ENSAMBLE: warning });
       setCenterCatalogWarning(
-        'No se pudo consultar el catálogo de centros. Las jornadas existentes siguen visibles.',
+        journeySnapshotRef.current
+          ? 'No se pudo consultar el catálogo de centros. Las jornadas existentes siguen visibles.'
+          : 'No se pudo consultar el catálogo de centros. Reintenta para volver a consultar.',
       );
       throw requestError;
     }
   }, [actorId, applyJourneyPayload]);
 
   const loadOts = useCallback((
-    preferredOtId, preferredWorkId, filters = listFilters,
-  ) => fetchJourneys(preferredOtId, preferredWorkId, filters), [
+    preferredOtId, preferredWorkId, filters = listFilters, options,
+  ) => fetchJourneys(preferredOtId, preferredWorkId, filters, options), [
     fetchJourneys,
     listFilters,
   ]);
@@ -1590,11 +1604,13 @@ export default function OtMangasScm({ view = 'all' }) {
        maquina_id: context.maquina_id,
     }));
     if (context.perspective === 'ENSAMBLE') {
+      explicitJourneyIdentityRef.current = context.ot || '';
       setAssemblyContextOtId(context.ot);
       setSelectedOtId('');
       setSelectedWorkId('');
       setSelectedMangaId('');
     } else {
+      explicitJourneyIdentityRef.current = context.ot || '';
       setSelectedOtId(context.ot);
       setAssemblyContextOtId('');
       setSelectedWorkId(context.trabajo);
@@ -1602,6 +1618,14 @@ export default function OtMangasScm({ view = 'all' }) {
       setIdentityError('');
     }
     if (filtersChanged) {
+      // A history navigation to another jornada must not render the previous
+      // board while its query is in flight. Explicit URL identities remain in
+      // state so the response can validate them strictly.
+      journeySnapshotRef.current = false;
+      setOts([]);
+      setAssemblyOts([]);
+      setCatalogs((current) => ({ ...current, machines: [], allMachines: [] }));
+      suppressMachineAutoSelectionRef.current = `${actorId}|${nextFilters.fecha_operativa}|${nextFilters.turno}`;
       setBusy(true);
       fetchJourneys(
         context.perspective === 'FABRICACION' ? context.ot : undefined,
@@ -1613,7 +1637,7 @@ export default function OtMangasScm({ view = 'all' }) {
         ))
         .finally(() => setBusy(false));
     }
-  }, [fetchJourneys, listFilters.fecha_operativa, listFilters.turno, listFilters.maquina_id, searchParams]);
+  }, [actorId, fetchJourneys, listFilters.fecha_operativa, listFilters.turno, listFilters.maquina_id, searchParams]);
 
   const reloadFabricationOrders = useCallback(async () => {
     if (!canViewFabricationOrders) return [];
@@ -1715,6 +1739,7 @@ export default function OtMangasScm({ view = 'all' }) {
   useEffect(() => {
     if (isGlobalView) return undefined;
     setBusy(true);
+    journeySnapshotRef.current = false;
     setOts([]);
     setAssemblyOts([]);
     setCatalogs((current) => ({ ...current, machines: [], allMachines: [] }));
@@ -1874,7 +1899,8 @@ export default function OtMangasScm({ view = 'all' }) {
       next.set('fecha', listFilters.fecha_operativa);
       next.set('turno', listFilters.turno);
       next.set('modo', perspective === 'ENSAMBLE' ? 'armado' : 'fabricacion');
-      if (contextualOt) next.set('ot', contextualOt);
+      const urlOt = contextualOt || explicitJourneyIdentityRef.current;
+      if (urlOt) next.set('ot', urlOt);
       else next.delete('ot');
       if (perspective === 'FABRICACION' && selectedWorkId) next.set('trabajo', selectedWorkId);
       else next.delete('trabajo');
@@ -1892,6 +1918,7 @@ export default function OtMangasScm({ view = 'all' }) {
     listFilters.maquina_id,
     listFilters.turno,
     perspective,
+    identityError,
     selectedOtId,
     selectedWorkId,
     selectedMangaId,
@@ -1900,12 +1927,15 @@ export default function OtMangasScm({ view = 'all' }) {
   ]);
 
   useEffect(() => {
-    if (!listFilters.maquina_id || selectedFilteredOtId) return;
+    const journeyKey = `${actorId}|${listFilters.fecha_operativa}|${listFilters.turno}`;
+    if (!listFilters.maquina_id || selectedFilteredOtId || identityError
+      || suppressMachineAutoSelectionRef.current === journeyKey) return;
     const nextOt = filteredOts[0] || null;
     setSelectedOtId(nextOt?.public_id || '');
     setSelectedWorkId(nextOt?.trabajos_color?.[0]?.id || '');
     setSelectedMangaId('');
-  }, [filteredOts, listFilters.maquina_id, selectedFilteredOtId]);
+  }, [actorId, filteredOts, identityError, listFilters.fecha_operativa,
+    listFilters.maquina_id, listFilters.turno, selectedFilteredOtId]);
 
   useEffect(() => {
     const request = ++planRequestRef.current;
@@ -2038,6 +2068,32 @@ export default function OtMangasScm({ view = 'all' }) {
     }
   };
 
+  const changeJourneyFilters = (nextFilters) => {
+    const journeyChanged = nextFilters.fecha_operativa !== listFilters.fecha_operativa
+      || nextFilters.turno !== listFilters.turno;
+    if (journeyChanged) {
+      // Editing the jornada starts a new consultation context. Clear the
+      // previous document before the URL effect can carry its IDs forward.
+      journeyRequestRef.current += 1;
+      journeySnapshotRef.current = false;
+      explicitJourneyIdentityRef.current = '';
+      identityNavigationRef.current = false;
+      setSelectedOtId('');
+      setSelectedWorkId('');
+      setSelectedMangaId('');
+      setAssemblyContextOtId('');
+      setIdentityError('');
+      setError('');
+      setJourneyWarnings({ FABRICACION: '', ENSAMBLE: '' });
+      setCenterCatalogWarning('');
+      setOts([]);
+      setAssemblyOts([]);
+      setCatalogs((current) => ({ ...current, machines: [], allMachines: [] }));
+      suppressMachineAutoSelectionRef.current = `${actorId}|${nextFilters.fecha_operativa}|${nextFilters.turno}`;
+    }
+    setListFilters(nextFilters);
+  };
+
   const applyListFilters = async (event) => {
     event?.preventDefault();
     if (!listFilters.fecha_operativa || !listFilters.turno) {
@@ -2046,8 +2102,28 @@ export default function OtMangasScm({ view = 'all' }) {
     }
     setBusy(true);
     setError('');
+    const requestContext = `${actorId}|${listFilters.fecha_operativa}|${listFilters.turno}`;
+    const journeyChanged = requestContext !== journeyContextRef.current;
+    if (journeyChanged) {
+      journeySnapshotRef.current = false;
+      explicitJourneyIdentityRef.current = '';
+      suppressMachineAutoSelectionRef.current = requestContext;
+      setSelectedOtId('');
+      setSelectedWorkId('');
+      setSelectedMangaId('');
+      setAssemblyContextOtId('');
+      setIdentityError('');
+    }
     try {
-      await loadOts(selectedOtId, selectedWorkId, listFilters);
+      await loadOts(
+        journeyChanged ? '' : selectedOtId,
+        journeyChanged ? '' : selectedWorkId,
+        listFilters,
+        {
+          autoSelectFirst: !journeyChanged
+            && suppressMachineAutoSelectionRef.current !== requestContext,
+        },
+      );
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudieron buscar las OT.'));
     } finally {
@@ -2056,6 +2132,7 @@ export default function OtMangasScm({ view = 'all' }) {
   };
 
   const changeJourneyPerspective = (nextPerspective) => {
+    explicitJourneyIdentityRef.current = '';
     setPerspective(nextPerspective);
     if (nextPerspective === 'ENSAMBLE') setAssemblyContextOtId('');
   };
@@ -2080,6 +2157,8 @@ export default function OtMangasScm({ view = 'all' }) {
 
   const changeMachineFilter = (machineId) => {
     identityNavigationRef.current = true;
+    explicitJourneyIdentityRef.current = '';
+    suppressMachineAutoSelectionRef.current = '';
     setListFilters((current) => ({ ...current, maquina_id: machineId }));
     const nextOt = machineId
       ? ots.find((item) => String(machineIdFromOt(item)) === String(machineId))
@@ -3389,7 +3468,7 @@ export default function OtMangasScm({ view = 'all' }) {
       {!isDetail && <Typography component="h2" variant="h6" fontWeight={850}>Tablero diario</Typography>}
       {!isDetail && <PlantJourneysOverview
         filters={listFilters}
-        onFiltersChange={setListFilters}
+        onFiltersChange={changeJourneyFilters}
         onSubmit={applyListFilters}
         busy={busy}
         perspective={perspective}
@@ -3474,6 +3553,7 @@ export default function OtMangasScm({ view = 'all' }) {
                 value={selectedFilteredOtId}
                 onChange={(event) => {
                   identityNavigationRef.current = true;
+                  explicitJourneyIdentityRef.current = '';
                   setSelectedOtId(event.target.value);
                   const next = ots.find((item) => item.public_id === event.target.value);
                   setSelectedWorkId(next?.trabajos_color?.[0]?.id || '');
