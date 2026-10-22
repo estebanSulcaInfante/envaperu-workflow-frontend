@@ -38,6 +38,7 @@ import DraftOrderAnnulment from './DraftOrderAnnulment';
 import FabricationOrderReplacement from './FabricationOrderReplacement';
 import FabricationObjectivesTable from './FabricationObjectivesTable';
 import FabricationProgressObjectivesTable from './FabricationProgressObjectivesTable';
+import ExecutionControlDialog from './ExecutionControlDialog';
 import { obtenerOrdenFabricacionScm } from '../services/scmOtApi';
 import { listarAvanceOfScm } from '../services/scmProductionObservabilityApi';
 import { defaultRecipeForRun } from './fabricationRecipeOptions';
@@ -60,7 +61,9 @@ const statusColor = {
   LIBERADA: 'info',
   PROGRAMADA: 'info',
   EN_EJECUCION: 'primary',
+  PAUSADA: 'warning',
   CERRADA: 'default',
+  CANCELADA: 'error',
   ANULADA: 'error',
 };
 
@@ -234,6 +237,8 @@ export default function FabricationOrdersScm() {
   const canEdit = can('OF_EDITAR_BORRADOR');
   const canRelease = can('OF_LIBERAR');
   const canClose = can('OF_CERRAR');
+  const canPauseExecution = can('OF_PAUSAR_EJECUCION');
+  const canCancelExecution = can('OF_CANCELAR_EJECUCION');
   const canCreateExceptional = can('OF_EXCEPCIONAL_CREAR');
   const canViewOt = can('OT_VER');
   const canViewWeights = can('MANGA_PESAJE_VER');
@@ -275,6 +280,7 @@ export default function FabricationOrdersScm() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [discardRequest, setDiscardRequest] = useState(null);
+  const [executionOrder, setExecutionOrder] = useState(null);
   const [expandedRuns, setExpandedRuns] = useState({});
   const focusedOrderRef = useRef(null);
   const inboxRef = useRef(null);
@@ -1047,6 +1053,11 @@ export default function FabricationOrdersScm() {
           <Typography variant="caption" color="text.secondary" noWrap>
             {displayProvenance(order.procedencia) || order.origen_demanda || order.motivo || '—'}
           </Typography>
+          {(canPauseExecution || canCancelExecution) && ['EN_EJECUCION', 'PAUSADA'].includes(order.estado) && (
+            <Button size="small" variant="outlined" sx={{ alignSelf: 'flex-start', mt: 0.5 }} onClick={() => setExecutionOrder(order)} aria-label={`Gestionar ejecución ${order.codigo}`}>
+              Gestionar ejecución
+            </Button>
+          )}
         </>}
       </Stack>
     );
@@ -1296,6 +1307,11 @@ export default function FabricationOrdersScm() {
               {canClose && selected.estado === 'EN_EJECUCION' && (
                 <Button color="success" variant="contained" startIcon={<TaskAltOutlinedIcon />} disabled={busy} onClick={closeOrder}>
                   Cerrar OF
+                </Button>
+              )}
+              {(canPauseExecution || canCancelExecution) && ['EN_EJECUCION', 'PAUSADA'].includes(selected.estado) && (
+                <Button variant="outlined" color={canCancelExecution && selected.estado === 'PAUSADA' ? 'error' : 'primary'} onClick={() => setExecutionOrder(selected)}>
+                  Gestionar ejecución
                 </Button>
               )}
               {canRelease && selected.estado === 'BORRADOR' && (draftDirty || formulaDirty) && (
@@ -1690,6 +1706,24 @@ export default function FabricationOrdersScm() {
           updateQuery({ of: created.id });
         }}
       />
+      {executionOrder && <ExecutionControlDialog
+        key={executionOrder.id}
+        open
+        order={executionOrder}
+        canPause={canPauseExecution}
+        canCancel={canCancelExecution}
+        onClose={() => setExecutionOrder(null)}
+        onCompleted={async (result) => {
+          const completedOrder = executionOrder;
+          setNotice(`${result.codigo || completedOrder?.codigo}: ${result.action === 'CANCELAR' ? 'ejecución cancelada' : result.action === 'PAUSAR' ? 'ejecución pausada' : 'ejecución reanudada'}.`);
+          setExecutionOrder((current) => current ? {
+            ...current,
+            estado: result.estado || result.of?.estado || current.estado,
+            version: result.version || current.version,
+          } : current);
+          await load();
+        }}
+      />}
     </Stack>
   );
 }

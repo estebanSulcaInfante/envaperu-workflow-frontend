@@ -222,7 +222,9 @@ export const statusLabel = (status) => ({
   LIBERADA: 'Liberada',
   PROGRAMADA: 'Programada',
   EN_EJECUCION: 'En ejecución',
+  PAUSADA: 'Pausada',
   CERRADA: 'Cerrada',
+  CANCELADA: 'Cancelada',
   ANULADA: 'Anulada',
 }[status] || status || 'Sin estado');
 

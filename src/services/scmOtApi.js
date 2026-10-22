@@ -65,6 +65,15 @@ export const cerrarOrdenFabricacionScm = (ofId, payload) => body(
     { headers: headers(true) },
   ),
 );
+export const obtenerImpactoEjecucionOfScm = (ofId, action, options = {}) => body(() => api.get(
+  `/scm/v1/ordenes-fabricacion/${encodeURIComponent(ofId)}/impacto-ejecucion`,
+  { params: { accion: action }, headers: headers(), ...(options.signal ? { signal: options.signal } : {}) },
+));
+export const ejecutarControlOfScm = (of, action, payload, operationId = '') => body(() => api.post(
+  `/scm/v1/ordenes-fabricacion/${encodeURIComponent(of.id)}/${String(action).toLowerCase()}-ejecucion`,
+  payload,
+  { headers: { ...headers(), 'Idempotency-Key': operationId || crypto.randomUUID() } },
+));
 export const obtenerPlanMangas = (ofId) => body(() => api.get(
   `/scm/v1/ordenes-fabricacion/${encodeURIComponent(ofId)}/plan-mangas`,
   { headers: headers() },
