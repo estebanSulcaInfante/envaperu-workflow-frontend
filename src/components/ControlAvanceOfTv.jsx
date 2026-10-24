@@ -13,13 +13,22 @@ const REFRESH_MS = 60_000;
 const PAGE_MS = 12_000;
 const TV_PART_SIZE = 4;
 const TV_VERTICAL_CHROME = 180;
+const TV_VIEWPORT_PADDING = 16;
 // Measured wide-TV lane height (including row spacing) from the target
 // browser fixture. Pieces and outputs are horizontal, so their count does not
 // consume additional vertical budget. Narrow layouts add their stacked rows.
 const TV_BASE_LANE_HEIGHT = 73;
+// Narrow cards stack color/provenance and metric content vertically. The
+// compact DOM fixture measures this lane baseline at ~112px; wide matrices
+// keep the shorter horizontal baseline above.
+const TV_NARROW_BASE_LANE_HEIGHT = 112;
 const TV_CARD_CHROME = 90;
+// Narrow cards wrap the mold title before the OF/status chips. This is the
+// measured extra header line in the compact DOM, not a viewport safety fudge.
+const TV_NARROW_HEADER_WRAP = 24;
 const TV_PIECE_HEIGHT = 24;
 const TV_ROW_GAP = 8;
+const TV_TITLE_LINE_HEIGHT = 34;
 const ACTIVE = new Set(['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION', 'ABIERTA', 'EN_COBERTURA']);
 const statusLabels = {
   EN_AVANCE: 'En avance',
@@ -115,8 +124,8 @@ function groupIdentityWarning(group) {
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function calculateTvPageBudget({ viewportHeight = 768, pieceCount = 1, hasAlerts = false, layout = 'wide' } = {}) {
-  const availableHeight = Math.max(1, viewportHeight - TV_VERTICAL_CHROME);
-  const laneHeight = TV_BASE_LANE_HEIGHT
+  const availableHeight = Math.max(1, viewportHeight - TV_VERTICAL_CHROME - TV_VIEWPORT_PADDING);
+  const laneHeight = (layout === 'narrow' ? TV_NARROW_BASE_LANE_HEIGHT : TV_BASE_LANE_HEIGHT)
     // Wide TV lanes render pieces and their outputs horizontally. Their
     // count therefore does not consume additional vertical budget. Narrow
     // layouts retain the conservative estimate because those columns stack.
@@ -142,14 +151,27 @@ function estimateLaneHeight(group, pieceCount, layout) {
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
-export function splitTvLanes(groups, { viewportHeight = 768, pieceCount = 1, layout = 'wide' } = {}) {
+export function splitTvLanes(groups, {
+  viewportHeight = 768,
+  pieceCount = 1,
+  layout = 'wide',
+  titleLineCount = 1,
+} = {}) {
   const { availableHeight } = calculateTvPageBudget({ viewportHeight, pieceCount, layout });
+  const laneAvailableHeight = Math.max(
+    1,
+    availableHeight
+      - TV_CARD_CHROME
+      - (layout === 'narrow' ? TV_NARROW_HEADER_WRAP : 0)
+      - (layout === 'narrow' ? Math.max(0, pieceCount - 1) * TV_PIECE_HEIGHT : 0)
+      - Math.max(0, titleLineCount - 1) * TV_TITLE_LINE_HEIGHT,
+  );
   const pages = [];
   let current = [];
   let used = 0;
   groups.forEach((group) => {
     const laneHeight = estimateLaneHeight(group, pieceCount, layout);
-    if (current.length && used + laneHeight > availableHeight) {
+    if (current.length && used + laneHeight > laneAvailableHeight) {
       pages.push(current);
       current = [];
       used = 0;
@@ -173,21 +195,133 @@ function partPieceCount(part) {
 // additional piece header; lanes remain the dominant cost.
 // eslint-disable-next-line react-refresh/only-export-components
 export function estimateTvPartHeight(part, { layout = 'wide' } = {}) {
-  if (Number.isFinite(part?.estimatedHeight)) return Math.max(1, part.estimatedHeight);
+  const titleLineCount = Number.isFinite(part?.titleLineCount)
+    ? Math.max(1, part.titleLineCount)
+    : estimateTvTitleLineCount(part);
+  const titleHeight = part?.heightIncludesTitle ? 0 : Math.max(0, titleLineCount - 1) * TV_TITLE_LINE_HEIGHT;
+  const narrowHeaderHeight = layout === 'narrow' ? TV_NARROW_HEADER_WRAP : 0;
+  if (Number.isFinite(part?.estimatedHeight)) return Math.max(1, part.estimatedHeight + titleHeight);
   const groups = part.groups || [];
   const laneHeight = groups.length
     ? groups.reduce((total, group) => total + estimateLaneHeight(group, partPieceCount(part), layout), 0)
     : calculateTvPageBudget({ pieceCount: partPieceCount(part), layout }).laneHeight;
-  const pieceHeight = layout === 'wide' ? Math.max(0, partPieceCount(part) - 1) * TV_PIECE_HEIGHT : 0;
-  return TV_CARD_CHROME + laneHeight + pieceHeight;
+  // Wide matrices share one horizontal piece-header row; only the narrow
+  // stacked fallback spends vertical space per additional piece.
+  const pieceHeight = layout === 'narrow' ? Math.max(0, partPieceCount(part) - 1) * TV_PIECE_HEIGHT : 0;
+  return TV_CARD_CHROME + narrowHeaderHeight + laneHeight + pieceHeight + titleHeight;
 }
 
-function flushTvRow(rows, parts, height) {
-  if (parts.length) rows.push({ parts, height });
+function partTitle(part) {
+  const group = (part?.groups || [])[0] || {};
+  return part?.title || part?.moldLabel || group.molde?.nombre || group.molde?.codigo || part?.of || part?.of_id || '';
+}
+
+function estimateTvTitleLineCount(part) {
+  const title = String(partTitle(part) || '').trim();
+  if (!title) return 1;
+  const width = Number.isFinite(part?.titleWidth) ? Math.max(1, part.titleWidth) : 420;
+  const fontSize = Number.isFinite(part?.titleFontSize) ? part.titleFontSize : 32;
+  const averageCharacterWidth = Math.max(7, fontSize * 0.56);
+  const charactersPerLine = Math.max(8, Math.floor(width / averageCharacterWidth));
+  return Math.max(1, Math.ceil(title.length / charactersPerLine));
+}
+
+function partOfId(part) {
+  return part?.of_id ?? part?.of?.of_id ?? null;
+}
+
+function isFullWidthPart(part, limit) {
+  return Boolean(part?.exclusive || part?.requiresFullWidth || limit < 2);
+}
+
+function isScoreBefore(left, right) {
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return left[index] < right[index];
+  }
+  return false;
+}
+
+function groupKey(part, index) {
+  const ofId = partOfId(part);
+  return ofId == null ? `missing-of:${index}` : `of:${ofId}`;
+}
+
+function closestGroupPair(leftItems, rightItems) {
+  let leftIndex = 0;
+  let rightIndex = 0;
+  let best = null;
+  while (leftIndex < leftItems.length && rightIndex < rightItems.length) {
+    const left = leftItems[leftIndex];
+    const right = rightItems[rightIndex];
+    const score = [Math.abs(left.height - right.height), Math.max(left.height, right.height), left.index, right.index];
+    if (!best || isScoreBefore(score, best.score)) best = { left, right, leftIndex, rightIndex, score };
+    if (left.height <= right.height) leftIndex += 1;
+    else rightIndex += 1;
+  }
+  return best;
+}
+
+function pairNormalSegment(segment, layout) {
+  const available = segment.map(({ part, index }) => ({
+    part,
+    index,
+    group: groupKey(part, index),
+    height: estimateTvPartHeight(part, { layout }),
+  }));
+  const groups = new Map();
+  available.forEach((candidate) => {
+    if (!groups.has(candidate.group)) groups.set(candidate.group, []);
+    groups.get(candidate.group).push(candidate);
+  });
+  groups.forEach((items) => items.sort((left, right) => left.height - right.height || left.index - right.index));
+  const rows = [];
+  const maxGroupSize = Math.max(0, ...[...groups.values()].map((items) => items.length));
+  if (maxGroupSize <= 1) {
+    const sorted = [...available].sort((left, right) => left.height - right.height || left.index - right.index);
+    for (let index = 0; index + 1 < sorted.length; index += 2) {
+      const left = sorted[index];
+      const right = sorted[index + 1];
+      rows.push({
+        parts: [left, right].sort((first, second) => first.index - second.index).map(({ part }) => part),
+        height: Math.max(left.height, right.height),
+        firstIndex: Math.min(left.index, right.index),
+      });
+    }
+    if (sorted.length % 2) {
+      const last = sorted[sorted.length - 1];
+      rows.push({ parts: [last.part], height: last.height, firstIndex: last.index });
+    }
+  } else {
+    // A highest-count pair round-robin is a maximum-cardinality matching for
+    // complete multipartite groups. Selecting the closest heights inside the
+    // two groups keeps the secondary objective without cubic edge scanning.
+    while (true) {
+      const activeGroups = [...groups.entries()].filter(([, items]) => items.length);
+      if (activeGroups.length < 2) break;
+      activeGroups.sort((left, right) => right[1].length - left[1].length || left[1][0].index - right[1][0].index);
+      const leftItems = activeGroups[0][1];
+      const rightItems = activeGroups[1][1];
+      const best = closestGroupPair(leftItems, rightItems);
+      const { left, right, leftIndex, rightIndex } = best;
+      leftItems.splice(leftIndex, 1);
+      rightItems.splice(rightIndex, 1);
+    rows.push({
+      parts: [left, right].sort((first, second) => first.index - second.index).map(({ part }) => part),
+      height: Math.max(left.height, right.height),
+      firstIndex: Math.min(left.index, right.index),
+    });
+    }
+    groups.forEach((items) => items.forEach((candidate) => rows.push({
+      parts: [candidate.part], height: candidate.height, firstIndex: candidate.index,
+    })));
+  }
+  return rows.sort((left, right) => left.firstIndex - right.firstIndex)
+    .map((row) => ({ parts: row.parts, height: row.height }));
 }
 
 // Forms stable rows first. A row has at most two cards and never pairs two
-// parts from the same OF. Full-width/exclusive cards are barriers of their own.
+// parts from the same OF. Full-width/exclusive cards remain solitary rows;
+// normal parts may pair across them when that recovers usable space.
 // Height is the maximum card height in the row, so a page can contain several
 // rows without using a masonry layout.
 // eslint-disable-next-line react-refresh/only-export-components
@@ -197,34 +331,25 @@ export function packTvRows(parts, {
   layout = 'wide',
 } = {}) {
   const rows = [];
-  let current = [];
-  let currentHeight = 0;
   const limit = Math.max(1, Math.min(2, maxColumns));
-  const pushCurrent = () => {
-    flushTvRow(rows, current, currentHeight);
-    current = [];
-    currentHeight = 0;
-  };
-
-  parts.forEach((part) => {
-    const height = estimateTvPartHeight(part, { layout });
-    const fullWidth = part.exclusive || part.requiresFullWidth || limit < 2;
-    const sameOf = current.some((candidate) => candidate.of_id != null && candidate.of_id === part.of_id);
-    const wouldOverflow = current.length > 0 && currentHeight > availableHeight;
-    if (fullWidth) {
-      pushCurrent();
-      rows.push({ parts: [part], height });
-    } else if (current.length >= limit || sameOf || wouldOverflow) {
-      pushCurrent();
-      current = [part];
-      currentHeight = height;
-    } else {
-      current.push(part);
-      currentHeight = Math.max(currentHeight, height);
+  void availableHeight;
+  const normalParts = [];
+  const fullWidthRows = [];
+  parts.forEach((part, index) => {
+    if (isFullWidthPart(part, limit)) {
+      fullWidthRows.push({
+        parts: [part],
+        height: estimateTvPartHeight(part, { layout }),
+        firstIndex: index,
+      });
+      return;
     }
+    normalParts.push({ part, index });
   });
-  pushCurrent();
-  return rows;
+  rows.push(...pairNormalSegment(normalParts, layout).map((row) => ({ ...row, firstIndex: parts.findIndex((part) => part === row.parts[0]) })));
+  rows.push(...fullWidthRows);
+  return rows.sort((left, right) => left.firstIndex - right.firstIndex)
+    .map((row) => ({ parts: row.parts, height: row.height }));
 }
 
 // Converts stable rows into TV pages. A row that is taller than the available
@@ -238,19 +363,18 @@ export function packTvPages(parts, {
 } = {}) {
   const rows = packTvRows(parts, { availableHeight, maxColumns, layout });
   const pages = [];
-  let currentRows = [];
-  let usedHeight = 0;
   rows.forEach((row) => {
-    const nextHeight = usedHeight + (currentRows.length ? TV_ROW_GAP : 0) + row.height;
-    if (currentRows.length && nextHeight > availableHeight) {
-      pages.push({ rows: currentRows, usedHeight });
-      currentRows = [];
-      usedHeight = 0;
+    const page = pages.find((candidate) => {
+      if (!candidate.rows.length) return true;
+      return candidate.usedHeight + TV_ROW_GAP + row.height <= availableHeight;
+    });
+    if (page) {
+      page.rows.push(row);
+      page.usedHeight += (page.rows.length > 1 ? TV_ROW_GAP : 0) + row.height;
+      return;
     }
-    currentRows.push(row);
-    usedHeight += row.height + (currentRows.length > 1 ? TV_ROW_GAP : 0);
+    pages.push({ rows: [row], usedHeight: row.height });
   });
-  if (currentRows.length) pages.push({ rows: currentRows, usedHeight });
   return pages.length ? pages : [{ rows: [], usedHeight: 0 }];
 }
 
@@ -484,13 +608,13 @@ function CanonicalBoardCard({ board, compact = false, wide = true, partLabel = n
   }, new Map()).values()];
   const moldVisible = groups.some((group) => group.molde_visible === true);
   const moldLabel = firstGroup.molde?.nombre || firstGroup.molde?.codigo;
+  const moldIsTitle = moldVisible && Boolean(moldLabel);
   const boardHeader = (
     <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: compact ? 0.75 : 1, flexWrap: 'wrap' }}>
-      <Typography variant={compact ? 'h4' : 'h5'} fontWeight={900} sx={compact ? { fontSize: { xs: 25, md: 32 }, lineHeight: 1.05 } : undefined}>{board.of || 'OF sin identificar'}</Typography>
+      <Typography component="h2" variant={compact ? 'h4' : 'h5'} fontWeight={900} sx={{ minWidth: 0, overflowWrap: 'anywhere', ...(compact ? { fontSize: { xs: 25, md: 32 }, lineHeight: 1.05 } : {}) }}>{moldIsTitle ? moldLabel : (board.of || 'OF sin identificar')}</Typography>
+      {moldIsTitle && <Chip size="small" variant="outlined" label={board.of || 'OF sin identificar'} />}
       <Chip size="small" label={orderStatusLabels[board.estado] || board.estado || 'Estado no disponible'} sx={compact ? { height: 22, fontSize: 11 } : undefined} />
-      {moldVisible && (moldLabel
-        ? <Chip size="small" variant="outlined" label={`Molde ${moldLabel}`} />
-        : <Chip size="small" color="warning" variant="outlined" label="Molde sin identificar" />)}
+      {moldVisible && !moldLabel && <Chip size="small" color="warning" variant="outlined" label="Molde sin identificar" />}
       {partLabel && <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto !important', whiteSpace: 'nowrap' }}>{partLabel}</Typography>}
     </Stack>
   );
@@ -721,8 +845,23 @@ export default function ControlAvanceOfTv() {
     const allPieces = canonicalPieces(board.groups);
     const pieceCount = allPieces.length;
     const minFullWidth = 132 + pieceCount * 88 + 16;
+    const boardTitle = board.groups[0]?.molde?.nombre || board.groups[0]?.molde?.codigo || board.of || '';
+    const halfCardWidth = Math.max(1, viewportWidth / 2 - 24);
+    const fullCardWidth = Math.max(1, viewportWidth - 24);
+    const horizontallyFullWidth = wideViewport && minFullWidth > halfCardWidth;
+    const boardTitleWidth = horizontallyFullWidth || !wideViewport ? fullCardWidth : halfCardWidth;
+    const boardTitleLineCount = estimateTvTitleLineCount({
+      title: boardTitle,
+      titleWidth: boardTitleWidth,
+      titleFontSize: wideViewport ? 32 : 25,
+    });
     const chunks = isConsolidated
-      ? splitTvLanes(board.groups, { viewportHeight, pieceCount, layout: wideViewport ? 'wide' : 'narrow' })
+      ? splitTvLanes(board.groups, {
+        viewportHeight,
+        pieceCount,
+        layout: wideViewport ? 'wide' : 'narrow',
+        titleLineCount: boardTitleLineCount,
+      })
       : [board.groups];
     const budget = calculateTvPageBudget({ viewportHeight, pieceCount, layout: wideViewport ? 'wide' : 'narrow' });
     const maxFullWidthPieces = Math.max(1, Math.floor((viewportWidth - 24 - 132 - 16) / 88));
@@ -730,6 +869,10 @@ export default function ControlAvanceOfTv() {
       ? chunkRows(allPieces, maxFullWidthPieces)
       : [null];
     return chunks.flatMap((groups, index) => pieceChunks.map((pieceChunk, columnIndex) => {
+      const requiresFullWidth = wideViewport && minFullWidth > (viewportWidth / 2 - 24);
+      const renderedFullWidth = !wideViewport || requiresFullWidth || chunks.length > 1 || pieceChunks.length > 1;
+      const cardWidth = renderedFullWidth ? Math.max(1, viewportWidth - 24) : Math.max(1, viewportWidth / 2 - 24);
+      const moldLabel = groups[0]?.molde?.nombre || groups[0]?.molde?.codigo || board.of || '';
       const part = {
         ...board,
         key: `${chunks.length > 1 ? `${board.key}|parte-${index + 1}` : board.key}${pieceChunk ? `|columnas-${columnIndex + 1}` : ''}`,
@@ -741,11 +884,19 @@ export default function ControlAvanceOfTv() {
         // Two half-width cards must not force the matrix below its measured
         // minimum width. A full-width card is safe at 1366; narrower viewports
         // split columns and repeat the board/color headers on each page.
-        requiresFullWidth: wideViewport && minFullWidth > (viewportWidth / 2 - 24),
+        requiresFullWidth,
         exclusive: chunks.length > 1 || pieceChunks.length > 1,
         laneBudget: budget.maxLanes,
+        title: moldLabel,
+        titleWidth: cardWidth,
+        titleFontSize: wideViewport ? 32 : 25,
+        titleLineCount: estimateTvTitleLineCount({ title: moldLabel, titleWidth: cardWidth, titleFontSize: wideViewport ? 32 : 25 }),
       };
-      return { ...part, estimatedHeight: estimateTvPartHeight(part, { layout: wideViewport ? 'wide' : 'narrow' }) };
+      return {
+        ...part,
+        estimatedHeight: estimateTvPartHeight(part, { layout: wideViewport ? 'wide' : 'narrow' }),
+        heightIncludesTitle: true,
+      };
     }));
   }), [canonicalBoards, viewportHeight, viewportWidth, wideViewport]);
   const canonicalSlides = useMemo(() => {

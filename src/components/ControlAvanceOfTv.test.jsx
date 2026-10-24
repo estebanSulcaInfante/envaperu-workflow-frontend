@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import ControlAvanceOfTv, {
   calculateTvPageBudget,
+  estimateTvPartHeight,
   packTvPages,
   packTvRows,
   splitTvLanes,
@@ -385,7 +386,8 @@ describe('ControlAvanceOfTv', () => {
 
     const board = await screen.findByTestId('of-progress-card');
     expect(screen.getAllByTestId('of-progress-card')).toHaveLength(1);
-    expect(within(board).getAllByText('Molde Molde accesorios')).toHaveLength(1);
+    expect(within(board).getByRole('heading', { name: 'Molde accesorios' })).toBeInTheDocument();
+    expect(within(board).getByText('OF-ACCESORIOS')).toHaveClass('MuiChip-label');
     expect(within(board).getAllByTestId('canonical-progress-group')).toHaveLength(5);
     expect(within(board).getAllByTestId('output-progress-row')).toHaveLength(20);
     expect(within(board).getAllByTestId('canonical-piece-header')).toHaveLength(4);
@@ -456,6 +458,38 @@ describe('ControlAvanceOfTv', () => {
     fireEvent(window, new Event('resize'));
     expect(await screen.findAllByTestId('of-progress-card')).toHaveLength(1);
     expect(screen.getAllByTestId('output-progress-row').length).toBeGreaterThan(0);
+  });
+
+  it('pauses and resumes deterministic TV rotation without changing page order', async () => {
+    const timerItems = Array.from({ length: 4 }, (_, boardIndex) => ({
+      group_id: `timer-board-${boardIndex}`,
+      identity: { identity_status: 'COMPLETA', identity_issues: [] },
+      of_id: `timer-of-${boardIndex}`, of: `OF-TIMER-${boardIndex}`, estado: 'EN_EJECUCION',
+      molde_id: `timer-mold-${boardIndex}`, molde: { codigo: `TM-${boardIndex}`, nombre: `Molde timer ${boardIndex}` }, molde_visible: true,
+      ots: [{ id: `timer-ot-${boardIndex}`, codigo: `OT-TIMER-${boardIndex}` }], provenance: { issues: [] },
+      salidas: Array.from({ length: 8 }, (_, pieceIndex) => ({
+        ...outputs[0], corrida_id: `timer-run-${boardIndex}`, pieza_id: 1000 + boardIndex * 10 + pieceIndex,
+        pieza: `Pieza timer ${pieceIndex}`, pieza_color_id: `timer-pc-${boardIndex}-${pieceIndex}`,
+      })),
+    }));
+    listarAvanceOfTvScm.mockResolvedValueOnce({ ...response, items: timerItems });
+    window.innerWidth = 1366;
+    render(<ControlAvanceOfTv />);
+    await screen.findAllByTestId('of-progress-card');
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Modo TV' }));
+      expect(screen.getByText('Pantalla 1 de 2')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Pausar' }));
+      act(() => { vi.advanceTimersByTime(24_000); });
+      expect(screen.getByText('Pantalla 1 de 2')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Reanudar' }));
+      act(() => { vi.advanceTimersByTime(12_000); });
+      expect(screen.getByText('Pantalla 2 de 2')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renders one consolidated color-piece bar and keeps OT provenance secondary', async () => {
@@ -577,7 +611,7 @@ describe('ControlAvanceOfTv', () => {
 
     const pageLabel = await screen.findByText(/Pantalla 1 de/);
     const pageCount = Number(pageLabel.textContent.match(/de (\d+)/)?.[1]);
-    expect(pageCount).toBe(2);
+    expect(pageCount).toBe(1);
     expect(screen.getByTestId('of-progress-layout')).toHaveAttribute('data-page-columns', '1');
     const seen = [];
     for (let page = 0; page < pageCount; page += 1) {
@@ -609,7 +643,7 @@ describe('ControlAvanceOfTv', () => {
 
     const pageLabel = await screen.findByText(/Pantalla 1 de/);
     const pageCount = Number(pageLabel.textContent.match(/de (\d+)/)?.[1]);
-    expect(pageCount).toBe(2);
+    expect(pageCount).toBe(1);
     const seen = [];
     for (let page = 0; page < pageCount; page += 1) {
       seen.push(...screen.getAllByTestId('output-progress-row').map((row) => row.getAttribute('data-output-key')));
@@ -623,8 +657,8 @@ describe('ControlAvanceOfTv', () => {
   it('uses the measured wide-TV budget without losing lanes at 900p or 640p', () => {
     const compact = calculateTvPageBudget({ viewportHeight: 640, pieceCount: 2 });
     const large = calculateTvPageBudget({ viewportHeight: 900, pieceCount: 2 });
-    expect(compact.availableHeight).toBe(460);
-    expect(large.availableHeight).toBe(720);
+    expect(compact.availableHeight).toBe(444);
+    expect(large.availableHeight).toBe(704);
     expect(large.maxLanes).toBeGreaterThanOrEqual(compact.maxLanes);
     const groups = Array.from({ length: 7 }, (_, index) => ({
       id: `lane-${index}`,
@@ -633,9 +667,12 @@ describe('ControlAvanceOfTv', () => {
     }));
     const pages900 = splitTvLanes(groups, { viewportHeight: 900, pieceCount: 2, layout: 'wide' });
     const pages640 = splitTvLanes(groups, { viewportHeight: 640, pieceCount: 2, layout: 'wide' });
+    const pages768FourPieces = splitTvLanes(groups, { viewportHeight: 768, pieceCount: 4, layout: 'wide' });
     expect(pages900).toHaveLength(1);
     expect(pages640.length).toBeLessThanOrEqual(2);
-    expect(pages640[0]).toHaveLength(5);
+    expect(pages640[0]).toHaveLength(4);
+    expect(pages768FourPieces.flat().map((group) => group.id)).toEqual(groups.map((group) => group.id));
+    expect(pages768FourPieces.length).toBeGreaterThan(1);
     expect([...pages900, ...pages640].flat().map((group) => group.id)).toEqual([
       ...groups.map((group) => group.id),
       ...groups.map((group) => group.id),
@@ -644,6 +681,14 @@ describe('ControlAvanceOfTv', () => {
       groups,
       { viewportHeight: 640, pieceCount: 2, layout: 'narrow' },
     ).flat()).toHaveLength(7);
+    const narrowLanes = Array.from({ length: 6 }, (_, index) => ({
+      id: `narrow-lane-${index}`,
+      identity: { identity_status: 'COMPLETA' },
+      salidas: [{ id: `narrow-output-${index}` }],
+    }));
+    const narrowPages = splitTvLanes(narrowLanes, { viewportHeight: 844, pieceCount: 1, layout: 'narrow', titleLineCount: 3 });
+    expect(narrowPages.flat()).toHaveLength(6);
+    expect(narrowPages.length).toBeGreaterThan(1);
   });
 
   it('packs four distinct one-lane OFs into two rows on one 640/768 TV page', () => {
@@ -669,7 +714,7 @@ describe('ControlAvanceOfTv', () => {
     });
   });
 
-  it('keeps exclusive and full-width cards in their own rows without reordering', () => {
+  it('keeps exclusive and full-width cards solitary while pairing normals globally', () => {
     const parts = [
       { key: 'normal-1', of_id: 'of-1', estimatedHeight: 120 },
       { key: 'full', of_id: 'of-2', estimatedHeight: 140, requiresFullWidth: true },
@@ -679,7 +724,7 @@ describe('ControlAvanceOfTv', () => {
     ];
     const rows = packTvRows(parts, { availableHeight: 640, maxColumns: 2 });
     expect(rows.map((row) => row.parts.map((part) => part.key))).toEqual([
-      ['normal-1'], ['full'], ['normal-3'], ['exclusive'], ['normal-5'],
+      ['normal-1', 'normal-3'], ['full'], ['exclusive'], ['normal-5'],
     ]);
     expect(rows.every((row) => row.parts.length === 1 || row.parts[0].of_id !== row.parts[1].of_id)).toBe(true);
   });
@@ -694,5 +739,129 @@ describe('ControlAvanceOfTv', () => {
     expect(pages).toHaveLength(2);
     expect(pages[0].usedHeight).toBe(100);
     expect(pages[1].usedHeight).toBe(100);
+  });
+
+  it('fits similarly sized later cards instead of pairing a large card with the first small card', () => {
+    const parts = [
+      { key: 'large-a', of_id: 'of-a', estimatedHeight: 300 },
+      { key: 'small-b', of_id: 'of-b', estimatedHeight: 100 },
+      { key: 'small-c', of_id: 'of-c', estimatedHeight: 110 },
+      { key: 'large-d', of_id: 'of-d', estimatedHeight: 290 },
+    ];
+
+    const rows = packTvRows(parts, { availableHeight: 460, maxColumns: 2 });
+
+    expect(rows.map((row) => row.parts.map((part) => part.key))).toEqual([
+      ['large-a', 'large-d'],
+      ['small-b', 'small-c'],
+    ]);
+  });
+
+  it('maximizes distinct-OF pairs before optimizing their height similarity', () => {
+    const parts = [
+      { key: 'same-a', of_id: 'of-a', estimatedHeight: 100 },
+      { key: 'same-b', of_id: 'of-a', estimatedHeight: 110 },
+      { key: 'other-a', of_id: 'of-b', estimatedHeight: 200 },
+      { key: 'other-b', of_id: 'of-c', estimatedHeight: 201 },
+    ];
+
+    const rows = packTvRows(parts, { availableHeight: 460, maxColumns: 2 });
+
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.parts.length === 2)).toBe(true);
+    expect(rows.every((row) => row.parts[0].of_id !== row.parts[1].of_id)).toBe(true);
+  });
+
+  it('keeps maximum cardinality with three repeated OF groups', () => {
+    const parts = Array.from({ length: 9 }, (_, index) => ({
+      key: `triple-${index}`,
+      of_id: `of-${index % 3}`,
+      estimatedHeight: 150 + index,
+    }));
+    const rows = packTvRows(parts, { maxColumns: 2 });
+
+    expect(rows).toHaveLength(5);
+    expect(rows.filter((row) => row.parts.length === 2)).toHaveLength(4);
+    expect(rows.every((row) => row.parts.length < 2 || row.parts[0].of_id !== row.parts[1].of_id)).toBe(true);
+  });
+
+  it('keeps a full-width card solitary while allowing normals on both sides to pair', () => {
+    const parts = [
+      { key: 'normal-a', of_id: 'of-a', estimatedHeight: 300 },
+      { key: 'full', of_id: 'of-full', estimatedHeight: 140, requiresFullWidth: true },
+      { key: 'normal-b', of_id: 'of-b', estimatedHeight: 300 },
+    ];
+
+    const rows = packTvRows(parts, { availableHeight: 460, maxColumns: 2 });
+
+    expect(rows.map((row) => row.parts.map((part) => part.key))).toEqual([
+      ['normal-a', 'normal-b'],
+      ['full'],
+    ]);
+  });
+
+  it('fills a recoverable gap on an earlier page with a later row without duplicates', () => {
+    const parts = [
+      { key: 'tall', of_id: 'of-tall', estimatedHeight: 300, exclusive: true },
+      { key: 'medium', of_id: 'of-medium', estimatedHeight: 200, exclusive: true },
+      { key: 'short', of_id: 'of-short', estimatedHeight: 100, exclusive: true },
+    ];
+
+    const pages = packTvPages(parts, { availableHeight: 420, maxColumns: 2 });
+
+    expect(pages).toHaveLength(2);
+    expect(pages[0].rows.flatMap((row) => row.parts.map((part) => part.key))).toEqual(['tall', 'short']);
+    expect(pages[1].rows.flatMap((row) => row.parts.map((part) => part.key))).toEqual(['medium']);
+    expect(new Set(pages.flatMap((page) => page.rows.flatMap((row) => row.parts.map((part) => part.key)))).size).toBe(3);
+  });
+
+  it('accounts for long mold titles in the deterministic card-height estimate', () => {
+    const short = { of_id: 'of-short', title: 'Molde 1', groups: [] };
+    const long = { of_id: 'of-long', title: 'Molde de inyección para línea industrial de accesorios grandes', groups: [], titleLineCount: 3 };
+
+    expect(estimateTvPartHeight(long)).toBeGreaterThan(estimateTvPartHeight(short));
+    const measured = estimateTvPartHeight(long);
+    expect(estimateTvPartHeight({ ...long, estimatedHeight: measured, heightIncludesTitle: true })).toBe(measured);
+  });
+
+  it('never pairs parts from the same OF and remains stable for repeated packing', () => {
+    const parts = [
+      { key: 'same-a', of_id: 'of-same', estimatedHeight: 180 },
+      { key: 'other', of_id: 'of-other', estimatedHeight: 175 },
+      { key: 'same-b', of_id: 'of-same', estimatedHeight: 170 },
+      { key: 'third', of_id: 'of-third', estimatedHeight: 165 },
+    ];
+
+    const first = packTvPages(parts, { availableHeight: 460, maxColumns: 2 });
+    const second = packTvPages(parts, { availableHeight: 460, maxColumns: 2 });
+    const rows = first.flatMap((page) => page.rows);
+
+    expect(second).toEqual(first);
+    expect(rows.every((row) => row.parts.length < 2 || row.parts[0].of_id !== row.parts[1].of_id)).toBe(true);
+    expect(new Set(rows.flatMap((row) => row.parts.map((part) => part.key)))).toEqual(new Set(parts.map((part) => part.key)));
+  });
+
+  it('keeps large distinct-OF packing bounded and complete', () => {
+    [100, 500, 1000].forEach((count) => {
+      const parts = Array.from({ length: count }, (_, index) => ({
+        key: `scale-${count}-${index}`,
+        of_id: `scale-of-${index}`,
+        estimatedHeight: 140 + (index % 7),
+      }));
+      const started = performance.now();
+      const rows = packTvRows(parts, { maxColumns: 2 });
+      const elapsed = performance.now() - started;
+      expect(rows.flatMap((row) => row.parts)).toHaveLength(count);
+      expect(rows.every((row) => row.parts.length <= 2)).toBe(true);
+      expect(elapsed).toBeLessThan(1000);
+    });
+    const repeated = Array.from({ length: 1000 }, (_, index) => ({
+      key: `repeated-${index}`,
+      of_id: `repeated-of-${index % 2}`,
+      estimatedHeight: 140 + (index % 11),
+    }));
+    const repeatedRows = packTvRows(repeated, { maxColumns: 2 });
+    expect(repeatedRows.flatMap((row) => row.parts)).toHaveLength(1000);
+    expect(repeatedRows.every((row) => row.parts.length < 2 || row.parts[0].of_id !== row.parts[1].of_id)).toBe(true);
   });
 });
