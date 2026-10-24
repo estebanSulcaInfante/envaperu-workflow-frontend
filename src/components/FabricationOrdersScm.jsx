@@ -66,6 +66,12 @@ const statusColor = {
   CANCELADA: 'error',
   ANULADA: 'error',
 };
+const executionControlStates = ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION', 'PAUSADA'];
+
+const canOpenExecutionControl = (state, canPause, canCancel) => (
+  executionControlStates.includes(state)
+  && (canCancel || (canPause && ['EN_EJECUCION', 'PAUSADA'].includes(state)))
+);
 
 const catalogLabels = {
   moldes: 'moldes',
@@ -1053,12 +1059,12 @@ export default function FabricationOrdersScm() {
           <Typography variant="caption" color="text.secondary" noWrap>
             {displayProvenance(order.procedencia) || order.origen_demanda || order.motivo || '—'}
           </Typography>
-          {(canPauseExecution || canCancelExecution) && ['EN_EJECUCION', 'PAUSADA'].includes(order.estado) && (
-            <Button size="small" variant="outlined" sx={{ alignSelf: 'flex-start', mt: 0.5 }} onClick={() => setExecutionOrder(order)} aria-label={`Gestionar ejecución ${order.codigo}`}>
-              Gestionar ejecución
-            </Button>
-          )}
         </>}
+        {canOpenExecutionControl(order.estado, canPauseExecution, canCancelExecution) && (
+          <Button size="small" variant="outlined" sx={{ alignSelf: 'flex-start', mt: 0.5 }} onClick={() => setExecutionOrder(order)} aria-label={`Gestionar ejecución ${order.codigo}`}>
+            Gestionar ejecución
+          </Button>
+        )}
       </Stack>
     );
   };
@@ -1309,8 +1315,8 @@ export default function FabricationOrdersScm() {
                   Cerrar OF
                 </Button>
               )}
-              {(canPauseExecution || canCancelExecution) && ['EN_EJECUCION', 'PAUSADA'].includes(selected.estado) && (
-                <Button variant="outlined" color={canCancelExecution && selected.estado === 'PAUSADA' ? 'error' : 'primary'} onClick={() => setExecutionOrder(selected)}>
+              {canOpenExecutionControl(selected.estado, canPauseExecution, canCancelExecution) && (
+                <Button variant="outlined" color={canCancelExecution && ['LIBERADA', 'PROGRAMADA', 'PAUSADA'].includes(selected.estado) ? 'error' : 'primary'} onClick={() => setExecutionOrder(selected)}>
                   Gestionar ejecución
                 </Button>
               )}

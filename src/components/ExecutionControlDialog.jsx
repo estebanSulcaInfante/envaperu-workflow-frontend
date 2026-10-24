@@ -8,6 +8,12 @@ import { mensajeErrorScm } from '../services/scmEngineeringApi';
 
 const actionLabel = { PAUSAR: 'Pausar ejecución', REANUDAR: 'Reanudar ejecución', CANCELAR: 'Cancelar ejecución' };
 const terminalStateForAction = { PAUSAR: 'PAUSADA', REANUDAR: 'EN_EJECUCION', CANCELAR: 'CANCELADA' };
+const cancelableOrderStates = ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION', 'PAUSADA'];
+const executionDescription = {
+  PAUSAR: 'La OF conserva producido e histórico; pausa únicamente trabajos propios ejecutables.',
+  REANUDAR: 'La OF conserva producido e histórico; reanuda únicamente trabajos pausados por esta OF.',
+  CANCELAR: 'La OF conserva producido e histórico, cancela pendientes propios y libera el compromiso residual de demanda cuando exista.',
+};
 
 const producedLabel = (item) => {
   if (item?.cantidad_real === null || item?.cantidad_real === undefined) return 'dato no confirmado';
@@ -58,7 +64,7 @@ export default function ExecutionControlDialog({ open, order, canPause, canCance
   const actions = useMemo(() => ([
     ...(canPause && order?.estado === 'EN_EJECUCION' ? ['PAUSAR'] : []),
     ...(canPause && order?.estado === 'PAUSADA' ? ['REANUDAR'] : []),
-    ...(canCancel && ['EN_EJECUCION', 'PAUSADA'].includes(order?.estado) ? ['CANCELAR'] : []),
+    ...(canCancel && cancelableOrderStates.includes(order?.estado) ? ['CANCELAR'] : []),
   ]), [canCancel, canPause, order]);
 
   const inspect = async (next, { authoritative = false, notice = '', preserveReason } = {}) => {
@@ -229,7 +235,7 @@ export default function ExecutionControlDialog({ open, order, canPause, canCance
   >
     <DialogTitle id="execution-control-title">Gestionar ejecución · {order?.codigo}</DialogTitle>
     <DialogContent dividers><Stack spacing={2}>
-      <Typography id="execution-control-description" variant="body2">La OF conserva producido e histórico. La acción detiene únicamente pendientes propios.</Typography>
+      <Typography id="execution-control-description" variant="body2">{executionDescription[action] || 'La OF conserva producido e histórico; selecciona una acción para consultar su impacto.'}</Typography>
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>{actions.map((item) => <Button
         key={item}
         variant={action === item ? 'contained' : 'outlined'}
