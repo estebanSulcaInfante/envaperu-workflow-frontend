@@ -15,6 +15,7 @@ const auth = vi.hoisted(() => ({
   routeView: true,
   routeAdmin: true,
   ofEdit: true,
+  supervisor: false,
   outputRoutes: vi.fn(),
 }));
 
@@ -62,13 +63,16 @@ vi.mock('../services/scmProductionObservabilityApi', () => ({
 vi.mock('../context/ScmActorContext', () => ({
   useScmActor: () => ({
     actorId: auth.actorId,
-    can: (capability) => (
-      (capability !== 'ARTICULO_ADMINISTRAR' || auth.article)
-      && (capability !== 'ARTICULO_VER' || auth.articleView)
-      && (capability !== 'RUTA_VER' || auth.routeView)
-      && (capability !== 'RUTA_ADMINISTRAR' || auth.routeAdmin)
-      && (capability !== 'OF_EDITAR_BORRADOR' || auth.ofEdit)
-    ),
+    can: (capability) => {
+      if (capability === 'OF_CANCELAR_EJECUCION') return !auth.supervisor;
+      return (
+        (capability !== 'ARTICULO_ADMINISTRAR' || auth.article)
+        && (capability !== 'ARTICULO_VER' || auth.articleView)
+        && (capability !== 'RUTA_VER' || auth.routeView)
+        && (capability !== 'RUTA_ADMINISTRAR' || auth.routeAdmin)
+        && (capability !== 'OF_EDITAR_BORRADOR' || auth.ofEdit)
+      );
+    },
     canAny: () => true,
     experience: { label: 'Gerencia' },
   }),
@@ -112,6 +116,14 @@ const renderDetail = (order, detailResponses = [order]) => {
     </ThemeProvider>,
   );
 };
+
+const renderInbox = () => render(
+  <ThemeProvider theme={createTheme()}>
+    <MemoryRouter initialEntries={['/produccion/ordenes-fabricacion']}>
+      <FabricationOrdersScm />
+    </MemoryRouter>
+  </ThemeProvider>,
+);
 
 describe('Órdenes de fabricación', () => {
   it('envía la precisión completa de kg y gramos, y conserva la edición si falla guardar', async () => {
@@ -223,6 +235,7 @@ describe('Órdenes de fabricación', () => {
     await user.click(stateFilter);
     await user.click(screen.getByRole('option', { name: 'Sin anuladas' }));
     expect(await screen.findByText('Sin coincidencias en la consulta')).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Actualizar' })).not.toBeDisabled());
   });
   beforeEach(() => {
     auth.actorId = 1;
@@ -231,13 +244,15 @@ describe('Órdenes de fabricación', () => {
     auth.routeView = true;
     auth.routeAdmin = true;
     auth.ofEdit = true;
+    auth.supervisor = false;
     listarOrdenesFabricacionScm.mockResolvedValue({ items: [], pagination: { page: 1, page_size: 25, total: 0, total_pages: 0 } });
     obtenerColores.mockResolvedValue([]);
     obtenerMaquinas.mockResolvedValue([]);
     obtenerMoldes.mockResolvedValue([]);
     obtenerRecetasColorMaestras.mockResolvedValue({ items: [] });
     obtenerMolde.mockReset();
-    obtenerOrdenFabricacionScm.mockReset();
+    // API reads always return a Promise, including between navigation tests.
+    obtenerOrdenFabricacionScm.mockReset().mockResolvedValue(null);
     listarArticulosScm.mockResolvedValue([]);
     listarRutasArticuloScm.mockClear();
     listarRutasArticuloScm.mockResolvedValue([]);
@@ -248,6 +263,46 @@ describe('Órdenes de fabricación', () => {
     crearOrdenFabricacionExcepcionalScm.mockReset();
     configurarOrdenFabricacionScm.mockReset();
     cerrarOrdenFabricacionScm.mockReset();
+  });
+
+  it('expone gestionar ejecución en detalle para LIBERADA con capacidad de cancelar', async () => {
+    const order = { id: 'of-empty', codigo: 'OF-EMPTY', estado: 'LIBERADA', version: 3, corridas: [] };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order], pagination: { page: 1, page_size: 25, total: 1, total_pages: 1 } });
+    renderDetail(order);
+    expect(await screen.findByRole('button', { name: 'Gestionar ejecución' })).toBeVisible();
+  });
+
+  it('expone la acción en la tabla para LIBERADA y PROGRAMADA con capacidad de cancelar', async () => {
+    const orders = [
+      { id: 'of-empty-table', codigo: 'OF-TABLE-LIB', estado: 'LIBERADA', version: 3, corridas: [] },
+      { id: 'of-programada-table', codigo: 'OF-TABLE-PROG', estado: 'PROGRAMADA', version: 4, corridas: [] },
+    ];
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: orders, pagination: { page: 1, page_size: 25, total: 2, total_pages: 1 } });
+    renderInbox();
+    expect(await screen.findByRole('button', { name: 'Gestionar ejecución OF-TABLE-LIB' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Gestionar ejecución OF-TABLE-PROG' })).toBeVisible();
+  });
+
+  it('oculta la acción en la tabla para Supervisor pause-only en LIBERADA y PROGRAMADA', async () => {
+    auth.supervisor = true;
+    const orders = [
+      { id: 'of-supervisor-lib', codigo: 'OF-SUP-LIB', estado: 'LIBERADA', version: 3, corridas: [] },
+      { id: 'of-supervisor-prog', codigo: 'OF-SUP-PROG', estado: 'PROGRAMADA', version: 4, corridas: [] },
+    ];
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: orders, pagination: { page: 1, page_size: 25, total: 2, total_pages: 1 } });
+    renderInbox();
+    await screen.findByText('OF-SUP-LIB');
+    expect(screen.queryByRole('button', { name: 'Gestionar ejecución OF-SUP-LIB' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Gestionar ejecución OF-SUP-PROG' })).not.toBeInTheDocument();
+  });
+
+  it('no abre gestionar ejecución a Supervisor pause-only en LIBERADA o PROGRAMADA', async () => {
+    auth.supervisor = true;
+    const order = { id: 'of-supervisor', codigo: 'OF-SUPERVISOR', estado: 'PROGRAMADA', version: 2, corridas: [] };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order], pagination: { page: 1, page_size: 25, total: 1, total_pages: 1 } });
+    renderDetail(order);
+    await screen.findByText('OF-SUPERVISOR');
+    expect(screen.queryByRole('button', { name: 'Gestionar ejecución' })).not.toBeInTheDocument();
   });
 
   it('explica el permiso faltante sin ofrecer alta contextual falsa', async () => {

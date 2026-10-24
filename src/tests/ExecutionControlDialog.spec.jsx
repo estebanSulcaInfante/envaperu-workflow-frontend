@@ -15,13 +15,13 @@ vi.mock('../services/scmEngineeringApi', () => ({
 }));
 
 const order = { id: 'of-1', codigo: 'OF-000001', estado: 'EN_EJECUCION', version: 7 };
-const renderDialog = (onCompleted = vi.fn(), onClose = vi.fn()) => render(
+const renderDialog = (onCompleted = vi.fn(), onClose = vi.fn(), options = {}) => render(
   <ThemeProvider theme={createTheme()}>
     <ExecutionControlDialog
       open
-      order={order}
-      canPause
-      canCancel
+      order={options.order || order}
+      canPause={options.canPause ?? true}
+      canCancel={options.canCancel ?? true}
       onClose={onClose}
       onCompleted={onCompleted}
     />
@@ -44,6 +44,7 @@ describe('control de ejecución de OF', () => {
     renderDialog(onCompleted);
     await user.click(screen.getByRole('button', { name: 'Pausar ejecución' }));
     expect((await screen.findByRole('alert')).textContent).toContain('2 trabajos afectados');
+    expect(screen.getByText(/La OF conserva producido e histórico/)).not.toHaveTextContent(/cancela pendientes propios|libera el compromiso residual/);
     await user.type(screen.getByRole('textbox', { name: 'Motivo' }), 'Parada segura');
     await user.click(screen.getAllByRole('button', { name: 'Pausar ejecución', exact: true }).at(-1));
     await waitFor(() => expect(api.execute).toHaveBeenCalledTimes(1));
@@ -55,6 +56,28 @@ describe('control de ejecución de OF', () => {
     const firstKey = api.execute.mock.calls[0][3];
     expect(firstKey).toMatch(/[0-9a-f-]{36}/);
     expect(onCompleted).toHaveBeenCalledWith({ idempotent_replay: false });
+  });
+
+  it.each(['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION', 'PAUSADA'])(
+    'expone cancelar en estado %s con la capacidad OF_CANCELAR_EJECUCION', async (estado) => {
+      const user = userEvent.setup();
+      api.impact.mockResolvedValue({
+        action: 'CANCELAR', can_execute: true, version: 7, impact_hash: 'c'.repeat(64),
+        trabajos: { afectados: 0 }, mangas_abiertas: 0, reservas_activas: 0, blockers: [],
+      });
+      renderDialog(vi.fn(), vi.fn(), { order: { ...order, estado } });
+      await user.click(screen.getByRole('button', { name: 'Cancelar ejecución', exact: true }));
+      expect((await screen.findByRole('alert')).textContent).toContain('0 trabajos afectados');
+      expect(screen.getByText(/libera el compromiso residual de demanda/)).toBeVisible();
+    },
+  );
+
+  it('no expone cancelar a un Supervisor pause-only en pre-ejecución', () => {
+    renderDialog(vi.fn(), vi.fn(), {
+      order: { ...order, estado: 'LIBERADA' }, canPause: true, canCancel: false,
+    });
+    expect(screen.queryByRole('button', { name: 'Cancelar ejecución', exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pausar ejecución', exact: true })).not.toBeInTheDocument();
   });
 
   it('expone el error incierto y permite reintentar con la misma clave', async () => {
