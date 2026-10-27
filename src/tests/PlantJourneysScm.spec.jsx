@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +13,7 @@ const catalogMocks = vi.hoisted(() => ({
 const scmMocks = vi.hoisted(() => ({
   listarOtScm: vi.fn(),
   listarJornadasPlantaScm: vi.fn(),
+  obtenerOtScm: vi.fn(),
   listarContinuidadesMangaPendientesScm: vi.fn(),
   listarOrdenesFabricacionScm: vi.fn(),
   obtenerPlanMangas: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock('../services/scmOtApi', () => ({
   listarContinuidadesMangaPendientesScm:
     scmMocks.listarContinuidadesMangaPendientesScm,
   listarOtScm: scmMocks.listarOtScm,
+  obtenerOtScm: scmMocks.obtenerOtScm,
   listarSolicitudesMangaExtraScm: scmMocks.listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm: scmMocks.listarOrdenesFabricacionScm,
   obtenerPesajeMangaScm: vi.fn(),
@@ -130,6 +132,9 @@ describe('OTs de planta', () => {
     scmMocks.listarSolicitudesMangaExtraScm.mockResolvedValue({ items: [] });
     scmMocks.listarContinuidadesMangaPendientesScm.mockResolvedValue({ items: [] });
     scmMocks.listarJornadasPlantaScm.mockResolvedValue(journeyPayload());
+    scmMocks.obtenerOtScm.mockImplementation(async (id) => ({
+      ot: { ...fabricationOt, public_id: id },
+    }));
     scmMocks.listarOtScm.mockImplementation((_order, type) => Promise.resolve({
       items: type === 'ENSAMBLE' ? [assemblyOt] : [fabricationOt],
     }));
@@ -146,7 +151,7 @@ describe('OTs de planta', () => {
       'aria-labelledby', 'plant-journeys-tab-fabrication',
     );
     await waitFor(() => expect(scmMocks.listarJornadasPlantaScm).toHaveBeenCalledWith({
-      fecha_operativa: expect.any(String), turno: 'DIA',
+      fecha_operativa: expect.any(String), turno: 'DIA', vista: 'resumen',
     }));
     expect(screen.queryByTestId('plant-journeys-summary')).not.toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Filtrar máquinas por estado de OT' })).toBeVisible();
@@ -188,6 +193,7 @@ describe('OTs de planta', () => {
     await user.click(await screen.findByRole('tab', { name: /Armado.*Centros/i }));
     const board = screen.getByTestId('daily-assembly-board');
     expect(within(board).getByText('Mesa de Armado 1')).toBeVisible();
+    expect(within(board).getByText('OA: OA-000001')).toBeVisible();
     expect(within(board).getByText('OT-000002')).toBeVisible();
     expect(within(board).getByText(/En mesa de armado/i)).toBeVisible();
     expect(within(board).getByText(/Ana Armado/i)).toBeVisible();
@@ -215,7 +221,7 @@ describe('OTs de planta', () => {
     await user.click(screen.getByRole('button', { name: 'Actualizar jornadas' }));
 
     await waitFor(() => expect(scmMocks.listarJornadasPlantaScm).toHaveBeenCalledWith({
-      fecha_operativa: '2026-08-12', turno: 'DIA',
+      fecha_operativa: '2026-08-12', turno: 'DIA', vista: 'resumen',
     }));
     expect(screen.getAllByLabelText('Fecha de jornada')).toHaveLength(1);
   });
@@ -254,5 +260,91 @@ describe('OTs de planta', () => {
     expect(screen.getByTestId('location-search')).toHaveTextContent(
       'fecha=2026-08-10&turno=NOCHE&modo=armado&ot=ot-arm-1',
     );
+  });
+
+  it('carga un único detalle para la OT seleccionada desde el resumen server-side', async () => {
+    renderJourneys(
+      '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-fab-1',
+      'detail',
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Contexto de OT' })).toBeVisible();
+    await waitFor(() => expect(scmMocks.obtenerOtScm).toHaveBeenCalledTimes(1));
+    expect(scmMocks.obtenerOtScm).toHaveBeenCalledWith(
+      'ot-fab-1', { signal: expect.any(AbortSignal) },
+    );
+    expect(scmMocks.listarJornadasPlantaScm).toHaveBeenCalledWith({
+      fecha_operativa: '2026-08-10', turno: 'DIA', vista: 'resumen',
+    });
+  });
+
+  it('conserva contadores exactos de mangas del resumen de Armado', async () => {
+    scmMocks.listarJornadasPlantaScm.mockResolvedValueOnce(journeyPayload({
+      assembly: [{
+        ...assemblyOt,
+        mangas: [],
+        mangas_resumen: {
+          total: 3,
+          por_estado: { PLANIFICADA: 1, PESADA: 2, BORRADA: 1, ANULADA: 1 },
+        },
+      }],
+    }));
+    const user = userEvent.setup();
+    renderJourneys();
+    await user.click(await screen.findByRole('tab', { name: /Armado.*Centros/i }));
+
+    const board = screen.getByTestId('daily-assembly-board');
+    // The legacy Armado card counted every manga, including BORRADA/ANULADA;
+    // the summary preserves that visible total while exposing exact states.
+    expect(within(board).getByText('Mangas 5')).toBeVisible();
+    expect(within(board).getByText('PLANIFICADA 1')).toBeVisible();
+    expect(within(board).getByText('PESADA 2')).toBeVisible();
+    expect(within(board).getByText('BORRADA 1')).toBeVisible();
+    expect(within(board).getByText('ANULADA 1')).toBeVisible();
+  });
+
+  it('expone el fallo del detalle sin habilitar acciones ni reintentar POST', async () => {
+    scmMocks.obtenerOtScm.mockRejectedValueOnce(new Error('detalle no disponible'));
+    renderJourneys(
+      '/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&modo=fabricacion&ot=ot-fab-1',
+      'detail',
+    );
+
+    expect(await screen.findByTestId('ot-detail-error')).toHaveTextContent(
+      'No se pudo consultar el detalle de la OT seleccionada',
+    );
+    expect(screen.queryByRole('button', { name: 'Agregar trabajo' })).not.toBeInTheDocument();
+  });
+
+  it('ignora el detalle obsoleto al cambiar de OT mientras la primera lectura está pendiente', async () => {
+    let resolveFirst;
+    let resolveSecond;
+    scmMocks.listarJornadasPlantaScm.mockResolvedValueOnce(journeyPayload({
+      fabrication: [
+        fabricationOt,
+        { ...fabricationOt, public_id: 'ot-fab-2', codigo_ot: 'OT-000003', maquina_id: 2, maquina_codigo: 'SOP-02' },
+      ],
+    }));
+    scmMocks.obtenerOtScm
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+    const user = userEvent.setup();
+    renderJourneys();
+
+    await user.click(await screen.findByRole('button', {
+      name: /Abrir jornada de SOP-02: ver detalle y gestionar/i,
+    }));
+    await act(async () => {
+      resolveFirst({ ot: fabricationOt });
+      await Promise.resolve();
+    });
+    expect(screen.queryByText('OT-000001 · 0 trabajos de color')).not.toBeInTheDocument();
+    await act(async () => {
+      resolveSecond({
+        ot: { ...fabricationOt, public_id: 'ot-fab-2', codigo_ot: 'OT-000003', maquina_id: 2 },
+      });
+      await Promise.resolve();
+    });
+    expect(await screen.findByText(/OT-000003 · 0 trabajos de color/)).toBeVisible();
   });
 });

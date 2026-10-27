@@ -90,17 +90,26 @@ export const listarOtScm = (ofId, tipoOt, filters = {}) => body(() => api.get('/
     ...(filters.fecha_operativa ? { fecha_operativa: filters.fecha_operativa } : {}),
     ...(filters.turno ? { turno: filters.turno } : {}),
     ...(filters.maquina_id ? { maquina_id: filters.maquina_id } : {}),
+    ...(filters.vista ? { vista: filters.vista } : {}),
   },
   headers: headers(),
+  ...(filters.signal ? { signal: filters.signal } : {}),
 }));
-export const listarJornadasPlantaScm = (filters) => body(() => api.get(
+export const obtenerOtScm = (id, options = {}) => body(() => api.get(
+  `/scm/v1/ots/${encodeURIComponent(id)}`,
+  { headers: headers(), ...(options.signal ? { signal: options.signal } : {}) },
+));
+export const listarJornadasPlantaScm = (filters = {}) => body(() => api.get(
   '/scm/v1/jornadas-planta',
   {
     params: {
-      fecha_operativa: filters.fecha_operativa,
-      turno: filters.turno,
+      ...(filters.fecha_operativa ? { fecha_operativa: filters.fecha_operativa } : {}),
+      ...(filters.turno ? { turno: filters.turno } : {}),
+      ...(filters.maquina_id ? { maquina_id: filters.maquina_id } : {}),
+      ...(filters.vista ? { vista: filters.vista } : {}),
     },
     headers: headers(),
+    ...(filters.signal ? { signal: filters.signal } : {}),
   },
 ));
 export const crearOtScm = (ofId, payload) => body(() => api.post(

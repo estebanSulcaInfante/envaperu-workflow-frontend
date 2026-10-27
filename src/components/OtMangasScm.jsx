@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import {
   Alert, AlertTitle, Autocomplete, Box, Button, Card, CardActionArea, Checkbox, Chip, CircularProgress,
   Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl,
-  FormControlLabel, InputLabel, MenuItem, Paper, Select, Stack, Table, TableBody, TableCell,
+  FormControlLabel, InputLabel, MenuItem, Pagination, Paper, Select, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
   Typography, useMediaQuery,
 } from '@mui/material';
@@ -29,6 +29,7 @@ import {
   generarEtiquetasPrepesaje,
   listarJornadasPlantaScm,
   listarOtScm,
+  obtenerOtScm,
   listarContinuidadesMangaPendientesScm,
   listarSolicitudesMangaExtraScm,
   listarOrdenesFabricacionScm,
@@ -233,12 +234,6 @@ const productionRunOptionLabel = (run, order, planLines, index) => {
   ].join(' · ');
 };
 
-const normalizeCatalogSearch = (value) => String(value || '')
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '')
-  .toLocaleLowerCase()
-  .trim();
-
 const fabricationOrderMoldLabel = (order) => {
   const mold = order?.molde;
   return mold?.nombre
@@ -253,14 +248,6 @@ const fabricationOrderLabel = (order) => {
   const mold = fabricationOrderMoldLabel(order);
   return mold ? `${mold} · ${code}` : code;
 };
-
-const fabricationOrderSearchText = (order) => [
-  order?.id,
-  order?.codigo,
-  order?.molde?.codigo,
-  order?.molde_id,
-  fabricationOrderMoldLabel(order),
-].filter(Boolean).map(normalizeCatalogSearch).join(' ');
 
 const machineNameFromOt = (ot) => {
   const machine = ot?.maquina;
@@ -376,8 +363,18 @@ const machineBoardModel = (machine, allOts, workers, orders, selectedOtId) => {
     .filter((work) => ['PLANIFICADO', 'PAUSADO'].includes(work.estado))
     .sort((left, right) => Number(left.secuencia || 0) - Number(right.secuencia || 0))[0]
     || null;
+  const mangaSummary = activeWork?.mangas_resumen || ot?.mangas_resumen;
   const mangas = activeWork ? (activeWork.mangas || []) : (ot?.mangas || []);
-  const mangaCounts = mangas.reduce((counts, manga) => {
+  const mangaCounts = mangaSummary
+    ? {
+      closed: Number(mangaSummary.cerradas || 0),
+      open: Number(mangaSummary.abiertas || 0),
+      labelsGenerated: Number(mangaSummary.etiqueta_generada || 0),
+      labelsPrinted: Number(mangaSummary.etiqueta_impresa || 0),
+      prelabeledUnknown: Number(mangaSummary.preetiqueta_sin_estado || 0),
+      pending: Number(mangaSummary.pendientes || 0),
+    }
+    : mangas.reduce((counts, manga) => {
     if (DISCARDED_MANGA_STATES.has(manga.estado)) return counts;
     if (PRODUCTION_CLOSED_MANGA_STATES.has(manga.estado)) counts.closed += 1;
     else if (PRODUCTION_OPEN_MANGA_STATES.has(manga.estado)) counts.open += 1;
@@ -389,14 +386,14 @@ const machineBoardModel = (machine, allOts, workers, orders, selectedOtId) => {
     }
     else counts.pending += 1;
     return counts;
-  }, {
-    closed: 0,
-    open: 0,
-    labelsGenerated: 0,
-    labelsPrinted: 0,
-    prelabeledUnknown: 0,
-    pending: 0,
-  });
+      }, {
+        closed: 0,
+        open: 0,
+        labelsGenerated: 0,
+        labelsPrinted: 0,
+        prelabeledUnknown: 0,
+        pending: 0,
+      });
   const order = orders.find(
     (item) => String(item.id) === String(activeWork?.orden_fabricacion_id),
   );
@@ -737,7 +734,8 @@ const normalizeOt = (ot) => ({
   ...ot,
   trabajos_color: Array.isArray(ot.trabajos_color)
     ? ot.trabajos_color
-    : (ot.corrida_fabricacion_id ? [legacyWork(ot)] : []),
+    : (Array.isArray(ot.trabajos_color_resumen) ? ot.trabajos_color_resumen : null)
+      || (ot.corrida_fabricacion_id ? [legacyWork(ot)] : []),
 });
 
 function ColorWorkQueue({ works, selectedWorkId, onSelect, compact = false }) {
@@ -1090,6 +1088,15 @@ export default function OtMangasScm({ view = 'all' }) {
   const [globalCatalogError, setGlobalCatalogError] = useState('');
   const [globalWorkerWarning, setGlobalWorkerWarning] = useState('');
   const [moldCatalogWarning, setMoldCatalogWarning] = useState('');
+  const [fabricationOrderPickerQuery, setFabricationOrderPickerQuery] = useState('');
+  const [fabricationOrderPickerPage, setFabricationOrderPickerPage] = useState(1);
+  const [fabricationOrderPickerPagination, setFabricationOrderPickerPagination] = useState({
+    page: 1, page_size: 25, total: 0, total_pages: 1,
+  });
+  const [fabricationOrderPickerState, setFabricationOrderPickerState] = useState('idle');
+  const [fabricationOrderPickerError, setFabricationOrderPickerError] = useState('');
+  const fabricationOrderPickerRequestRef = useRef(0);
+  const [selectedFabricationOrderSnapshot, setSelectedFabricationOrderSnapshot] = useState(null);
   const [ots, setOts] = useState([]);
   const [assemblyOts, setAssemblyOts] = useState([]);
   const [assemblyCenters, setAssemblyCenters] = useState([]);
@@ -1100,6 +1107,12 @@ export default function OtMangasScm({ view = 'all' }) {
   const journeyRequestRef = useRef(0);
   const journeyContextRef = useRef('');
   const journeySnapshotRef = useRef(false);
+  const otDetailRequestRef = useRef(0);
+  const otDetailContextRef = useRef('');
+  const [selectedOtDetail, setSelectedOtDetail] = useState(null);
+  const [selectedOtDetailState, setSelectedOtDetailState] = useState('idle');
+  const [selectedOtDetailError, setSelectedOtDetailError] = useState('');
+  const [otDetailReload, setOtDetailReload] = useState(0);
   const suppressMachineAutoSelectionRef = useRef('');
   const [perspective, setPerspective] = useState(initialJourneyContext.perspective);
   const [dailyBoardFilter, setDailyBoardFilter] = useState(() => normalizeDailyBoardFilter(
@@ -1140,6 +1153,7 @@ export default function OtMangasScm({ view = 'all' }) {
     orderId: '', runId: '', quantities: {}, kgEdits: {},
   });
   const [fabricationOrderInputDirty, setFabricationOrderInputDirty] = useState(false);
+  const [fabricationOrderPickerInputValue, setFabricationOrderPickerInputValue] = useState('');
   const [workWorkerOverride, setWorkWorkerOverride] = useState(null);
   useEffect(() => {
     setWorkCreateOpen(false);
@@ -1208,7 +1222,7 @@ export default function OtMangasScm({ view = 'all' }) {
   });
   const [assignmentCorrectionPreview, setAssignmentCorrectionPreview] = useState(null);
 
-  const selectedOt = useMemo(
+  const selectedOtSummary = useMemo(
     () => {
       const item = ots.find((candidate) => candidate.public_id === selectedOtId) || null;
       if (item && listFilters.maquina_id
@@ -1219,6 +1233,71 @@ export default function OtMangasScm({ view = 'all' }) {
     },
     [listFilters.maquina_id, ots, selectedOtId],
   );
+  useEffect(() => {
+    const requestId = otDetailRequestRef.current + 1;
+    otDetailRequestRef.current = requestId;
+    const requestActorId = actorId;
+    const requestContext = `${actorId}|${listFilters.fecha_operativa}|${listFilters.turno}|${selectedOtId}`;
+    otDetailContextRef.current = requestContext;
+    setSelectedOtDetail(null);
+    setSelectedOtDetailError('');
+    if (!selectedOtId || !selectedOtSummary || isGlobalView || typeof obtenerOtScm !== 'function') {
+      setSelectedOtDetailState('idle');
+      return undefined;
+    }
+    setSelectedOtDetailState('loading');
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let active = true;
+    const detailRequest = obtenerOtScm(
+      selectedOtId, controller ? { signal: controller.signal } : {},
+    );
+    if (!detailRequest || typeof detailRequest.then !== 'function') {
+      setSelectedOtDetailState('error');
+      setSelectedOtDetailError('No se pudo iniciar la lectura del detalle de la OT.');
+      return () => {
+        active = false;
+        otDetailRequestRef.current += 1;
+        if (controller) controller.abort();
+      };
+    }
+    detailRequest
+      .then((payload) => {
+        if (!active || requestId !== otDetailRequestRef.current
+          || requestActorId !== actorIdRef.current
+          || requestContext !== otDetailContextRef.current) return;
+        const detail = payload?.ot || payload;
+        if (!detail || detail.public_id !== selectedOtId) {
+          throw new Error('La respuesta de detalle no corresponde a la OT seleccionada.');
+        }
+        setSelectedOtDetail(normalizeOt(detail));
+        setSelectedOtDetailState('ready');
+      })
+      .catch((requestError) => {
+        if (!active || requestId !== otDetailRequestRef.current
+          || requestActorId !== actorIdRef.current
+          || requestContext !== otDetailContextRef.current) return;
+        if (requestError?.name === 'CanceledError' || requestError?.name === 'AbortError') return;
+        setSelectedOtDetailState('error');
+        setSelectedOtDetailError(mensajeErrorScm(
+          requestError,
+          'No se pudo consultar el detalle de la OT seleccionada. Reintenta la lectura.',
+        ));
+      });
+    return () => {
+      active = false;
+      otDetailRequestRef.current += 1;
+      if (controller) controller.abort();
+    };
+  }, [
+    actorId,
+    isGlobalView,
+    listFilters.fecha_operativa,
+    listFilters.turno,
+    selectedOtId,
+    selectedOtSummary,
+    otDetailReload,
+  ]);
+  const selectedOt = selectedOtDetail;
   const works = useMemo(() => selectedOt?.trabajos_color || [], [selectedOt]);
   const defaultWorkWorker = catalogs.workers.find((worker) => String(worker.id) === String(
     selectedOt?.maquinista_predeterminado_id ?? selectedOt?.maquinista_previsto_id,
@@ -1251,14 +1330,40 @@ export default function OtMangasScm({ view = 'all' }) {
     });
   }, [catalogs.molds, catalogs.orders]);
   const selectedOrder = useMemo(
-    () => ordersWithMoldCatalog.find((item) => item.id === workForm.orderId) || null,
-    [ordersWithMoldCatalog, workForm.orderId],
+    () => ordersWithMoldCatalog.find((item) => item.id === workForm.orderId)
+      || (String(selectedFabricationOrderSnapshot?.id || '') === String(workForm.orderId || '')
+        ? selectedFabricationOrderSnapshot
+        : null),
+    [ordersWithMoldCatalog, selectedFabricationOrderSnapshot, workForm.orderId],
   );
+  const selectedFabricationOrderInputIdRef = useRef('');
+  useEffect(() => {
+    const selectedId = String(selectedOrder?.id || '');
+    if (selectedId === selectedFabricationOrderInputIdRef.current) return;
+    selectedFabricationOrderInputIdRef.current = selectedId;
+    if (!fabricationOrderInputDirty && selectedOrder) {
+      setFabricationOrderPickerInputValue(fabricationOrderLabel(selectedOrder));
+    }
+  }, [fabricationOrderInputDirty, selectedOrder]);
   const eligibleOrders = useMemo(
-    () => ordersWithMoldCatalog.filter(
-      (item) => ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION'].includes(item.estado),
-    ),
-    [ordersWithMoldCatalog],
+    () => {
+      const pageOrders = ordersWithMoldCatalog.filter(
+        (item) => ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION'].includes(item.estado),
+      );
+      // Keep the selected value in state when paging/searching, but do not
+      // inject it into a server-filtered option page: an empty search must
+      // still communicate that the current query has no matches.
+      if (fabricationOrderPickerQuery.trim()) return pageOrders;
+      if (!selectedFabricationOrderSnapshot
+        || !['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION'].includes(
+          selectedFabricationOrderSnapshot.estado,
+        )
+        || pageOrders.some((item) => String(item.id) === String(selectedFabricationOrderSnapshot.id))) {
+        return pageOrders;
+      }
+      return [selectedFabricationOrderSnapshot, ...pageOrders];
+    },
+    [fabricationOrderPickerQuery, ordersWithMoldCatalog, selectedFabricationOrderSnapshot],
   );
   const boardMachines = useMemo(() => {
     const resources = new Map(
@@ -1466,6 +1571,7 @@ export default function OtMangasScm({ view = 'all' }) {
     payload, preferredOtId, preferredWorkId, options,
   ) => {
     journeySnapshotRef.current = true;
+    setOtDetailReload((current) => current + 1);
     const machines = payload.maquinas || [];
     const operationalMachines = machines.filter(isOperationalMachine);
     setCatalogs((current) => ({
@@ -1499,11 +1605,14 @@ export default function OtMangasScm({ view = 'all' }) {
   ) => {
     const requestId = journeyRequestRef.current + 1;
     journeyRequestRef.current = requestId;
-    const requestContext = `${actorId}|${filters.fecha_operativa}|${filters.turno}`;
+    const requestActorId = actorId;
+    const requestContext = `${actorId}|${filters.fecha_operativa}|${filters.turno}|${filters.maquina_id || ''}|${preferredOtId || ''}`;
     journeyContextRef.current = requestContext;
     const query = {
       fecha_operativa: filters.fecha_operativa,
       turno: filters.turno,
+      ...(filters.maquina_id ? { maquina_id: filters.maquina_id } : {}),
+      vista: 'resumen',
     };
     try {
       let payload;
@@ -1539,11 +1648,19 @@ export default function OtMangasScm({ view = 'all' }) {
       // A slow response from an older URL/filter must not replace the newer
       // context with a false empty board or a stale OT identity.
       if (requestId !== journeyRequestRef.current
+        || requestActorId !== actorIdRef.current
         || requestContext !== journeyContextRef.current) return { stale: true };
       applyJourneyPayload(payload, preferredOtId, preferredWorkId, options);
+      if (consolidatedError) {
+        setJourneyWarnings({
+          FABRICACION: 'No se pudo actualizar la jornada. Se muestran los datos disponibles. Actualiza para reintentar.',
+          ENSAMBLE: '',
+        });
+      }
       return { stale: false };
     } catch (requestError) {
       if (requestId !== journeyRequestRef.current
+        || requestActorId !== actorIdRef.current
         || requestContext !== journeyContextRef.current) return { stale: true };
       const warning = journeySnapshotRef.current
         ? 'No se pudieron actualizar las jornadas. Se conserva la última información visible.'
@@ -1639,29 +1756,79 @@ export default function OtMangasScm({ view = 'all' }) {
     }
   }, [actorId, fetchJourneys, listFilters.fecha_operativa, listFilters.turno, listFilters.maquina_id, searchParams]);
 
-  const reloadFabricationOrders = useCallback(async () => {
+  const loadFabricationOrderPage = useCallback(async (
+    query = fabricationOrderPickerQuery,
+    page = fabricationOrderPickerPage,
+  ) => {
     if (!canViewFabricationOrders) return [];
-    const payload = await listarOrdenesFabricacionScm();
-    const orders = payload.items || [];
-    setCatalogs((current) => ({ ...current, orders }));
-    setWorkForm((current) => {
-      const eligible = orders.filter(
+    const request = ++fabricationOrderPickerRequestRef.current;
+    const requestActorId = actorId;
+    setFabricationOrderPickerState('loading');
+    setFabricationOrderPickerError('');
+    try {
+      const payload = await listarOrdenesFabricacionScm({
+        vista: 'resumen',
+        q: query,
+        estado: 'ELEGIBLES',
+        orden: 'reciente',
+        pagina: page,
+        tamano: 25,
+      });
+      if (request !== fabricationOrderPickerRequestRef.current
+        || requestActorId !== actorIdRef.current) return [];
+      const orders = payload.items || [];
+      setCatalogs((current) => ({ ...current, orders }));
+      setFabricationOrderPickerPagination(payload.pagination || {
+        page, page_size: 25, total: orders.length, total_pages: 1,
+      });
+      setFabricationOrderPickerState('ready');
+      const nextOrder = orders.find(
         (item) => ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION'].includes(item.estado),
-      );
-      const selectedOrder = eligible.find((item) => item.id === current.orderId);
-      const nextOrder = selectedOrder || eligible[0];
-      const selectedRun = nextOrder?.corridas?.find((item) => item.id === current.runId);
-      const nextRun = selectedRun || nextOrder?.corridas?.find(
-        (item) => ['LIBERADA', 'EN_EJECUCION'].includes(item.estado),
-      );
-      return {
-        ...current,
-        orderId: nextOrder?.id || '',
-        runId: nextRun?.id || '',
-      };
-    });
-    return orders;
-  }, [canViewFabricationOrders]);
+      ) || null;
+      setWorkForm((current) => {
+        if (current.orderId) return current;
+        const nextRun = nextOrder?.corridas?.find(
+          (item) => ['LIBERADA', 'EN_EJECUCION'].includes(item.estado),
+        );
+        return {
+          ...current,
+          orderId: nextOrder?.id || '',
+          runId: nextRun?.id || '',
+        };
+      });
+      if (nextOrder) {
+        setSelectedFabricationOrderSnapshot((current) => current || nextOrder);
+        setFabricationOrderPickerInputValue((current) => current || fabricationOrderLabel(nextOrder));
+      }
+      return orders;
+    } catch (requestError) {
+      if (request !== fabricationOrderPickerRequestRef.current
+        || requestActorId !== actorIdRef.current) return [];
+      setFabricationOrderPickerState('error');
+      setFabricationOrderPickerError(mensajeErrorScm(
+        requestError,
+        'No se pudo consultar las OF para agregar el Trabajo. Reintenta la búsqueda.',
+      ));
+      return [];
+    }
+  }, [
+    actorId,
+    canViewFabricationOrders,
+    fabricationOrderPickerPage,
+    fabricationOrderPickerQuery,
+  ]);
+
+  useEffect(() => {
+    if (!workCreateOpen) return undefined;
+    const delay = fabricationOrderPickerQuery ? 250 : 0;
+    const timer = window.setTimeout(() => {
+      loadFabricationOrderPage();
+    }, delay);
+    return () => {
+      window.clearTimeout(timer);
+      fabricationOrderPickerRequestRef.current += 1;
+    };
+  }, [fabricationOrderPickerQuery, loadFabricationOrderPage, workCreateOpen]);
 
   const loadMoldCatalog = useCallback(async () => {
     if (!canViewFabricationOrders || typeof obtenerMoldes !== 'function') return [];
@@ -1690,18 +1857,16 @@ export default function OtMangasScm({ view = 'all' }) {
     Promise.allSettled([
       typeof obtenerMaquinas === 'function' ? obtenerMaquinas() : Promise.resolve([]),
       getTrabajadores({ rol: 'MAQUINISTA', activo: true }),
-      canViewFabricationOrders ? listarOrdenesFabricacionScm() : Promise.resolve({ items: [] }),
       canViewFabricationOrders && typeof obtenerMoldes === 'function'
         ? obtenerMoldes()
         : Promise.resolve([]),
-    ]).then(([machinesResult, workersResult, orderResult, moldResult]) => {
+    ]).then(([machinesResult, workersResult, moldResult]) => {
       if (!active) return;
       const essentialFailure = [machinesResult]
         .find((result) => result.status === 'rejected');
       if (essentialFailure) throw essentialFailure.reason;
       const machines = machinesResult.value || [];
       const workers = workersResult.status === 'fulfilled' ? (workersResult.value || []) : [];
-      const orderPayload = orderResult.status === 'fulfilled' ? orderResult.value : { items: [] };
       const moldPayload = moldResult.status === 'fulfilled' ? moldResult.value : [];
       const availableMachines = (machines || []).filter(isOperationalMachine);
       setCatalogs((current) => ({
@@ -1709,12 +1874,11 @@ export default function OtMangasScm({ view = 'all' }) {
         machines: availableMachines,
         allMachines: machines || [],
         workers: (workers || []).filter((item) => item.activo !== false),
-        orders: orderPayload?.items || [],
         molds: Array.isArray(moldPayload) ? moldPayload : (moldPayload?.items || []),
       }));
-      if (orderResult.status === 'rejected' || moldResult.status === 'rejected') {
+      if (moldResult.status === 'rejected') {
         setMoldCatalogWarning(
-          'No se pudieron cargar los nombres de OF/molde; se muestran los identificadores disponibles en las OT. Reintenta Actualizar para volver a consultar.',
+          'No se pudieron cargar los nombres de moldes; se muestran los identificadores disponibles. Reintenta Actualizar para volver a consultar.',
         );
       } else setMoldCatalogWarning('');
       if (workersResult.status === 'rejected') {
@@ -1767,34 +1931,22 @@ export default function OtMangasScm({ view = 'all' }) {
       })
       .finally(() => { if (active) setBusy(false); });
     Promise.all([
-      canViewFabricationOrders
-        ? listarOrdenesFabricacionScm()
-        : Promise.resolve({ items: [] }),
       getTrabajadores({ rol: 'MAQUINISTA', activo: true }),
       canViewFabricationOrders && typeof obtenerMoldes === 'function'
         ? loadMoldCatalog()
         : Promise.resolve([]),
     ])
-      .then(([orderPayload, workers, moldPayload]) => {
+      .then(([workers, moldPayload]) => {
         if (!active) return;
-        const orders = orderPayload.items || [];
         const molds = Array.isArray(moldPayload)
           ? moldPayload
           : (moldPayload?.items || []);
-        const selectableOrders = orders.filter(
-          (item) => ['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION'].includes(item.estado),
-        );
         const activeWorkers = (workers || []).filter((item) => item.activo !== false);
         setCatalogs((current) => ({
           ...current,
-          orders,
           molds,
           workers: activeWorkers,
         }));
-        const firstOrder = selectableOrders[0];
-        const firstRun = firstOrder?.corridas?.find(
-          (item) => ['LIBERADA', 'EN_EJECUCION'].includes(item.estado),
-        );
         setHeaderForm((current) => ({
           ...current,
           maquinista_predeterminado_id:
@@ -1802,8 +1954,8 @@ export default function OtMangasScm({ view = 'all' }) {
         }));
         setWorkForm((current) => ({
           ...current,
-          orderId: current.orderId || firstOrder?.id || '',
-          runId: current.runId || firstRun?.id || '',
+          orderId: current.orderId || '',
+          runId: current.runId || '',
         }));
         setReliefForm((current) => ({
           ...current, workerId: current.workerId || activeWorkers[0]?.id || '',
@@ -1811,16 +1963,44 @@ export default function OtMangasScm({ view = 'all' }) {
       })
       .catch((requestError) => {
         if (active) setError(mensajeErrorScm(
-          requestError, 'No se pudieron cargar OF y maquinistas.',
+          requestError, 'No se pudieron cargar maquinistas.',
         ));
       });
     return () => { active = false; };
   }, [actorId, canViewFabricationOrders, fetchJourneys, initialJourneyContext, isGlobalView, loadMoldCatalog]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const actorChanged = actorIdRef.current !== actorId;
     actorIdRef.current = actorId;
     if (actorChanged) {
+      journeyRequestRef.current += 1;
+      journeyContextRef.current = '';
+      journeySnapshotRef.current = false;
+      otDetailRequestRef.current += 1;
+      otDetailContextRef.current = '';
+      setOts([]);
+      setAssemblyOts([]);
+      setSelectedOtDetail(null);
+      setSelectedOtDetailState('idle');
+      setSelectedOtDetailError('');
+      setSelectedOtId('');
+      setSelectedWorkId('');
+      setSelectedMangaId('');
+      setAssemblyContextOtId('');
+      setIdentityError('');
+      fabricationOrderPickerRequestRef.current += 1;
+      setWorkCreateOpen(false);
+      setSelectedFabricationOrderSnapshot(null);
+      setFabricationOrderPickerInputValue('');
+      setFabricationOrderPickerQuery('');
+      setFabricationOrderPickerPage(1);
+      setFabricationOrderPickerPagination({ page: 1, page_size: 25, total: 0, total_pages: 1 });
+      setFabricationOrderPickerState('idle');
+      setFabricationOrderPickerError('');
+      setFabricationOrderInputDirty(false);
+      setWorkForm((current) => ({
+        ...current, orderId: '', runId: '', quantities: {}, kgEdits: {},
+      }));
       reliefRequestRef.current += 1;
       reliefPendingRef.current = false;
       replacementPrintJobsRef.current = [];
@@ -2057,10 +2237,7 @@ export default function OtMangasScm({ view = 'all' }) {
     setBusy(true);
     setError('');
     try {
-      await Promise.all([
-        loadOts(selectedOtId, selectedWorkId),
-        reloadFabricationOrders(),
-      ]);
+      await loadOts(selectedOtId, selectedWorkId);
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo actualizar la jornada.'));
     } finally {
@@ -2089,6 +2266,24 @@ export default function OtMangasScm({ view = 'all' }) {
       setOts([]);
       setAssemblyOts([]);
       setCatalogs((current) => ({ ...current, machines: [], allMachines: [] }));
+      // Clear the previous identity before the state-to-URL effect runs. The
+      // next render writes the new jornada filters without briefly restoring
+      // the old OT context from the URL.
+      skipUrlSyncRef.current = true;
+      ignoreHistorySyncRef.current = true;
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.set('fecha', nextFilters.fecha_operativa);
+        next.set('turno', nextFilters.turno);
+        next.set('modo', perspective === 'ENSAMBLE' ? 'armado' : 'fabricacion');
+        next.delete('ot');
+        next.delete('trabajo');
+        next.delete('manga');
+        if (nextFilters.maquina_id) next.set('maquina_id', nextFilters.maquina_id);
+        else next.delete('maquina_id');
+        lastObservedSearchRef.current = next.toString();
+        return next;
+      }, { replace: true });
       suppressMachineAutoSelectionRef.current = `${actorId}|${nextFilters.fecha_operativa}|${nextFilters.turno}`;
     }
     setListFilters(nextFilters);
@@ -2276,10 +2471,7 @@ export default function OtMangasScm({ view = 'all' }) {
           : '.'),
       );
       try {
-        await Promise.all([
-          loadOts(selectedOt.public_id, result.trabajo_color.id),
-          reloadFabricationOrders(),
-        ]);
+        await loadOts(selectedOt.public_id, result.trabajo_color.id);
       } catch {
         setNotice((current) => `${current} Aplicado, pero no actualizado. Usa Actualizar; no reenvíes la acción.`);
       }
@@ -3101,9 +3293,11 @@ export default function OtMangasScm({ view = 'all' }) {
     setPackagingBlocker(null);
     setFabricationOrderInputDirty(false);
     const order = catalogs.orders.find((item) => item.id === orderId);
+    setSelectedFabricationOrderSnapshot(order || null);
     const run = order?.corridas?.find(
       (item) => ['LIBERADA', 'EN_EJECUCION'].includes(item.estado),
     );
+    setFabricationOrderPickerInputValue(order ? fabricationOrderLabel(order) : '');
     setWorkForm((current) => ({
       ...current, orderId, runId: run?.id || '', quantities: {}, kgEdits: {},
     }));
@@ -3260,10 +3454,10 @@ export default function OtMangasScm({ view = 'all' }) {
     <Stack spacing={2.5}>
       <PageHeader
         title={isDetail
-          ? (selectedOt?.codigo_ot || 'Hoja de OT')
+          ? (selectedOt?.codigo_ot || selectedOtSummary?.codigo_ot || 'Hoja de OT')
           : 'OTs de planta'}
-        description={isDetail && selectedOt
-          ? `${machineNameFromOt(selectedOt)} · ${selectedOt.fecha_operativa} · turno ${stateLabel(selectedOt.turno)}`
+        description={isDetail && (selectedOt || selectedOtSummary)
+          ? `${machineNameFromOt(selectedOt || selectedOtSummary)} · ${(selectedOt || selectedOtSummary).fecha_operativa} · turno ${stateLabel((selectedOt || selectedOtSummary).turno)}`
           : 'Consulta el turno completo y continúa el trabajo desde Máquinas o Centros de Armado sin mezclar sus responsabilidades.'}
         actions={(
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
@@ -3524,19 +3718,21 @@ export default function OtMangasScm({ view = 'all' }) {
         <Typography variant="body2" color="text.secondary">
            Filtra las máquinas de la jornada y abre una tarjeta para consultar o continuar su detalle.
         </Typography>
-        <DailyMachineBoard
-          machines={boardMachines}
-          ots={ots}
-          workers={catalogs.workers}
-          orders={catalogs.orders}
-          selectedOtId={selectedOtId}
-          canCreateOt={canCreateOt}
-          onOpen={openMachineCard}
-           machineFilter={listFilters.maquina_id}
-           stateFilter={dailyBoardFilter}
-           hideSummary
-           onResetFilters={resetDailyBoardFilters}
-        />
+        {!busy && (journeySnapshotRef.current || ots.length > 0) && (
+          <DailyMachineBoard
+            machines={boardMachines}
+            ots={ots}
+            workers={catalogs.workers}
+            orders={catalogs.orders}
+            selectedOtId={selectedOtId}
+            canCreateOt={canCreateOt}
+            onOpen={openMachineCard}
+             machineFilter={listFilters.maquina_id}
+             stateFilter={dailyBoardFilter}
+             hideSummary
+             onResetFilters={resetDailyBoardFilters}
+          />
+        )}
 
         <Divider sx={{ my: 2.5 }} />
         </>)}
@@ -3606,7 +3802,17 @@ export default function OtMangasScm({ view = 'all' }) {
             setNotice(`${annulled.codigo_ot} anulada. Su historial se conserva.`);
             await loadOts(annulled.public_id);
           }} />}
-        {!selectedOt ? (
+        {selectedOtDetailState === 'loading' && selectedOtSummary && (
+          <Alert severity="info" data-testid="ot-detail-loading">
+            Consultando el detalle de {selectedOtSummary.codigo_ot || selectedOtId}…
+          </Alert>
+        )}
+        {selectedOtDetailState === 'error' && selectedOtSummary && (
+          <Alert severity="warning" data-testid="ot-detail-error">
+            {selectedOtDetailError}
+          </Alert>
+        )}
+        {!busy && !selectedOt && !selectedOtSummary && !ots.length && !journeyWarnings.FABRICACION ? (
           <Alert severity="info">
             No hay OT para la fecha y turno seleccionados. Las máquinas siguen visibles para preparar su jornada.
           </Alert>
@@ -3730,40 +3936,66 @@ export default function OtMangasScm({ view = 'all' }) {
                 id="fabrication-order-select"
                 options={eligibleOrders}
                 value={selectedOrder}
+                inputValue={fabricationOrderPickerInputValue}
                 fullWidth
                 clearOnBlur={false}
+                loading={fabricationOrderPickerState === 'loading'}
                 sx={{ width: '100%', minWidth: 0 }}
                 isOptionEqualToValue={(option, value) => String(option.id) === String(value.id)}
                 getOptionLabel={fabricationOrderLabel}
-                filterOptions={(options, state) => {
-                  const query = normalizeCatalogSearch(state.inputValue);
-                  if (!query) return options;
-                  return options.filter((item) => fabricationOrderSearchText(item).includes(query));
-                }}
-                onInputChange={(_event, _value, reason) => {
+                filterOptions={(options) => options}
+                onInputChange={(_event, value, reason) => {
                   if (reason === 'input') {
+                    setFabricationOrderPickerInputValue(value);
+                    setFabricationOrderPickerQuery(value);
+                    setFabricationOrderPickerPage(1);
                     setFabricationOrderInputDirty(true);
                     return;
                   }
-                  if (reason === 'selectOption') {
+                  if (reason === 'clear') {
+                    setFabricationOrderPickerInputValue('');
+                    setFabricationOrderPickerQuery('');
+                    setFabricationOrderPickerPage(1);
+                    setFabricationOrderInputDirty(false);
+                  } else if (reason === 'selectOption') {
                     setFabricationOrderInputDirty(false);
                   }
                 }}
                 onClose={(_event, reason) => {
-                  if (reason === 'selectOption') setFabricationOrderInputDirty(false);
+                  if (reason === 'selectOption') {
+                    setFabricationOrderInputDirty(false);
+                    if (selectedOrder) setFabricationOrderPickerInputValue(
+                      fabricationOrderLabel(selectedOrder),
+                    );
+                  }
                 }}
                 onChange={(_event, nextOrder, reason) => {
                   // Clearing is an explicit reset; typing alone never changes
                   // the selected OF or its already-consulted plan.
                   if (reason === 'clear') {
+                    setFabricationOrderPickerInputValue('');
+                    setFabricationOrderPickerQuery('');
+                    setFabricationOrderPickerPage(1);
                     selectOrder('');
                     return;
                   }
+                  setFabricationOrderPickerInputValue(nextOrder ? fabricationOrderLabel(nextOrder) : '');
+                  setFabricationOrderPickerQuery('');
                   selectOrder(nextOrder?.id || '');
                 }}
-                noOptionsText="Sin OF que coincida con molde, código o ID"
+                loadingText="Consultando OF elegibles…"
+                noOptionsText={fabricationOrderPickerState === 'error'
+                  ? 'No se pudo consultar. Reintenta la búsqueda.'
+                  : 'Sin OF que coincida con molde, código o ID'}
                 renderOption={(props, item) => {
                   const mold = fabricationOrderMoldLabel(item);
+                  const objectives = (item.corridas || [])
+                    .filter((run) => ['LIBERADA', 'EN_EJECUCION'].includes(run.estado))
+                    .map((run) => [
+                      productionColorName(run),
+                      productionRunArticleNames(run).join(', '),
+                    ].filter(Boolean).join(' · '))
+                    .join(' · ');
                   const { key, ...optionProps } = props;
                   return (
                     <Box component="li" key={key} {...optionProps} aria-label={mold ? undefined : item.codigo}>
@@ -3772,7 +4004,10 @@ export default function OtMangasScm({ view = 'all' }) {
                           {mold || 'Molde no informado'}
                         </Typography>
                         <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
-                          OF: {item.codigo} · ID: {item.id}
+                          OF: {item.codigo} · Estado: {stateLabel(item.estado)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ overflowWrap: 'anywhere' }}>
+                          {objectives || 'Sin objetivos liberados'}
                         </Typography>
                       </Box>
                     </Box>
@@ -3789,6 +4024,44 @@ export default function OtMangasScm({ view = 'all' }) {
                   />
                 )}
               />
+            {fabricationOrderPickerError && (
+              <Alert
+                severity="error"
+                action={(
+                  <Button
+                    color="inherit"
+                    size="small"
+                    onClick={() => loadFabricationOrderPage()}
+                  >
+                    Reintentar
+                  </Button>
+                )}
+              >
+                {fabricationOrderPickerError}
+              </Alert>
+            )}
+            {fabricationOrderPickerPagination.total_pages > 1 && (
+              <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                <Typography variant="caption" color="text.secondary">
+                  {fabricationOrderPickerPagination.total} OF elegibles
+                </Typography>
+                <Pagination
+                  count={fabricationOrderPickerPagination.total_pages}
+                  page={fabricationOrderPickerPage}
+                  onChange={(_event, page) => setFabricationOrderPickerPage(page)}
+                  disabled={fabricationOrderPickerState === 'loading'}
+                  size="small"
+                  color="primary"
+                  aria-label="Paginación de OF elegibles"
+                  getItemAriaLabel={(type, page) => {
+                    if (type === 'page') return `Ir a la página ${page}`;
+                    if (type === 'next') return 'Ir a la página siguiente';
+                    if (type === 'previous') return 'Ir a la página anterior';
+                    return 'Ir a la última página';
+                  }}
+                />
+              </Stack>
+            )}
             {selectedOrder && canViewFabricationOrders && (
               <Box data-testid="fabrication-order-selection" sx={{ minWidth: 0 }}>
                 <Typography

@@ -8,8 +8,13 @@ const headers = (idempotent = false) => ({
 
 const body = async (request) => (await request()).data;
 
-export const listarOrdenesArmadoScm = () => body(() => api.get(
+export const listarOrdenesArmadoScm = (params = {}) => body(() => api.get(
   '/scm/v1/ordenes-armado',
+  { headers: headers(), params },
+));
+
+export const obtenerOrdenArmadoScm = (orderId) => body(() => api.get(
+  `/scm/v1/ordenes-armado/${encodeURIComponent(orderId)}`,
   { headers: headers() },
 ));
 

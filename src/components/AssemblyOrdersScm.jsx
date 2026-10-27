@@ -1,4 +1,6 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Fragment, useCallback, useEffect, useMemo, useRef, useState,
+} from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, FormControl, InputLabel, MenuItem, Paper,
@@ -15,6 +17,7 @@ import DraftOrderAnnulment from './DraftOrderAnnulment';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import {
   listarOrdenesArmadoScm,
+  obtenerOrdenArmadoScm,
   transicionarOrdenArmadoScm,
 } from '../services/scmAssemblyApi';
 import {
@@ -63,7 +66,9 @@ const colorWorkOutputsLabel = (work) => (work?.articulos_salida || [])
   .join(', ');
 
 export default function AssemblyOrdersScm() {
-  const { can, experience } = useScmActor();
+  const { actorId, can, experience } = useScmActor();
+  const actorIdRef = useRef(actorId);
+  actorIdRef.current = actorId;
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedOrderId = searchParams.get('oa') || '';
   const requestedOtId = searchParams.get('ot') || '';
@@ -79,8 +84,17 @@ export default function AssemblyOrdersScm() {
   const canViewOt = can('OT_VER');
   const canCreateExceptionalOrder = can('OA_EXCEPCIONAL_CREAR');
   const [orders, setOrders] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [pageInfo, setPageInfo] = useState({ pagina: 1, tamano: 25, total: 0, paginas: 0 });
   const [showAnnulled, setShowAnnulled] = useState(false);
   const [orderId, setOrderId] = useState('');
+  const [selectedDetail, setSelectedDetail] = useState(null);
+  const [detailBusy, setDetailBusy] = useState(false);
+  const [detailError, setDetailError] = useState('');
+  const [detailAttempt, setDetailAttempt] = useState(0);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -117,11 +131,23 @@ export default function AssemblyOrdersScm() {
   const [closeForm, setCloseForm] = useState({
     cantidad_real: '', cantidad_rechazada: '0', motivo: '',
   });
+  const loadRequestRef = useRef(0);
 
-  const selected = useMemo(
-    () => orders.find((item) => item.id === orderId) || orders[0] || null,
+  const selectedSummary = useMemo(
+    () => orders.find((item) => item.id === orderId) || null,
     [orderId, orders],
   );
+  const selected = selectedDetail || (
+    selectedSummary?.entradas_planificadas ? selectedSummary : null
+  );
+
+  useEffect(() => {
+    loadRequestRef.current += 1;
+    setOrderId('');
+    setSelectedDetail(null);
+    setDetailError('');
+    setDetailBusy(false);
+  }, [actorId]);
   const journeysReturnPath = useMemo(() => {
     const requestedReturn = searchParams.get('return_to') || '';
     const safeReturn = requestedReturn === '/produccion/ots-planta'
@@ -143,32 +169,97 @@ export default function AssemblyOrdersScm() {
   }, [searchParams]);
 
   const load = useCallback(async (preferredId = '', includeAnnulled = showAnnulled) => {
+    const requestActorId = actorId;
+    const requestId = ++loadRequestRef.current;
+    const requestIsCurrent = () => (
+      requestId === loadRequestRef.current
+      && actorIdRef.current === requestActorId
+    );
     setBusy(true);
     setError('');
     try {
-      const payload = await listarOrdenesArmadoScm();
-      const items = (payload.items || []).filter((item) => includeAnnulled || item.estado !== 'ANULADA');
+      const payload = await listarOrdenesArmadoScm({
+        vista: 'resumen',
+        q: searchQuery || undefined,
+        estado: statusFilter || (includeAnnulled ? undefined : 'NO_ANULADA'),
+        pagina: page,
+        tamano: pageSize,
+      });
+      if (!requestIsCurrent()) return;
+      const items = (payload.items || []).filter(
+        (item) => includeAnnulled || item.estado !== 'ANULADA',
+      );
       const requestedIdentityMissing = globalIndexReturn && !preferredId;
+      const requestedId = preferredId || requestedOrderId;
       const nextId = requestedIdentityMissing
         ? ''
-        : (items.some((item) => item.id === preferredId)
-          ? preferredId : items[0]?.id || '');
+        : (items.some((item) => item.id === requestedId)
+          ? requestedId : (requestedId || items[0]?.id || ''));
       setOrders(items);
+      setPageInfo(payload.page || {
+        pagina: page, tamano: pageSize, total: items.length, paginas: 1,
+      });
       setOrderId(nextId);
+      setSelectedDetail(null);
       if (requestedIdentityMissing) {
         setError('La OT de Armado no incluye identidad de OA; no se abrió otra OA automáticamente. Vuelve al índice global.');
       }
     } catch (requestError) {
+      if (!requestIsCurrent()) return;
       setError(mensajeErrorScm(requestError, 'No se pudieron cargar las OA.'));
     } finally {
-      setBusy(false);
+      if (requestIsCurrent()) setBusy(false);
     }
-  }, [globalIndexReturn, showAnnulled]);
+  }, [actorId, globalIndexReturn, page, pageSize, requestedOrderId, searchQuery, showAnnulled, statusFilter]);
 
   useEffect(() => { load(requestedOrderId); }, [load, requestedOrderId]);
 
+  useEffect(() => {
+    if (!orderId) {
+      setSelectedDetail(null);
+      setDetailError('');
+      setDetailBusy(false);
+      return undefined;
+    }
+    const summary = orders.find((item) => item.id === orderId);
+    const requestActorId = actorId;
+    let active = true;
+    setDetailBusy(true);
+    setDetailError('');
+    // Older callers/tests may still provide the legacy full payload. It is
+    // already a safe detail response; avoid replacing it with a second read.
+    if (summary?.entradas_planificadas) {
+      setSelectedDetail(summary);
+      setDetailBusy(false);
+      return undefined;
+    }
+    if (typeof obtenerOrdenArmadoScm !== 'function') {
+      setSelectedDetail(summary?.entradas_planificadas ? summary : null);
+      setDetailBusy(false);
+      if (!summary?.entradas_planificadas) {
+        setDetailError('Selecciona Reintentar para cargar el detalle de esta OA.');
+      }
+      return undefined;
+    }
+    obtenerOrdenArmadoScm(orderId).then((payload) => {
+      if (!active || actorIdRef.current !== requestActorId) return;
+      setSelectedDetail(payload?.item || payload?.order || payload);
+    }).catch((requestError) => {
+      if (!active || actorIdRef.current !== requestActorId) return;
+      setSelectedDetail(null);
+      setDetailError(mensajeErrorScm(requestError, 'No se pudo cargar el detalle de la OA.'));
+    }).finally(() => {
+      if (active && actorIdRef.current === requestActorId) setDetailBusy(false);
+    });
+    return () => { active = false; };
+  }, [actorId, detailAttempt, orderId, orders]);
+
+  const retryDetail = () => setDetailAttempt((current) => current + 1);
+
   const chooseOrder = (nextOrderId) => {
     setOrderId(nextOrderId);
+    setSelectedDetail(null);
+    setDetailError('');
     setFabricationOts([]);
     setOtForm((current) => ({
       ...current,
@@ -555,6 +646,113 @@ export default function AssemblyOrdersScm() {
       )}
 
       <FormControlLabel control={<Checkbox checked={showAnnulled} disabled={busy} onChange={(event) => setShowAnnulled(event.target.checked)} />} label="Mostrar anuladas" />
+      <Paper variant="outlined" sx={{ p: 2 }} data-testid="assembly-order-list">
+        <Stack spacing={1.5}>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+            <TextField
+              label="Buscar OA"
+              value={searchQuery}
+              onChange={(event) => { setSearchQuery(event.target.value); setPage(1); }}
+              placeholder="Código o artículo de salida"
+              size="small"
+              sx={{ minWidth: { md: 300 } }}
+              disabled={busy}
+            />
+            <FormControl size="small" sx={{ minWidth: 170 }}>
+              <InputLabel id="assembly-status-filter-label">Estado</InputLabel>
+              <Select
+                labelId="assembly-status-filter-label"
+                label="Estado"
+                value={statusFilter}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setStatusFilter(value);
+                  if (value === 'ANULADA') setShowAnnulled(true);
+                  setPage(1);
+                }}
+                disabled={busy}
+              >
+                <MenuItem value="">Todos los estados</MenuItem>
+                <MenuItem value="BORRADOR">Borrador</MenuItem>
+                <MenuItem value="LIBERADA">Liberada</MenuItem>
+                <MenuItem value="PROGRAMADA">Programada</MenuItem>
+                <MenuItem value="EN_EJECUCION">En ejecución</MenuItem>
+                <MenuItem value="PAUSADA">Pausada</MenuItem>
+                <MenuItem value="CERRADA">Cerrada</MenuItem>
+                <MenuItem value="CANCELADA">Cancelada</MenuItem>
+                <MenuItem value="ANULADA">Anulada</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel id="assembly-page-size-label">Filas</InputLabel>
+              <Select
+                labelId="assembly-page-size-label"
+                label="Filas"
+                value={pageSize}
+                onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}
+                disabled={busy}
+              >
+                {[25, 50, 100].map((size) => <MenuItem key={size} value={size}>{size} por página</MenuItem>)}
+              </Select>
+            </FormControl>
+          </Stack>
+          {orders.length > 0 ? (
+            <TableContainer>
+              <Table size="small" aria-label="Listado compacto de órdenes de armado">
+                <TableHead><TableRow>
+                  <TableCell>OA</TableCell>
+                  <TableCell>Salida</TableCell>
+                  <TableCell>Estado</TableCell>
+                  <TableCell align="right">Objetivo</TableCell>
+                  <TableCell align="right">Acción</TableCell>
+                </TableRow></TableHead>
+                <TableBody>
+                  {orders.map((item) => (
+                    <TableRow key={item.id} selected={item.id === orderId}>
+                      <TableCell>
+                        <Typography fontWeight={800}>{item.codigo}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        {item.salida?.codigo || item.salida?.nombre || 'Salida no informada'}
+                      </TableCell>
+                      <TableCell><Chip size="small" label={item.estado} /></TableCell>
+                      <TableCell align="right">{item.salida?.cantidad_objetivo || '—'} un</TableCell>
+                      <TableCell align="right">
+                        <Button size="small" onClick={() => chooseOrder(item.id)} aria-label={`Abrir ${item.codigo}`}>
+                          Abrir detalle
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : !busy && !error ? (
+            <Typography color="text.secondary">No hay OA que coincidan con los filtros.</Typography>
+          ) : null}
+          {!busy && !error && (
+            <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center">
+              <Typography variant="caption" color="text.secondary">
+                {pageInfo.total || 0} OA · página {pageInfo.pagina || page} de {pageInfo.paginas || 0}
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                <Button size="small" disabled={busy || page <= 1} onClick={() => setPage((current) => current - 1)}>Anterior</Button>
+                <Button size="small" disabled={busy || !pageInfo.paginas || page >= pageInfo.paginas} onClick={() => setPage((current) => current + 1)}>Siguiente</Button>
+              </Stack>
+            </Stack>
+          )}
+        </Stack>
+      </Paper>
+      {detailBusy && orderId && !selected && (
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Stack direction="row" spacing={1} alignItems="center"><CircularProgress size={18} /><Typography>Cargando detalle de {selectedSummary?.codigo || orderId}…</Typography></Stack>
+        </Paper>
+      )}
+      {detailError && orderId && (
+        <Alert severity="error" action={<Button color="inherit" size="small" onClick={retryDetail}>Reintentar</Button>}>
+          {detailError}
+        </Alert>
+      )}
       {selected && (
         <Stack spacing={1.25}>
         <Paper variant="outlined" sx={{ p: 2 }}>
@@ -572,6 +770,11 @@ export default function AssemblyOrdersScm() {
                     {order.codigo} · {order.estado} · {order.salida.nombre}
                   </MenuItem>
                 ))}
+                {selected && !orders.some((order) => order.id === selected.id) && (
+                  <MenuItem key={selected.id} value={selected.id}>
+                    {selected.codigo} · {selected.estado} · {selected.salida?.nombre || 'Salida'}
+                  </MenuItem>
+                )}
               </Select>
             </FormControl>
             <>
@@ -615,7 +818,7 @@ export default function AssemblyOrdersScm() {
       )}
 
       {busy && <Box sx={{ display: 'grid', placeItems: 'center', py: 4 }}><CircularProgress /></Box>}
-      {!busy && !error && !selected && (
+      {!busy && !error && !selected && !orderId && (
         <EmptyState
           icon={<AccountTreeOutlinedIcon />}
           title="Aún no hay órdenes de armado"

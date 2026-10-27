@@ -8,7 +8,7 @@ import { MemoryRouter } from 'react-router-dom';
 import AssemblyOrdersScm from '../components/AssemblyOrdersScm';
 
 const actorState = vi.hoisted(() => {
-  const state = { capabilities: new Set() };
+  const state = { actorId: 1, capabilities: new Set() };
   state.can = (capability) => state.capabilities.has(capability);
   state.canAny = (required) => required.some((capability) => state.capabilities.has(capability));
   return state;
@@ -16,6 +16,7 @@ const actorState = vi.hoisted(() => {
 
 vi.mock('../context/ScmActorContext', () => ({
   useScmActor: () => ({
+    actorId: actorState.actorId,
     can: actorState.can,
     canAny: actorState.canAny,
     experience: { label: 'Jefe de Armado' },
@@ -25,6 +26,7 @@ vi.mock('../context/ScmActorContext', () => ({
 vi.mock('../services/scmAssemblyApi', () => ({
   crearOrdenArmadoExcepcionalScm: vi.fn(),
   listarOrdenesArmadoScm: vi.fn(),
+  obtenerOrdenArmadoScm: vi.fn(),
   transicionarOrdenArmadoScm: vi.fn(),
 }));
 
@@ -59,6 +61,7 @@ vi.mock('../services/scmOtApi', () => ({
 import {
   crearOrdenArmadoExcepcionalScm,
   listarOrdenesArmadoScm,
+  obtenerOrdenArmadoScm,
   transicionarOrdenArmadoScm,
 } from '../services/scmAssemblyApi';
 import {
@@ -168,11 +171,13 @@ describe('OA y OT diaria de Armado', () => {
   });
   beforeEach(() => {
     vi.clearAllMocks();
+    actorState.actorId = 1;
     actorState.capabilities = new Set([
       'OA_VER', 'OA_EJECUTAR', 'OT_VER', 'OT_CREAR', 'ABASTECIMIENTO_VER',
       'ABASTECIMIENTO_SOLICITAR',
     ]);
     listarOrdenesArmadoScm.mockResolvedValue({ items: [order] });
+    obtenerOrdenArmadoScm.mockResolvedValue(order);
     listarOtArmadoScm.mockResolvedValue({ items: [ot] });
     listarOtScm.mockResolvedValue({ items: [] });
     listarSolicitudesAbastecimientoScm.mockResolvedValue({ items: [] });
@@ -682,5 +687,167 @@ describe('OA y OT diaria de Armado', () => {
       motivo_diferencia: null,
     }));
     expect(await screen.findByText(/Armado cerrado; queda pendiente de pesaje/)).toBeInTheDocument();
+  });
+
+  it('carga el detalle completo al seleccionar una fila compacta', async () => {
+    const compact = {
+      id: 'oa-compact', codigo: 'OA-COMPACT', estado: 'LIBERADA', version: 3,
+      salida: { codigo: 'PT-COMPACT', nombre: 'Salida compacta', cantidad_objetivo: '8.000' },
+    };
+    const detail = { ...order, ...compact, entradas_planificadas: order.entradas_planificadas };
+    listarOrdenesArmadoScm.mockResolvedValue({
+      items: [compact], page: { pagina: 1, tamano: 25, total: 1, paginas: 1 },
+    });
+    obtenerOrdenArmadoScm.mockResolvedValue(detail);
+    renderView();
+
+    await waitFor(() => expect(listarOrdenesArmadoScm).toHaveBeenCalledWith(expect.objectContaining({
+      vista: 'resumen', pagina: 1, tamano: 25,
+    })));
+    await screen.findByText('OA-COMPACT');
+    await waitFor(() => expect(obtenerOrdenArmadoScm).toHaveBeenCalledWith('oa-compact'));
+    expect(await screen.findByText('Salida compacta')).toBeVisible();
+    expect(screen.getByText('PC-000013')).toBeVisible();
+  });
+
+  it('no muestra vacío ni contador cero durante la carga inicial', async () => {
+    let resolveList;
+    listarOrdenesArmadoScm.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveList = resolve;
+    }));
+    renderView();
+
+    expect(screen.queryByText('No hay OA que coincidan con los filtros.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 OA · página/)).not.toBeInTheDocument();
+    resolveList({ items: [], page: { pagina: 1, tamano: 25, total: 0, paginas: 0 } });
+    expect(await screen.findByText('No hay OA que coincidan con los filtros.')).toBeVisible();
+  });
+
+  it('filtra PROGRAMADA usando el estado de lectura del backend', async () => {
+    const user = userEvent.setup();
+    listarOrdenesArmadoScm.mockResolvedValue({ items: [], page: { pagina: 1, tamano: 25, total: 0, paginas: 0 } });
+    renderView();
+
+    const status = await screen.findByRole('combobox', { name: 'Estado' });
+    await user.click(status);
+    await user.click(await screen.findByRole('option', { name: 'Programada' }));
+    await waitFor(() => expect(listarOrdenesArmadoScm).toHaveBeenCalledWith(expect.objectContaining({
+      vista: 'resumen', estado: 'PROGRAMADA', pagina: 1, tamano: 25,
+    })));
+  });
+
+  it('mantiene el enlace profundo por id aunque la OA no esté en la página actual', async () => {
+    const compact = {
+      id: 'oa-page', codigo: 'OA-PAGE', estado: 'LIBERADA', version: 1,
+      salida: { codigo: 'PT-PAGE', nombre: 'Salida de página', cantidad_objetivo: '4.000' },
+    };
+    const detail = {
+      ...order, id: 'oa-deep', codigo: 'OA-DEEP', estado: 'LIBERADA', version: 2,
+      salida: { ...order.salida, codigo: 'PT-DEEP', nombre: 'Salida profunda' },
+    };
+    listarOrdenesArmadoScm.mockResolvedValue({
+      items: [compact], page: { pagina: 2, tamano: 25, total: 26, paginas: 2 },
+    });
+    obtenerOrdenArmadoScm.mockResolvedValue(detail);
+    renderView('/produccion/ordenes-armado?oa=oa-deep');
+
+    await waitFor(() => expect(obtenerOrdenArmadoScm).toHaveBeenCalledWith('oa-deep'));
+    expect(await screen.findByText('Salida profunda')).toBeVisible();
+    expect(screen.getByText('OA-PAGE')).toBeVisible();
+  });
+
+  it('muestra retry de detalle para un enlace profundo fuera de página', async () => {
+    const compact = {
+      id: 'oa-offpage', codigo: 'OA-OFFPAGE', estado: 'LIBERADA', version: 1,
+      salida: { codigo: 'PT-OFFPAGE', nombre: 'Salida fuera de página', cantidad_objetivo: '4.000' },
+    };
+    const detail = {
+      ...order, id: 'oa-offpage', codigo: 'OA-OFFPAGE', estado: 'LIBERADA', version: 1,
+      salida: { ...order.salida, codigo: 'PT-OFFPAGE', nombre: 'Detalle recuperado' },
+    };
+    listarOrdenesArmadoScm.mockResolvedValue({
+      items: [compact], page: { pagina: 2, tamano: 25, total: 26, paginas: 2 },
+    });
+    obtenerOrdenArmadoScm
+      .mockRejectedValueOnce(new Error('Detalle temporalmente no disponible'))
+      .mockResolvedValueOnce(detail);
+    const view = renderView('/produccion/ordenes-armado?oa=oa-offpage');
+
+    expect(await screen.findByText('Detalle temporalmente no disponible')).toBeVisible();
+    expect(screen.queryByText('Aún no hay órdenes de armado')).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Reintentar' }));
+    await waitFor(() => expect(obtenerOrdenArmadoScm).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('Detalle recuperado')).toBeVisible();
+    view.unmount();
+  });
+
+  it('descarta detalle tardío cuando cambia el actor SCM', async () => {
+    const compactOne = {
+      id: 'oa-actor-1', codigo: 'OA-ACTOR-1', estado: 'LIBERADA', version: 1,
+      salida: { codigo: 'PT-ACTOR-1', nombre: 'Salida actor uno', cantidad_objetivo: '4.000' },
+    };
+    const compactTwo = {
+      id: 'oa-actor-2', codigo: 'OA-ACTOR-2', estado: 'LIBERADA', version: 1,
+      salida: { codigo: 'PT-ACTOR-2', nombre: 'Salida actor dos', cantidad_objetivo: '5.000' },
+    };
+    const detailOne = { ...order, ...compactOne, entradas_planificadas: order.entradas_planificadas };
+    const detailTwo = { ...order, ...compactTwo, entradas_planificadas: order.entradas_planificadas };
+    let resolveOldDetail;
+    listarOrdenesArmadoScm
+      .mockResolvedValueOnce({ items: [compactOne], page: { pagina: 1, tamano: 25, total: 1, paginas: 1 } })
+      .mockResolvedValue({ items: [compactTwo], page: { pagina: 1, tamano: 25, total: 1, paginas: 1 } });
+    obtenerOrdenArmadoScm.mockImplementation((id) => {
+      if (id === compactOne.id) return new Promise((resolve) => { resolveOldDetail = resolve; });
+      return Promise.resolve(detailTwo);
+    });
+    const view = renderView();
+    await waitFor(() => expect(obtenerOrdenArmadoScm).toHaveBeenCalledWith(compactOne.id));
+
+    actorState.actorId = 2;
+    view.rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <ThemeProvider theme={createTheme()}><AssemblyOrdersScm /></ThemeProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(obtenerOrdenArmadoScm).toHaveBeenCalledWith(compactTwo.id));
+    resolveOldDetail(detailOne);
+
+    expect(await screen.findByText('Salida actor dos')).toBeVisible();
+    expect(screen.queryByText('Salida actor uno')).not.toBeInTheDocument();
+  });
+
+  it('descarta listado OA lento del actor anterior cuando el nuevo listado llega primero', async () => {
+    const compactOne = {
+      id: 'oa-list-1', codigo: 'OA-LIST-1', estado: 'LIBERADA', version: 1,
+      salida: { codigo: 'PT-LIST-1', nombre: 'Listado actor anterior', cantidad_objetivo: '4.000' },
+    };
+    const compactTwo = {
+      id: 'oa-list-2', codigo: 'OA-LIST-2', estado: 'LIBERADA', version: 1,
+      salida: { codigo: 'PT-LIST-2', nombre: 'Listado actor actual', cantidad_objetivo: '5.000' },
+    };
+    const detailTwo = { ...order, ...compactTwo, entradas_planificadas: order.entradas_planificadas };
+    let resolveOldList;
+    listarOrdenesArmadoScm
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOldList = resolve; }))
+      .mockResolvedValue({
+        items: [compactTwo], page: { pagina: 1, tamano: 25, total: 1, paginas: 1 },
+      });
+    obtenerOrdenArmadoScm.mockResolvedValue(detailTwo);
+    const view = renderView();
+
+    actorState.actorId = 2;
+    view.rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <ThemeProvider theme={createTheme()}><AssemblyOrdersScm /></ThemeProvider>
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(listarOrdenesArmadoScm).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('Listado actor actual')).toBeVisible();
+    resolveOldList({
+      items: [compactOne], page: { pagina: 1, tamano: 25, total: 1, paginas: 1 },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText('OA-LIST-2')).toBeVisible();
+    expect(screen.queryByText('OA-LIST-1')).not.toBeInTheDocument();
   });
 });

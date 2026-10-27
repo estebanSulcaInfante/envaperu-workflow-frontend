@@ -20,7 +20,9 @@ import {
   crearTrabajoColorScm,
   listarContinuidadesMangaPendientesScm,
   listarJornadasPlantaScm,
+  listarOrdenesFabricacionScm,
   listarOtScm,
+  obtenerOtScm,
   reasignarMangasTrabajoColorScm,
 } from '../services/scmOtApi';
 
@@ -88,6 +90,51 @@ describe('contratos OT de máquina y Trabajo de color', () => {
         turno: 'DIA',
       },
       headers: { 'X-Actor-Id': '42' },
+    });
+  });
+
+  it('consulta la jornada como resumen y conserva la máquina como filtro server-side', async () => {
+    const signal = { aborted: false };
+    await listarJornadasPlantaScm({
+      fecha_operativa: '2026-08-27',
+      turno: 'DIA',
+      maquina_id: 4,
+      vista: 'resumen',
+      signal,
+    });
+
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/jornadas-planta', {
+      params: {
+        fecha_operativa: '2026-08-27',
+        turno: 'DIA',
+        maquina_id: 4,
+        vista: 'resumen',
+      },
+      headers: { 'X-Actor-Id': '42' },
+      signal,
+    });
+  });
+
+  it('obtiene solo el detalle de la OT seleccionada y propaga la señal de cancelación', async () => {
+    const signal = { aborted: false };
+    await obtenerOtScm('ot/selected', { signal });
+
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/ots/ot%2Fselected', {
+      headers: { 'X-Actor-Id': '42' },
+      signal,
+    });
+  });
+
+  it('envía búsqueda y página del resumen OF sin caer al catálogo legacy', async () => {
+    await listarOrdenesFabricacionScm({
+      vista: 'resumen', q: 'uuid-of-2', estado: 'ELEGIBLES', orden: 'reciente', pagina: 2, tamano: 25,
+    });
+
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/ordenes-fabricacion', {
+      headers: { 'X-Actor-Id': '42' },
+      params: {
+        vista: 'resumen', q: 'uuid-of-2', estado: 'ELEGIBLES', orden: 'reciente', pagina: 2, tamano: 25,
+      },
     });
   });
 

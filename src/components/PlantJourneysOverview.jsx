@@ -110,11 +110,25 @@ function AssemblyDailyBoard({
                 const output = ot.orden_armado?.salida || null;
                 const outputArticle = output?.articulo || null;
                 const supply = ot.abastecimiento || null;
-                const mangaCounts = Object.entries((ot.mangas || []).reduce((result, manga) => {
-                  const state = stateLabel(manga.estado || 'SIN ESTADO');
-                  result[state] = (result[state] || 0) + 1;
-                  return result;
-                }, {}));
+                const mangaSummary = ot.mangas_resumen || null;
+                const mangaCounts = mangaSummary?.por_estado
+                  ? Object.entries(mangaSummary.por_estado)
+                    .map(([state, value]) => [
+                      stateLabel(state || 'SIN ESTADO'),
+                      Number(value?.total ?? value?.cantidad ?? value ?? 0),
+                    ])
+                    .filter(([, count]) => count > 0)
+                  : Object.entries((ot.mangas || []).reduce((result, manga) => {
+                    const state = stateLabel(manga.estado || 'SIN ESTADO');
+                    result[state] = (result[state] || 0) + 1;
+                    return result;
+                  }, {}));
+                const mangaTotal = mangaSummary?.por_estado
+                  ? Object.values(mangaSummary.por_estado).reduce(
+                    (total, value) => total + Number(value?.total ?? value?.cantidad ?? value ?? 0),
+                    0,
+                  )
+                  : (ot.mangas || []).length;
                 return (
                   <Paper
                     key={ot.public_id}
@@ -127,7 +141,12 @@ function AssemblyDailyBoard({
                   >
                     <Stack spacing={0.75}>
                       <Stack direction="row" spacing={1} justifyContent="space-between">
-                        <Typography fontWeight={850}>{ot.codigo_ot}</Typography>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography fontWeight={850}>{ot.codigo_ot}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            OA: {oaCode}
+                          </Typography>
+                        </Box>
                         <Chip
                           size="small"
                           color={ot.estado === 'EN_EJECUCION' ? 'success' : 'default'}
@@ -152,7 +171,7 @@ function AssemblyDailyBoard({
                         Avance {compactQuantity(ot.cantidad_confirmada)} / {compactQuantity(ot.cantidad_objetivo)} un
                       </Typography>
                       <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
-                        <Chip size="small" variant="outlined" label={`Mangas ${(ot.mangas || []).length}`} />
+                        <Chip size="small" variant="outlined" label={`Mangas ${mangaTotal}`} />
                         {mangaCounts.map(([state, count]) => (
                           <Chip key={state} size="small" variant="outlined" label={`${state} ${count}`} />
                         ))}
@@ -209,6 +228,12 @@ export default function PlantJourneysOverview({
   embedded = false,
 }) {
   const ControlSurface = embedded ? Box : Paper;
+  const hasJourneyData = !busy && (
+    journeyCount > 0
+    || machineCount > 0
+    || assemblyCenterCount > 0
+    || boardStatusCounts.all > 0
+  );
   return (
     <Stack spacing={1.5}>
       <ControlSurface data-testid="plant-journeys-control-band" {...(!embedded ? { variant: 'outlined' } : {})} sx={{ p: 1.25 }}>
@@ -259,7 +284,7 @@ export default function PlantJourneysOverview({
         </Stack>
       </Box>
 
-      {!(embedded && perspective === 'FABRICACION') && <Stack
+      {hasJourneyData && !(embedded && perspective === 'FABRICACION') && <Stack
         data-testid="plant-journeys-summary"
         role="status"
         aria-live="polite"
@@ -305,7 +330,7 @@ export default function PlantJourneysOverview({
           label="Armado · Centros"
         />
       </Tabs>
-      {perspective === 'FABRICACION' && (
+      {perspective === 'FABRICACION' && hasJourneyData && (
         <Stack spacing={1}>
           <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 260 } }}>
             <InputLabel>Filtrar lista por máquina</InputLabel>
