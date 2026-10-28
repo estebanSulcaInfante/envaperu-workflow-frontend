@@ -13,7 +13,7 @@ vi.mock('../services/scmAssistantV2Api', () => ({
 vi.mock('../services/scmAgentApi', () => ({
   getScmAgentState: vi.fn().mockResolvedValue({ available: true, status: 'READY', message: 'Disponible', provider: 'openclaw', read_only: true, attachments_supported: false }),
   sendScmAgentChat: vi.fn(({ clientRequestId }) => Promise.resolve({ status: 'answered', answer: 'Respuesta del agente', client_request_id: clientRequestId, read_only: true })),
-  SCM_AGENT_UI_TIMEOUT: 60000,
+  SCM_AGENT_UI_TIMEOUT: 160000,
   buildScmAgentChatPayload: vi.fn(() => ({ payload: {}, historyOmitted: false })),
   createClientRequestId: vi.fn(() => '7b1c5c26-2ae6-4ef2-898b-9b70ed8f4a3a'),
 }));
