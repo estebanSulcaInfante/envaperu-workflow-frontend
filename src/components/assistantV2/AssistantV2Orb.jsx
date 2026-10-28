@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Box, ButtonBase } from '@mui/material';
-import AssistantV2Panel from './AssistantV2Panel';
+import { ButtonBase } from '@mui/material';
+import { AgentOrb } from '../assistantAgent/AgentOrb';
+import AssistantAgentPanel from '../assistantAgent/AssistantAgentPanel';
 
 const ORB_SIZE = 68;
 const DRAG_THRESHOLD = 8;
@@ -37,7 +38,7 @@ const snapPosition = ({ x, y }) => {
   return { ...current, y: nearest.value };
 };
 
-function AssistantV2OrbInstance({ actorId, canReview = false, onVisibilityChange }) {
+function AssistantV2OrbInstance({ actorId, onVisibilityChange }) {
   const key = useMemo(() => `${POSITION_PREFIX}:${actorId || 'unknown'}:${deviceId()}`, [actorId]);
   const [position, setPosition] = useState(() => {
     const saved = readStorage(`${POSITION_PREFIX}:${actorId || 'unknown'}:${deviceId()}`);
@@ -45,6 +46,7 @@ function AssistantV2OrbInstance({ actorId, canReview = false, onVisibilityChange
     try { return clampPosition(JSON.parse(saved)); } catch { return defaultPosition(); }
   });
   const [open, setOpen] = useState(false);
+  const [orbState, setOrbState] = useState('idle');
   const [dragging, setDragging] = useState(false);
   const drag = useRef(null);
   const suppressClick = useRef(false);
@@ -109,10 +111,10 @@ function AssistantV2OrbInstance({ actorId, canReview = false, onVisibilityChange
 
   return (
     <>
-      <ButtonBase ref={orbRef} data-testid="scm-assistant-v2-orb" aria-label="Abrir asistente SCM" onClick={onClick} onKeyDown={openFromKeyboard} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} onLostPointerCapture={onPointerCancel} sx={{ position: 'fixed', left: `max(${position.x}px, env(safe-area-inset-left, 0px))`, top: `max(${position.y}px, env(safe-area-inset-top, 0px))`, width: ORB_SIZE, height: ORB_SIZE, zIndex: 1399, borderRadius: '50%', bgcolor: '#f5c84c', color: '#101820', boxShadow: '0 10px 28px rgba(16,24,32,.28)', touchAction: 'none', cursor: dragging ? 'grabbing' : 'grab', '&:focus-visible': { outline: '3px solid #1e3a5f', outlineOffset: 3 } }}>
-        <Box aria-hidden="true" sx={{ position: 'relative', width: 42, height: 42, borderRadius: '50%', bgcolor: '#ffe796', border: '3px solid #101820' }}><Box sx={{ position: 'absolute', left: 9, top: 10, width: 6, height: 8, borderRadius: '50%', bgcolor: '#101820' }} /><Box sx={{ position: 'absolute', right: 9, top: 10, width: 6, height: 8, borderRadius: '50%', bgcolor: '#101820' }} /><Box sx={{ position: 'absolute', left: 12, bottom: 8, width: 12, height: 6, borderBottom: '2px solid #101820', borderRadius: '50%' }} /></Box>
+      <ButtonBase ref={orbRef} data-testid="scm-assistant-v2-orb" aria-label="Abrir asistente SCM" onClick={onClick} onKeyDown={openFromKeyboard} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} onLostPointerCapture={onPointerCancel} sx={{ position: 'fixed', left: `max(${position.x}px, env(safe-area-inset-left, 0px))`, top: `max(${position.y}px, env(safe-area-inset-top, 0px))`, width: ORB_SIZE, height: ORB_SIZE, zIndex: open ? 1199 : 1399, borderRadius: '50%', bgcolor: 'background.paper', color: 'text.primary', boxShadow: '0 10px 28px rgba(16,24,32,.28)', touchAction: 'none', cursor: dragging ? 'grabbing' : 'grab', '&:focus-visible': { outline: '3px solid currentColor', outlineOffset: 3 } }}>
+        <AgentOrb state={orbState} size={54} />
       </ButtonBase>
-      {open && <AssistantV2Panel onClose={closePanel} onMinimize={closePanel} canReview={canReview} />}
+      <AssistantAgentPanel open={open} onClose={closePanel} onStateChange={setOrbState} />
     </>
   );
 }

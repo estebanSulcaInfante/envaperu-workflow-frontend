@@ -1,0 +1,21 @@
+.strands-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.strands-container canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.strands-fallback {
+  position: absolute;
+  inset: 25%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 65% 35%, #fff8e7 0 8%, #83ddec 20%, #3158c9 46%, #172d75 72%, transparent 73%);
+  filter: blur(1px);
+}

@@ -1,0 +1,15 @@
+.assistant-agent-orb {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.assistant-agent-orb .strands-container {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
