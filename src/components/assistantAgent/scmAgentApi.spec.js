@@ -10,7 +10,7 @@ describe('scmAgentApi', () => {
     get.mockResolvedValueOnce({ data: { available: true, status: 'READY', provider: 'openclaw', read_only: true, attachments_supported: false } });
     const signal = new AbortController().signal;
     await getScmAgentState({ signal });
-    expect(get).toHaveBeenCalledWith('/scm/v1/asistente/agente/estado', { signal, timeout: 55000 });
+    expect(get).toHaveBeenCalledWith('/scm/v1/asistente/agente/estado', { signal, timeout: 155000 });
   });
 
   it('posts only the contract fields and passes the AbortSignal', async () => {
@@ -26,7 +26,7 @@ describe('scmAgentApi', () => {
       query: 'consulta',
       history: [{ role: 'user', content: 'anterior' }, { role: 'assistant', content: 'respuesta anterior' }],
       client_request_id: '7b1c5c26-2ae6-4ef2-898b-9b70ed8f4a3a',
-    }, { signal, timeout: 55000 });
+    }, { signal, timeout: 155000 });
     expect(post.mock.calls[0][1]).not.toHaveProperty('model');
     expect(post.mock.calls[0][1]).not.toHaveProperty('tools');
     expect(post.mock.calls[0][1]).not.toHaveProperty('urls');

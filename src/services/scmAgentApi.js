@@ -2,8 +2,8 @@ import api from './api';
 
 export const SCM_AGENT_STATE_PATH = '/scm/v1/asistente/agente/estado';
 export const SCM_AGENT_CHAT_PATH = '/scm/v1/asistente/agente/chat';
-export const SCM_AGENT_HTTP_TIMEOUT = 55000;
-export const SCM_AGENT_UI_TIMEOUT = 60000;
+export const SCM_AGENT_HTTP_TIMEOUT = 155000;
+export const SCM_AGENT_UI_TIMEOUT = 160000;
 export const SCM_AGENT_MAX_HISTORY_BYTES = 16000;
 export const SCM_AGENT_MAX_TOTAL_BYTES = 24000;
 export const SCM_AGENT_MAX_HISTORY_MESSAGES = 12;
