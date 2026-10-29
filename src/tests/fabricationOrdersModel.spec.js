@@ -46,7 +46,8 @@ describe('modelo de bandeja OF', () => {
       { corrida_id: 'r1', objetivo_neto_kg: '100', kg_medidos_efectivos: '95', kg_finalizados_efectivos: '95', kg_medidos_en_abiertas: '0', coverage: { estado: 'COMPLETA' } },
     ]);
     expect(incomplete.state).toBe('incomplete');
-    expect(incomplete.percentage).toBeUndefined();
+    expect(incomplete.percentage).toBeCloseTo(63.3333);
+    expect(incomplete.kgMedido).toBe(95);
   });
 
   it('ignora duplicados de otras OF, pero exige evidencia de peso y meta coherente', () => {

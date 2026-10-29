@@ -28,27 +28,33 @@ export const getProgressState = (item, visibility = {}) => {
   const target = finiteNumber(item?.objetivo_neto_kg);
   const final = finiteNumber(item?.kg_finalizados_efectivos);
   const opened = finiteNumber(item?.kg_medidos_en_abiertas);
+  const hasMeasuredField = Object.prototype.hasOwnProperty.call(item || {}, 'kg_medidos_efectivos')
+    || Object.prototype.hasOwnProperty.call(item || {}, 'avance_medido_kg');
+  const measured = hasMeasuredField
+    ? finiteNumber(item?.kg_medidos_efectivos ?? item?.avance_medido_kg)
+    : (final !== null || opened !== null ? (final || 0) + (opened || 0) : null);
   const total = finiteNumber(item?.mangas?.total);
   const known = finiteNumber(item?.mangas?.conocidas);
   const noEvidence = (total === 0 || total === null)
     && (known === 0 || known === null)
-    && (final === null || final === 0)
+    && (measured === null || measured === 0)
     && (opened === null || opened === 0);
   const evidenceLabel = noEvidence
     ? 'Sin pesajes'
     : coverageState(item) === 'COMPLETA' ? 'Evidencia completa' : 'Datos de peso incompletos';
   const visibleFinal = noEvidence ? null : final;
   const visibleOpened = noEvidence ? null : opened;
-  if (target === null) return { key: 'META_AUSENTE', label: 'Meta no registrada', evidenceLabel, color: 'warning', target, final: visibleFinal, opened: visibleOpened, percent: null };
-  if (!(target > 0)) return { key: 'META_NO_POSITIVA', label: 'Meta no positiva', evidenceLabel, color: 'warning', target, final: visibleFinal, opened: visibleOpened, percent: null };
+  if (target === null) return { key: 'META_AUSENTE', label: 'Meta no registrada', evidenceLabel, color: 'warning', target, final: visibleFinal, opened: visibleOpened, measured, percent: null };
+  if (!(target > 0)) return { key: 'META_NO_POSITIVA', label: 'Meta no positiva', evidenceLabel, color: 'warning', target, final: visibleFinal, opened: visibleOpened, measured, percent: null };
   if (noEvidence) {
-    return { key: 'SIN_PESAJES', label: 'Sin pesajes', color: 'warning', target, final: null, opened: null, percent: null };
+    return { key: 'SIN_PESAJES', label: 'Sin pesajes', color: 'warning', target, final: null, opened: null, measured: null, percent: null };
   }
-  if (coverageState(item) !== 'COMPLETA' || (total !== null && known !== null && known < total) || final === null) {
-    return { key: 'INCOMPLETA', label: 'Datos de peso incompletos', color: 'warning', target, final, opened, percent: null };
+  if (coverageState(item) !== 'COMPLETA' || (total !== null && known !== null && known < total) || measured === null) {
+    return { key: 'INCOMPLETA', label: 'Datos de peso incompletos', color: 'warning', target, final, opened, measured, percent: measured === null ? null : (measured / target) * 100 };
   }
   return {
     key: 'CALCULABLE', label: 'Avance calculable', color: 'success', target, final, opened,
-    percent: (final / target) * 100,
+    measured,
+    percent: (measured / target) * 100,
   };
 };

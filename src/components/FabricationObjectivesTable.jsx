@@ -33,22 +33,32 @@ function ProgressCell({ progress, run }) {
   if (progress.state === 'error') return <Typography variant="body2" color="text.secondary">Avance no disponible · usa Actualizar</Typography>;
   if (!row) return <Typography variant="body2" color="text.secondary">{progress.label || 'Sin cobertura'}</Typography>;
   const finalKg = finiteOrNull(row.kg_finalizados_efectivos);
+  const openedKg = finiteOrNull(row.kg_medidos_en_abiertas ?? row.en_proceso_kg);
+  const measuredField = row.kg_medidos_efectivos ?? row.avance_medido_kg;
+  const measuredKg = measuredField !== undefined
+    ? finiteOrNull(measuredField)
+    : (finalKg != null || openedKg != null ? (finalKg || 0) + (openedKg || 0) : null);
   const savedTargetValue = finiteOrNull(run.objetivo_neto_kg);
   const savedTarget = savedTargetValue != null && savedTargetValue > 0 ? savedTargetValue : null;
-  const valid = finalKg != null && finalKg >= 0 && savedTarget != null;
-  const percentage = valid ? (finalKg / savedTarget) * 100 : null;
+  const valid = measuredKg != null && measuredKg >= 0 && savedTarget != null;
+  const percentage = valid ? (measuredKg / savedTarget) * 100 : null;
   if (progress.state !== 'ready') {
     return (
       <Stack spacing={0.25}>
         <Typography variant="body2">{progress.label || 'Avance parcial'}</Typography>
+        {measuredKg != null && (
+          <Typography variant="caption" color="text.secondary" title={`${measuredKg} kg (valor medido)`}>
+            {formatKg(measuredKg)} medido{percentage != null ? ` · ${percentage.toFixed(2)}% de meta` : ''}
+          </Typography>
+        )}
         {finalKg != null && finalKg > 0 && (
           <Typography variant="caption" color="text.secondary" title={`${row.kg_finalizados_efectivos} kg (valor original)`}>
             {formatKg(finalKg)} kg finalizados conocidos
           </Typography>
         )}
-        {row.kg_medidos_en_abiertas != null && (
-          <Typography variant="caption" color="text.secondary" title={`${row.kg_medidos_en_abiertas} kg (valor original)`}>
-            {formatKg(row.kg_medidos_en_abiertas)} kg en abiertas
+        {openedKg != null && (
+          <Typography variant="caption" color="text.secondary" title={`${openedKg} kg (valor original)`}>
+            {formatKg(openedKg)} en proceso
           </Typography>
         )}
       </Stack>
@@ -56,7 +66,7 @@ function ProgressCell({ progress, run }) {
   }
   return (
     <Stack spacing={0.25}>
-      <Typography variant="body2" title={valid ? `${row.kg_finalizados_efectivos} / ${run.objetivo_neto_kg} kg (valores originales)` : undefined}>{valid ? `${formatKg(finalKg)} / ${formatKg(savedTarget)} kg` : progress.label}</Typography>
+      <Typography variant="body2" title={valid ? `${measuredKg} / ${run.objetivo_neto_kg} kg (valores originales)` : undefined}>{valid ? `${formatKg(measuredKg)} / ${formatKg(savedTarget)}` : progress.label}</Typography>
       {progress.state === 'ready' && valid && (
         <>
           <LinearProgress
@@ -66,10 +76,10 @@ function ProgressCell({ progress, run }) {
             aria-label={`Avance ${percentage.toFixed(1)} por ciento`}
             sx={{ height: 6, borderRadius: 3, minWidth: 90 }}
           />
-          <Typography variant="caption" color="text.secondary">{percentage.toFixed(1)}% · meta guardada</Typography>
+          <Typography variant="caption" color="text.secondary">{percentage.toFixed(2)}% · meta guardada</Typography>
         </>
       )}
-      {row.kg_medidos_en_abiertas != null && <Typography variant="caption" color="text.secondary" title={`${row.kg_medidos_en_abiertas} kg (valor original)`}>{formatKg(row.kg_medidos_en_abiertas)} kg en abiertas</Typography>}
+      {finalKg != null && openedKg != null && <Typography variant="caption" color="text.secondary">Finalizados: {formatKg(finalKg)} · En proceso: {formatKg(openedKg)}</Typography>}
     </Stack>
   );
 }
@@ -90,19 +100,20 @@ export default function FabricationObjectivesTable({
   routeLoading = false,
   routeReadOnly = false,
 }) {
+  const globalMeasured = progress?.kgMedido ?? progress?.kgFinalizados;
   const globalProgress = progress?.state === 'ready'
-    ? `Avance global: ${formatKg(progress.kgFinalizados)} / ${formatKg(progress.metaTotal)} kg · ${progress.percentage.toFixed(1)}%`
+    ? `Avance global: ${formatKg(globalMeasured)} / ${formatKg(progress.metaTotal)} · ${progress.percentage.toFixed(2)}%`
     : progress?.state === 'restricted'
       ? 'Avance global: restringido por permisos'
       : progress?.state === 'error'
         ? 'Avance global: no disponible · usa Actualizar'
-        : progress?.kgFinalizados > 0
-          ? `Avance global: ${formatKg(progress.kgFinalizados)} kg finalizados conocidos · ${progress.label || 'Avance parcial'}`
+        : globalMeasured != null
+          ? `Avance global: ${formatKg(globalMeasured)} medido · ${progress?.percentage != null ? `${progress.percentage.toFixed(2)}% de meta · ` : ''}${progress.label || 'Avance parcial'}`
           : `Avance global: ${progress?.label || 'Sin cobertura'}`;
 
   return (
     <Stack spacing={1}>
-      <Typography variant="body2" color="text.secondary" aria-live="polite" title={progress?.state !== 'restricted' && progress?.kgFinalizados != null ? `${progress.kgFinalizados} kg finalizados / ${progress.metaTotal ?? '—'} kg de meta (valores originales)` : undefined}>{globalProgress}</Typography>
+      <Typography variant="body2" color="text.secondary" aria-live="polite" title={progress?.state !== 'restricted' && globalMeasured != null ? `${globalMeasured} kg medido / ${progress.metaTotal ?? '—'} kg de meta (valores originales)` : undefined}>{globalProgress}</Typography>
       <TableContainer sx={{ overflowX: 'auto' }}>
       <Table size="small" aria-label="Objetivos de fabricación">
         <TableHead>

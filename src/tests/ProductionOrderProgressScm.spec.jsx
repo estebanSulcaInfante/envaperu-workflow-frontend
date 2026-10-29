@@ -12,7 +12,7 @@ const renderView = () => render(<MemoryRouter><ProductionOrderProgressScm /></Me
 describe('estados honestos de avance OF', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('distingue metas y evidencia, mantiene abiertas separadas y calcula sólo con finalizados', async () => {
+  it('distingue metas y evidencia, mantiene abiertas separadas y calcula el medido', async () => {
     listarAvanceOfScm.mockResolvedValue({ items: [
       { corrida_id: 'missing', of: 'OF-M', objetivo_neto_kg: null, coverage: { estado: 'INCOMPLETA' }, mangas: { total: 0, conocidas: 0 } },
       { corrida_id: 'nonpositive', of: 'OF-Z', objetivo_neto_kg: 0, coverage: { estado: 'INCOMPLETA' }, mangas: { total: 0, conocidas: 0 } },
@@ -29,8 +29,8 @@ describe('estados honestos de avance OF', () => {
     expect(screen.getByText('Datos de peso incompletos')).toBeVisible();
     expect(screen.getByText('Avance calculable')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Expandir OF-V' }));
-    expect(screen.getByText(/Abiertas:/)).toHaveTextContent(/2\.00\s*kg/);
-    expect(screen.getByText('40.0%')).toBeVisible();
+    expect(screen.getByText(/En proceso:/)).toHaveTextContent(/2\.00\s*kg/);
+    expect(screen.getByText('60.00%')).toBeVisible();
   });
 
   it('prioriza restricción de pesaje y no revela cantidades', async () => {
@@ -42,6 +42,26 @@ describe('estados honestos de avance OF', () => {
     expect(await screen.findByText('Acceso restringido')).toBeVisible();
     expect(screen.queryByText('4.000')).not.toBeInTheDocument();
     expect(screen.queryByText('2.000')).not.toBeInTheDocument();
+  });
+
+  it('muestra medido y porcentaje aunque la cobertura de mangas sea parcial', async () => {
+    listarAvanceOfScm.mockResolvedValue({
+      items: [{
+        corrida_id: 'of122', of: 'OF-000122', corrida: 'C-122', color: 'Melón Pastel',
+        objetivo_neto_kg: 250, kg_finalizados_efectivos: 90.6,
+        kg_medidos_en_abiertas: 1.1, kg_medidos_efectivos: 91.7,
+        coverage: { estado: 'INCOMPLETA', motivos: ['SUBTOTAL_PARCIAL'] },
+        mangas: { total: 10, conocidas: 9 },
+      }],
+      visibilidad: { pesaje: true }, as_of: '2026-10-29',
+    });
+    renderView();
+    expect(await screen.findByText('OF-000122')).toBeVisible();
+    expect(screen.getByText('91.70 kg')).toBeVisible();
+    expect(screen.getByText('36.68%')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Expandir OF-000122' }));
+    expect(screen.getByText(/Finalizados:/)).toHaveTextContent(/90\.60\s*kg/);
+    expect(screen.getByText(/En proceso:/)).toHaveTextContent(/1\.10\s*kg/);
   });
 
   it('trata ceros sin mangas como sin pesajes y conserva peso real cuando falta la meta', async () => {

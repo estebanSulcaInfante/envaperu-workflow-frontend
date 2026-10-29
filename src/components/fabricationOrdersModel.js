@@ -149,7 +149,7 @@ export const projectOrderProgress = (
     toFiniteNumber(progress?.objetivo_neto_kg) !== null
   ));
   const measuredValuesPresent = rows.every(({ progress }) => {
-    const value = toFiniteNumber(progress?.kg_medidos_efectivos);
+    const value = toFiniteNumber(progress?.kg_medidos_efectivos ?? progress?.avance_medido_kg);
     return value !== null && value >= 0;
   });
   const openFieldPresent = rows.every(({ progress }) => (
@@ -183,6 +183,12 @@ export const projectOrderProgress = (
     );
     return value === null ? sum : sum + value;
   }, 0);
+  const measuredValues = rows.map(({ progress }) => toFiniteNumber(
+    progress?.kg_medidos_efectivos ?? progress?.avance_medido_kg,
+  ));
+  const measuredKg = measuredValues.some((value) => value !== null)
+    ? measuredValues.reduce((sum, value) => (value === null ? sum : sum + value), 0)
+    : null;
   if (duplicate || duplicateExpectedIds || !hasValidMeta || !hasAllRows || !completeCoverage
     || !measuredValuesPresent || !openFieldPresent || !openValuesValid || !progressTargetsPresent || !progressMetasMatch || !finalizedValuesValid) {
     const noWeighingEvidence = hasAllRows && rows.every(({ progress }) => (
@@ -194,6 +200,10 @@ export const projectOrderProgress = (
       label: loading ? 'Consultando avance' : (noWeighingEvidence ? 'Sin pesajes' : 'Avance parcial'),
       kgFinalizados: knownFinalized,
       kgAbiertas: openKg,
+      kgMedido: measuredKg,
+      metaTotal: metas.every((value) => value !== null) ? metas.reduce((sum, value) => sum + value, 0) : null,
+      percentage: measuredKg !== null && metas.every((value) => value !== null && value > 0)
+        ? (measuredKg / metas.reduce((sum, value) => sum + value, 0)) * 100 : null,
       rows,
     };
   }
@@ -202,7 +212,7 @@ export const projectOrderProgress = (
     return value === null || value < 0 ? sum : sum + value;
   }, 0);
   const metaTotal = metas.reduce((sum, value) => sum + value, 0);
-  const percentage = metaTotal > 0 ? (kgFinalizados / metaTotal) * 100 : null;
+  const percentage = metaTotal > 0 ? (measuredKg / metaTotal) * 100 : null;
   if (!Number.isFinite(percentage)) {
     return { state: 'incomplete', label: 'No calculable · meta incompleta', kgFinalizados, kgAbiertas: openKg, rows };
   }
@@ -211,6 +221,7 @@ export const projectOrderProgress = (
     label: 'Avance disponible',
     kgFinalizados,
     kgAbiertas: openKg,
+    kgMedido: measuredKg,
     metaTotal,
     percentage,
     rows,
