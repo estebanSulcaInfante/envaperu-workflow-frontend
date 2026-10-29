@@ -23,6 +23,7 @@ import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import { useScmActor } from '../../context/ScmActorContext';
 import { SCM_AUTH_MODE, SCM_PROFILE_SWITCH_ENABLED } from '../../config/runtime';
 import { useAuth } from '../../context/AuthContext';
+import PersonalAgentAccess from '../assistantAgent/PersonalAgentAccess';
 
 const initials = (name = '') => name
   .split(/\s+/)
@@ -104,14 +105,17 @@ export default function ActorWorkspaceBar() {
             </Button>
           )}
           {SCM_AUTH_MODE === 'supabase' && (
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<LogoutOutlinedIcon />}
-              onClick={signOut}
-            >
-              Cerrar sesión
-            </Button>
+            <>
+              <PersonalAgentAccess />
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<LogoutOutlinedIcon />}
+                onClick={signOut}
+              >
+                Cerrar sesión
+              </Button>
+            </>
           )}
         </Stack>
         {error && <Alert severity="warning" sx={{ mt: 0.75 }}>{error}</Alert>}

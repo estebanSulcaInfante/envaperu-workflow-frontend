@@ -27,6 +27,14 @@ export const SCM_ASSISTANT_V2_ENABLED = String(
   import.meta.env.VITE_SCM_ASSISTANT_V2_ENABLED || '',
 ).trim().toLowerCase() === 'true';
 
+export const SCM_PERSONAL_AGENT_ENABLED = String(
+  import.meta.env.VITE_SCM_PERSONAL_AGENT_ENABLED || '',
+).trim().toLowerCase() === 'true';
+
+export const SCM_PERSONAL_AGENT_ORIGIN = String(
+  import.meta.env.VITE_SCM_PERSONAL_AGENT_ORIGIN || '',
+).trim();
+
 export const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL || '').trim().replace(/\/+$/, '');
 export const SUPABASE_PUBLISHABLE_KEY = (
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || ''
