@@ -71,6 +71,45 @@ describe('ControlAvanceOfTv', () => {
     expect(row).toHaveTextContent('36.68%');
   });
 
+  it('reserva el desglose en la matriz canónica para varias piezas y pendientes', async () => {
+    const canonicalOutputs = [
+      {
+        ...outputs[0], pieza_id: 31, pieza: 'Pieza base', unidad: 'KG', meta: 250,
+        avance: 91.7, pendiente: 158.3, porcentaje: 36.68,
+        finalizados_kg: 90.6, en_proceso_kg: 1.1, pendientes_sin_peso: 2,
+        estado_avance: 'INCOMPLETO',
+      },
+      {
+        ...outputs[3], pieza_id: 42, pieza: 'Pieza tapa', unidad: 'KG', meta: 40,
+        avance: 12.5, pendiente: 27.5, porcentaje: 31.25,
+        finalizados_kg: 10, en_proceso_kg: 2.5, pendientes_sin_peso: 1,
+        estado_avance: 'INCOMPLETO',
+      },
+    ];
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: [{
+        group_id: 'canonical-breakdown', identity: { identity_status: 'COMPLETA', identity_issues: [] },
+        of_id: 'of-breakdown', of: 'OF-BREAKDOWN', estado: 'EN_EJECUCION', corrida_id: 'run-breakdown',
+        color_id: 1, color: 'Azul', color_hex: '#123456', molde_id: 'ML-1', molde_visible: true,
+        molde: { codigo: 'ML-1', nombre: 'Molde 1' }, ots: [{ id: 'ot-1', codigo: 'OT-1' }],
+        provenance: { issues: [] }, salidas: canonicalOutputs,
+      }],
+    });
+
+    render(<ControlAvanceOfTv />);
+
+    const board = await screen.findByTestId('of-progress-card');
+    expect(within(board).getAllByTestId('output-kg-breakdown')).toHaveLength(2);
+    expect(within(board).getAllByText(/Pendientes sin peso:/).map((element) => element.textContent)).toEqual([
+      'Pendientes sin peso: 2', 'Pendientes sin peso: 1',
+    ]);
+    expect(within(board).getAllByTestId('output-kg-breakdown').map((element) => element.textContent)).toEqual([
+      'Finalizados: 90.60 kg · En proceso: 1.10 kg',
+      'Finalizados: 10.00 kg · En proceso: 2.50 kg',
+    ]);
+  });
+
   it('renders one shared OF-mold board, keeps group ids and multipiece outputs together', async () => {
     listarAvanceOfTvScm.mockResolvedValueOnce({
       as_of: response.as_of,
@@ -704,6 +743,13 @@ describe('ControlAvanceOfTv', () => {
       groups,
       { viewportHeight: 640, pieceCount: 2, layout: 'narrow' },
     ).flat()).toHaveLength(7);
+    const diagnosticGroups = Array.from({ length: 4 }, (_, index) => ({
+      id: `diagnostic-lane-${index}`,
+      identity: { identity_status: 'COMPLETA' },
+      salidas: [{ unidad: 'KG', finalizados_kg: 90.6, en_proceso_kg: 1.1, pendientes_sin_peso: 1 }],
+    }));
+    const diagnosticPages = splitTvLanes(diagnosticGroups, { viewportHeight: 640, pieceCount: 1, layout: 'wide' });
+    expect(diagnosticPages[0]).toHaveLength(3);
     const narrowLanes = Array.from({ length: 6 }, (_, index) => ({
       id: `narrow-lane-${index}`,
       identity: { identity_status: 'COMPLETA' },

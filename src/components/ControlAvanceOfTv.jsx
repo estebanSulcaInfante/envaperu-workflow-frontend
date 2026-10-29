@@ -23,6 +23,8 @@ const TV_BASE_LANE_HEIGHT = 73;
 // keep the shorter horizontal baseline above.
 const TV_NARROW_BASE_LANE_HEIGHT = 112;
 const TV_CARD_CHROME = 90;
+const TV_KG_BREAKDOWN_HEIGHT = 18;
+const TV_PENDING_NOTICE_HEIGHT = 16;
 // Narrow cards wrap the mold title before the OF/status chips. This is the
 // measured extra header line in the compact DOM, not a viewport safety fudge.
 const TV_NARROW_HEADER_WRAP = 24;
@@ -159,7 +161,15 @@ function estimateLaneHeight(group, pieceCount, layout) {
   // In wide TV mode output cells are horizontal columns in one lane. Only
   // the narrow fallback stacks them and needs the extra conservative height.
   const outputCount = Math.max(1, (group.salidas || []).length);
-  return budget.laneHeight + (layout === 'narrow' ? Math.max(0, outputCount - 1) * 42 : 0);
+  const outputs = group.salidas || [];
+  const hasKgBreakdown = outputs.some((output) => output.unidad === 'KG'
+    && (output.finalizados_kg != null || output.en_proceso_kg != null));
+  const hasPendingNotice = outputs.some((output) => output.pendientes_sin_peso > 0);
+  const diagnosticHeight = (hasKgBreakdown ? TV_KG_BREAKDOWN_HEIGHT : 0)
+    + (hasPendingNotice ? TV_PENDING_NOTICE_HEIGHT : 0);
+  return budget.laneHeight
+    + diagnosticHeight
+    + (layout === 'narrow' ? Math.max(0, outputCount - 1) * 42 : 0);
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
