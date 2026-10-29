@@ -23,7 +23,7 @@ const TV_BASE_LANE_HEIGHT = 73;
 // keep the shorter horizontal baseline above.
 const TV_NARROW_BASE_LANE_HEIGHT = 112;
 const TV_CARD_CHROME = 90;
-const TV_KG_BREAKDOWN_HEIGHT = 18;
+const TV_KG_BREAKDOWN_HEIGHT = 28;
 const TV_PENDING_NOTICE_HEIGHT = 16;
 // Narrow cards wrap the mold title before the OF/status chips. This is the
 // measured extra header line in the compact DOM, not a viewport safety fudge.
@@ -476,7 +476,7 @@ function OutputRow({ output, compact = false, showColor = true }) {
             />
           )}
           {output.unidad !== 'KG' && output.peso_fisico_kg != null && (
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: compact ? 9 : 10, lineHeight: 1.1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: compact ? 9 : 10, lineHeight: 1.1, overflowWrap: 'anywhere' }}>
               Peso neto: <strong>{number(output.peso_fisico_kg, 1)} kg</strong>
             </Typography>
           )}
@@ -620,7 +620,7 @@ function CanonicalMetricCell({ output, pieceName, colorName, groupId }) {
         {percentage}
       </Typography>
       {hasKgBreakdown && (
-        <Typography variant="caption" color="text.secondary" data-testid="output-kg-breakdown" sx={{ display: 'block', fontSize: { xs: 9, md: 10 }, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
+        <Typography variant="caption" color="text.secondary" data-testid="output-kg-breakdown" sx={{ display: 'block', fontSize: { xs: 9, md: 10 }, lineHeight: 1.1, whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
           Finalizados: {kgValue(output.finalizados_kg)} · En proceso: {kgValue(output.en_proceso_kg)}
         </Typography>
       )}
