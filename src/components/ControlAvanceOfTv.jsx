@@ -8,6 +8,7 @@ import FullscreenExitOutlinedIcon from '@mui/icons-material/FullscreenExitOutlin
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
 import { listarAvanceOfTvScm } from '../services/scmProductionObservabilityApi';
 import { useScmActor } from '../context/ScmActorContext';
+import { getAttributionNotice } from './productionOrderProgressModel';
 
 const REFRESH_MS = 60_000;
 const PAGE_MS = 12_000;
@@ -25,6 +26,7 @@ const TV_NARROW_BASE_LANE_HEIGHT = 112;
 const TV_CARD_CHROME = 90;
 const TV_KG_BREAKDOWN_HEIGHT = 28;
 const TV_PENDING_NOTICE_HEIGHT = 16;
+const TV_ATTRIBUTION_NOTICE_HEIGHT = 18;
 // Narrow cards wrap the mold title before the OF/status chips. This is the
 // measured extra header line in the compact DOM, not a viewport safety fudge.
 const TV_NARROW_HEADER_WRAP = 24;
@@ -86,6 +88,16 @@ function metricLabel(output) {
 
 function kgValue(value) {
   return value == null ? '-' : `${numberFixed(value, 2)} kg`;
+}
+
+function tvAttributionNotice(output) {
+  if (!output) return null;
+  const isKg = output.unidad === 'KG';
+  return getAttributionNotice(
+    output,
+    isKg ? (output.avance_medido_kg ?? output.avance) : null,
+    { comparePhysical: isKg },
+  );
 }
 
 function metricValue(value, output) {
@@ -164,9 +176,13 @@ function estimateLaneHeight(group, pieceCount, layout) {
   const outputs = group.salidas || [];
   const hasKgBreakdown = outputs.some((output) => output.unidad === 'KG'
     && (output.finalizados_kg != null || output.en_proceso_kg != null));
-  const hasPendingNotice = outputs.some((output) => output.pendientes_sin_peso > 0);
+  const hasPendingWeightNotice = outputs.some((output) => output.pendientes_sin_peso > 0);
+  const hasPendingUnitNotice = outputs.some((output) => output.pendientes_sin_cantidad_un > 0);
+  const hasAttributionNotice = outputs.some((output) => tvAttributionNotice(output));
   const diagnosticHeight = (hasKgBreakdown ? TV_KG_BREAKDOWN_HEIGHT : 0)
-    + (hasPendingNotice ? TV_PENDING_NOTICE_HEIGHT : 0);
+    + (hasPendingWeightNotice ? TV_PENDING_NOTICE_HEIGHT : 0)
+    + (hasPendingUnitNotice ? TV_PENDING_NOTICE_HEIGHT : 0)
+    + (hasAttributionNotice ? TV_ATTRIBUTION_NOTICE_HEIGHT : 0);
   return budget.laneHeight
     + diagnosticHeight
     + (layout === 'narrow' ? Math.max(0, outputCount - 1) * 42 : 0);
@@ -443,6 +459,7 @@ function OutputRow({ output, compact = false, showColor = true }) {
   const progressColor = progressTone(output.porcentaje);
   const hasKgBreakdown = output.unidad === 'KG'
     && (output.finalizados_kg != null || output.en_proceso_kg != null);
+  const attribution = tvAttributionNotice(output);
   return (
     <Box
       component="article"
@@ -485,9 +502,19 @@ function OutputRow({ output, compact = false, showColor = true }) {
               Finalizados: <strong>{kgValue(output.finalizados_kg)}</strong> · En proceso: <strong>{kgValue(output.en_proceso_kg)}</strong>
             </Typography>
           )}
+          {attribution && (
+            <Typography variant="caption" color={attribution.neutral ? 'text.secondary' : 'warning.main'} data-testid="output-attribution-warning" sx={{ fontSize: compact ? 9 : 10, lineHeight: 1.1, overflowWrap: 'anywhere' }}>
+              {attribution.text}{attribution.physical != null && <> Físico observado: <strong>{kgValue(attribution.physical)}</strong>{output.unidad === 'KG' && <>; avance atribuible: <strong>{kgValue(attribution.measured)}</strong></>}.</>}
+            </Typography>
+          )}
           {output.pendientes_sin_peso > 0 && (
             <Typography variant="caption" color="warning.main" sx={{ fontSize: compact ? 9 : 10, lineHeight: 1.1 }}>
               Pendientes sin peso: <strong>{output.pendientes_sin_peso}</strong>
+            </Typography>
+          )}
+          {output.pendientes_sin_cantidad_un > 0 && (
+            <Typography variant="caption" color="warning.main" sx={{ fontSize: compact ? 9 : 10, lineHeight: 1.1 }}>
+              Pendientes de cantidad UN: <strong>{output.pendientes_sin_cantidad_un}</strong>
             </Typography>
           )}
         </Stack>
@@ -596,6 +623,7 @@ function CanonicalMetricCell({ output, pieceName, colorName, groupId }) {
   const advance = `${metricValue(output.avance, output)} / ${metricValue(output.meta, output)} ${output.unidad || ''}`.trim();
   const hasKgBreakdown = output.unidad === 'KG'
     && (output.finalizados_kg != null || output.en_proceso_kg != null);
+  const attribution = tvAttributionNotice(output);
   const percentage = output.porcentaje == null ? '-' : `${numberFixed(output.porcentaje, 2)}%`;
   const ariaPercentage = output.porcentaje == null ? '-' : `${number(output.porcentaje, 1)}%`;
   const status = statusLabels[output.estado_avance] || output.estado_avance || 'Estado no disponible';
@@ -624,9 +652,19 @@ function CanonicalMetricCell({ output, pieceName, colorName, groupId }) {
           Finalizados: {kgValue(output.finalizados_kg)} · En proceso: {kgValue(output.en_proceso_kg)}
         </Typography>
       )}
+      {attribution && (
+        <Typography variant="caption" color={attribution.neutral ? 'text.secondary' : 'warning.main'} data-testid="output-attribution-warning" sx={{ display: 'block', fontSize: { xs: 9, md: 10 }, lineHeight: 1.1, overflowWrap: 'anywhere' }}>
+          {attribution.text}{attribution.physical != null && <> Físico observado: <strong>{kgValue(attribution.physical)}</strong>{output.unidad === 'KG' && <>; avance atribuible: <strong>{kgValue(attribution.measured)}</strong></>}.</>}
+        </Typography>
+      )}
       {output.pendientes_sin_peso > 0 && (
         <Typography variant="caption" color="warning.main" sx={{ display: 'block', fontSize: { xs: 9, md: 10 }, lineHeight: 1.1 }}>
           Pendientes sin peso: <strong>{output.pendientes_sin_peso}</strong>
+        </Typography>
+      )}
+      {output.pendientes_sin_cantidad_un > 0 && (
+        <Typography variant="caption" color="warning.main" sx={{ display: 'block', fontSize: { xs: 9, md: 10 }, lineHeight: 1.1 }}>
+          Pendientes de cantidad UN: <strong>{output.pendientes_sin_cantidad_un}</strong>
         </Typography>
       )}
       {output.meta != null && output.porcentaje != null && (

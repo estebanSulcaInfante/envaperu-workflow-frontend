@@ -71,6 +71,86 @@ describe('ControlAvanceOfTv', () => {
     expect(row).toHaveTextContent('36.68%');
   });
 
+  it('advierte la diferencia entre físico y avance atribuible en salida y matriz canónica', async () => {
+    const attributedOutput = {
+      ...outputs[0],
+      corrida_id: 'attribution-run',
+      pieza_id: 31,
+      pieza: 'Pieza KG',
+      pieza_color_id: 'attribution-piece-color',
+      meta: 250,
+      avance: 56.3,
+      porcentaje: 22.52,
+      finalizados_kg: 45.4,
+      en_proceso_kg: 10.9,
+      avance_medido_kg: 56.3,
+      peso_fisico_kg: 67.6,
+      motivos_atribucion: ['ATRIBUCION_INCOMPLETA'],
+      estado_avance: 'INCOMPLETO',
+    };
+
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: [{ ...response.items[0], salidas: [attributedOutput] }],
+    });
+    render(<ControlAvanceOfTv />);
+
+    const legacyWarning = await screen.findByTestId('output-attribution-warning');
+    expect(legacyWarning).toHaveTextContent('Físico observado: 67.60 kg');
+    expect(legacyWarning).toHaveTextContent('avance atribuible: 56.30 kg');
+
+    cleanup();
+    window.innerWidth = 768;
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: [{
+        group_id: 'attribution-canonical',
+        identity: { identity_status: 'COMPLETA', identity_issues: [] },
+        of_id: 'of-attribution', of: 'OF-ATTRIBUTION', estado: 'EN_EJECUCION',
+        ot_id: 'ot-attribution', ot: 'OT-ATTRIBUTION', corrida_id: 'attribution-run',
+        ots: [{ id: 'ot-attribution', codigo: 'OT-ATTRIBUTION' }],
+        molde_id: 'ML-ATTRIBUTION', molde: { codigo: 'ML-ATTRIBUTION', nombre: 'Molde atribución' },
+        molde_visible: true, color_id: 1, color: 'Azul', color_hex: '#123456',
+        salidas: [attributedOutput],
+      }],
+    });
+    render(<ControlAvanceOfTv />);
+
+    expect(await screen.findByTestId('canonical-compact-grid')).toBeInTheDocument();
+    expect(screen.getByTestId('output-attribution-warning')).toHaveTextContent('Físico observado: 67.60 kg');
+    fireEvent.click(screen.getByRole('button', { name: 'Modo TV' }));
+    expect(await screen.findByTestId('output-attribution-warning')).toHaveTextContent('avance atribuible: 56.30 kg');
+  });
+
+  it('usa cantidad UN para el avance y no llama sin peso a una cantidad pendiente', async () => {
+    const unOutput = {
+      ...outputs[1],
+      corrida_id: 'un-quantity-run',
+      pieza_id: 31,
+      pieza: 'Pieza UN',
+      unidad: 'UN',
+      meta: 10,
+      avance: 4,
+      porcentaje: 40,
+      peso_fisico_kg: 2,
+      pendientes_sin_peso: 0,
+      pendientes_sin_cantidad_un: 1,
+      motivos_atribucion: ['KG_SIN_TRAMOS_UN'],
+      estado_avance: 'INCOMPLETO',
+    };
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: [{ ...response.items[0], salidas: [unOutput] }],
+    });
+
+    render(<ControlAvanceOfTv />);
+
+    const row = await screen.findByTestId('output-progress-row');
+    expect(row).toHaveTextContent('Avance4 UN');
+    expect(row).toHaveTextContent('Pendientes de cantidad UN: 1');
+    expect(row).not.toHaveTextContent('Pendientes sin peso');
+  });
+
   it('reserva el desglose en la matriz canónica para varias piezas y pendientes', async () => {
     const canonicalOutputs = [
       {

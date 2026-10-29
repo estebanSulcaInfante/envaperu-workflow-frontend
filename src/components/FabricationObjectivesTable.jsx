@@ -8,6 +8,7 @@ import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import FabricationRecipeSelector from './FabricationRecipeSelector';
 import ProductionColorLabel from './ui/ProductionColorLabel';
 import { projectOrderProgress, runNetMetrics } from './fabricationOrdersModel';
+import { getAttributionNotice } from './productionOrderProgressModel';
 import { formatKg, formatGrams } from '../utils/weightDisplay';
 import WeightInput from './ui/WeightInput';
 import SearchableCatalogAutocomplete from './ui/SearchableCatalogAutocomplete';
@@ -42,6 +43,12 @@ function ProgressCell({ progress, run }) {
   const savedTarget = savedTargetValue != null && savedTargetValue > 0 ? savedTargetValue : null;
   const valid = measuredKg != null && measuredKg >= 0 && savedTarget != null;
   const percentage = valid ? (measuredKg / savedTarget) * 100 : null;
+  const attributionNotice = getAttributionNotice(row, measuredKg);
+  const attributionLine = attributionNotice && (
+    <Typography variant="caption" color={attributionNotice.neutral ? 'text.secondary' : 'warning.main'} data-testid="attribution-warning">
+      {attributionNotice.text}{attributionNotice.physical != null && <> Físico observado: <strong>{formatKg(attributionNotice.physical)}</strong>; avance atribuible: <strong>{formatKg(attributionNotice.measured)}</strong>.</>}
+    </Typography>
+  );
   if (progress.state !== 'ready') {
     return (
       <Stack spacing={0.25}>
@@ -61,6 +68,7 @@ function ProgressCell({ progress, run }) {
             {formatKg(openedKg)} en proceso
           </Typography>
         )}
+        {attributionLine}
       </Stack>
     );
   }
@@ -80,6 +88,7 @@ function ProgressCell({ progress, run }) {
         </>
       )}
       {finalKg != null && openedKg != null && <Typography variant="caption" color="text.secondary">Finalizados: {formatKg(finalKg)} · En proceso: {formatKg(openedKg)}</Typography>}
+      {attributionLine}
     </Stack>
   );
 }

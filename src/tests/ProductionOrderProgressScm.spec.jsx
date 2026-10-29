@@ -64,6 +64,46 @@ describe('estados honestos de avance OF', () => {
     expect(screen.getByText(/En proceso:/)).toHaveTextContent(/1\.10\s*kg/);
   });
 
+  it('separa el físico observado cuando la atribución KG es incompleta', async () => {
+    listarAvanceOfScm.mockResolvedValue({
+      items: [{
+        corrida_id: 'attribution', of: 'OF-ATTRIBUTION', objetivo_neto_kg: 250,
+        kg_finalizados_efectivos: 45.4, kg_medidos_en_abiertas: 10.9,
+        kg_medidos_efectivos: 56.3, peso_fisico_kg: 67.6,
+        motivos_atribucion: ['ATRIBUCION_INCOMPLETA'],
+        coverage: { estado: 'INCOMPLETA', motivos: ['SUBTOTAL_PARCIAL', 'ATRIBUCION_INCOMPLETA'] },
+        mangas: { total: 3, conocidas: 2 },
+      }],
+      visibilidad: { pesaje: true }, as_of: '2026-10-29',
+    });
+    renderView();
+
+    expect(await screen.findByText('OF-ATTRIBUTION')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Expandir OF-ATTRIBUTION' }));
+    const warning = await screen.findByTestId('attribution-warning');
+    expect(warning).toHaveTextContent('Físico observado: 67.60 kg');
+    expect(warning).toHaveTextContent('avance atribuible: 56.30 kg');
+  });
+
+  it('trata una diferencia física sin motivo como información neutral', async () => {
+    listarAvanceOfScm.mockResolvedValue({
+      items: [{
+        corrida_id: 'shared-physical', of: 'OF-SHARED', objetivo_neto_kg: 10,
+        kg_finalizados_efectivos: 4, kg_medidos_efectivos: 4, peso_fisico_kg: 10,
+        motivos_atribucion: [], coverage: { estado: 'COMPLETA', motivos: [] },
+        mangas: { total: 1, conocidas: 1 },
+      }],
+      visibilidad: { pesaje: true }, as_of: '2026-10-29',
+    });
+    renderView();
+
+    expect(await screen.findByText('OF-SHARED')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Expandir OF-SHARED' }));
+    const notice = await screen.findByTestId('attribution-warning');
+    expect(notice).toHaveTextContent('Diferencia informativa');
+    expect(notice).not.toHaveTextContent('Atribución incompleta');
+  });
+
   it('trata ceros sin mangas como sin pesajes y conserva peso real cuando falta la meta', async () => {
     listarAvanceOfScm.mockResolvedValue({
       items: [
