@@ -107,14 +107,14 @@ describe('contrato de documento OF DS02', () => {
     /></ThemeProvider>);
     const redRow = screen.getByRole('row', { name: /Rojo.*C01/ });
     const greenRow = screen.getByRole('row', { name: /Verde.*C02/ });
-    expect(within(redRow).getByText('80.00 / 100.00 kg')).toBeVisible();
-    expect(within(redRow).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '80');
-    expect(within(redRow).getByText('5.00 kg en abiertas')).toBeVisible();
+    expect(within(redRow).getByText('85.00 / 100.00')).toBeVisible();
+    expect(within(redRow).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '85');
+    expect(within(redRow).getByText('Finalizados: 80.00 · En proceso: 5.00')).toBeVisible();
     expect(within(greenRow).getByText('Sin pesajes')).toBeVisible();
     expect(within(greenRow).queryByRole('progressbar')).not.toBeInTheDocument();
     expect(within(greenRow).queryByText('0.00 / 100.00 kg')).not.toBeInTheDocument();
-    expect(screen.getByText(/Avance global: 80\.00 kg finalizados conocidos/)).toBeVisible();
-    expect(screen.queryByText('80.00 / 120.00 kg')).not.toBeInTheDocument();
+    expect(screen.getByText(/Avance global: 85\.00 medido/)).toBeVisible();
+    expect(screen.queryByText('85.00 / 120.00')).not.toBeInTheDocument();
   });
 
   it('mantiene la formulación de una OF liberada en consulta aunque el actor pueda administrar recetas', () => {
