@@ -48,6 +48,29 @@ describe('ControlAvanceOfTv', () => {
     window.innerWidth = initialViewportWidth;
   });
 
+  it('muestra medido con dos decimales y separa finalizados de proceso abierto', async () => {
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: [{
+        ...response.items[0],
+        salidas: [{
+          ...outputs[0], unidad: 'KG', meta: 250, avance: 91.7, pendiente: 158.3,
+          porcentaje: 36.68, finalizados_kg: 90.6, en_proceso_kg: 1.1,
+          avance_medido_kg: 91.7, pendientes_sin_peso: 1, estado_avance: 'INCOMPLETO',
+        }],
+      }],
+    });
+
+    render(<ControlAvanceOfTv />);
+
+    const row = await screen.findByTestId('output-progress-row');
+    expect(row).toHaveTextContent('Avance91.70 KG');
+    expect(row).toHaveTextContent('Meta (kg)250.00 KG');
+    expect(row).toHaveTextContent('Finalizados: 90.60 kg · En proceso: 1.10 kg');
+    expect(row).toHaveTextContent('Pendientes sin peso: 1');
+    expect(row).toHaveTextContent('36.68%');
+  });
+
   it('renders one shared OF-mold board, keeps group ids and multipiece outputs together', async () => {
     listarAvanceOfTvScm.mockResolvedValueOnce({
       as_of: response.as_of,
@@ -120,7 +143,7 @@ describe('ControlAvanceOfTv', () => {
     const note = within(board).getByTestId('over-target-label');
     expect(note).toHaveTextContent('Exceso');
     expect(note.parentElement).toHaveTextContent('Exceso');
-    expect(note.parentElement).toHaveTextContent('120 / 100 KG');
+    expect(note.parentElement).toHaveTextContent('120.00 / 100.00 KG');
     expect(within(board).queryByText('Meta superada · exceso')).not.toBeInTheDocument();
     expect(within(board).getAllByRole('progressbar')[3]).toHaveAttribute(
       'aria-valuetext', '120%; estado Meta superada',
@@ -262,8 +285,8 @@ describe('ControlAvanceOfTv', () => {
 
     const rows = within(orderCard).getAllByTestId('output-progress-row');
     expect(rows[0]).toHaveTextContent('Meta (kg)');
-    expect(rows[0]).toHaveTextContent('4 KG');
-    expect(rows[0]).toHaveTextContent('2 KG');
+    expect(rows[0]).toHaveTextContent('4.00 KG');
+    expect(rows[0]).toHaveTextContent('2.00 KG');
     expect(rows[1]).toHaveTextContent('Meta (un)');
     expect(rows[1]).toHaveTextContent('10 UN');
     expect(rows[1]).toHaveTextContent('5 UN');

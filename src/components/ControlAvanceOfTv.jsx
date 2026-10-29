@@ -52,6 +52,10 @@ const number = (value, fraction = 0) => value == null
   ? '-'
   : new Intl.NumberFormat('es-PE', { maximumFractionDigits: fraction }).format(value);
 
+const numberFixed = (value, fraction = 0) => value == null
+  ? '-'
+  : new Intl.NumberFormat('es-PE', { minimumFractionDigits: fraction, maximumFractionDigits: fraction }).format(value);
+
 function displayColorName(value) {
   const name = String(value || '').trim().replace(/\s+/g, ' ');
   return /^transparente(?:\s+transparente)+$/i.test(name) ? 'Transparente' : (name || 'Color sin nombre');
@@ -76,6 +80,14 @@ function metricLabel(output) {
   }
   if (output.unidad === 'UN') return 'Meta (un)';
   return 'Meta no definida';
+}
+
+function kgValue(value) {
+  return value == null ? '-' : `${numberFixed(value, 2)} kg`;
+}
+
+function metricValue(value, output) {
+  return output?.unidad === 'KG' ? numberFixed(value, 2) : number(value, 0);
 }
 
 function outputIdentity(output) {
@@ -419,6 +431,8 @@ function OutputRow({ output, compact = false, showColor = true }) {
     : ['EN_AVANCE', 'COMPLETADA'].includes(output.estado_avance) ? 'success' : 'default';
   const barValue = output.porcentaje == null ? 0 : Math.max(0, Math.min(output.porcentaje, 100));
   const progressColor = progressTone(output.porcentaje);
+  const hasKgBreakdown = output.unidad === 'KG'
+    && (output.finalizados_kg != null || output.en_proceso_kg != null);
   return (
     <Box
       component="article"
@@ -456,6 +470,16 @@ function OutputRow({ output, compact = false, showColor = true }) {
               Peso neto: <strong>{number(output.peso_fisico_kg, 1)} kg</strong>
             </Typography>
           )}
+          {hasKgBreakdown && (
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: compact ? 9 : 10, lineHeight: 1.1 }}>
+              Finalizados: <strong>{kgValue(output.finalizados_kg)}</strong> · En proceso: <strong>{kgValue(output.en_proceso_kg)}</strong>
+            </Typography>
+          )}
+          {output.pendientes_sin_peso > 0 && (
+            <Typography variant="caption" color="warning.main" sx={{ fontSize: compact ? 9 : 10, lineHeight: 1.1 }}>
+              Pendientes sin peso: <strong>{output.pendientes_sin_peso}</strong>
+            </Typography>
+          )}
         </Stack>
         <Grid container columnSpacing={compact ? 0.5 : 1} rowSpacing={0} sx={{ flex: 1, minWidth: 0, width: compact ? undefined : '100%' }}>
           {compact ? (
@@ -463,13 +487,13 @@ function OutputRow({ output, compact = false, showColor = true }) {
               <Grid size={{ xs: 7, sm: 8 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 10, lineHeight: 1.1 }}>Avance / meta</Typography>
                 <Typography fontWeight={800} sx={{ fontSize: { xs: 16, md: 21 }, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
-                  {number(output.avance, output.unidad === 'KG' ? 1 : 0)} / {number(output.meta, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
+                  {metricValue(output.avance, output)} / {metricValue(output.meta, output)} {output.unidad || ''}
                 </Typography>
               </Grid>
               <Grid size={{ xs: 5, sm: 4 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 10, lineHeight: 1.1 }}>Porcentaje</Typography>
                 <Typography data-testid="output-percent" fontWeight={800} sx={{ fontSize: { xs: 16, md: 21 }, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
-                  {output.porcentaje == null ? '-' : `${number(output.porcentaje, 1)}%`}
+                  {output.porcentaje == null ? '-' : `${numberFixed(output.porcentaje, 2)}%`}
                 </Typography>
               </Grid>
             </>
@@ -478,25 +502,25 @@ function OutputRow({ output, compact = false, showColor = true }) {
               <Grid size={{ xs: 6, sm: 3 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1, overflowWrap: 'anywhere' }}>{metricLabel(output)}</Typography>
                 <Typography fontWeight={800} sx={{ fontSize: 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
-                  {number(output.meta, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
+                  {metricValue(output.meta, output)} {output.unidad || ''}
                 </Typography>
               </Grid>
               <Grid size={{ xs: 6, sm: 3 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1 }}>Avance</Typography>
                 <Typography fontWeight={800} sx={{ fontSize: 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
-                  {number(output.avance, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
+                  {metricValue(output.avance, output)} {output.unidad || ''}
                 </Typography>
               </Grid>
               <Grid size={{ xs: 6, sm: 3 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1 }}>Pendiente</Typography>
                 <Typography fontWeight={800} sx={{ fontSize: 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
-                  {number(output.pendiente, output.unidad === 'KG' ? 1 : 0)} {output.unidad || ''}
+                  {metricValue(output.pendiente, output)} {output.unidad || ''}
                 </Typography>
               </Grid>
               <Grid size={{ xs: 6, sm: 3 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: 11, lineHeight: 1.1 }}>Cumplimiento</Typography>
                 <Typography fontWeight={800} sx={{ fontSize: 19, lineHeight: 1.15, whiteSpace: 'nowrap' }}>
-                  {output.porcentaje == null ? '-' : `${number(output.porcentaje, 1)}%`}
+                  {output.porcentaje == null ? '-' : `${numberFixed(output.porcentaje, 2)}%`}
                 </Typography>
               </Grid>
             </>
@@ -559,8 +583,11 @@ function CanonicalMetricCell({ output, pieceName, colorName, groupId }) {
   const exception = !['EN_AVANCE', 'COMPLETADA'].includes(output.estado_avance);
   const overTarget = ['SOBREPRODUCCION', 'SOBRE_REFERENCIA'].includes(output.estado_avance);
   const progressColor = progressTone(output.porcentaje);
-  const advance = `${number(output.avance, output.unidad === 'KG' ? 1 : 0)} / ${number(output.meta, output.unidad === 'KG' ? 1 : 0)} ${output.unidad || ''}`.trim();
-  const percentage = output.porcentaje == null ? '-' : `${number(output.porcentaje, 1)}%`;
+  const advance = `${metricValue(output.avance, output)} / ${metricValue(output.meta, output)} ${output.unidad || ''}`.trim();
+  const hasKgBreakdown = output.unidad === 'KG'
+    && (output.finalizados_kg != null || output.en_proceso_kg != null);
+  const percentage = output.porcentaje == null ? '-' : `${numberFixed(output.porcentaje, 2)}%`;
+  const ariaPercentage = output.porcentaje == null ? '-' : `${number(output.porcentaje, 1)}%`;
   const status = statusLabels[output.estado_avance] || output.estado_avance || 'Estado no disponible';
   return (
     <Box
@@ -582,13 +609,23 @@ function CanonicalMetricCell({ output, pieceName, colorName, groupId }) {
       <Typography data-testid="output-percent" color="text.secondary" sx={{ display: 'block', fontSize: { xs: 11, md: 12 }, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
         {percentage}
       </Typography>
+      {hasKgBreakdown && (
+        <Typography variant="caption" color="text.secondary" data-testid="output-kg-breakdown" sx={{ display: 'block', fontSize: { xs: 9, md: 10 }, lineHeight: 1.1, whiteSpace: 'nowrap' }}>
+          Finalizados: {kgValue(output.finalizados_kg)} · En proceso: {kgValue(output.en_proceso_kg)}
+        </Typography>
+      )}
+      {output.pendientes_sin_peso > 0 && (
+        <Typography variant="caption" color="warning.main" sx={{ display: 'block', fontSize: { xs: 9, md: 10 }, lineHeight: 1.1 }}>
+          Pendientes sin peso: <strong>{output.pendientes_sin_peso}</strong>
+        </Typography>
+      )}
       {output.meta != null && output.porcentaje != null && (
         <LinearProgress
           variant="determinate"
           value={barValue}
           data-progress-tone={progressColor}
           aria-label={`Cumplimiento ${number(output.porcentaje, 1)} por ciento`}
-          aria-valuetext={`${percentage}; estado ${status}`}
+          aria-valuetext={`${ariaPercentage}; estado ${status}`}
           sx={{ mt: 0.25, height: 3, borderRadius: 4, bgcolor: 'action.disabledBackground', '& .MuiLinearProgress-bar': { bgcolor: `${progressColor}.main` } }}
         />
       )}
