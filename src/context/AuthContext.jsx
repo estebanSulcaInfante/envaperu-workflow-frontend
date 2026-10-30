@@ -26,6 +26,8 @@ const AuthContext = createContext({
   error: '',
   loading: SCM_AUTH_MODE === 'supabase',
   passwordSetupRequired: false,
+  reauthenticationRequired: false,
+  requestReauthentication: () => {},
   session: null,
   signIn: async () => {},
   signOut: async () => {},
@@ -41,6 +43,7 @@ export function AuthProvider({ children }) {
   const [passwordSetupRequired, setPasswordSetupRequired] = useState(
     () => ['invite', 'recovery'].includes(initialLinkType()),
   );
+  const [reauthenticationRequired, setReauthenticationRequired] = useState(false);
 
   useEffect(() => {
     if (SCM_AUTH_MODE !== 'supabase' || INITIAL_AUTH_ERROR) return undefined;
@@ -83,14 +86,34 @@ export function AuthProvider({ children }) {
   const signIn = useCallback(async (email, password) => {
     setError('');
     const supabase = getSupabaseClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    let signInData;
+    let signInError;
+    try {
+      ({ data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      }));
+    } catch {
+      setError('No pudimos iniciar sesión. Inténtalo nuevamente.');
+      return false;
+    }
     if (signInError) {
       setError('Correo o contraseña incorrectos.');
       return false;
     }
+    const returnedSession = signInData?.session;
+    const nextSession = returnedSession?.user || !signInData?.user
+      ? returnedSession
+      : { ...returnedSession, user: signInData.user };
+    if (!nextSession?.access_token || !nextSession?.user) {
+      setError('No pudimos iniciar sesión. Inténtalo nuevamente.');
+      return false;
+    }
+    setSession(nextSession);
+    setPasswordSetupRequired((current) => (
+      current || sessionRequiresPasswordSetup(nextSession)
+    ));
+    setReauthenticationRequired(false);
     return true;
   }, []);
 
@@ -98,6 +121,10 @@ export function AuthProvider({ children }) {
     if (SCM_AUTH_MODE !== 'supabase') return;
     const supabase = getSupabaseClient();
     await supabase.auth.signOut();
+  }, []);
+
+  const requestReauthentication = useCallback(() => {
+    setReauthenticationRequired(true);
   }, []);
 
   const updatePassword = useCallback(async (password) => {
@@ -126,11 +153,16 @@ export function AuthProvider({ children }) {
     error,
     loading,
     passwordSetupRequired,
+    reauthenticationRequired,
+    requestReauthentication,
     session,
     signIn,
     signOut,
     updatePassword,
-  }), [error, loading, passwordSetupRequired, session, signIn, signOut, updatePassword]);
+  }), [
+    error, loading, passwordSetupRequired, reauthenticationRequired,
+    requestReauthentication, session, signIn, signOut, updatePassword,
+  ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

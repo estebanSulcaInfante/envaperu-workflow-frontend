@@ -5,7 +5,7 @@ import SetPasswordPage from './SetPasswordPage';
 
 export default function AuthGate({ children }) {
   const {
-    authMode, loading, passwordSetupRequired, session,
+    authMode, loading, passwordSetupRequired, reauthenticationRequired, session,
   } = useAuth();
 
   if (authMode !== 'supabase') return children;
@@ -16,6 +16,7 @@ export default function AuthGate({ children }) {
       </Box>
     );
   }
+  if (reauthenticationRequired) return <LoginPage />;
   if (!session) return <LoginPage />;
   if (passwordSetupRequired) return <SetPasswordPage />;
   return children;

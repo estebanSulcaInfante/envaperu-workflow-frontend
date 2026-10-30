@@ -1,13 +1,18 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThemeProvider, createTheme } from '@mui/material';
 
-const { requestAccess, useScmActor, useAuth, refreshActors, runtime } = vi.hoisted(() => ({
+const {
+  requestAccess, useScmActor, useAuth, refreshActors, requestReauthentication, runtime,
+} = vi.hoisted(() => ({
   requestAccess: vi.fn(),
   useScmActor: vi.fn(),
   useAuth: vi.fn(),
   refreshActors: vi.fn(),
+  requestReauthentication: vi.fn(),
   runtime: {
     SCM_AUTH_MODE: 'supabase',
     SCM_PERSONAL_AGENT_ENABLED: true,
@@ -32,9 +37,9 @@ import PersonalAgentAccess, {
   validatePersonalAgentExchangeUrl,
 } from './PersonalAgentAccess';
 
-const renderAccess = () => render(
+const renderAccess = (autoStart = true) => render(
   <ThemeProvider theme={createTheme()}>
-    <PersonalAgentAccess />
+    <MemoryRouter><PersonalAgentAccess autoStart={autoStart} /></MemoryRouter>
   </ThemeProvider>,
 );
 
@@ -56,7 +61,10 @@ describe('PersonalAgentAccess', () => {
     runtime.SCM_PERSONAL_AGENT_ENABLED = true;
     runtime.SCM_PERSONAL_AGENT_ORIGIN = 'https://approvedbridge';
     setActor();
-    useAuth.mockReturnValue({ session: { access_token: 'token-A', user: { id: 'person-A' } } });
+    useAuth.mockReturnValue({
+      session: { access_token: 'token-A', user: { id: 'person-A' } },
+      requestReauthentication,
+    });
     refreshActors.mockResolvedValue(undefined);
     requestAccess.mockResolvedValue({
       exchange_url: 'https://approvedbridge/_scm/exchange',
@@ -66,37 +74,33 @@ describe('PersonalAgentAccess', () => {
   });
 
   it('shows only for the production assistant capability', () => {
-    renderAccess();
+    renderAccess(false);
     expect(screen.getByRole('button', { name: 'Mi agente' })).toBeVisible();
     expect(screen.queryByRole('button', { name: /OT|MANGA/i })).not.toBeInTheDocument();
   });
 
   it('hides without a live SCM session despite stale actor permissions', () => {
     useAuth.mockReturnValue({ session: null });
-    renderAccess();
+    renderAccess(false);
     expect(screen.queryByRole('button', { name: 'Mi agente' })).not.toBeInTheDocument();
   });
 
   it('does not hand off an in-flight response after the SCM session changes', async () => {
     let resolveRequest;
     requestAccess.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve; }));
-    const user = userEvent.setup();
     const view = renderAccess();
-    await user.click(screen.getByRole('button', { name: 'Mi agente' }));
+    await waitFor(() => expect(requestAccess).toHaveBeenCalledOnce());
     useAuth.mockReturnValue({ session: null });
-    view.rerender(<ThemeProvider theme={createTheme()}><PersonalAgentAccess /></ThemeProvider>);
+    view.rerender(<ThemeProvider theme={createTheme()}><MemoryRouter><PersonalAgentAccess autoStart /></MemoryRouter></ThemeProvider>);
     resolveRequest({ exchange_url: 'https://approvedbridge/_scm/exchange', assertion: 'stale' });
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Mi agente' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/sesión SCM no está disponible/i)).toBeInTheDocument());
     expect(HTMLFormElement.prototype.submit).not.toHaveBeenCalled();
   });
 
   it('blocks retries and refreshes permissions after access is revoked', async () => {
     requestAccess.mockRejectedValue({ response: { status: 403 } });
-    const user = userEvent.setup();
     renderAccess();
-    await user.click(screen.getByRole('button', { name: 'Mi agente' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Tu permiso');
-    expect(screen.queryByRole('button', { name: 'Mi agente' })).not.toBeInTheDocument();
     expect(refreshActors).toHaveBeenCalledOnce();
   });
 
@@ -112,15 +116,12 @@ describe('PersonalAgentAccess', () => {
       runtime.SCM_PERSONAL_AGENT_ENABLED = overrides.SCM_PERSONAL_AGENT_ENABLED;
     }
     setActor(overrides);
-    renderAccess();
+    renderAccess(false);
     expect(screen.queryByRole('button', { name: 'Mi agente' })).not.toBeInTheDocument();
   });
 
   it('posts through the authenticated API and submits one transient same-tab form', async () => {
-    const user = userEvent.setup();
     renderAccess();
-
-    await user.click(screen.getByRole('button', { name: 'Mi agente' }));
 
     await waitFor(() => expect(requestAccess).toHaveBeenCalledWith(expect.any(AbortSignal)));
     expect(HTMLFormElement.prototype.submit).toHaveBeenCalledOnce();
@@ -134,40 +135,129 @@ describe('PersonalAgentAccess', () => {
   it('does not issue a second request while access is preparing', async () => {
     let resolveRequest;
     requestAccess.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve; }));
-    const user = userEvent.setup();
     renderAccess();
-    const button = screen.getByRole('button', { name: 'Mi agente' });
-
-    await user.click(button);
-    fireEvent.click(button);
+    await waitFor(() => expect(requestAccess).toHaveBeenCalledOnce());
     expect(requestAccess).toHaveBeenCalledOnce();
-    expect(button).toBeDisabled();
+    expect(screen.getByText(/Preparando tu acceso seguro/i)).toBeVisible();
     resolveRequest({ exchange_url: 'https://approvedbridge/_scm/exchange', assertion: 'a' });
   });
 
   it.each([
     [401, 'Tu sesión SCM venció. Vuelve a iniciar sesión.'],
-    [403, 'Tu permiso para usar Mi agente fue retirado. Vuelve a SCM.'],
+    [403, 'Tu permiso para usar Mi agente fue retirado. Reintenta desde SCM.'],
     [500, 'No se pudo preparar el acceso a Mi agente. Reintenta desde SCM.'],
   ])('shows recovery copy for HTTP %s', async (status, message) => {
     requestAccess.mockRejectedValue({ response: { status } });
-    const user = userEvent.setup();
     renderAccess();
-    await user.click(screen.getByRole('button', { name: 'Mi agente' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(message);
     expect(HTMLFormElement.prototype.submit).not.toHaveBeenCalled();
+  });
+
+  it('revalidates the SCM session from the 401 recovery CTA', async () => {
+    requestAccess.mockRejectedValue({ response: { status: 401 } });
+    const user = userEvent.setup();
+    renderAccess();
+    const loginButton = await screen.findByRole('button', { name: 'Volver a iniciar sesión' });
+    await user.click(loginButton);
+    expect(requestReauthentication).toHaveBeenCalledOnce();
+    expect(refreshActors).not.toHaveBeenCalled();
   });
 
   it('aborts and does not hand off when the actor changes mid-request', async () => {
     let resolveRequest;
     requestAccess.mockReturnValue(new Promise((resolve) => { resolveRequest = resolve; }));
-    const user = userEvent.setup();
     renderAccess();
-    await user.click(screen.getByRole('button', { name: 'Mi agente' }));
+    await waitFor(() => expect(requestAccess).toHaveBeenCalledOnce());
     globalThis.dispatchEvent(new CustomEvent('scm-actor-changed', { detail: { actorId: 8 } }));
     resolveRequest({ exchange_url: 'https://approvedbridge/_scm/exchange', assertion: 'a' });
     await waitFor(() => expect(requestAccess).toHaveBeenCalledOnce());
     expect(HTMLFormElement.prototype.submit).not.toHaveBeenCalled();
+  });
+
+  it('starts exactly once when the route is mounted in StrictMode', async () => {
+    render(<ThemeProvider theme={createTheme()}><MemoryRouter><StrictMode><PersonalAgentAccess autoStart /></StrictMode></MemoryRouter></ThemeProvider>);
+    await waitFor(() => expect(requestAccess).toHaveBeenCalledOnce());
+    await waitFor(() => expect(HTMLFormElement.prototype.submit).toHaveBeenCalledOnce());
+    expect(screen.queryByText(/Preparando tu acceso seguro/i)).not.toBeInTheDocument();
+  });
+
+  it('waits for actor readiness before starting the route handoff', async () => {
+    setActor({ loading: true });
+    const view = renderAccess();
+    expect(requestAccess).not.toHaveBeenCalled();
+    setActor({ loading: false });
+    view.rerender(<ThemeProvider theme={createTheme()}><MemoryRouter><PersonalAgentAccess autoStart /></MemoryRouter></ThemeProvider>);
+    await waitFor(() => expect(requestAccess).toHaveBeenCalledOnce());
+  });
+
+  it('shows a clear capability denial without requesting access', () => {
+    setActor({ can: false });
+    renderAccess();
+    expect(screen.getByRole('alert')).toHaveTextContent('No tienes permiso para usar Mi agente. Solicita acceso al administrador de SCM.');
+    expect(requestAccess).not.toHaveBeenCalled();
+  });
+
+  it('offers an explicit retry after a temporary failure', async () => {
+    requestAccess.mockRejectedValueOnce({ response: { status: 503 } }).mockResolvedValueOnce({
+      exchange_url: 'https://approvedbridge/_scm/exchange',
+      assertion: 'retry assertion',
+    });
+    const user = userEvent.setup();
+    renderAccess();
+    expect(await screen.findByRole('button', { name: 'Reintentar' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }));
+    await waitFor(() => expect(requestAccess).toHaveBeenCalledTimes(2));
+    expect(HTMLFormElement.prototype.submit).toHaveBeenCalledOnce();
+  });
+
+  it('restarts once for a new valid session and actor without submitting stale data', async () => {
+    let resolveStaleRequest;
+    requestAccess
+      .mockReturnValueOnce(new Promise((resolve) => { resolveStaleRequest = resolve; }))
+      .mockResolvedValueOnce({
+        exchange_url: 'https://approvedbridge/_scm/exchange',
+        assertion: 'fresh assertion',
+      });
+    const view = renderAccess();
+    await waitFor(() => expect(requestAccess).toHaveBeenCalledOnce());
+    expect(requestAccess.mock.calls[0][0]).toBeInstanceOf(AbortSignal);
+
+    useAuth.mockReturnValue({
+      session: { access_token: 'token-B', user: { id: 'person-B' } },
+      requestReauthentication,
+    });
+    setActor({ actorId: 8 });
+    view.rerender(<ThemeProvider theme={createTheme()}><MemoryRouter><PersonalAgentAccess autoStart /></MemoryRouter></ThemeProvider>);
+    resolveStaleRequest({
+      exchange_url: 'https://approvedbridge/_scm/exchange',
+      assertion: 'stale assertion',
+    });
+
+    await waitFor(() => expect(requestAccess).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(HTMLFormElement.prototype.submit).toHaveBeenCalledOnce());
+    expect(requestAccess.mock.calls[0][0].aborted).toBe(true);
+    expect(HTMLFormElement.prototype.submit.mock.instances[0]
+      .querySelector('input[name="assertion"]').value).toBe('fresh assertion');
+  });
+
+  it('re-enters after a revoked capability is re-granted without a stale block', async () => {
+    requestAccess
+      .mockRejectedValueOnce({ response: { status: 403 } })
+      .mockResolvedValueOnce({
+        exchange_url: 'https://approvedbridge/_scm/exchange',
+        assertion: 're-granted assertion',
+      });
+    const view = renderAccess();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Reintenta desde SCM');
+
+    setActor({ can: false, loading: true });
+    view.rerender(<ThemeProvider theme={createTheme()}><MemoryRouter><PersonalAgentAccess autoStart /></MemoryRouter></ThemeProvider>);
+    expect(screen.getByText(/Verificando tu identidad/i)).toBeVisible();
+
+    setActor({ can: true, loading: false });
+    view.rerender(<ThemeProvider theme={createTheme()}><MemoryRouter><PersonalAgentAccess autoStart /></MemoryRouter></ThemeProvider>);
+    await waitFor(() => expect(requestAccess).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(HTMLFormElement.prototype.submit).toHaveBeenCalledOnce());
   });
 
   it('accepts only the configured bridge origin and exact exchange path', () => {

@@ -57,6 +57,7 @@ import WarehouseKgCustodyScm from './components/WarehouseKgCustodyScm';
 import WarehouseSetupScm from './components/WarehouseSetupScm';
 import PreparedMaterialMachineScanner from './components/PreparedMaterialMachineScanner';
 import ControlAvanceOfTv from './components/ControlAvanceOfTv';
+import PersonalAgentAccess from './components/assistantAgent/PersonalAgentAccess';
 
 const workspace = (featureKey, element) => (
   <WorkspaceFeatureRoute featureKey={featureKey}>{element}</WorkspaceFeatureRoute>
@@ -164,6 +165,7 @@ function App() {
               <Routes>
                 <Route path="/" element={workspace('home.workspace', <RoleHome />)} />
                 <Route path="/guia/scm" element={<ScmGuide />} />
+                <Route path="/mi-agente" element={<PersonalAgentAccess autoStart />} />
                 <Route path="/planificacion" element={workspace('planning.demand', <ProductionPlanningScm />)} />
                 <Route path="/planificacion/:solicitudId" element={workspace('planning.demand', <PlanificacionProduccion />)} />
                 <Route path="/produccion/ordenes" element={workspace('control.legacyOrders', <OrdenesLista />)} />
