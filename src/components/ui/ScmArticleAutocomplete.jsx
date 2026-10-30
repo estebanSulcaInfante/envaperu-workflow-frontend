@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Autocomplete,
   Box,
@@ -53,8 +53,28 @@ function ScmArticleAutocomplete({
   remote = false,
   onSearch,
   searchLoading = false,
+  resetKey,
 }) {
   const [inputValue, setInputValue] = useState('');
+  const [remoteSearchValue, setRemoteSearchValue] = useState(null);
+  const onSearchRef = useRef(onSearch);
+  const resetKeyRef = useRef(resetKey);
+  useEffect(() => {
+    onSearchRef.current = onSearch;
+  }, [onSearch]);
+  useEffect(() => {
+    if (!remote || remoteSearchValue === null) return undefined;
+    const timer = globalThis.setTimeout(() => {
+      onSearchRef.current?.(remoteSearchValue);
+    }, 300);
+    return () => globalThis.clearTimeout(timer);
+  }, [remote, remoteSearchValue]);
+  useEffect(() => {
+    if (resetKeyRef.current === resetKey) return;
+    resetKeyRef.current = resetKey;
+    setInputValue('');
+    setRemoteSearchValue(null);
+  }, [resetKey]);
   const selectedFromValue = useMemo(() => articles.find(
     (article) => String(getOptionValue(article)) === String(value),
   ) || null, [articles, getOptionValue, value]);
@@ -79,7 +99,11 @@ function ScmArticleAutocomplete({
       inputValue={inputValue}
       onInputChange={(_, nextValue, reason) => {
         setInputValue(nextValue);
-        if (remote && reason !== 'reset') onSearch?.(nextValue);
+        if (remote) {
+          setRemoteSearchValue(
+            reason === 'input' || reason === 'clear' ? nextValue : null,
+          );
+        }
       }}
       getOptionLabel={(article) => `${article.codigo} · ${article.nombre}`}
       isOptionEqualToValue={(option, selected) => (

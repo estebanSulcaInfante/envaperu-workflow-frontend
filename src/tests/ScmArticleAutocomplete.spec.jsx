@@ -62,4 +62,124 @@ describe('ScmArticleAutocomplete', () => {
     expect(await screen.findByRole('option', { name: /WIP-000001.*Jarra con asa prearmada.*WIP/ })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /PT-000001/ })).not.toBeInTheDocument();
   });
+
+  it('debouncea la búsqueda remota desde la última pulsación', async () => {
+    const onSearch = vi.fn();
+    const user = userEvent.setup({ delay: 10 });
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <ScmArticleAutocomplete
+          label="Artículo remoto"
+          articles={articles}
+          value=""
+          remote
+          onSearch={onSearch}
+        />
+      </ThemeProvider>,
+    );
+    const search = screen.getByRole('combobox', { name: 'Artículo remoto' });
+    await user.type(search, 'CANDY');
+    expect(onSearch).not.toHaveBeenCalled();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 100));
+    expect(onSearch).not.toHaveBeenCalled();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 250));
+    expect(onSearch).toHaveBeenCalledTimes(1);
+    expect(onSearch).toHaveBeenLastCalledWith('CANDY');
+  });
+
+  it('cancela la búsqueda remota pendiente al limpiar', async () => {
+    const onSearch = vi.fn();
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <ScmArticleAutocomplete
+          label="Artículo remoto"
+          articles={articles}
+          value=""
+          remote
+          onSearch={onSearch}
+        />
+      </ThemeProvider>,
+    );
+    const search = screen.getByRole('combobox', { name: 'Artículo remoto' });
+    const user = userEvent.setup();
+    await user.type(search, 'CANDY');
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 100));
+    await user.clear(search);
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 320));
+    expect(onSearch).toHaveBeenCalledTimes(1);
+    expect(onSearch).toHaveBeenLastCalledWith('');
+  });
+
+  it('cancela la búsqueda pendiente al cambiar el ámbito del selector', async () => {
+    const onSearch = vi.fn();
+    const user = userEvent.setup();
+    const view = render(
+      <ThemeProvider theme={createTheme()}>
+        <ScmArticleAutocomplete
+          label="Artículo remoto"
+          articles={articles}
+          value=""
+          remote
+          resetKey="actor-1:tab-1"
+          onSearch={onSearch}
+        />
+      </ThemeProvider>,
+    );
+    const search = screen.getByRole('combobox', { name: 'Artículo remoto' });
+    await user.type(search, 'CANDY');
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 100));
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <ScmArticleAutocomplete
+          label="Artículo remoto"
+          articles={articles}
+          value=""
+          remote
+          resetKey="actor-2:tab-3"
+          onSearch={onSearch}
+        />
+      </ThemeProvider>,
+    );
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 320));
+    expect(onSearch).not.toHaveBeenCalled();
+  });
+
+  it('cancela la búsqueda pendiente al seleccionar o desmontar', async () => {
+    const onSearch = vi.fn();
+    const user = userEvent.setup();
+    const view = render(
+      <ThemeProvider theme={createTheme()}>
+        <ScmArticleAutocomplete
+          label="Artículo remoto"
+          articles={articles}
+          value=""
+          remote
+          onSearch={onSearch}
+          onChange={vi.fn()}
+        />
+      </ThemeProvider>,
+    );
+    const search = screen.getByRole('combobox', { name: 'Artículo remoto' });
+    await user.type(search, 'WIP');
+    await user.click(await screen.findByRole('option', { name: /WIP-000001/ }));
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 320));
+    expect(onSearch).not.toHaveBeenCalled();
+
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <ScmArticleAutocomplete
+          label="Artículo remoto"
+          articles={articles}
+          value=""
+          remote
+          onSearch={onSearch}
+        />
+      </ThemeProvider>,
+    );
+    const secondSearch = screen.getByRole('combobox', { name: 'Artículo remoto' });
+    await user.type(secondSearch, 'CANDY');
+    view.unmount();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 320));
+    expect(onSearch).not.toHaveBeenCalled();
+  });
 });

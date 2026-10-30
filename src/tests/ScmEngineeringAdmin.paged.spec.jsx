@@ -1,4 +1,4 @@
-import { render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react';
+import { act, render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider, createTheme } from '@mui/material';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -125,6 +125,40 @@ describe('Ingeniería SCM paginada y acotada', () => {
     expect(state.approvals).not.toHaveBeenCalled();
     expect(screen.getByRole('tab', { name: 'Aprobaciones' })).toBeVisible();
     expect(screen.queryByRole('tab', { name: 'Aprobaciones (0)' })).not.toBeInTheDocument();
+  });
+
+  it('B-UI-01 debouncea la búsqueda principal desde la última pulsación', async () => {
+    renderPage();
+    const search = await screen.findByRole('textbox', { name: 'Buscar por código, nombre o clase' });
+    state.articlePage.mockClear();
+    const user = userEvent.setup({ delay: 10 });
+    await user.type(search, 'CANDY');
+    expect(state.articlePage).not.toHaveBeenCalled();
+    await act(async () => new Promise((resolve) => globalThis.setTimeout(resolve, 100)));
+    expect(state.articlePage).not.toHaveBeenCalled();
+    await act(async () => new Promise((resolve) => globalThis.setTimeout(resolve, 250)));
+    await waitFor(() => expect(state.articlePage).toHaveBeenCalledTimes(1));
+    expect(state.articlePage.mock.calls[0][1]).toEqual(expect.objectContaining({ q: 'CANDY' }));
+  });
+
+  it('B-CAP-01 cancela selector remoto al cambiar capacidades con el selector montado', async () => {
+    const user = userEvent.setup();
+    const view = renderPage();
+    await user.click(await screen.findByRole('tab', { name: 'Estructuras BOM' }));
+    const search = await screen.findByRole('combobox', { name: 'Artículo resultado' });
+    state.articlePage.mockClear();
+    await user.type(search, 'CANDY');
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 100));
+
+    state.capabilities = new Set(['ARTICULO_VER', 'ESTRUCTURA_VER']);
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <ScmEngineeringAdmin />
+      </ThemeProvider>,
+    );
+    expect(screen.getByRole('combobox', { name: 'Artículo resultado' })).toBeInTheDocument();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 320));
+    expect(state.articlePage.mock.calls.filter((call) => call[1]?.q === 'CANDY')).toHaveLength(0);
   });
 
   it('B-UI-01 muestra espera explícita mientras Artículos está pendiente', async () => {

@@ -238,6 +238,12 @@ function ScmEngineeringAdmin() {
     empaque: 3,
     aprobaciones: 4,
   }[new URLSearchParams(globalThis.location?.search || '').get('tab')] || 0));
+  const articleSearchScope = [
+    actorId,
+    tab,
+    capabilityFingerprint,
+    readCapabilityFingerprint,
+  ].join(':');
   const [loading, setLoading] = useState(true);
   const [loadedActorId, setLoadedActorId] = useState(null);
   const initializedActor = useRef(false);
@@ -809,10 +815,21 @@ function ScmEngineeringAdmin() {
   }, [assignmentSearch]);
 
   useEffect(() => {
-    setArticleQuery(search.trim());
-    setArticlePageIndex(0);
-    setArticleCursors({ 0: null });
-  }, [search]);
+    if (tab !== 0) return undefined;
+    const normalizedSearch = search.trim();
+    if (!normalizedSearch) {
+      setArticleQuery((current) => (current === '' ? current : ''));
+      setArticlePageIndex(0);
+      setArticleCursors({ 0: null });
+      return undefined;
+    }
+    const timer = globalThis.setTimeout(() => {
+      setArticleQuery(normalizedSearch);
+      setArticlePageIndex(0);
+      setArticleCursors({ 0: null });
+    }, 300);
+    return () => globalThis.clearTimeout(timer);
+  }, [actorId, capabilityFingerprint, search, tab]);
 
   useEffect(() => {
     if (tab !== 3 || !canReadPackaging || !canReadArticles || loading || loadedActorId !== actorId) {
@@ -1407,7 +1424,13 @@ function ScmEngineeringAdmin() {
       <Paper variant="outlined">
         <Tabs
           value={tab}
-          onChange={(_, value) => setTab(value)}
+          onChange={(_, value) => {
+            setSearch('');
+            setArticleQuery('');
+            setArticlePageIndex(0);
+            setArticleCursors({ 0: null });
+            setTab(value);
+          }}
           variant="scrollable"
           scrollButtons="auto"
           aria-label="Maestros de ingeniería SCM"
@@ -1582,6 +1605,7 @@ function ScmEngineeringAdmin() {
                     label="Artículo resultado"
                     articles={structureResultArticles}
                     value={selectedArticleId}
+                    resetKey={articleSearchScope}
                     remote
                     searchLoading={articlePageLoading}
                     onSearch={(value) => {
@@ -1797,6 +1821,7 @@ function ScmEngineeringAdmin() {
                     label="Artículo objetivo"
                     articles={routeTargetArticles}
                     value={selectedRouteArticleId}
+                    resetKey={articleSearchScope}
                     remote
                     searchLoading={articlePageLoading}
                     onSearch={(value) => {
@@ -2055,6 +2080,7 @@ function ScmEngineeringAdmin() {
                     label="Artículo empacable"
                     articles={packagingArticles}
                     value={packagingArticleId}
+                    resetKey={articleSearchScope}
                     remote
                     searchLoading={articlePageLoading}
                     onSearch={(value) => {
