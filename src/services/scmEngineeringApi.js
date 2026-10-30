@@ -25,12 +25,19 @@ export const guardarActorScm = (actorId) => {
   return parsed;
 };
 
-const config = (idempotent = false) => ({
+const configForActor = (actorId, idempotent = false, signal) => ({
   headers: {
-    'X-Actor-Id': String(obtenerActorScm()),
+    'X-Actor-Id': String(actorId ?? obtenerActorScm()),
     ...(idempotent ? { 'Idempotency-Key': crypto.randomUUID() } : {}),
   },
+  ...(signal ? { signal } : {}),
 });
+
+const config = (idempotent = false, signal) => configForActor(
+  undefined,
+  idempotent,
+  signal,
+);
 
 const items = async (request) => (await request()).data?.items || [];
 const data = async (request) => (await request()).data;
@@ -53,8 +60,8 @@ export const actualizarArticuloWipScm = (articleId, payload) => data(
   () => api.patch(`/scm/v1/articulos/wip/${articleId}`, payload, config()),
 );
 
-export const listarEstructurasScm = (articleId) => items(
-  () => api.get(`/scm/v1/articulos/${articleId}/estructuras`, config()),
+export const listarEstructurasScm = (articleId, actorId, signal) => items(
+  () => api.get(`/scm/v1/articulos/${articleId}/estructuras`, configForActor(actorId, false, signal)),
 );
 export const crearEstructuraScm = (articleId, payload) => data(
   () => api.post(`/scm/v1/articulos/${articleId}/estructuras`, payload, config()),
@@ -105,8 +112,8 @@ export const retirarEstructuraScm = (revision) => data(
   ),
 );
 
-export const listarCentrosTrabajoScm = () => items(
-  () => api.get('/scm/v1/centros-trabajo', config()),
+export const listarCentrosTrabajoScm = (actorId, signal) => items(
+  () => api.get('/scm/v1/centros-trabajo', configForActor(actorId, false, signal)),
 );
 export const crearCentroTrabajoScm = (payload) => data(
   () => api.post('/scm/v1/centros-trabajo', payload, config()),
@@ -125,8 +132,8 @@ export const crearRutaScm = (productId, payload) => data(
     config(),
   ),
 );
-export const listarRutasArticuloScm = (articleId) => items(
-  () => api.get(`/scm/v1/articulos/${encodeURIComponent(articleId)}/rutas`, config()),
+export const listarRutasArticuloScm = (articleId, actorId, signal) => items(
+  () => api.get(`/scm/v1/articulos/${encodeURIComponent(articleId)}/rutas`, configForActor(actorId, false, signal)),
 );
 export const crearRutaArticuloScm = (articleId, payload) => data(
   () => api.post(
@@ -160,8 +167,8 @@ export const retirarRutaScm = (revision) => data(
   ),
 );
 
-export const listarTiposContenedorScm = () => items(
-  () => api.get('/scm/v1/tipos-contenedor', config()),
+export const listarTiposContenedorScm = (actorId, signal) => items(
+  () => api.get('/scm/v1/tipos-contenedor', configForActor(actorId, false, signal)),
 );
 export const crearTipoContenedorScm = (payload) => data(
   () => api.post('/scm/v1/tipos-contenedor', payload, config()),
@@ -170,8 +177,8 @@ export const actualizarTipoContenedorScm = (containerId, payload) => data(
   () => api.put(`/scm/v1/tipos-contenedor/${containerId}`, payload, config()),
 );
 
-export const listarPerfilesEmpacablesScm = () => items(
-  () => api.get('/scm/v1/perfiles-empacables', config()),
+export const listarPerfilesEmpacablesScm = (actorId, signal) => items(
+  () => api.get('/scm/v1/perfiles-empacables', configForActor(actorId, false, signal)),
 );
 export const crearPerfilEmpacableScm = (payload) => data(
   () => api.post('/scm/v1/perfiles-empacables', payload, config()),
@@ -218,4 +225,59 @@ export const publicarReglaEmpaqueScm = (revision) => data(
 );
 export const calcularEmpaqueScm = (payload) => data(
   () => api.post('/scm/v1/reglas-empaque/calcular', payload, config()),
+);
+
+// Lectores paginados aditivos. A diferencia de los wrappers legacy, estos
+// reciben siempre el actor de la vista y el AbortSignal de la solicitud para
+// que un cambio de actor no pueda reutilizar cabecera ni datos tardíos.
+const pageParams = ({ limit, limite, cursor, q, ...rest } = {}) => ({
+  ...Object.fromEntries(Object.entries(rest).map(([key, value]) => [
+    key,
+    Array.isArray(value) ? value.join(',') : value,
+  ])),
+  ...(q ? { q } : {}),
+  ...(limit || limite ? { limite: limit || limite } : {}),
+  ...(cursor ? { cursor } : {}),
+});
+
+export const listarArticulosPaginaScm = (actorId, params = {}, signal) => data(
+  () => api.get('/scm/v1/articulos/pagina', {
+    ...configForActor(actorId, false, signal),
+    params: pageParams(params),
+  }),
+);
+
+export const resolverArticulosScm = (actorId, ids, signal) => data(
+  () => api.get('/scm/v1/articulos/resolver', {
+    ...configForActor(actorId, false, signal),
+    params: { ids: Array.isArray(ids) ? ids.join(',') : ids },
+  }),
+);
+
+export const hidratarEstructurasScm = (actorId, { articuloIds, revisionIds, articulo_ids, revision_ids } = {}, signal) => data(
+  () => api.get('/scm/v1/estructuras/hidratacion', {
+    ...configForActor(actorId, false, signal),
+    params: {
+      ...(articuloIds || articulo_ids ? { articulo_ids: (articuloIds || articulo_ids).join?.(',') || articuloIds || articulo_ids } : {}),
+      ...(revisionIds || revision_ids ? { revision_ids: (revisionIds || revision_ids).join?.(',') || revisionIds || revision_ids } : {}),
+    },
+  }),
+);
+
+export const listarAprobacionesIngenieriaScm = (actorId, params = {}, signal) => data(
+  () => api.get('/scm/v1/ingenieria/aprobaciones', {
+    ...configForActor(actorId, false, signal),
+    params: pageParams(params),
+  }),
+);
+
+export const listarReglasEmpaquePaginaScm = (actorId, params = {}, signal) => data(
+  () => api.get('/scm/v1/reglas-empaque/pagina', {
+    ...configForActor(actorId, false, signal),
+    params: pageParams(params),
+  }),
+);
+
+export const obtenerReglaEmpaqueScm = (revisionId, actorId, signal) => data(
+  () => api.get(`/scm/v1/reglas-empaque/${revisionId}`, configForActor(actorId, false, signal)),
 );

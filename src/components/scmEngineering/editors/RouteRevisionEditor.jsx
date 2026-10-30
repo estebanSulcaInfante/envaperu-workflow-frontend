@@ -159,6 +159,13 @@ function RouteRevisionEditor({
           item.estado === 'APROBADA'
           && Number(item.articulo_resultado_id) === Number(outputArticle?.id)
         ));
+        const referencedStructure = structures.find((item) => (
+          Number(item.id) === Number(operation.estructura_revision_id)
+        ));
+        const structureOptions = referencedStructure
+          && !compatibleStructures.some((item) => Number(item.id) === Number(referencedStructure.id))
+          ? [...compatibleStructures, referencedStructure]
+          : compatibleStructures;
         const terminalPieceColor = terminal && targetArticle?.clase === 'PIEZA_COLOR';
         const operationTypes = terminalPieceColor
           ? ['INYECCION', 'SOPLADO']
@@ -410,9 +417,15 @@ function RouteRevisionEditor({
                         estructura_revision_id: event.target.value,
                       })}
                     >
-                      {compatibleStructures.map((item) => (
-                        <MenuItem key={item.id} value={String(item.id)}>
-                          {item.articulo_resultado?.codigo} · rev. {item.numero_revision}
+                      {structureOptions.map((item) => (
+                        <MenuItem
+                          key={item.id}
+                          value={String(item.id)}
+                          disabled={item.estado !== 'APROBADA'}
+                        >
+                          {item.articulo_resultado?.codigo || outputArticle?.codigo}
+                          {' · rev. '}{item.numero_revision}
+                          {item.estado !== 'APROBADA' ? ` · ${item.estado}` : ''}
                         </MenuItem>
                       ))}
                     </Select>
@@ -421,7 +434,7 @@ function RouteRevisionEditor({
               </Stack>
               {!terminalPieceColor && operation.executor_kind === 'ORDEN_OPERACION'
                 && outputArticle
-                && compatibleStructures.length === 0 && (
+                && structureOptions.length === 0 && (
                 <Alert
                   severity="warning"
                   action={(onRefreshStructures || onNavigateStructure) ? (

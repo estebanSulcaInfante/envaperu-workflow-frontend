@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Autocomplete,
   Box,
@@ -50,20 +50,37 @@ function ScmArticleAutocomplete({
   disabled = false,
   required = false,
   size = 'small',
+  remote = false,
+  onSearch,
+  searchLoading = false,
 }) {
-  const selectedArticle = useMemo(() => articles.find(
+  const [inputValue, setInputValue] = useState('');
+  const selectedFromValue = useMemo(() => articles.find(
     (article) => String(getOptionValue(article)) === String(value),
   ) || null, [articles, getOptionValue, value]);
+  const options = useMemo(() => {
+    if (!selectedFromValue || articles.some((article) => String(getOptionValue(article)) === String(value))) {
+      return articles;
+    }
+    return [selectedFromValue, ...articles];
+  }, [articles, getOptionValue, selectedFromValue, value]);
+  const selectedArticle = selectedFromValue;
 
   return (
     <Autocomplete
       fullWidth
       openOnFocus
       autoHighlight
-      options={articles}
+      options={options}
       value={selectedArticle}
       disabled={disabled}
-      filterOptions={filterArticles}
+      loading={remote ? searchLoading : false}
+      filterOptions={remote ? (available) => available : filterArticles}
+      inputValue={inputValue}
+      onInputChange={(_, nextValue, reason) => {
+        setInputValue(nextValue);
+        if (remote && reason !== 'reset') onSearch?.(nextValue);
+      }}
       getOptionLabel={(article) => `${article.codigo} · ${article.nombre}`}
       isOptionEqualToValue={(option, selected) => (
         String(getOptionValue(option)) === String(getOptionValue(selected))
@@ -72,7 +89,7 @@ function ScmArticleAutocomplete({
         article ? String(getOptionValue(article)) : '',
         article,
       )}
-      noOptionsText="No hay artículos que coincidan con la búsqueda."
+      noOptionsText={searchLoading ? 'Buscando artículos…' : 'No hay artículos que coincidan con la búsqueda.'}
       renderOption={(props, article) => {
         const { key, ...optionProps } = props;
         return (

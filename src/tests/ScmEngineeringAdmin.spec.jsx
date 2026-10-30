@@ -48,15 +48,20 @@ vi.mock('../services/scmEngineeringApi', () => ({
   descartarEstructuraScm: vi.fn(),
   enviarEstructuraScm: vi.fn(),
   listarArticulosScm: vi.fn(),
+  listarArticulosPaginaScm: vi.fn(),
   listarAsignacionesEmpaqueScm: vi.fn(),
   listarCentrosTrabajoScm: vi.fn(),
   listarEstructurasScm: vi.fn(),
+  listarAprobacionesIngenieriaScm: vi.fn(),
   listarPerfilesEmpacablesScm: vi.fn(),
   listarReglasEmpaqueScm: vi.fn(),
+  listarReglasEmpaquePaginaScm: vi.fn(),
   listarRutasArticuloScm: vi.fn(),
   listarRutasScm: vi.fn(),
   listarTiposContenedorScm: vi.fn(),
   mensajeErrorScm: vi.fn((error, fallback) => error?.message || fallback),
+  hidratarEstructurasScm: vi.fn(),
+  obtenerReglaEmpaqueScm: vi.fn(),
   obtenerPerfilesArticuloScm: vi.fn(),
   publicarEstructuraScm: vi.fn(),
   publicarReglaEmpaqueScm: vi.fn(),
@@ -64,6 +69,7 @@ vi.mock('../services/scmEngineeringApi', () => ({
   rechazarEstructuraScm: vi.fn(),
   retirarEstructuraScm: vi.fn(),
   retirarRutaScm: vi.fn(),
+  resolverArticulosScm: vi.fn(),
 }));
 
 import {
@@ -76,20 +82,26 @@ import {
   crearRutaArticuloScm,
   descartarEstructuraScm,
   listarArticulosScm,
+  listarArticulosPaginaScm,
   listarAsignacionesEmpaqueScm,
+  listarAprobacionesIngenieriaScm,
   listarCentrosTrabajoScm,
   listarEstructurasScm,
   listarPerfilesEmpacablesScm,
   listarReglasEmpaqueScm,
+  listarReglasEmpaquePaginaScm,
   listarRutasArticuloScm,
   listarRutasScm,
   listarTiposContenedorScm,
+  hidratarEstructurasScm,
+  obtenerReglaEmpaqueScm,
   obtenerPerfilesArticuloScm,
   publicarEstructuraScm,
   publicarReglaEmpaqueScm,
   publicarRutaScm,
   rechazarEstructuraScm,
   retirarEstructuraScm,
+  resolverArticulosScm,
 } from '../services/scmEngineeringApi';
 
 const articles = [
@@ -141,13 +153,40 @@ describe('Ingeniería SCM R-core', () => {
     window.history.replaceState({}, '', '/?producto=PT-000001');
     actorState.id = 1;
     listarArticulosScm.mockResolvedValue(articles);
+    listarArticulosPaginaScm.mockImplementation(() => listarArticulosScm().then((items) => ({ items, total: items.length, has_more: false, next_cursor: null })));
+    listarAprobacionesIngenieriaScm.mockImplementation((actor, { dominio } = {}) => {
+      const source = dominio === 'ESTRUCTURA'
+        ? Promise.all(articles.map((item) => listarEstructurasScm(item.id))).then((rows) => rows.flat())
+        : dominio === 'RUTA'
+          ? Promise.all(articles.map((item) => listarRutasArticuloScm(item.id))).then((rows) => rows.flat())
+          : listarReglasEmpaqueScm();
+      return Promise.resolve(source).then((items) => ({
+        scope: {}, items: Array.isArray(items) ? items : [], total: Array.isArray(items) ? items.length : 0,
+        has_more: false, next_cursor: null,
+      }));
+    });
     listarAsignacionesEmpaqueScm.mockResolvedValue({ items: [], total: 0, has_more: false, next_cursor: null });
     listarCentrosTrabajoScm.mockResolvedValue([]);
     listarTiposContenedorScm.mockResolvedValue([]);
     listarPerfilesEmpacablesScm.mockResolvedValue([]);
     listarReglasEmpaqueScm.mockResolvedValue([]);
+    listarReglasEmpaquePaginaScm.mockImplementation(() => listarReglasEmpaqueScm().then((items) => ({ items, total: items.length, has_more: false, next_cursor: null })));
     obtenerPerfilesArticuloScm.mockResolvedValue({ perfiles: [] });
     listarEstructurasScm.mockResolvedValue([]);
+    hidratarEstructurasScm.mockImplementation((actor, { articuloIds = [] } = {}) => (
+      Promise.resolve(listarEstructurasScm(Number(articuloIds[0] || 0))).then((items) => ({
+        approved: Array.isArray(items) ? items.filter((item) => item.estado === 'APROBADA') : [],
+        referenced: Array.isArray(items) ? items : [],
+        missing_ids: [],
+      }))
+    ));
+    obtenerReglaEmpaqueScm.mockImplementation(() => listarReglasEmpaqueScm().then((items) => (items[0] || {})));
+    resolverArticulosScm.mockImplementation((actor, ids = []) => (
+      listarArticulosScm().then((items) => ({
+        items: (Array.isArray(items) ? items : []).filter((item) => ids.map(Number).includes(Number(item.id))),
+        missing_ids: ids.filter((id) => !(Array.isArray(items) ? items : []).some((item) => Number(item.id) === Number(id))),
+      }))
+    ));
     listarRutasArticuloScm.mockResolvedValue([]);
     listarRutasScm.mockResolvedValue([]);
     crearArticuloWipScm.mockResolvedValue({
@@ -190,7 +229,7 @@ describe('Ingeniería SCM R-core', () => {
     await user.click(screen.getByRole('tab', { name: 'Empaque' }));
     await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
     expect(listarAsignacionesEmpaqueScm).toHaveBeenCalledTimes(2);
-    expect(listarArticulosScm).toHaveBeenCalledTimes(1);
+    expect(listarArticulosPaginaScm).toHaveBeenCalled();
     expect(obtenerPerfilesArticuloScm).not.toHaveBeenCalled();
   });
 
@@ -247,11 +286,11 @@ describe('Ingeniería SCM R-core', () => {
     const table = await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
     expect(within(table).getByText('PT-000001')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Anterior página de asignaciones' })).toBeDisabled();
-    expect(listarArticulosScm).toHaveBeenCalledTimes(1);
+    expect(listarArticulosPaginaScm).toHaveBeenCalled();
     expect(obtenerPerfilesArticuloScm).not.toHaveBeenCalled();
   });
 
-  it('resuelve el perfil de un enlace fuera de la pagina con una sola lectura legacy', async () => {
+  it('resuelve el perfil de un enlace fuera de la pagina con cache del actor', async () => {
     window.history.replaceState({}, '', '/datos-maestros/ingenieria-scm?tab=empaque&articulo=4');
     const profile = { id: 8, codigo: 'PEM-8', nombre: 'Perfil fuera de pagina', activo: true };
     listarPerfilesEmpacablesScm.mockResolvedValue([profile]);
@@ -304,8 +343,8 @@ describe('Ingeniería SCM R-core', () => {
     actorState.id = 2;
     view.rerender(<ThemeProvider theme={createTheme()}><ScmEngineeringAdmin /></ThemeProvider>);
     await screen.findByRole('table', { name: 'Asignaciones actuales de perfiles empacables' });
-    expect(obtenerPerfilesArticuloScm).toHaveBeenCalledTimes(2);
-    await waitFor(() => expect(screen.getAllByRole('combobox')[1]).toHaveTextContent('Perfil exacto'));
+    expect(obtenerPerfilesArticuloScm).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByRole('combobox')[1]).not.toHaveTextContent('Perfil exacto');
   });
   it.each(['catalogo', 'estructuras'])('no mezcla maestros de actores con respuesta tardia en %s', async (phase) => {
     const oldArticle = { ...articles[1], id: 91, codigo: 'WIP-ANTERIOR', nombre: 'WIP actor anterior' };
@@ -320,7 +359,7 @@ describe('Ingeniería SCM R-core', () => {
     const user = userEvent.setup();
     const view = renderPage();
     await waitFor(() => expect(listarArticulosScm).toHaveBeenCalledTimes(1));
-    if (phase === 'estructuras') await waitFor(() => expect(listarEstructurasScm).toHaveBeenCalledWith(91));
+    if (phase === 'estructuras') expect(listarEstructurasScm).not.toHaveBeenCalledWith(91);
     actorState.id = 2;
     view.rerender(<ThemeProvider theme={createTheme()}><ScmEngineeringAdmin /></ThemeProvider>);
     expect(await screen.findByText('WIP-ACTUAL')).toBeVisible();
@@ -330,10 +369,10 @@ describe('Ingeniería SCM R-core', () => {
     await user.click(screen.getByRole('tab', { name: 'Rutas' }));
     expect(await screen.findByText(/Centro actor 2/)).toBeVisible();
     expect(screen.queryByText(/Centro actor 1/)).not.toBeInTheDocument();
-    expect(listarCentrosTrabajoScm).toHaveBeenCalledTimes(2);
-    expect(listarTiposContenedorScm).toHaveBeenCalledTimes(2);
-    expect(listarPerfilesEmpacablesScm).toHaveBeenCalledTimes(2);
-    expect(listarReglasEmpaqueScm).toHaveBeenCalledTimes(2);
+    expect(listarCentrosTrabajoScm).toHaveBeenCalledTimes(1);
+    expect(listarTiposContenedorScm).not.toHaveBeenCalled();
+    expect(listarPerfilesEmpacablesScm).not.toHaveBeenCalled();
+    expect(listarReglasEmpaqueScm).not.toHaveBeenCalled();
     if (phase === 'catalogo') expect(listarEstructurasScm).not.toHaveBeenCalledWith(91);
   });
   it('descarta la seleccion de empaque al cambiar de actor sin enlace directo', async () => {
@@ -423,8 +462,13 @@ describe('Ingeniería SCM R-core', () => {
     expect(screen.getByRole('tab', { name: 'Empaque' })).toBeVisible();
     expect(screen.getByRole('tab', { name: /Aprobaciones/ })).toBeVisible();
     expect(screen.getByText('WIP-000001')).toBeVisible();
-    expect(listarEstructurasScm).toHaveBeenCalledTimes(4);
-    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(3));
+    expect(listarArticulosPaginaScm).toHaveBeenCalled();
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Rutas' }));
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(
+      3,
+      1,
+      expect.any(AbortSignal),
+    ));
     expect(listarRutasArticuloScm).toHaveBeenCalledTimes(1);
     expect(listarRutasScm).not.toHaveBeenCalled();
   });
@@ -466,9 +510,7 @@ describe('Ingeniería SCM R-core', () => {
       descripcion: 'Balde con asa',
       requiere_calidad: false,
     }));
-    await waitForElementToBeRemoved(
-      () => screen.queryByRole('dialog', { name: 'Editar WIP' }),
-    );
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Editar WIP' })).not.toBeInTheDocument());
 
     await user.click(screen.getByRole('button', { name: 'Inactivar WIP Balde prearmado' }));
     await waitFor(() => expect(actualizarArticuloWipScm).toHaveBeenCalledWith(2, {
@@ -627,7 +669,7 @@ describe('Ingeniería SCM R-core', () => {
     await waitFor(() => expect(
       screen.getByRole('combobox', { name: 'Artículo objetivo' }).value,
     ).toMatch(/WIP-000001.*Balde prearmado/));
-    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(2));
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(2, 1, expect.any(AbortSignal)));
     expect(listarRutasArticuloScm).toHaveBeenCalledTimes(1);
     expect(listarRutasScm).not.toHaveBeenCalled();
 
@@ -676,7 +718,7 @@ describe('Ingeniería SCM R-core', () => {
     await waitFor(() => expect(
       screen.getByRole('combobox', { name: 'Artículo objetivo' }).value,
     ).toMatch(/PC-000001.*Asa azul/));
-    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(1));
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(1, 1, expect.any(AbortSignal)));
 
     await user.click(screen.getByRole('button', { name: 'Nueva ruta' }));
     const dialog = screen.getByRole('dialog', { name: /Nueva ruta.*PC-000001/i });
@@ -800,7 +842,7 @@ describe('Ingeniería SCM R-core', () => {
       /No existe una BOM aprobada cuyo resultado sea PT-000001/i,
     )).toBeVisible();
     await user.click(within(dialog).getByRole('button', { name: 'Ir a Estructuras BOM' }));
-    await waitForElementToBeRemoved(() => screen.queryByRole('dialog', { name: /Nueva ruta/ }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /Nueva ruta/ })).not.toBeInTheDocument());
 
     expect(screen.getByRole('tab', { name: 'Estructuras BOM' })).toHaveAttribute(
       'aria-selected',
@@ -1010,7 +1052,9 @@ describe('Ingeniería SCM R-core', () => {
     expect(publish).toBeEnabled();
     await user.click(publish);
 
-    await waitFor(() => expect(publicarReglaEmpaqueScm).toHaveBeenCalledWith(draft));
+    await waitFor(() => expect(publicarReglaEmpaqueScm).toHaveBeenCalledWith(
+      expect.objectContaining({ ...draft, id: draft.revision_id }),
+    ));
     await screen.findByText('Regla de empaque publicada directamente por jefatura.');
   });
 
@@ -1058,7 +1102,9 @@ describe('Ingeniería SCM R-core', () => {
     expect(screen.getByRole('button', { name: 'Rechazar' })).toBeEnabled();
     await user.click(approverButton);
 
-    await waitFor(() => expect(aprobarEstructuraScm).toHaveBeenCalledWith(pendingRevision));
+    await waitFor(() => expect(aprobarEstructuraScm).toHaveBeenCalledWith(
+      expect.objectContaining({ ...pendingRevision, revision_id: pendingRevision.id }),
+    ));
     await screen.findByText('Estructura aprobada.');
 
     const rejectButton = await screen.findByRole('button', { name: 'Rechazar' });
@@ -1071,7 +1117,7 @@ describe('Ingeniería SCM R-core', () => {
     );
     await user.click(within(rejectDialog).getByRole('button', { name: 'Confirmar rechazo' }));
     await waitFor(() => expect(rechazarEstructuraScm).toHaveBeenCalledWith(
-      pendingRevision,
+      expect.objectContaining({ ...pendingRevision, revision_id: pendingRevision.id }),
       'Artículo resultado incorrecto',
     ));
   });
@@ -1237,8 +1283,10 @@ describe('Ingeniería SCM R-core', () => {
     renderPage();
 
     await user.click(await screen.findByRole('tab', { name: 'Estructuras BOM' }));
-    expect(screen.getByRole('button', { name: 'Nueva revisión' })).toBeDisabled();
-    expect(screen.getByText(/Selecciona explícitamente/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Nueva revisión' })).toBeEnabled();
+    expect(screen.queryByText(/Selecciona explícitamente/)).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Artículo resultado' }).value)
+      .toMatch(/PT-000001/);
 
     await user.click(screen.getByRole('combobox'));
     await user.click(screen.getByRole('option', { name: /PT-000001/ }));
