@@ -1,13 +1,14 @@
 import { createTheme, ThemeProvider } from '@mui/material';
+import { useEffect } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import {
   beforeEach, describe, expect, it, vi,
 } from 'vitest';
 import FabricationOrdersScm from '../components/FabricationOrdersScm';
 
-const auth = vi.hoisted(() => ({ article: true }));
+const auth = vi.hoisted(() => ({ actorId: 1, article: true, articleView: true, routeView: true, routeAdmin: true, ofEdit: true }));
 
 vi.mock('../services/api', () => ({
   obtenerColores: vi.fn().mockResolvedValue([]),
@@ -46,7 +47,14 @@ vi.mock('../services/scmProductionObservabilityApi', () => ({
 
 vi.mock('../context/ScmActorContext', () => ({
   useScmActor: () => ({
-    can: (capability) => capability !== 'ARTICULO_ADMINISTRAR' || auth.article,
+    actorId: auth.actorId,
+    can: (capability) => (
+      (capability !== 'ARTICULO_ADMINISTRAR' || auth.article)
+      && (capability !== 'ARTICULO_VER' || auth.articleView)
+      && (capability !== 'RUTA_VER' || auth.routeView)
+      && (capability !== 'RUTA_ADMINISTRAR' || auth.routeAdmin)
+      && (capability !== 'OF_EDITAR_BORRADOR' || auth.ofEdit)
+    ),
     canAny: () => true,
     experience: { label: 'Gerencia' },
   }),
@@ -201,7 +209,12 @@ describe('Órdenes de fabricación', () => {
     expect(await screen.findByText('Sin coincidencias en la consulta')).toBeVisible();
   });
   beforeEach(() => {
+    auth.actorId = 1;
     auth.article = true;
+    auth.articleView = true;
+    auth.routeView = true;
+    auth.routeAdmin = true;
+    auth.ofEdit = true;
     listarOrdenesFabricacionScm.mockResolvedValue({ items: [], pagination: { page: 1, page_size: 25, total: 0, total_pages: 0 } });
     obtenerColores.mockResolvedValue([]);
     obtenerMaquinas.mockResolvedValue([]);
@@ -210,6 +223,7 @@ describe('Órdenes de fabricación', () => {
     obtenerMolde.mockReset();
     obtenerOrdenFabricacionScm.mockReset();
     listarArticulosScm.mockResolvedValue([]);
+    listarRutasArticuloScm.mockClear();
     listarRutasArticuloScm.mockResolvedValue([]);
     crearOrdenFabricacionExcepcionalScm.mockReset();
     configurarOrdenFabricacionScm.mockReset();
@@ -952,5 +966,153 @@ describe('Órdenes de fabricación', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Reintentar rutas' }));
     await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByText(/No se pudieron cargar las rutas opcionales/)).not.toBeInTheDocument());
+  });
+
+  it('no consulta rutas ni ofrece acciones a un perfil sin RUTA_VER', async () => {
+    auth.routeView = false;
+    const order = {
+      id: 'of-route-restricted', codigo: 'OF-ROUTE-RESTRICTED', estado: 'LIBERADA', version: 2,
+      corridas: [{
+        id: 'run-restricted', codigo: 'C01', operacion_ruta_revision_id: 201,
+        operacion_ruta: { id: 201, nombre: 'Ruta restringida', ruta_revision_id: 20 },
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza 5', codigo: 'PC-5' } }],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    renderDetail(order);
+    await screen.findByText('Configuración del recurso');
+    expect(listarRutasArticuloScm).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Acciones de ruta para C01' })).not.toBeInTheDocument();
+  });
+
+  it('gates Administrar by route/article read plus route administration, independently of OF editing', async () => {
+    auth.articleView = false;
+    const order = {
+      id: 'of-route-admin', codigo: 'OF-ROUTE-ADMIN', estado: 'LIBERADA', version: 2,
+      corridas: [{
+        id: 'run-admin', codigo: 'C01', operacion_ruta_revision_id: 201,
+        operacion_ruta: { id: 201, nombre: 'Ruta de administración', ruta_revision_id: 20 },
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza 5', codigo: 'PC-5' } }],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarRutasArticuloScm.mockResolvedValue([{ id: 20, numero_revision: 3, estado: 'APROBADA', content_hash: 'hash-20', operaciones: [] }]);
+    renderDetail(order);
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Acciones de ruta para C01' }));
+    const admin = screen.getByRole('menuitem', { name: 'Administrar' });
+    expect(admin).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('menuitem', { name: 'Ver ruta' })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: 'Actualizar' })).toBeEnabled();
+  });
+
+  it('mantiene acciones de ruta autorizadas cuando OF_EDITAR_BORRADOR está ausente', async () => {
+    auth.ofEdit = false;
+    const order = {
+      id: 'of-route-of-readonly', codigo: 'OF-ROUTE-OF-READONLY', estado: 'LIBERADA', version: 2,
+      corridas: [{
+        id: 'run-of-readonly', codigo: 'C01', operacion_ruta_revision_id: 201,
+        operacion_ruta: { id: 201, nombre: 'Ruta autorizada', ruta_revision_id: 20 },
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza 5', codigo: 'PC-5' } }],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarRutasArticuloScm.mockResolvedValue([{ id: 20, numero_revision: 3, estado: 'APROBADA', content_hash: 'hash-20', operaciones: [] }]);
+    renderDetail(order);
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Acciones de ruta para C01' }));
+    expect(screen.getByRole('menuitem', { name: 'Ver ruta' })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: 'Administrar' })).toBeEnabled();
+  });
+
+  it('aísla respuestas tardías al cambiar actor y OF durante la consulta de rutas', async () => {
+    const deferred = () => {
+      let resolve;
+      const promise = new Promise((nextResolve) => { resolve = nextResolve; });
+      return { promise, resolve };
+    };
+    const firstRoutes = deferred();
+    const secondRoutes = deferred();
+    const orderA = {
+      id: 'of-race-a', codigo: 'OF-RACE-A', estado: 'LIBERADA', version: 1,
+      corridas: [{ id: 'run-race-a', codigo: 'C01', operacion_ruta_revision_id: 501,
+        operacion_ruta: { id: 501, nombre: 'Ruta A', ruta_revision_id: 50 },
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza A', codigo: 'PC-A' } }] }],
+    };
+    const orderB = {
+      id: 'of-race-b', codigo: 'OF-RACE-B', estado: 'LIBERADA', version: 1,
+      corridas: [{ id: 'run-race-b', codigo: 'C01', operacion_ruta_revision_id: 601,
+        operacion_ruta: { id: 601, nombre: 'Ruta B', ruta_revision_id: 60 },
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza B', codigo: 'PC-B' } }] }],
+    };
+    const RouteDriver = ({ orderId }) => {
+      const navigate = useNavigate();
+      useEffect(() => { navigate(`/produccion/ordenes-fabricacion?of=${orderId}`); }, [navigate, orderId]);
+      return <FabricationOrdersScm />;
+    };
+    auth.actorId = 1;
+    obtenerOrdenFabricacionScm.mockImplementation((id) => Promise.resolve(id === 'of-race-b' ? orderB : orderA));
+    listarRutasArticuloScm.mockImplementation((articleId, actorId) => {
+      if (String(articleId) !== '5') return Promise.resolve([]);
+      return Number(actorId) === 1 ? firstRoutes.promise : secondRoutes.promise;
+    });
+    const view = render(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter initialEntries={['/produccion/ordenes-fabricacion?of=of-race-a']}>
+          <RouteDriver orderId="of-race-a" />
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith('5', 1));
+    auth.actorId = 2;
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter initialEntries={['/produccion/ordenes-fabricacion?of=of-race-a']}>
+          <RouteDriver orderId="of-race-b" />
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith('5', 2));
+    firstRoutes.resolve([{ id: 50, numero_revision: 1, estado: 'APROBADA', content_hash: 'hash-a', operaciones: [{ id: 501, nombre: 'Ruta A', tipo: 'INYECCION', articulo_salida: { id: 5 } }] }]);
+    await waitFor(() => expect(screen.getByText('OF-RACE-B')).toBeVisible());
+    expect(screen.queryByDisplayValue('Ruta A · Inyección')).not.toBeInTheDocument();
+    secondRoutes.resolve([{ id: 60, numero_revision: 1, estado: 'APROBADA', content_hash: 'hash-b', operaciones: [{ id: 601, nombre: 'Ruta B', tipo: 'INYECCION', articulo_salida: { id: 5 } }] }]);
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Operación de ruta (opcional)' }).value).toMatch(/Ruta B/));
+    expect(screen.queryByDisplayValue('Ruta A · Inyección')).not.toBeInTheDocument();
+  });
+
+  it('actualiza el catálogo de rutas sin reiniciar el borrador ni la selección congelada', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-route-refresh', codigo: 'OF-ROUTE-REFRESH', estado: 'BORRADOR', version: 2,
+      fuente_proceso: 'EXPLICITO', snapshot_proceso: 'INYECCION', molde_id: 'M-ROUTE',
+      corridas: [{
+        id: 'run-refresh', codigo: 'C01', objetivo_neto_kg: '1', operacion_ruta_revision_id: 201,
+        operacion_ruta: {
+          id: 201, nombre: 'Ruta congelada', tipo: 'INYECCION', ruta_revision_id: 20,
+          ruta_numero_revision: 3, ruta_content_hash: 'hash-20',
+        },
+        salidas: [{ id: 'out-refresh', articulo: { id: 5, pieza_id: 5, nombre: 'Pieza 5', codigo: 'PC-5' } }],
+      }],
+    };
+    const oldRoute = { id: 20, numero_revision: 3, estado: 'APROBADA', content_hash: 'hash-20', operaciones: [{ id: 201, executor_kind: 'OP_OT', tipo: 'INYECCION', nombre: 'Ruta congelada', articulo_salida: { id: 5 } }] };
+    const newRoute = { id: 21, numero_revision: 4, estado: 'APROBADA', content_hash: 'hash-21', operaciones: [{ id: 202, executor_kind: 'OP_OT', tipo: 'INYECCION', nombre: 'Ruta sucesora', articulo_salida: { id: 5 } }] };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarRutasArticuloScm.mockResolvedValueOnce([oldRoute]).mockResolvedValueOnce([newRoute]);
+    obtenerMoldes.mockResolvedValue([{ codigo: 'M-ROUTE', nombre: 'Molde route', activo: true, formas: [{ pieza_id: 5, activo: true }] }]);
+    renderDetail(order);
+    const target = await screen.findByRole('spinbutton', { name: /Objetivo neto/ });
+    await user.click(target);
+    await user.clear(target);
+    await user.type(target, '5.125');
+    await user.tab();
+    const routeInput = screen.getByRole('combobox', { name: 'Operación de ruta (opcional)' });
+    expect(routeInput).toHaveValue('Ruta congelada · Inyección');
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith('5', 1));
+    await user.click(screen.getByRole('button', { name: 'Acciones de ruta para C01' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Actualizar' }));
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledTimes(2));
+    expect(target).toHaveValue(5.13);
+    await user.click(target);
+    expect(target).toHaveValue(5.125);
+    expect(screen.getByRole('combobox', { name: 'Operación de ruta (opcional)' })).toHaveValue('Ruta congelada · Inyección');
   });
 });

@@ -13,6 +13,7 @@ import { formatKg, formatGrams } from '../utils/weightDisplay';
 import WeightInput from './ui/WeightInput';
 import SearchableCatalogAutocomplete from './ui/SearchableCatalogAutocomplete';
 import { fabricationProcessLabel, routeOptionsForRun } from './fabricationRoutes';
+import RouteActionsMenu from './RouteActionsMenu';
 
 const finiteOrNull = (value) => {
   if (value === null || value === undefined || value === '') return null;
@@ -108,6 +109,11 @@ export default function FabricationObjectivesTable({
   routeOptionsByArticle = {},
   routeLoading = false,
   routeReadOnly = false,
+  routeCanView = false,
+  articleCanView = false,
+  routeCanAdmin = false,
+  routeError = '',
+  onRefreshRoutes,
 }) {
   const globalMeasured = progress?.kgMedido ?? progress?.kgFinalizados;
   const globalProgress = progress?.state === 'ready'
@@ -154,14 +160,37 @@ export default function FabricationObjectivesTable({
               && order.origen_demanda !== 'REEMPLAZO_OF'
               && !draftRun.legacyWithoutNetTarget;
             const routeOptions = routeOptionsForRun(run, routeOptionsByArticle);
+            const persistedRouteOperationId = run.operacion_ruta_revision_id ?? run.operacion_ruta?.id;
             const selectedRoute = routeOptions.find((option) => String(option.operacion_ruta_revision_id)
               === String(draftRun.operacion_ruta_revision_id))
-              || (run.operacion_ruta && draftRun.operacion_ruta_revision_id ? {
+              || (run.operacion_ruta && draftRun.operacion_ruta_revision_id
+                && String(persistedRouteOperationId) === String(draftRun.operacion_ruta_revision_id) ? {
                 ...run.operacion_ruta,
                 operacion_ruta_revision_id: run.operacion_ruta_revision_id,
                 nombre: run.operacion_ruta.nombre || `Operación ${run.operacion_ruta_revision_id}`,
                 proceso: run.operacion_ruta.tipo,
+              } : null)
+              || (draftRun.operacion_ruta_revision_id ? {
+                operacion_ruta_revision_id: draftRun.operacion_ruta_revision_id,
+                nombre: `Operación ${draftRun.operacion_ruta_revision_id} (no disponible)`,
+                proceso: '',
               } : null);
+            const routeArticleId = selectedRoute?.articulo_salida?.id
+              ?? run.salidas?.[0]?.articulo?.id
+              ?? run.salidas?.[0]?.articulo_scm_id
+              ?? run.salidas?.[0]?.articulo_id
+              ?? run.salidas?.[0]?.articulo_salida_id;
+            const routeCatalog = routeArticleId == null
+              ? []
+              : routeOptionsByArticle[String(routeArticleId)] || [];
+            const persistedRouteHash = run.operacion_ruta_hash
+              || run.operacion_ruta?.ruta_content_hash
+              || run.operacion_ruta?.content_hash;
+            const hasDraftRoute = draftRun.operacion_ruta_revision_id !== null
+              && draftRun.operacion_ruta_revision_id !== undefined
+              && draftRun.operacion_ruta_revision_id !== '';
+            const routeFrozen = order.estado !== 'BORRADOR'
+              || (hasDraftRoute && String(persistedRouteOperationId || '') === String(draftRun.operacion_ruta_revision_id));
             return (
               <Fragment key={run.id}>
                 <TableRow hover>
@@ -224,28 +253,55 @@ export default function FabricationObjectivesTable({
                             : 'Sin formulación seleccionada.'}
                         </Alert>
                       )}
-                      <SearchableCatalogAutocomplete
-                        id={`of-${order.id}-row-${run.id}-route`}
-                        label="Operación de ruta (opcional)"
-                        options={routeOptions}
-                        value={selectedRoute}
-                        onChange={(option) => onChangeRun(runIndex, {
-                          operacion_ruta_revision_id: option?.operacion_ruta_revision_id || null,
-                        })}
-                        getOptionKey={(option) => option?.operacion_ruta_revision_id}
-                        getPrimary={(option) => `${option?.nombre || `Operación ${option?.id}`} · ${fabricationProcessLabel(option?.proceso || option?.tipo)}`}
-                        getSecondary={(option) => {
-                          const outputName = option?.articulo_salida?.nombre;
-                          const outputCode = option?.articulo_salida?.codigo;
-                          if (outputName || outputCode) return [outputName, outputCode].filter(Boolean).join(' · ');
-                          return option?.ruta_numero_revision ? `Ruta rev. ${option.ruta_numero_revision}` : '';
-                        }}
-                        getSearchText={(option) => [option?.nombre, option?.proceso, option?.tipo, option?.articulo_salida?.nombre, option?.articulo_salida?.codigo].filter(Boolean).join(' ')}
-                        loading={routeLoading}
-                        disabled={!canEdit || routeReadOnly || order.estado !== 'BORRADOR' || order.origen_demanda === 'REEMPLAZO_OF'}
-                        noOptionsText={routeLoading ? 'Cargando rutas compatibles…' : 'Sin ruta aprobada para la salida exacta'}
-                        helperText="APROBADA · OP_OT · salida exacta del color/molde"
-                      />
+                      <Stack spacing={0.5}>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          fontWeight={700}
+                          sx={{ display: { xs: 'block', md: 'none' }, whiteSpace: 'nowrap' }}
+                        >
+                          {colorName} · {run.codigo || run.id}
+                        </Typography>
+                        <Stack direction="row" spacing={0.5} alignItems="flex-start">
+                          <SearchableCatalogAutocomplete
+                            id={`of-${order.id}-row-${run.id}-route`}
+                            label="Operación de ruta (opcional)"
+                            options={routeOptions}
+                            value={selectedRoute}
+                            onChange={(option) => onChangeRun(runIndex, {
+                              operacion_ruta_revision_id: option?.operacion_ruta_revision_id || null,
+                            })}
+                            getOptionKey={(option) => option?.operacion_ruta_revision_id}
+                            getPrimary={(option) => `${option?.nombre || `Operación ${option?.id}`} · ${fabricationProcessLabel(option?.proceso || option?.tipo)}`}
+                            getSecondary={(option) => {
+                              const outputName = option?.articulo_salida?.nombre;
+                              const outputCode = option?.articulo_salida?.codigo;
+                              if (outputName || outputCode) return [outputName, outputCode].filter(Boolean).join(' · ');
+                              return option?.ruta_numero_revision ? `Ruta rev. ${option.ruta_numero_revision}` : '';
+                            }}
+                            getSearchText={(option) => [option?.nombre, option?.proceso, option?.tipo, option?.articulo_salida?.nombre, option?.articulo_salida?.codigo].filter(Boolean).join(' ')}
+                            loading={routeLoading}
+                            disabled={!canEdit || routeReadOnly || order.estado !== 'BORRADOR' || order.origen_demanda === 'REEMPLAZO_OF'}
+                            noOptionsText={routeLoading ? 'Cargando rutas compatibles…' : 'Sin ruta aprobada para la salida exacta'}
+                            helperText="APROBADA · OP_OT · salida exacta del color/molde"
+                            sx={{ flex: 1, minWidth: 0 }}
+                          />
+                          <RouteActionsMenu
+                            run={run}
+                            selectedRoute={selectedRoute}
+                            availableRoutes={routeCatalog}
+                            canViewRoutes={routeCanView}
+                            canViewArticles={articleCanView}
+                            canAdminRoutes={routeCanAdmin}
+                            loading={routeLoading}
+                            error={routeError}
+                            onRefresh={onRefreshRoutes}
+                            frozen={Boolean(routeFrozen)}
+                            frozenHash={routeFrozen ? persistedRouteHash : undefined}
+                            onInspect={onRefreshRoutes}
+                          />
+                        </Stack>
+                      </Stack>
                       {order.estado !== 'BORRADOR' && selectedRecipe && <Chip size="small" color="success" variant="outlined" label="Congelada al liberar" sx={{ alignSelf: 'flex-start' }} />}
                       {selectedRecipe?.lineas?.map((line) => (
                         <Stack key={line.id || `${line.material_id}-${line.tipo_componente}`} spacing={0}>

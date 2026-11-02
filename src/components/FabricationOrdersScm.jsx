@@ -240,6 +240,9 @@ export default function FabricationOrdersScm() {
   const canPauseExecution = can('OF_PAUSAR_EJECUCION');
   const canCancelExecution = can('OF_CANCELAR_EJECUCION');
   const canCreateExceptional = can('OF_EXCEPCIONAL_CREAR');
+  const canViewRoutes = can('RUTA_VER');
+  const canViewArticles = can('ARTICULO_VER');
+  const canAdminRoutes = can('RUTA_ADMINISTRAR');
   const canViewOt = can('OT_VER');
   const canViewWeights = can('MANGA_PESAJE_VER');
   const [orders, setOrders] = useState([]);
@@ -295,10 +298,18 @@ export default function FabricationOrdersScm() {
   const routeCacheRef = useRef(new Map());
   const routePendingRef = useRef(new Map());
   const routeFailuresRef = useRef(new Map());
+  const routeInvalidationRef = useRef(new Map());
+  const detailRoutesByArticleRef = useRef({});
+  const detailRoutesActorRef = useRef(actorId);
   const [detailRoutesByArticle, setDetailRoutesByArticle] = useState({});
   const [detailRoutesLoading, setDetailRoutesLoading] = useState(false);
   const [detailRoutesError, setDetailRoutesError] = useState('');
   const [routeRetryNonce, setRouteRetryNonce] = useState(0);
+  detailRoutesByArticleRef.current = detailRoutesByArticle;
+  if (detailRoutesActorRef.current !== actorId) {
+    detailRoutesActorRef.current = actorId;
+    detailRoutesByArticleRef.current = {};
+  }
 
   const loadCatalog = useCallback((key) => {
     const requests = {
@@ -355,6 +366,25 @@ export default function FabricationOrdersScm() {
     () => requestedOrderId ? detailOrder : null,
     [detailOrder, requestedOrderId],
   );
+  const refreshRoutesForRun = useCallback((run) => {
+    const articleIds = (run?.salidas || [])
+      .map((output) => output.articulo?.id
+        ?? output.articulo_salida?.id
+        ?? output.articulo_scm_id
+        ?? output.articulo_id
+        ?? output.articulo_salida_id)
+      .filter((id) => id != null)
+      .map(String);
+    articleIds.forEach((articleId) => {
+      const key = `${actorId}:${articleId}`;
+      routeCacheRef.current.delete(key);
+      routeFailuresRef.current.delete(key);
+      routePendingRef.current.delete(key);
+      routeInvalidationRef.current.set(key, (routeInvalidationRef.current.get(key) || 0) + 1);
+    });
+    setDetailRoutesError('');
+    setRouteRetryNonce((value) => value + 1);
+  }, [actorId]);
   const selectedDuplicateEligibility = useMemo(
     () => duplicateEligibility(selected),
     [selected],
@@ -504,7 +534,7 @@ export default function FabricationOrdersScm() {
       .filter((id) => id != null)
       .map(String)) || [];
     const uniqueIds = [...new Set(articleIds)];
-    if (!selected || !canEdit || selected.estado !== 'BORRADOR' || !uniqueIds.length) {
+    if (!selected || !canViewRoutes || !uniqueIds.length) {
       setDetailRoutesByArticle({});
       setDetailRoutesLoading(false);
       setDetailRoutesError('');
@@ -541,23 +571,35 @@ export default function FabricationOrdersScm() {
         return;
       }
       routeFailuresRef.current.delete(key);
+      const invalidation = routeInvalidationRef.current.get(key) || 0;
       const request = Promise.resolve()
-        .then(() => listRoutes(articleId))
+        .then(() => listRoutes(articleId, actorId))
         .then((items) => {
           const value = items || [];
-          routeCacheRef.current.set(key, value);
-          routeFailuresRef.current.delete(key);
+          if ((routeInvalidationRef.current.get(key) || 0) === invalidation) {
+            routeCacheRef.current.set(key, value);
+            routeFailuresRef.current.delete(key);
+          }
           return value;
         })
         .catch((requestError) => {
-          routeFailuresRef.current.set(key, { nonce: routeRetryNonce, error: requestError });
+          if ((routeInvalidationRef.current.get(key) || 0) === invalidation) {
+            routeFailuresRef.current.set(key, { nonce: routeRetryNonce, error: requestError });
+          }
           throw requestError;
         })
-        .finally(() => routePendingRef.current.delete(key));
+        .finally(() => {
+          if (routePendingRef.current.get(key) === request) routePendingRef.current.delete(key);
+        });
       routePendingRef.current.set(key, request);
       missing.push([articleId, request]);
     });
-    setDetailRoutesByArticle(cached);
+    const retained = detailRoutesActorRef.current === actorId
+      ? Object.fromEntries(uniqueIds
+        .filter((articleId) => Object.prototype.hasOwnProperty.call(detailRoutesByArticleRef.current, articleId))
+        .map((articleId) => [articleId, detailRoutesByArticleRef.current[articleId]]))
+      : {};
+    setDetailRoutesByArticle({ ...retained, ...cached });
     Promise.all(missing.map(([articleId, request]) => request.then(
       (value) => ({ articleId, value }),
       (requestError) => ({ articleId, requestError }),
@@ -586,7 +628,7 @@ export default function FabricationOrdersScm() {
         if (active && routeGenerationRef.current === generation) setDetailRoutesLoading(false);
       });
     return () => { active = false; };
-  }, [actorId, canEdit, routeRetryNonce, selected]);
+  }, [actorId, canViewRoutes, routeRetryNonce, selected]);
 
   useEffect(() => {
     if (!busy && !formulaBusy && !draftDirty && !formulaDirty) return undefined;
@@ -1419,6 +1461,11 @@ export default function FabricationOrdersScm() {
               routeOptionsByArticle={detailRoutesByArticle}
               routeLoading={detailRoutesLoading}
               routeReadOnly={Boolean(selected.plan_produccion_id)}
+              routeCanView={canViewRoutes}
+              articleCanView={canViewArticles}
+              routeCanAdmin={canAdminRoutes}
+              routeError={detailRoutesError}
+              onRefreshRoutes={refreshRoutesForRun}
             />
           </DocumentSection>
 
