@@ -39,6 +39,8 @@ const filterArticles = (articles, state) => {
   });
 };
 
+const articleLabel = (article) => `${article.codigo} · ${article.nombre}`;
+
 function ScmArticleAutocomplete({
   label,
   articles,
@@ -69,15 +71,20 @@ function ScmArticleAutocomplete({
     }, 300);
     return () => globalThis.clearTimeout(timer);
   }, [remote, remoteSearchValue]);
-  useEffect(() => {
-    if (resetKeyRef.current === resetKey) return;
-    resetKeyRef.current = resetKey;
-    setInputValue('');
-    setRemoteSearchValue(null);
-  }, [resetKey]);
   const selectedFromValue = useMemo(() => articles.find(
     (article) => String(getOptionValue(article)) === String(value),
   ) || null, [articles, getOptionValue, value]);
+  const selectedLabel = selectedFromValue ? articleLabel(selectedFromValue) : '';
+  useEffect(() => {
+    if (resetKeyRef.current === resetKey) return;
+    resetKeyRef.current = resetKey;
+    setInputValue(selectedLabel);
+    setRemoteSearchValue(null);
+  }, [resetKey, selectedLabel]);
+  useEffect(() => {
+    if (!selectedLabel) return;
+    setInputValue((current) => current || selectedLabel);
+  }, [selectedLabel]);
   const options = useMemo(() => {
     if (!selectedFromValue || articles.some((article) => String(getOptionValue(article)) === String(value))) {
       return articles;
@@ -105,7 +112,7 @@ function ScmArticleAutocomplete({
           );
         }
       }}
-      getOptionLabel={(article) => `${article.codigo} · ${article.nombre}`}
+      getOptionLabel={articleLabel}
       isOptionEqualToValue={(option, selected) => (
         String(getOptionValue(option)) === String(getOptionValue(selected))
       )}

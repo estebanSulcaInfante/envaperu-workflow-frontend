@@ -182,4 +182,98 @@ describe('ScmArticleAutocomplete', () => {
     await new Promise((resolve) => globalThis.setTimeout(resolve, 320));
     expect(onSearch).not.toHaveBeenCalled();
   });
+
+  it('conserva la etiqueta seleccionada cuando la opción llega después del cambio de ámbito', async () => {
+    const onSearch = vi.fn();
+    const selected = {
+      id: 99,
+      codigo: 'PT-000099',
+      nombre: 'Artículo 99',
+      clase: 'PRODUCTO_TERMINADO',
+    };
+    const view = render(
+      <ThemeProvider theme={createTheme()}>
+        <ScmArticleAutocomplete
+          label="Artículo empacable"
+          articles={[]}
+          value="99"
+          remote
+          resetKey="actor-1:tab-3"
+          onSearch={onSearch}
+        />
+      </ThemeProvider>,
+    );
+
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <ScmArticleAutocomplete
+          label="Artículo empacable"
+          articles={[]}
+          value="99"
+          remote
+          resetKey="actor-2:tab-3"
+          onSearch={onSearch}
+        />
+      </ThemeProvider>,
+    );
+
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 350));
+    expect(onSearch).not.toHaveBeenCalled();
+
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <ScmArticleAutocomplete
+          label="Artículo empacable"
+          articles={[selected]}
+          value="99"
+          remote
+          resetKey="actor-2:tab-3"
+          onSearch={onSearch}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(await screen.findByRole('combobox', { name: 'Artículo empacable' }))
+      .toHaveValue('PT-000099 · Artículo 99');
+  });
+
+  it('conserva la etiqueta seleccionada al cambiar de ámbito con la opción ya disponible', async () => {
+    const onSearch = vi.fn();
+    const selected = {
+      id: 99,
+      codigo: 'PT-000099',
+      nombre: 'Artículo 99',
+      clase: 'PRODUCTO_TERMINADO',
+    };
+    const view = render(
+      <ThemeProvider theme={createTheme()}>
+        <ScmArticleAutocomplete
+          label="Artículo empacable"
+          articles={[selected]}
+          value="99"
+          remote
+          resetKey="actor-1:tab-3"
+          onSearch={onSearch}
+        />
+      </ThemeProvider>,
+    );
+
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <ScmArticleAutocomplete
+          label="Artículo empacable"
+          articles={[selected]}
+          value="99"
+          remote
+          resetKey="actor-2:tab-3"
+          onSearch={onSearch}
+        />
+      </ThemeProvider>,
+    );
+
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 350));
+    expect(onSearch).not.toHaveBeenCalled();
+    expect(screen.getByRole('combobox', { name: 'Artículo empacable' }))
+      .toHaveValue('PT-000099 · Artículo 99');
+  });
 });
