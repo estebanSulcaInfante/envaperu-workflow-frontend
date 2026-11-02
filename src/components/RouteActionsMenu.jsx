@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Divider, Drawer, IconButton, ListItemIcon, ListSubheader, Menu, MenuItem, Paper, Stack, Typography,
 } from '@mui/material';
 import MoreVertOutlinedIcon from '@mui/icons-material/MoreVertOutlined';
-import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
+import EngineeringOutlinedIcon from '@mui/icons-material/EngineeringOutlined';
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import CloseOutlinedIcon from '@mui/icons-material/CloseOutlined';
+import ScmEngineeringAdmin from './ScmEngineeringAdmin';
 
 const valueOf = (...values) => values.find((value) => value !== null && value !== undefined && value !== '');
 
@@ -181,23 +182,48 @@ export default function RouteActionsMenu({
   frozen = false,
   frozenHash,
   onInspect,
+  orderCode,
 }) {
   const [anchorEl, setAnchorEl] = useState(null);
   const [inspectionOpen, setInspectionOpen] = useState(false);
+  const [engineeringOpen, setEngineeringOpen] = useState(false);
+  const [engineeringMounted, setEngineeringMounted] = useState(false);
+  const engineeringCloseRef = useRef(null);
+  const actionsButtonRef = useRef(null);
+  const restoreFocusRef = useRef(false);
   const articleId = articleIdOf(run, selectedRoute);
   const operationSelected = Boolean(selectedRoute || run?.operacion_ruta || run?.operacion_ruta_revision_id);
   const canAdmin = canViewRoutes && canViewArticles && canAdminRoutes && articleId != null;
   const canInspect = canViewRoutes && operationSelected;
-  const adminHref = articleId == null
-    ? undefined
-    : `/datos-maestros/ingenieria-scm?tab=rutas&articulo=${encodeURIComponent(articleId)}`;
   const menuOpen = Boolean(anchorEl);
+  const openEngineering = () => {
+    setAnchorEl(null);
+    setInspectionOpen(false);
+    setEngineeringMounted(true);
+    setEngineeringOpen(true);
+  };
+  const closeEngineering = ({ preserveDraft = false } = {}) => {
+    restoreFocusRef.current = true;
+    setEngineeringOpen(false);
+    if (!preserveDraft) setEngineeringMounted(false);
+  };
+  const closeInspection = () => {
+    restoreFocusRef.current = true;
+    setInspectionOpen(false);
+  };
+  useEffect(() => {
+    if (!engineeringOpen && !inspectionOpen && restoreFocusRef.current) {
+      restoreFocusRef.current = false;
+      actionsButtonRef.current?.focus();
+    }
+  }, [engineeringOpen, inspectionOpen]);
 
   if (!canViewRoutes) return null;
 
   return (
     <>
       <IconButton
+        ref={actionsButtonRef}
         size="small"
         aria-label={`Acciones de ruta para ${run?.codigo || run?.id || 'objetivo'}`}
         aria-haspopup="menu"
@@ -229,17 +255,14 @@ export default function RouteActionsMenu({
           Ver ruta
         </MenuItem>
         <MenuItem
-          component={canAdmin ? 'a' : 'li'}
-          href={adminHref}
-          target="_blank"
-          rel="noopener noreferrer"
+          component="li"
           disabled={!canAdmin}
           onClick={(event) => {
             if (!canAdmin) event.preventDefault();
-            setAnchorEl(null);
+            if (canAdmin) openEngineering();
           }}
         >
-          <ListItemIcon><OpenInNewOutlinedIcon fontSize="small" /></ListItemIcon>
+          <ListItemIcon><EngineeringOutlinedIcon fontSize="small" /></ListItemIcon>
           Administrar
         </MenuItem>
         <MenuItem
@@ -255,7 +278,7 @@ export default function RouteActionsMenu({
       </Menu>
       <RouteInspectionPanel
         open={inspectionOpen}
-        onClose={() => setInspectionOpen(false)}
+        onClose={closeInspection}
         run={run}
         selectedRoute={selectedRoute}
         availableRoutes={availableRoutes}
@@ -265,6 +288,33 @@ export default function RouteActionsMenu({
         frozen={frozen}
         frozenHash={frozenHash}
       />
+      {engineeringMounted && (
+        <Drawer
+          anchor="right"
+          open={engineeringOpen}
+          onClose={() => engineeringCloseRef.current?.()}
+        >
+          <Paper
+            role="region"
+            aria-label={`Ingeniería de ruta ${run?.codigo || run?.id || 'objetivo'}`}
+            square
+            elevation={0}
+            sx={{ width: { xs: 'min(100vw, 1000px)', lg: 960 }, height: '100%', p: { xs: 1, md: 2 }, overflowY: 'auto' }}
+          >
+            <ScmEngineeringAdmin
+              embeddedContext={{
+                mode: 'embedded',
+                articleId,
+                colorName: run?.color_nombre || run?.color?.nombre || run?.color_produccion?.nombre,
+                orderCode: orderCode || run?.codigo || run?.id,
+              }}
+              embeddedCloseRef={engineeringCloseRef}
+              onEmbeddedClose={closeEngineering}
+              onEmbeddedRouteChanged={() => onRefresh?.(run)}
+            />
+          </Paper>
+        </Drawer>
+      )}
     </>
   );
 }

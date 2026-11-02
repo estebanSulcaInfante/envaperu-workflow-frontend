@@ -195,10 +195,22 @@ function EmptyRow({ columns, children = 'Todavía no hay registros.' }) {
   );
 }
 
-function ScmEngineeringAdmin() {
+function ScmEngineeringAdmin({
+  embeddedContext = null,
+  onEmbeddedClose,
+  onEmbeddedRouteChanged,
+  embeddedCloseRef,
+}) {
+  const embedded = embeddedContext?.mode === 'embedded';
+  const embeddedArticleId = embeddedContext?.articleId == null
+    ? ''
+    : String(embeddedContext.articleId);
+  const embeddedColor = embeddedContext?.colorName || '';
+  const embeddedOrderCode = embeddedContext?.orderCode || '';
   const { actor, actorId, can, experience } = useScmActor();
   const canAdminArticles = can('ARTICULO_ADMINISTRAR');
   const canAdminStructures = can('ESTRUCTURA_ADMINISTRAR');
+  const canEditStructures = canAdminStructures && !embedded;
   const canApproveStructures = can('ESTRUCTURA_APROBAR');
   const canPublishStructuresDirectly = can('ESTRUCTURA_PUBLICAR_DIRECTO');
   const canAdminRoutes = can('RUTA_ADMINISTRAR');
@@ -231,13 +243,15 @@ function ScmEngineeringAdmin() {
     canReadRoutes && 'RUTA_VER',
     canReadPackaging && 'EMPAQUE_VER',
   ].filter(Boolean).join('|');
-  const [tab, setTab] = useState(() => ({
-    articulos: 0,
-    estructuras: 1,
-    rutas: 2,
-    empaque: 3,
-    aprobaciones: 4,
-  }[new URLSearchParams(globalThis.location?.search || '').get('tab')] || 0));
+  const [tab, setTab] = useState(() => (embedded
+    ? 2
+    : ({
+      articulos: 0,
+      estructuras: 1,
+      rutas: 2,
+      empaque: 3,
+      aprobaciones: 4,
+    }[new URLSearchParams(globalThis.location?.search || '').get('tab')] || 0)));
   const articleSearchScope = [
     actorId,
     tab,
@@ -308,8 +322,12 @@ function ScmEngineeringAdmin() {
   const [hydratingEditor, setHydratingEditor] = useState(false);
   const [hydrationError, setHydrationError] = useState('');
   const [selectedArticleId, setSelectedArticleId] = useState('');
-  const [selectedRouteArticleId, setSelectedRouteArticleId] = useState('');
+  const [selectedRouteArticleId, setSelectedRouteArticleId] = useState(embeddedArticleId);
   const [dialog, setDialog] = useState(null);
+  const routeBaselineRef = useRef(null);
+  const preservedRouteDraftRef = useRef(null);
+  const embeddedPromptRef = useRef(null);
+  const [embeddedExitPrompt, setEmbeddedExitPrompt] = useState(null);
   const [wipForm, setWipForm] = useState(emptyWip);
   const [bomForm, setBomForm] = useState(emptyStructureValue);
   const [centerForm, setCenterForm] = useState(emptyCenter);
@@ -331,7 +349,7 @@ function ScmEngineeringAdmin() {
   });
   const [showStructureHistory, setShowStructureHistory] = useState(false);
   const [packagingArticleId, setPackagingArticleId] = useState(
-    requestedPackagingArticleId,
+    () => (embedded ? '' : requestedPackagingArticleId()),
   );
   const [packagingProfileId, setPackagingProfileId] = useState('');
   const selectedProfileKey = JSON.stringify([actorId, dataRevision, packagingArticleId]);
@@ -342,7 +360,9 @@ function ScmEngineeringAdmin() {
     selectedProfileCurrent && selectedProfileState.error,
   ].filter(Boolean).join(' · ');
 
-  const [planningContext] = useState(initialPlanningContext);
+  const [planningContext] = useState(() => (embedded
+    ? { orderCode: embeddedOrderCode, missingArticleCode: '', returnTo: '' }
+    : initialPlanningContext()));
 
   const routeTargetArticles = useMemo(
     () => [...new Map([...articles, ...articleCache]
@@ -455,9 +475,13 @@ function ScmEngineeringAdmin() {
         setArticles(next.items);
         setArticleCache((current) => [...new Map([...current, ...next.items].map((item) => [Number(item.id), item])).values()]);
         if (effectiveArticlePageIndex === 0) {
-          const params = new URLSearchParams(globalThis.location?.search || '');
-          const requestedArticle = params.get('articulo');
-          const requestedProduct = params.get('producto');
+          let requestedArticle = embeddedArticleId;
+          let requestedProduct = '';
+          if (!embedded) {
+            const params = new URLSearchParams(globalThis.location?.search || '');
+            requestedArticle = params.get('articulo');
+            requestedProduct = params.get('producto');
+          }
           let requested = next.items.find((item) => (
             String(item.id) === String(requestedArticle)
             || String(item.codigo) === String(requestedProduct)
@@ -498,7 +522,7 @@ function ScmEngineeringAdmin() {
         if (signal.aborted || activeActor.current !== actorId) return null;
         setCenters(routeCenters);
       }
-      const routeTargetId = selectedRouteArticleId || (() => {
+      const routeTargetId = selectedRouteArticleId || (embedded ? embeddedArticleId : (() => {
         const params = new URLSearchParams(globalThis.location?.search || '');
         const requested = params.get('articulo') || params.get('producto');
         const article = [...articles, ...articleCache].find((item) => (
@@ -507,7 +531,7 @@ function ScmEngineeringAdmin() {
           || String(item.subtipo?.producto_terminado_id) === String(requested)
         ));
         return article?.id ? String(article.id) : '';
-      })();
+      })());
       if (targetTab === 2 && canReadArticles && canReadRoutes && routeTargetId && !options.skipRoutes) {
         setRoutesLoading(true);
         setRoutesError('');
@@ -705,7 +729,7 @@ function ScmEngineeringAdmin() {
   }, [actorId, articleCursors, articlePageIndex, articleQuery, approvalCursors, approvalPage,
     approvalQuery, assignmentCursor, assignmentKey, assignmentQuery, assignmentState,
     approvalPages, canReadArticles,
-    canReadPackaging, canReadRoutes, canReadStructures, ruleCursors, ruleHistory, rulePageIndex, ruleQuery,
+    canReadPackaging, canReadRoutes, canReadStructures, embedded, embeddedArticleId, ruleCursors, ruleHistory, rulePageIndex, ruleQuery,
     selectedArticleId, selectedRouteArticleId, articles, articleCache, tab]);
   const loadPagedTabRef = useRef(loadPagedTab);
   useEffect(() => {
@@ -715,7 +739,7 @@ function ScmEngineeringAdmin() {
   useEffect(() => {
     activeActor.current = actorId;
     if (!initializedActor.current) {
-      setPackagingArticleId(requestedPackagingArticleId());
+      setPackagingArticleId(embedded ? '' : requestedPackagingArticleId());
     } else {
       setPackagingArticleId('');
     }
@@ -750,7 +774,7 @@ function ScmEngineeringAdmin() {
     setRuleQuery('');
     setSearch('');
     setSelectedArticleId('');
-    setSelectedRouteArticleId('');
+    setSelectedRouteArticleId(embeddedArticleId);
     if (initializedActor.current) setPackagingArticleId('');
     setPackagingProfileId('');
     setArticlePage({ items: [], total: 0, has_more: false, next_cursor: null });
@@ -766,7 +790,7 @@ function ScmEngineeringAdmin() {
       ruleReadGeneration.current += 1;
       ruleReadAbort.current?.abort();
     };
-  }, [actorId, capabilityFingerprint, readCapabilityFingerprint]);
+  }, [actorId, capabilityFingerprint, embedded, embeddedArticleId, readCapabilityFingerprint]);
 
   useEffect(() => {
     if (loadedActorId !== actorId) return undefined;
@@ -940,8 +964,10 @@ function ScmEngineeringAdmin() {
           setError('Cambio guardado; no se pudo actualizar esta sección.');
         }
       }
+      return true;
     } catch (requestError) {
       setError(mensajeErrorScm(requestError));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -953,7 +979,11 @@ function ScmEngineeringAdmin() {
     if (result === true) setRefreshFailure(null);
   };
 
-  const runRouteMutation = (operation, successMessage, options) => runMutation(operation, successMessage, options);
+  const runRouteMutation = async (operation, successMessage, options) => {
+    const result = await runMutation(operation, successMessage, options);
+    if (result && embedded) onEmbeddedRouteChanged?.();
+    return result;
+  };
 
   const structuresForSelection = structures.filter(
     (item) => item.articulo_resultado_id === Number(selectedArticleId),
@@ -1084,8 +1114,19 @@ function ScmEngineeringAdmin() {
   };
   const openRoute = () => {
     setHydrationError('');
+    if (preservedRouteDraftRef.current) {
+      const preserved = preservedRouteDraftRef.current;
+      preservedRouteDraftRef.current = null;
+      setEditingRoute(preserved.editingRoute);
+      routeBaselineRef.current = preserved.baseline;
+      setRouteForm(preserved.routeForm);
+      setDialog('route');
+      return;
+    }
     setEditingRoute(null);
-    setRouteForm(emptyRouteValue(routeTargetArticle));
+    const nextRoute = emptyRouteValue(routeTargetArticle);
+    routeBaselineRef.current = nextRoute;
+    setRouteForm(nextRoute);
     setDialog('route');
   };
   const editRoute = async (revision) => {
@@ -1102,9 +1143,88 @@ function ScmEngineeringAdmin() {
     });
     if (ready !== false) {
       const hydratedArticles = [...new Map([...articles, ...(ready.articles || [])].map((item) => [Number(item.id), item])).values()];
-      setRouteForm(normalizeRouteRevision(revision, routeTargetArticle, hydratedArticles));
+      const nextRoute = normalizeRouteRevision(revision, routeTargetArticle, hydratedArticles);
+      routeBaselineRef.current = nextRoute;
+      setRouteForm(nextRoute);
     }
   };
+
+  const routeDraftActive = dialog === 'route' || Boolean(preservedRouteDraftRef.current);
+  const routeDraftDirty = embedded
+    && routeDraftActive
+    && routeBaselineRef.current
+    && JSON.stringify(routeForm) !== JSON.stringify(routeBaselineRef.current);
+  const requestEmbeddedClose = useCallback(() => {
+    if (!embedded) return;
+    if (saving || hydratingEditor) {
+      setNotice('Espera a que termine la escritura o la carga antes de salir.');
+      return;
+    }
+    if (routeDraftDirty) {
+      setEmbeddedExitPrompt('workspace');
+      return;
+    }
+    onEmbeddedClose?.({ preserveDraft: false });
+  }, [embedded, hydratingEditor, onEmbeddedClose, routeDraftDirty, saving]);
+
+  const requestRouteEditorClose = useCallback(() => {
+    if (!embedded) {
+      setDialog(null);
+      return;
+    }
+    if (saving || hydratingEditor) {
+      setNotice('Espera a que termine la escritura o la carga antes de salir.');
+      return;
+    }
+    if (routeDraftDirty) {
+      setEmbeddedExitPrompt('editor');
+      return;
+    }
+    routeBaselineRef.current = null;
+    setDialog(null);
+  }, [embedded, hydratingEditor, routeDraftDirty, saving]);
+
+  const navigateFromRouteToStructure = useCallback((articleId) => {
+    if (!embedded) {
+      goToStructuresForArticle(articleId);
+      return;
+    }
+    preservedRouteDraftRef.current = {
+      editingRoute,
+      routeForm,
+      baseline: routeBaselineRef.current,
+    };
+    setSelectedArticleId(String(articleId || ''));
+    setDialog(null);
+    setTab(1);
+  }, [embedded, editingRoute, routeForm]);
+
+  const returnToEmbeddedRoute = useCallback(() => {
+    const preserved = preservedRouteDraftRef.current;
+    if (!preserved) {
+      setTab(2);
+      return;
+    }
+    preservedRouteDraftRef.current = null;
+    setEditingRoute(preserved.editingRoute);
+    routeBaselineRef.current = preserved.baseline;
+    setRouteForm(preserved.routeForm);
+    setTab(2);
+    setDialog('route');
+  }, []);
+
+  useEffect(() => {
+    if (!embeddedCloseRef) return undefined;
+    embeddedCloseRef.current = requestEmbeddedClose;
+    return () => {
+      if (embeddedCloseRef.current === requestEmbeddedClose) embeddedCloseRef.current = null;
+    };
+  }, [embeddedCloseRef, requestEmbeddedClose]);
+
+  useEffect(() => {
+    if (embeddedExitPrompt) embeddedPromptRef.current?.focus();
+  }, [embeddedExitPrompt]);
+
   const editRule = async (rule) => {
     setHydrationError('');
     setEditingRule(rule);
@@ -1215,7 +1335,13 @@ function ScmEngineeringAdmin() {
         )
         : crearRutaArticuloScm(Number(selectedRouteArticleId), payload),
       editingRoute ? 'Borrador de ruta actualizado.' : 'Borrador de ruta creado.',
-    );
+    ).then((result) => {
+      if (result) {
+        routeBaselineRef.current = null;
+        preservedRouteDraftRef.current = null;
+      }
+      return result;
+    });
   };
 
 
@@ -1276,7 +1402,7 @@ function ScmEngineeringAdmin() {
   };
 
   const structureApprovalActions = (revision) => {
-    if (!canApproveStructures) return null;
+    if (!canApproveStructures || embedded) return null;
     const isCreator = Number(actorId) === Number(revision.creada_por_id);
     const actorLabel = actor?.nombre_completo || `actor #${actorId}`;
     if (isCreator) {
@@ -1382,20 +1508,77 @@ function ScmEngineeringAdmin() {
   const refreshEngineering = () => {
     return loadPagedTab(tab, tab === 3 ? { refreshAssignments: true } : {});
   };
+  const routeEditorContent = (
+    <Box sx={{ pt: 1 }}>
+      {hydratingEditor && <Alert severity="info">Resolviendo referencias del borrador…</Alert>}
+      {hydrationError && <Alert severity="warning">{hydrationError}</Alert>}
+      <RouteRevisionEditor
+        targetArticle={routeTargetArticle}
+        articles={[...new Map([...articles, ...articleCache]
+          .map((item) => [Number(item.id), item])).values()]}
+        centers={centers}
+        structures={structures}
+        revision={editingRoute}
+        value={routeForm}
+        onChange={setRouteForm}
+        onNavigateStructure={embedded && !canReadStructures ? undefined : navigateFromRouteToStructure}
+        onCancel={embedded ? requestRouteEditorClose : () => setDialog(null)}
+        onSubmit={saveRoute}
+        busy={saving || hydratingEditor || Boolean(hydrationError)}
+        showHeading={false}
+        submitLabel={editingRoute ? 'Guardar borrador' : 'Crear borrador'}
+      />
+    </Box>
+  );
 
   return (
     <Stack spacing={2.5}>
       <PageHeader
-        title="Ingeniería SCM"
-        description="Artículos, estructuras multinivel, rutas y reglas físicas de empaque conectadas a la API R-core."
+        title={embedded
+          ? `Ruta · ${routeTargetArticle?.codigo || embeddedArticleId || 'artículo'}${embeddedOrderCode ? ` · ${embeddedOrderCode}` : ''}`
+          : 'Ingeniería SCM'}
+        description={embedded
+          ? `Edición contextual para ${embeddedColor || 'el color seleccionado'} · los cambios de la OF permanecen sin guardar.`
+          : 'Artículos, estructuras multinivel, rutas y reglas físicas de empaque conectadas a la API R-core.'}
         actions={(
-          <Stack direction="row" spacing={1} alignItems="center">
-            <IconButton aria-label="Recargar ingeniería SCM" onClick={refreshEngineering}>
-              <RefreshIcon />
-            </IconButton>
-          </Stack>
+          embedded
+            ? <Button variant="outlined" onClick={requestEmbeddedClose}>Volver a OF</Button>
+            : (
+              <Stack direction="row" spacing={1} alignItems="center">
+                <IconButton aria-label="Recargar ingeniería SCM" onClick={refreshEngineering}>
+                  <RefreshIcon />
+                </IconButton>
+              </Stack>
+            )
         )}
       />
+
+      {embeddedExitPrompt && (
+        <Alert
+          ref={embeddedPromptRef}
+          tabIndex={-1}
+          severity="warning"
+          action={(
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.5} alignItems="flex-end">
+              <Button color="inherit" size="small" onClick={() => {
+                setDialog(null);
+                routeBaselineRef.current = null;
+                preservedRouteDraftRef.current = null;
+                const target = embeddedExitPrompt;
+                setEmbeddedExitPrompt(null);
+                if (target === 'workspace') onEmbeddedClose?.({ preserveDraft: false });
+              }}>
+                Descartar y volver
+              </Button>
+              <Button color="inherit" size="small" onClick={() => setEmbeddedExitPrompt(null)}>
+                Seguir editando
+              </Button>
+            </Stack>
+          )}
+        >
+          Hay cambios del borrador de ingeniería sin guardar. Elige cómo salir; la OF no se modificará.
+        </Alert>
+      )}
 
       <Alert severity="info">
         Estás trabajando como {actor?.nombre_completo || `actor #${actorId}`}.{' '}
@@ -1421,32 +1604,34 @@ function ScmEngineeringAdmin() {
         </Alert>
       )}
 
-      <Paper variant="outlined">
-        <Tabs
-          value={tab}
-          onChange={(_, value) => {
-            setSearch('');
-            setArticleQuery('');
-            setArticlePageIndex(0);
-            setArticleCursors({ 0: null });
-            setTab(value);
-          }}
-          variant="scrollable"
-          scrollButtons="auto"
-          aria-label="Maestros de ingeniería SCM"
-        >
-          {tabs.map((label, index) => (
-            <Tab
-              key={label}
-              label={index === 4 && approvalCountKnown
-                ? `${label} (${(approvalPages.ESTRUCTURA?.total ?? 0)
-                  + (approvalPages.RUTA?.total ?? 0)
-                  + (approvalPages.EMPAQUE?.total ?? 0)})`
-                : label}
-            />
-          ))}
-        </Tabs>
-      </Paper>
+      {!embedded && (
+        <Paper variant="outlined">
+          <Tabs
+            value={tab}
+            onChange={(_, value) => {
+              setSearch('');
+              setArticleQuery('');
+              setArticlePageIndex(0);
+              setArticleCursors({ 0: null });
+              setTab(value);
+            }}
+            variant="scrollable"
+            scrollButtons="auto"
+            aria-label="Maestros de ingeniería SCM"
+          >
+            {tabs.map((label, index) => (
+              <Tab
+                key={label}
+                label={index === 4 && approvalCountKnown
+                  ? `${label} (${(approvalPages.ESTRUCTURA?.total ?? 0)
+                    + (approvalPages.RUTA?.total ?? 0)
+                    + (approvalPages.EMPAQUE?.total ?? 0)})`
+                  : label}
+              />
+            ))}
+          </Tabs>
+        </Paper>
+      )}
 
       {loading || loadedActorId !== actorId ? (
         <Stack alignItems="center" sx={{ py: 8 }}><CircularProgress /></Stack>
@@ -1594,6 +1779,11 @@ function ScmEngineeringAdmin() {
           )}
           {tab === 1 && canReadStructures && canReadArticles && (
             <Stack spacing={2}>
+              {embedded && (
+                <Button variant="outlined" onClick={returnToEmbeddedRoute} sx={{ alignSelf: 'flex-start' }}>
+                  Volver a ruta
+                </Button>
+              )}
               {structurePageError && (
                 <Alert severity="error" action={<Button onClick={() => loadPagedTab(1)}>Reintentar BOM</Button>}>
                   {structurePageError}
@@ -1619,7 +1809,7 @@ function ScmEngineeringAdmin() {
                       setShowStructureHistory(false);
                     }}
                   />
-                  {canAdminStructures && <Button
+                  {canEditStructures && <Button
                     variant="contained"
                     startIcon={<AddIcon />}
                     disabled={!selectedArticleId}
@@ -1664,7 +1854,7 @@ function ScmEngineeringAdmin() {
                     </Box>
                     <Stack direction="row" spacing={1} alignItems="center">
                       {statusChip(revision.estado)}
-                      {canAdminStructures && revision.estado === 'BORRADOR' && (
+                      {canEditStructures && revision.estado === 'BORRADOR' && (
                         <>
                           <Button size="small" onClick={() => editBom(revision)}>
                             Editar
@@ -1716,7 +1906,7 @@ function ScmEngineeringAdmin() {
                       {revision.estado === 'PENDIENTE_APROBACION' && (
                         structureApprovalActions(revision)
                       )}
-                      {canAdminStructures && revision.estado === 'APROBADA' && (
+                    {canEditStructures && revision.estado === 'APROBADA' && (
                         <Button
                           size="small"
                           color="warning"
@@ -1728,7 +1918,7 @@ function ScmEngineeringAdmin() {
                           Retirar
                         </Button>
                       )}
-                      {canAdminStructures
+                      {canEditStructures
                         && ['RECHAZADA', 'RETIRADA', 'DESCARTADA'].includes(revision.estado)
                         && (
                           <Button
@@ -1772,7 +1962,7 @@ function ScmEngineeringAdmin() {
               {selectedArticleId && currentStructuresForSelection.length === 0 && (
                 <Alert
                   severity="warning"
-                  action={canAdminStructures ? (
+                  action={canEditStructures ? (
                     <Button color="inherit" size="small" onClick={openBom}>
                       Crear primera revisión
                     </Button>
@@ -1823,7 +2013,9 @@ function ScmEngineeringAdmin() {
                     value={selectedRouteArticleId}
                     resetKey={articleSearchScope}
                     remote
+                    disabled={embedded}
                     searchLoading={articlePageLoading}
+                    helperText={embedded ? 'Artículo fijado por la OF; no se puede cambiar en este contexto.' : undefined}
                     onSearch={(value) => {
                       setArticleQuery(value.trim());
                       setArticlePageIndex(0);
@@ -1845,27 +2037,31 @@ function ScmEngineeringAdmin() {
                       spacing={1.5}
                       sx={{ flexShrink: 0 }}
                     >
-                      <Button
-                        variant="outlined"
-                        startIcon={<AddIcon />}
-                        onClick={() => {
-                          setEditingCenter(null);
-                          setCenterForm(emptyCenter);
-                          setDialog('center');
-                        }}
-                        sx={{ whiteSpace: 'nowrap', flex: { sm: 1, lg: 'initial' } }}
-                      >
-                        Nuevo centro de trabajo
-                      </Button>
-                      <Button
-                        variant="contained"
-                        startIcon={<AddIcon />}
-                        disabled={Boolean(newRouteDisabledReason)}
-                        onClick={openRoute}
-                        sx={{ whiteSpace: 'nowrap', flex: { sm: 1, lg: 'initial' } }}
-                      >
-                        Nueva ruta
-                      </Button>
+                      {!embedded && (
+                        <Button
+                          variant="outlined"
+                          startIcon={<AddIcon />}
+                          onClick={() => {
+                            setEditingCenter(null);
+                            setCenterForm(emptyCenter);
+                            setDialog('center');
+                          }}
+                          sx={{ whiteSpace: 'nowrap', flex: { sm: 1, lg: 'initial' } }}
+                        >
+                          Nuevo centro de trabajo
+                        </Button>
+                      )}
+                      {!(embedded && (dialog === 'route' || preservedRouteDraftRef.current)) && (
+                        <Button
+                          variant="contained"
+                          startIcon={<AddIcon />}
+                          disabled={Boolean(newRouteDisabledReason)}
+                          onClick={openRoute}
+                          sx={{ whiteSpace: 'nowrap', flex: { sm: 1, lg: 'initial' } }}
+                        >
+                          Nueva ruta
+                        </Button>
+                      )}
                     </Stack>
                   )}
                 </Stack>
@@ -1897,6 +2093,20 @@ function ScmEngineeringAdmin() {
                   </Typography>
                 </Stack>
               )}
+              {embedded && dialog === 'route' && (
+                <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 } }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                    <Typography variant="h6">
+                      {editingRoute
+                        ? `Editar ruta · revisión ${editingRoute.numero_revision}`
+                        : `Nueva ruta · ${ARTICLE_CLASS[routeTargetArticle?.clase] || 'Artículo'} ${routeTargetArticle?.codigo || 'objetivo'}`}
+                    </Typography>
+                    <Button size="small" onClick={requestRouteEditorClose}>Volver a lista</Button>
+                  </Stack>
+                  {routeEditorContent}
+                </Paper>
+              )}
+              {!(embedded && dialog === 'route') && (<>
               <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                 {centers.map((center) => (
                   <Chip
@@ -1904,7 +2114,7 @@ function ScmEngineeringAdmin() {
                     label={`${center.codigo} · ${center.nombre} (${OPERATION_TYPE_LABEL[center.tipo] || center.tipo})`}
                     variant="outlined"
                     color={center.activo ? 'default' : 'warning'}
-                    onClick={canAdminRoutes ? () => {
+                    onClick={canAdminRoutes && !embedded ? () => {
                       setEditingCenter(center);
                       setCenterForm({
                         nombre: center.nombre,
@@ -1912,14 +2122,14 @@ function ScmEngineeringAdmin() {
                       });
                       setDialog('center');
                     } : undefined}
-                    onDelete={canAdminRoutes ? () => runMutation(
+                    onDelete={canAdminRoutes && !embedded ? () => runMutation(
                       () => actualizarCentroTrabajoScm(center.id, {
                         version: center.version,
                         activo: !center.activo,
                       }),
                       `Centro ${center.activo ? 'inactivado' : 'reactivado'}.`,
                     ) : undefined}
-                    deleteIcon={<PowerSettingsNewOutlinedIcon />}
+                    deleteIcon={embedded ? undefined : <PowerSettingsNewOutlinedIcon />}
                   />
                 ))}
               </Stack>
@@ -2041,6 +2251,7 @@ function ScmEngineeringAdmin() {
                   El artículo objetivo todavía no tiene una ruta revisionada.
                 </Alert>
               )}
+              </>)}
             </Stack>
           )}
 
@@ -2839,35 +3050,16 @@ function ScmEngineeringAdmin() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={dialog === 'route'} onClose={() => setDialog(null)} fullWidth maxWidth="lg">
-        <DialogTitle>
-          {editingRoute
-            ? `Editar ruta · revisión ${editingRoute.numero_revision}`
-            : `Nueva ruta · ${ARTICLE_CLASS[routeTargetArticle?.clase] || 'Artículo'} ${routeTargetArticle?.codigo || 'objetivo'}`}
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ pt: 1 }}>
-            {hydratingEditor && <Alert severity="info">Resolviendo referencias del borrador…</Alert>}
-            {hydrationError && <Alert severity="warning">{hydrationError}</Alert>}
-            <RouteRevisionEditor
-              targetArticle={routeTargetArticle}
-              articles={[...new Map([...articles, ...articleCache]
-                .map((item) => [Number(item.id), item])).values()]}
-              centers={centers}
-              structures={structures}
-              revision={editingRoute}
-              value={routeForm}
-              onChange={setRouteForm}
-              onNavigateStructure={goToStructuresForArticle}
-              onCancel={() => setDialog(null)}
-              onSubmit={saveRoute}
-              busy={saving || hydratingEditor || Boolean(hydrationError)}
-              showHeading={false}
-              submitLabel={editingRoute ? 'Guardar borrador' : 'Crear borrador'}
-            />
-          </Box>
-        </DialogContent>
-      </Dialog>
+      {!embedded && (
+        <Dialog open={dialog === 'route'} onClose={() => setDialog(null)} fullWidth maxWidth="lg">
+          <DialogTitle>
+            {editingRoute
+              ? `Editar ruta · revisión ${editingRoute.numero_revision}`
+              : `Nueva ruta · ${ARTICLE_CLASS[routeTargetArticle?.clase] || 'Artículo'} ${routeTargetArticle?.codigo || 'objetivo'}`}
+          </DialogTitle>
+          <DialogContent>{routeEditorContent}</DialogContent>
+        </Dialog>
+      )}
       <Dialog open={dialog === 'container'} onClose={() => setDialog(null)} fullWidth maxWidth="sm">
         <DialogTitle>{editingContainer ? 'Editar tipo de contenedor' : 'Nuevo tipo de contenedor'}</DialogTitle>
         <DialogContent>

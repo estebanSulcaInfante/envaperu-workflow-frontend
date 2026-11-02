@@ -38,6 +38,10 @@ vi.mock('../services/scmOtApi', () => ({
 vi.mock('../services/scmEngineeringApi', () => ({
   obtenerActorScm: () => 1,
   listarArticulosScm: vi.fn().mockResolvedValue([]),
+  listarArticulosPaginaScm: vi.fn().mockResolvedValue({ items: [], total: 0, has_more: false }),
+  listarCentrosTrabajoScm: vi.fn().mockResolvedValue([]),
+  listarEstructurasScm: vi.fn().mockResolvedValue([]),
+  hidratarEstructurasScm: vi.fn().mockResolvedValue({ approved: [], referenced: [] }),
   listarRutasArticuloScm: vi.fn().mockResolvedValue([]),
   mensajeErrorScm: (error, fallback) => error?.message || fallback,
 }));
@@ -64,7 +68,9 @@ import {
   obtenerColores, obtenerMaquinas, obtenerMolde, obtenerMoldes,
   obtenerRecetasColorMaestras,
 } from '../services/api';
-import { listarArticulosScm, listarRutasArticuloScm } from '../services/scmEngineeringApi';
+import {
+  listarArticulosPaginaScm, listarArticulosScm, listarCentrosTrabajoScm, listarRutasArticuloScm,
+} from '../services/scmEngineeringApi';
 import {
   cerrarOrdenFabricacionScm,
   anularOrdenFabricacionScm,
@@ -1003,6 +1009,66 @@ describe('Órdenes de fabricación', () => {
     expect(admin).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByRole('menuitem', { name: 'Ver ruta' })).toBeEnabled();
     expect(screen.getByRole('menuitem', { name: 'Actualizar' })).toBeEnabled();
+  });
+
+  it('abre Ingeniería de rutas en la superficie OF sin popup ni URL padre', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-route-admin-embedded', codigo: 'OF-ROUTE-EMBEDDED', estado: 'LIBERADA', version: 2,
+      corridas: [{
+        id: 'run-admin-embedded', codigo: 'C01', color_nombre: 'Azul', operacion_ruta_revision_id: 201,
+        operacion_ruta: { id: 201, nombre: 'Ruta contextual', ruta_revision_id: 20 },
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza 5', codigo: 'PC-5', clase: 'PIEZA_COLOR' } }],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarArticulosPaginaScm.mockResolvedValue({
+      items: [{ id: 5, nombre: 'Pieza 5', codigo: 'PC-5', clase: 'PIEZA_COLOR', activo: true }],
+      total: 1, has_more: false, next_cursor: null,
+    });
+    listarCentrosTrabajoScm.mockResolvedValue([{ id: 1, codigo: 'INY', nombre: 'Inyectora', tipo: 'INYECCION', activo: true }]);
+    listarRutasArticuloScm.mockResolvedValue([{ id: 20, numero_revision: 3, estado: 'APROBADA', content_hash: 'hash-20', operaciones: [] }]);
+    renderDetail(order);
+    const initialUrl = window.location.href;
+    const actionsButton = await screen.findByRole('button', { name: 'Acciones de ruta para C01' });
+    await user.click(actionsButton);
+    await user.click(screen.getByRole('menuitem', { name: 'Administrar' }));
+    expect(await screen.findByRole('region', { name: 'Ingeniería de ruta C01' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: /Ruta · PC-5 · OF-ROUTE-EMBEDDED/ })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Administrar' })).not.toBeInTheDocument();
+    expect(window.location.href).toBe(initialUrl);
+    await user.click(screen.getByRole('button', { name: 'Volver a OF' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Ingeniería de ruta C01' })).not.toBeInTheDocument());
+    expect(window.location.href).toBe(initialUrl);
+    expect(actionsButton).toHaveFocus();
+  });
+
+  it('protege el borrador de Ingeniería al cerrar embedded con Escape', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-route-embedded-guard', codigo: 'OF-ROUTE-GUARD', estado: 'BORRADOR', version: 2,
+      corridas: [{
+        id: 'run-embedded-guard', codigo: 'C01', color_nombre: 'Azul',
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza 5', codigo: 'PC-5', clase: 'PIEZA_COLOR' } }],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarArticulosPaginaScm.mockResolvedValue({
+      items: [{ id: 5, nombre: 'Pieza 5', codigo: 'PC-5', clase: 'PIEZA_COLOR', activo: true }],
+      total: 1, has_more: false, next_cursor: null,
+    });
+    listarCentrosTrabajoScm.mockResolvedValue([{ id: 1, codigo: 'INY', nombre: 'Inyectora', tipo: 'INYECCION', activo: true }]);
+    listarRutasArticuloScm.mockResolvedValue([]);
+    renderDetail(order);
+    await user.click(await screen.findByRole('button', { name: 'Acciones de ruta para C01' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Administrar' }));
+    await user.click(await screen.findByRole('button', { name: 'Nueva ruta' }));
+    await user.type(screen.getByRole('textbox', { name: 'Nombre de la operación' }), 'Borrador protegido');
+    await user.keyboard('{Escape}');
+    expect(await screen.findByText(/Hay cambios del borrador de ingeniería/)).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Ingeniería de ruta C01' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Descartar y volver' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Ingeniería de ruta C01' })).not.toBeInTheDocument());
   });
 
   it('mantiene acciones de ruta autorizadas cuando OF_EDITAR_BORRADOR está ausente', async () => {

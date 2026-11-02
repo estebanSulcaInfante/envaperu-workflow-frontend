@@ -299,6 +299,7 @@ export default function FabricationObjectivesTable({
                             frozen={Boolean(routeFrozen)}
                             frozenHash={routeFrozen ? persistedRouteHash : undefined}
                             onInspect={onRefreshRoutes}
+                          orderCode={order.codigo || order.id}
                           />
                         </Stack>
                       </Stack>
