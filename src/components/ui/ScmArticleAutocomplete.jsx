@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Autocomplete,
   Box,
@@ -39,6 +39,8 @@ const filterArticles = (articles, state) => {
   });
 };
 
+const articleLabel = (article) => `${article.codigo} · ${article.nombre}`;
+
 function ScmArticleAutocomplete({
   label,
   articles,
@@ -50,21 +52,67 @@ function ScmArticleAutocomplete({
   disabled = false,
   required = false,
   size = 'small',
+  remote = false,
+  onSearch,
+  searchLoading = false,
+  resetKey,
 }) {
-  const selectedArticle = useMemo(() => articles.find(
+  const [inputValue, setInputValue] = useState('');
+  const [remoteSearchValue, setRemoteSearchValue] = useState(null);
+  const onSearchRef = useRef(onSearch);
+  const resetKeyRef = useRef(resetKey);
+  useEffect(() => {
+    onSearchRef.current = onSearch;
+  }, [onSearch]);
+  useEffect(() => {
+    if (!remote || remoteSearchValue === null) return undefined;
+    const timer = globalThis.setTimeout(() => {
+      onSearchRef.current?.(remoteSearchValue);
+    }, 300);
+    return () => globalThis.clearTimeout(timer);
+  }, [remote, remoteSearchValue]);
+  const selectedFromValue = useMemo(() => articles.find(
     (article) => String(getOptionValue(article)) === String(value),
   ) || null, [articles, getOptionValue, value]);
+  const selectedLabel = selectedFromValue ? articleLabel(selectedFromValue) : '';
+  useEffect(() => {
+    if (resetKeyRef.current === resetKey) return;
+    resetKeyRef.current = resetKey;
+    setInputValue(selectedLabel);
+    setRemoteSearchValue(null);
+  }, [resetKey, selectedLabel]);
+  useEffect(() => {
+    if (!selectedLabel) return;
+    setInputValue((current) => current || selectedLabel);
+  }, [selectedLabel]);
+  const options = useMemo(() => {
+    if (!selectedFromValue || articles.some((article) => String(getOptionValue(article)) === String(value))) {
+      return articles;
+    }
+    return [selectedFromValue, ...articles];
+  }, [articles, getOptionValue, selectedFromValue, value]);
+  const selectedArticle = selectedFromValue;
 
   return (
     <Autocomplete
       fullWidth
       openOnFocus
       autoHighlight
-      options={articles}
+      options={options}
       value={selectedArticle}
       disabled={disabled}
-      filterOptions={filterArticles}
-      getOptionLabel={(article) => `${article.codigo} · ${article.nombre}`}
+      loading={remote ? searchLoading : false}
+      filterOptions={remote ? (available) => available : filterArticles}
+      inputValue={inputValue}
+      onInputChange={(_, nextValue, reason) => {
+        setInputValue(nextValue);
+        if (remote) {
+          setRemoteSearchValue(
+            reason === 'input' || reason === 'clear' ? nextValue : null,
+          );
+        }
+      }}
+      getOptionLabel={articleLabel}
       isOptionEqualToValue={(option, selected) => (
         String(getOptionValue(option)) === String(getOptionValue(selected))
       )}
@@ -72,7 +120,7 @@ function ScmArticleAutocomplete({
         article ? String(getOptionValue(article)) : '',
         article,
       )}
-      noOptionsText="No hay artículos que coincidan con la búsqueda."
+      noOptionsText={searchLoading ? 'Buscando artículos…' : 'No hay artículos que coincidan con la búsqueda.'}
       renderOption={(props, article) => {
         const { key, ...optionProps } = props;
         return (
