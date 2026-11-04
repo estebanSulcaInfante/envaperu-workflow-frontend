@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RouteDependencyDialog from '../components/RouteDependencyDialog';
+import { FeedbackProvider } from '../context/FeedbackContext';
 
 const api = vi.hoisted(() => ({
   routes: vi.fn(),
@@ -97,8 +98,9 @@ const routeDraft = {
   ],
 };
 
-const dialog = (props = {}) => (
-  <ThemeProvider theme={createTheme()}>
+const dialog = (props = {}) => {
+  const { withFeedback = false, ...dialogProps } = props;
+  const content = (
     <RouteDependencyDialog
       open
       run={{ codigo: 'C01', color_nombre: 'Rojo' }}
@@ -112,10 +114,15 @@ const dialog = (props = {}) => (
       structureCanAdmin
       articleCanAdmin
       onClose={vi.fn()}
-      {...props}
+      {...dialogProps}
     />
-  </ThemeProvider>
-);
+  );
+  return (
+    <ThemeProvider theme={createTheme()}>
+      {withFeedback ? <FeedbackProvider>{content}</FeedbackProvider> : content}
+    </ThemeProvider>
+  );
+};
 
 const renderDialog = (props = {}) => render(dialog(props));
 
@@ -518,6 +525,38 @@ describe('RouteDependencyDialog · WIP/BOM P1', () => {
     await waitFor(() => expect(api.createStructure).toHaveBeenCalledTimes(1));
     expect(screen.getByRole('textbox', { name: 'Notas de revisión' })).toHaveValue('BOM 409 conserva');
     expect(screen.queryByText(/Guardado incierto/)).not.toBeInTheDocument();
+  });
+
+  it('comparte error y éxito de guardar BOM, conserva el borrador al cerrar snackbar y permite reintentar', async () => {
+    const user = userEvent.setup();
+    api.createStructure
+      .mockRejectedValueOnce(Object.assign(new Error('BOM no guardada'), { status: 409 }))
+      .mockResolvedValueOnce({
+        id: 31,
+        estado: 'BORRADOR',
+        numero_revision: 1,
+        articulo_resultado_id: component.id,
+        notas: 'BOM reintentable',
+        componentes: [{ secuencia: 1, articulo_id: child.id, cantidad: 1, unidad: 'UN', merma_tecnica_pct: 0 }],
+      });
+    renderDialog({ withFeedback: true });
+    await openBom(user);
+    await user.click(screen.getByRole('button', { name: 'Nueva BOM borrador' }));
+    await user.type(screen.getByRole('textbox', { name: 'Notas de revisión' }), 'BOM reintentable');
+    await user.click(screen.getByRole('combobox', { name: 'Artículo componente' }));
+    await user.click(await screen.findByRole('option', { name: /WIP-507/ }));
+    await user.click(screen.getByRole('button', { name: 'Crear BOM borrador' }));
+
+    expect(await screen.findByText('BOM no guardada')).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Notas de revisión' })).toHaveValue('BOM reintentable');
+    await user.click(screen.getByRole('button', { name: 'Cerrar notificación' }));
+    expect(screen.getByRole('textbox', { name: 'Notas de revisión' })).toHaveValue('BOM reintentable');
+
+    const retry = screen.getByRole('button', { name: 'Crear BOM borrador' });
+    await waitFor(() => expect(retry).toBeEnabled());
+    await user.click(retry);
+    await waitFor(() => expect(api.createStructure).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('status', { name: /BOM guardada como borrador/ })).toBeVisible();
   });
 
   it('no ofrece autoaprobación de BOM al mismo actor creador, aunque tenga capacidad aprobar', async () => {

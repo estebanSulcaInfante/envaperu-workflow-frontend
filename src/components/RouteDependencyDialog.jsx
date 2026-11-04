@@ -223,13 +223,12 @@ function RouteDependencyBody({
   const [routes, setRoutes] = useState([]);
   const [centers, setCenters] = useState([]);
   const [catalogState, setCatalogState] = useState('idle');
-  const [catalogError, setCatalogError, feedbackFallback_catalogError] = useOperationMessage('components/RouteDependencyDialog.jsx:catalogError', { severity: 'warning', initialValue: '' });
+  const [catalogError, setCatalogError] = useOperationMessage('components/RouteDependencyDialog.jsx:catalogError', { severity: 'warning', initialValue: '' });
   const [editingRoute, setEditingRoute] = useState(null);
   const [routeForm, setRouteForm] = useState(null);
   const [baseline, setBaseline] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState('');
-  const [noticeSeverity, setNoticeSeverity] = useState('success');
+  const [notice, setNotice, feedbackFallback_notice, noticeSeverity] = useOperationMessage('components/RouteDependencyDialog.jsx:notice', { severity: 'success', initialValue: '' });
   const [routeUncertain, setRouteUncertain] = useState(false);
   const [resolvedTarget, setResolvedTarget] = useState(null);
   const [workspaceFrame, setWorkspaceFrame] = useState('route');
@@ -237,7 +236,7 @@ function RouteDependencyBody({
   const [ownerSearch, setOwnerSearch] = useState('');
   const [ownerArticles, setOwnerArticles] = useState([]);
   const [ownerCatalogState, setOwnerCatalogState] = useState('idle');
-  const [ownerCatalogError, setOwnerCatalogError, feedbackFallback_ownerCatalogError] = useOperationMessage('components/RouteDependencyDialog.jsx:ownerCatalogError', { severity: 'warning', initialValue: '' });
+  const [ownerCatalogError, setOwnerCatalogError] = useOperationMessage('components/RouteDependencyDialog.jsx:ownerCatalogError', { severity: 'warning', initialValue: '' });
   const [ownerCatalogCursor, setOwnerCatalogCursor] = useState(null);
   const [ownerCatalogHasMore, setOwnerCatalogHasMore] = useState(false);
   const [articleSearchBusy, setArticleSearchBusy] = useState(false);
@@ -271,7 +270,7 @@ function RouteDependencyBody({
   const [centerIndex, setCenterIndex] = useState(null);
   const [centerForm, setCenterForm] = useState({ nombre: '', tipo: 'PREARMADO' });
   const [centerBusy, setCenterBusy] = useState(false);
-  const [centerError, setCenterError, feedbackFallback_centerError] = useOperationMessage('components/RouteDependencyDialog.jsx:centerError', { severity: 'error', initialValue: '' });
+  const [centerError, setCenterError] = useOperationMessage('components/RouteDependencyDialog.jsx:centerError', { severity: 'error', initialValue: '' });
   const [centerUncertain, setCenterUncertain] = useState(false);
   const abortRef = useRef(null);
   const ownerAbortRef = useRef(null);
@@ -289,10 +288,9 @@ function RouteDependencyBody({
   const wipAttemptRef = useRef(null);
   const governanceAttemptRef = useRef(null);
   const mountedRef = useRef(true);
-  const notify = (message, severity = 'success') => {
-    setNotice(message);
-    setNoticeSeverity(severity);
-  };
+  const notify = useCallback((message, severity = 'success') => {
+    setNotice(message, { severity });
+  }, [setNotice]);
 
   const baseTarget = useMemo(() => {
     if (targetArticle?.id != null) return targetArticle;
@@ -509,7 +507,7 @@ function RouteDependencyBody({
       routeDetailGenerationRef.current += 1;
       articleSearchGenerationRef.current += 1;
     };
-  }, [directTarget?.clase, loadCatalog, selectedOwnerTarget, setCenterError]);
+  }, [directTarget?.clase, loadCatalog, notify, selectedOwnerTarget, setCenterError]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -617,7 +615,7 @@ function RouteDependencyBody({
         setArticleSearchBusy(false);
       }
     }
-  }, [actorId, baseTarget, contextSnapshot, effectiveTarget, isCurrentContext]);
+  }, [actorId, baseTarget, contextSnapshot, effectiveTarget, isCurrentContext, notify]);
 
   useEffect(() => {
     if (effectiveTarget?.clase !== 'PIEZA_COLOR' || selectedOwnerTarget || ownerTargetChoice || frozen || !routeCanView) {
@@ -702,7 +700,7 @@ function RouteDependencyBody({
     setRouteForm(null);
     setEditingRoute(null);
     setCenterIndex(null);
-  }, [centerBusy, centerUncertain, governanceBusy, governanceUncertain, pendingDraft, routeUncertain, saving, structureBusy, structureUncertain, wipBusy, wipUncertain]);
+  }, [centerBusy, centerUncertain, governanceBusy, governanceUncertain, notify, pendingDraft, routeUncertain, saving, structureBusy, structureUncertain, wipBusy, wipUncertain]);
 
   const requestDialogClose = useCallback(() => {
     if (saving || centerBusy || structureBusy || wipBusy || governanceBusy) {
@@ -719,7 +717,7 @@ function RouteDependencyBody({
       return;
     }
     onClose?.();
-  }, [centerBusy, centerUncertain, governanceBusy, governanceUncertain, onClose, pendingDraft, routeUncertain, saving, structureBusy, structureUncertain, wipBusy, wipUncertain]);
+  }, [centerBusy, centerUncertain, governanceBusy, governanceUncertain, notify, onClose, pendingDraft, routeUncertain, saving, structureBusy, structureUncertain, wipBusy, wipUncertain]);
 
   useEffect(() => {
     if (!closeRequestRef) return undefined;
@@ -892,7 +890,7 @@ function RouteDependencyBody({
     } finally {
       if (structureAbortRef.current === controller) structureAbortRef.current = null;
     }
-  }, [actorId, contextSnapshot, isCurrentContext, setCatalogError, structureArticleCursor, structureArticleHasMore, structureArticleQuery, structureArticles, structureBaseline, structureCanView, structureForm, structureLoadedIds, structureRevision, structureTarget, structures]);
+  }, [actorId, contextSnapshot, isCurrentContext, notify, setCatalogError, structureArticleCursor, structureArticleHasMore, structureArticleQuery, structureArticles, structureBaseline, structureCanView, structureForm, structureLoadedIds, structureRevision, structureTarget, structures]);
 
   const openStructureEditor = (revision = null) => {
     if (revision && structureTarget?.id != null) {
@@ -936,7 +934,7 @@ function RouteDependencyBody({
     } finally {
       if (structureAbortRef.current === controller) structureAbortRef.current = null;
     }
-  }, [actorId, contextSnapshot, isCurrentContext]);
+  }, [actorId, contextSnapshot, isCurrentContext, notify]);
 
   const saveStructure = async (payload = buildStructurePayload(structureForm)) => {
     if (!structureTarget?.id || structureBusy || structureUncertain || frozen || !structureCanAdmin || !structureCanView || !structureForm) return;
@@ -1380,7 +1378,7 @@ function RouteDependencyBody({
           <Typography variant="caption" color="text.secondary">
             El centro se guarda como transacción independiente y no se revierte al cancelar la ruta.
           </Typography>
-          {centerError && feedbackFallback_centerError && <Alert severity="warning">{centerError}</Alert>}
+          {centerError && <Alert severity="warning">{centerError}</Alert>}
           {centerUncertain && (
             <Alert severity="warning" action={(
               <Stack direction="row" spacing={0.5}>
@@ -1481,7 +1479,7 @@ function RouteDependencyBody({
               helperText="Busca por código o nombre; se consulta por páginas."
             />
             {ownerCatalogState === 'loading' && <Typography variant="caption" color="text.secondary">Consultando catálogo…</Typography>}
-            {ownerCatalogState === 'error' && feedbackFallback_ownerCatalogError && <Alert severity="warning">{ownerCatalogError}</Alert>}
+            {ownerCatalogState === 'error' && <Alert severity="warning">{ownerCatalogError}</Alert>}
             {ownerArticles.map((article) => (
               <Button key={`remote-owner-${article.id}`} size="small" variant="outlined" sx={{ justifyContent: 'flex-start' }} onClick={() => setOwnerTargetChoice(article)} disabled={anyBusy || anyUncertain}>
                  Usar {articleLabel(article)} como dueño · {article.clase}
@@ -1502,8 +1500,8 @@ function RouteDependencyBody({
       )}
       {!effectiveCanView && directTarget && <Alert severity="warning">Identidad propietaria no disponible para esta corrida. Solo se admite una Pieza-color directa; no se consulta ni administra otra salida por aproximación.</Alert>}
       {catalogState === 'loading' && <Alert severity="info" icon={<CircularProgress size={18} />}>Cargando rutas y centros…</Alert>}
-      {catalogState === 'error' && feedbackFallback_catalogError && <Alert severity="warning" action={<Button color="inherit" size="small" onClick={loadCatalog}>Reintentar</Button>}>{catalogError}</Alert>}
-      {notice && <Alert severity={noticeSeverity}>{notice}</Alert>}
+      {catalogState === 'error' && <Alert severity="warning" action={<Button color="inherit" size="small" onClick={loadCatalog}>Reintentar</Button>}>{catalogError}</Alert>}
+      {notice && feedbackFallback_notice && <Alert severity={noticeSeverity}>{notice}</Alert>}
       {routeUncertain && (
         <Alert severity="warning" action={(
           <Stack direction="row" spacing={0.5}>
@@ -1710,7 +1708,7 @@ function RouteDependencyBody({
         Preparar WIP para componente BOM
       </Button>
       {catalogState === 'loading' && <Alert severity="info" icon={<CircularProgress size={18} />}>Cargando BOM y artículos…</Alert>}
-      {catalogState === 'error' && feedbackFallback_catalogError && <Alert severity="warning">{catalogError}</Alert>}
+      {catalogState === 'error' && <Alert severity="warning">{catalogError}</Alert>}
       {structureUncertain && (
         <Alert severity="warning" action={<Button color="inherit" size="small" onClick={reconcileStructureSave}>Consultar BOM</Button>}>
           Guardado incierto: reconcilia la lectura antes de repetir el POST.

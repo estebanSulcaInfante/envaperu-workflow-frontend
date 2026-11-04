@@ -321,7 +321,7 @@ function ScmEngineeringAdmin({
   const ruleReadAbort = useRef(null);
   const ruleReadGeneration = useRef(0);
   const [hydratingEditor, setHydratingEditor] = useState(false);
-  const [hydrationError, setHydrationError, feedbackFallback_hydrationError] = useOperationMessage("components/ScmEngineeringAdmin.jsx:hydrationError", { severity: "warning", initialValue: '' });
+  const [hydrationError, setHydrationError] = useOperationMessage("components/ScmEngineeringAdmin.jsx:hydrationError", { severity: "warning", initialValue: '' });
   const [selectedArticleId, setSelectedArticleId] = useState('');
   const [selectedRouteArticleId, setSelectedRouteArticleId] = useState(embeddedArticleId);
   const [dialog, setDialog] = useState(null);
@@ -1512,7 +1512,7 @@ function ScmEngineeringAdmin({
   const routeEditorContent = (
     <Box sx={{ pt: 1 }}>
       {hydratingEditor && <Alert severity="info">Resolviendo referencias del borrador…</Alert>}
-      {hydrationError && <>{feedbackFallback_hydrationError && <Alert severity="warning">{hydrationError}</Alert>}</>}
+      {hydrationError && <Alert severity="warning">{hydrationError}</Alert>}
       <RouteRevisionEditor
         targetArticle={routeTargetArticle}
         articles={[...new Map([...articles, ...articleCache]
@@ -2917,7 +2917,7 @@ function ScmEngineeringAdmin({
         <DialogContent>
           <Box sx={{ pt: 1 }}>
             {hydratingEditor && <Alert severity="info">Resolviendo referencias del borrador…</Alert>}
-            {hydrationError && <>{feedbackFallback_hydrationError && <Alert severity="warning">{hydrationError}</Alert>}</>}
+            {hydrationError && <Alert severity="warning">{hydrationError}</Alert>}
             <StructureRevisionEditor
               targetArticle={selectedArticle}
               componentArticles={structureComponentArticles}
@@ -3161,7 +3161,7 @@ function ScmEngineeringAdmin({
         <DialogContent>
           <Box sx={{ pt: 1 }}>
             {hydratingEditor && <Alert severity="info">Resolviendo referencias de la regla…</Alert>}
-            {hydrationError && <>{feedbackFallback_hydrationError && <Alert severity="warning">{hydrationError}</Alert>}</>}
+            {hydrationError && <Alert severity="warning">{hydrationError}</Alert>}
             <PackagingRuleEditor
               value={ruleForm}
               profiles={profiles}

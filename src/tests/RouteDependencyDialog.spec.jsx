@@ -1,4 +1,5 @@
 import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { FeedbackProvider } from '../context/FeedbackContext';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -37,19 +38,37 @@ vi.mock('../services/scmEngineeringApi', () => ({
 const target = { id: 5, codigo: 'PC-TAPA', nombre: 'Tapa roja', clase: 'PIEZA_COLOR' };
 const renderDialog = (props = {}) => render(
   <ThemeProvider theme={createTheme()}>
-    <RouteDependencyDialog
-      open
-      run={{ codigo: 'C01', color_nombre: 'Rojo' }}
-      targetArticle={target}
-      articleId={target.id}
-      canView
-      canAdmin
-      articleCanAdmin={true}
-      structureCanView={true}
-      structureCanAdmin={true}
-      onClose={vi.fn()}
-      {...props}
-    />
+    {props.withFeedback ? (
+      <FeedbackProvider>
+        <RouteDependencyDialog
+          open
+          run={{ codigo: 'C01', color_nombre: 'Rojo' }}
+          targetArticle={target}
+          articleId={target.id}
+          canView
+          canAdmin
+          articleCanAdmin={true}
+          structureCanView={true}
+          structureCanAdmin={true}
+          onClose={vi.fn()}
+          {...props}
+        />
+      </FeedbackProvider>
+    ) : (
+      <RouteDependencyDialog
+        open
+        run={{ codigo: 'C01', color_nombre: 'Rojo' }}
+        targetArticle={target}
+        articleId={target.id}
+        canView
+        canAdmin
+        articleCanAdmin={true}
+        structureCanView={true}
+        structureCanAdmin={true}
+        onClose={vi.fn()}
+        {...props}
+      />
+    )}
   </ThemeProvider>,
 );
 
@@ -123,6 +142,21 @@ describe('RouteDependencyDialog contextual', () => {
 
     pending[0]?.({ items: [], has_more: false, next_cursor: null });
     pending[1]?.({ items: [], has_more: false, next_cursor: null });
+  });
+
+  it('conserva el error y la recuperación contextual al cerrar el snackbar compartido', async () => {
+    const user = userEvent.setup();
+    api.routes.mockRejectedValueOnce(new Error('GET rutas falló')).mockResolvedValue([]);
+    renderDialog({ withFeedback: true });
+
+    const messages = await screen.findAllByText('GET rutas falló');
+    expect(messages.length).toBeGreaterThanOrEqual(2);
+    await user.click(screen.getByRole('button', { name: 'Cerrar notificación' }));
+    expect(screen.getByText('GET rutas falló')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }));
+    await waitFor(() => expect(api.routes).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText('GET rutas falló')).not.toBeInTheDocument());
   });
 
   it('confirma un WIP owner como maestro independiente y vuelve al frame de ruta', async () => {
