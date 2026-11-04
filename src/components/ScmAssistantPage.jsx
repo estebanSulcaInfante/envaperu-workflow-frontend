@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -215,13 +216,13 @@ function ProviderNarration({ provider }) {
 export default function ScmAssistantPage() {
   const [status, setStatus] = useState(null);
   const [statusLoading, setStatusLoading] = useState(true);
-  const [statusError, setStatusError] = useState('');
+  const [statusError, setStatusError] = useOperationMessage("components/ScmAssistantPage.jsx:statusError", { severity: "error", initialValue: '' });
   const [statusRefreshKey, setStatusRefreshKey] = useState(0);
   const [query, setQuery] = useState(PRESET_QUERY);
   const [dateLima, setDateLima] = useState(yesterdayInLima);
   const [result, setResult] = useState(null);
   const [queryLoading, setQueryLoading] = useState(false);
-  const [queryError, setQueryError] = useState('');
+  const [queryError, setQueryError] = useOperationMessage("components/ScmAssistantPage.jsx:queryError", { severity: "error", initialValue: '' });
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
@@ -239,7 +240,7 @@ export default function ScmAssistantPage() {
         if (active) setStatusLoading(false);
       });
     return () => { active = false; };
-  }, [statusRefreshKey]);
+  }, [statusRefreshKey, setStatusError]);
 
   const ready = Boolean(
     !statusLoading && !statusError && status?.available && status?.auth_state === 'READY',

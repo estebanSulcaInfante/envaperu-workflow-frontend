@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import {
   Alert,
   Box,
@@ -163,9 +164,9 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [loadingWorkers, setLoadingWorkers] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [storageError, setStorageError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/DirectKgBatchWithdrawals.jsx:error", { severity: "error", initialValue: '' });
+  const [notice, setNotice, feedbackFallback_notice, noticeSeverity] = useOperationMessage("components/DirectKgBatchWithdrawals.jsx:notice", { severity: "success", initialValue: '' });
+  const [storageError, setStorageError, feedbackFallback_storageError] = useOperationMessage("components/DirectKgBatchWithdrawals.jsx:storageError", { severity: "error", initialValue: '' });
   const [pending, setPending] = useState(null);
   const [complete, setComplete] = useState(null);
   const [confirming, setConfirming] = useState(false);
@@ -215,7 +216,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     setBusy(false);
     setConfirming(false);
     setStorageError('');
-  }, [actorId]);
+  }, [actorId, setStorageError]);
 
   useEffect(() => {
     requestRef.current += 1;
@@ -238,7 +239,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     setNotice('');
     setComplete(null);
     setPending(parseStorage(pendingKey));
-  }, [actorId, draftKey, pendingKey]);
+  }, [actorId, draftKey, pendingKey, setError, setNotice]);
 
   useEffect(() => {
     candidatesRef.current = candidates;
@@ -262,7 +263,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     }
     setStorageError('');
     return true;
-  }, [draftKey]);
+  }, [draftKey, setStorageError]);
 
   const updateDraft = (patch) => {
     setDraft((current) => {
@@ -314,7 +315,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     } finally {
       if (activeActorRef.current === requestedActor && sessionGenerationRef.current === requestedGeneration) setLoadingWorkers(false);
     }
-  }, [actorId, loadingWorkers, workers.length]);
+  }, [actorId, loadingWorkers, workers.length, setError]);
 
   const patchScanRead = useCallback((readId, patch) => {
     const next = scanReadsRef.current.map((read) => (read.id === readId ? { ...read, ...patch } : read));
@@ -397,7 +398,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
         return next;
       });
     }
-  }, [actorId, draft, patchScanRead, persistDraft, removeScanRead, safePlayFeedback]);
+  }, [actorId, draft, patchScanRead, persistDraft, removeScanRead, safePlayFeedback, setNotice, setError]);
 
   const runScanQueue = useCallback(async () => {
     if (scanWorkerRef.current) return;
@@ -433,7 +434,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
         setNotice(`${value} ya está aceptada.`);
         setError('');
       } else {
-        setNotice(`${value} está pendiente de validación.`);
+        setNotice(`${value} está pendiente de validación.`, { severity: 'info', persistent: true });
         setError('');
       }
       safePlayFeedback('duplicate');
@@ -442,14 +443,14 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     }
     const pendingReads = scanReadsRef.current.filter((read) => read.status === 'waiting' || read.status === 'validating').length;
     if (scanPendingCodesRef.current.has(value)) {
-      setNotice(`${value} está pendiente de validación.`);
+      setNotice(`${value} está pendiente de validación.`, { severity: 'info', persistent: true });
       setError('');
       safePlayFeedback('duplicate');
       setCode('');
       return;
     }
     if (pendingReads >= SCAN_QUEUE_LIMIT) {
-      setNotice(`La cola esta llena (${SCAN_QUEUE_LIMIT}). Conserva la lectura en el campo y reintenta cuando avance.`);
+      setNotice(`La cola esta llena (${SCAN_QUEUE_LIMIT}). Conserva la lectura en el campo y reintenta cuando avance.`, { severity: 'warning', persistent: true });
       setCode(value);
       requestAnimationFrame(() => codeRef.current?.focus());
       return;
@@ -723,9 +724,9 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
         <Typography color="text.secondary">Elige el destino una vez, escanea cada manga y confirma la salida del lote.</Typography>
       </Box>
       {!hasCapabilities && <Alert severity="warning">Para confirmar se necesitan PICKING_PREPARAR y PICKING_DESPACHAR. Puedes revisar la selección mientras se habilitan ambas capacidades.</Alert>}
-      {storageError && <Alert severity="error">{storageError}</Alert>}
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {storageError && <>{feedbackFallback_storageError && <Alert severity="error">{storageError}</Alert>}</>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}</>}
+      {notice && <>{feedbackFallback_notice && <Alert severity={noticeSeverity} onClose={() => setNotice('')}>{notice}</Alert>}</>}
       {audioStatus === 'suspended' && <Alert severity="warning" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => activateAudio()}>Activar y probar sonido</Button>}>El sonido de lectura está suspendido. Puedes activarlo para recibir feedback.</Alert>}
       {audioStatus === 'unavailable' && <Alert severity="info">Sonido no disponible; puedes continuar con feedback visual.</Alert>}
       {audioStatus === 'error' && <Alert severity="error" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => activateAudio()}>Activar y probar sonido</Button>}>{audioError || 'No se pudo reproducir el feedback sonoro.'}</Alert>}

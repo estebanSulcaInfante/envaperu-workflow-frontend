@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useState } from 'react';
 import {
   Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -8,7 +9,7 @@ import { crearMaterialScm } from '../services/scmCatalogApi';
 export default function MaterialQuickCreateDialog({ open, role, categories, onClose, onCreated }) {
   const [name, setName] = useState('');
   const [categoryId, setCategoryId] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/MaterialQuickCreateDialog.jsx:error", { severity: "error", initialValue: '' });
   const [saving, setSaving] = useState(false);
 
   const close = () => {
@@ -55,9 +56,9 @@ export default function MaterialQuickCreateDialog({ open, role, categories, onCl
       <DialogContent>
         <Stack spacing={1.5} sx={{ pt: 1 }}>
           <Alert severity="info">El material quedará en el catálogo general con unidad KG y volverá seleccionado a la receta.</Alert>
-          {error && <Alert severity="error">{error}</Alert>}
-          <TextField autoFocus required fullWidth label="Nombre del material" value={name} onChange={(event) => setName(event.target.value)} />
-          <TextField select required fullWidth label="Categoría de recepción" value={categoryId} onChange={(event) => setCategoryId(event.target.value)} helperText="Define cómo se recibirá y controlará este material.">
+          {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
+          <TextField autoFocus required fullWidth label="Nombre del material" value={name} onChange={(event) => setName(event.target.value)}  error={Boolean((error === 'Ingresa el nombre y selecciona una categoría de recepción activa.' && !name.trim()))} helperText={(error === 'Ingresa el nombre y selecciona una categoría de recepción activa.' && !name.trim()) ? "Ingresa el nombre del material." : (undefined)} />
+          <TextField select required fullWidth label="Categoría de recepción" value={categoryId} onChange={(event) => setCategoryId(event.target.value)} helperText={(error === 'Ingresa el nombre y selecciona una categoría de recepción activa.' && !categoryId) ? "Selecciona una categoría de recepción activa." : ("Define cómo se recibirá y controlará este material.")} error={Boolean((error === 'Ingresa el nombre y selecciona una categoría de recepción activa.' && !categoryId))} >
             {available.map((category) => <MenuItem key={category.id} value={category.id}>{category.codigo} · {category.nombre}</MenuItem>)}
           </TextField>
           {available.length === 0 && <Alert severity="warning">No hay categorías de recepción activas. Configura una antes de crear materiales.</Alert>}

@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, FormControl, InputLabel, MenuItem,
@@ -80,7 +81,7 @@ export default function PrintJobsControlScm() {
   const [items, setItems] = useState([]);
   const [asOf, setAsOf] = useState('');
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/PrintJobsControlScm.jsx:error", { severity: "error", initialValue: '' });
 
   const load = useCallback(async (signal) => {
     setBusy(true);
@@ -97,7 +98,7 @@ export default function PrintJobsControlScm() {
     } finally {
       if (!signal?.aborted) setBusy(false);
     }
-  }, [filters]);
+  }, [filters, setError]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -174,7 +175,7 @@ export default function PrintJobsControlScm() {
         <Chip variant="outlined" color="warning" label={'Sin estación ' + totals.unassigned} />
         {asOf && <Chip variant="outlined" label={'Actualizado ' + displayDate(asOf)} />}
       </Stack>
-      {error && <Alert severity="error">{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
       {busy && <Box sx={{ py: 4, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>}
       {!busy && !error && !items.length && (
         <Alert severity="success">No hay trabajos que coincidan con los filtros actuales.</Alert>

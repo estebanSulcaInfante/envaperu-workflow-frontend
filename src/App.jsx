@@ -49,6 +49,7 @@ import WorkspaceFeatureRoute from './components/WorkspaceFeatureRoute';
 import WorkspaceAreaRedirect from './components/WorkspaceAreaRedirect';
 import { ScmActorProvider, useScmActor } from './context/ScmActorContext';
 import { AuthProvider } from './context/AuthContext';
+import { useAuth } from './context/AuthContext';
 import AuthGate from './components/auth/AuthGate';
 import RolesCapabilitiesAdmin from './components/RolesCapabilitiesAdmin';
 import ProductOnboardingPage from './components/productOnboarding/ProductOnboardingPage';
@@ -69,6 +70,12 @@ function FeedbackRouteScope({ children }) {
   const { actorId } = useScmActor();
   const scopeKey = `${actorId || 'anonymous'}:${location.pathname}${location.search}`;
   return <FeedbackProvider scopeKey={scopeKey}>{children}</FeedbackProvider>;
+}
+
+function AuthFeedbackScope({ children }) {
+  const { session, passwordSetupRequired, reauthenticationRequired } = useAuth();
+  const phase = passwordSetupRequired ? 'password-setup' : reauthenticationRequired ? 'reauthentication' : session?.user?.id ? 'authenticated' : 'login';
+  return <FeedbackProvider scopeKey={`auth:${session?.user?.id || 'anonymous'}:${phase}`}>{children}</FeedbackProvider>;
 }
 
 // Tema claro corporativo ENVAPERU
@@ -166,11 +173,12 @@ function App() {
       <CssBaseline />
       <BrowserRouter>
         <AuthProvider>
-          <AuthGate>
-            <ScmActorProvider>
-              <FeedbackRouteScope>
-                <AppShell>
-                  <ErrorBoundary>
+          <AuthFeedbackScope>
+            <AuthGate>
+              <ScmActorProvider>
+                <FeedbackRouteScope>
+                  <AppShell>
+                    <ErrorBoundary>
               <Routes>
                 <Route path="/" element={workspace('home.workspace', <RoleHome />)} />
                 <Route path="/guia/scm" element={<ScmGuide />} />
@@ -266,11 +274,12 @@ function App() {
                 <Route path="/catalogo/clasificacion" element={<Navigate to="/datos-maestros/clasificacion" replace />} />
                 <Route path="/catalogo/moldes/:codigo" element={workspace('masters.moldDetail', <MoldeDetalle />)} />
               </Routes>
-                  </ErrorBoundary>
-                </AppShell>
-              </FeedbackRouteScope>
-            </ScmActorProvider>
-          </AuthGate>
+                    </ErrorBoundary>
+                  </AppShell>
+                </FeedbackRouteScope>
+              </ScmActorProvider>
+            </AuthGate>
+          </AuthFeedbackScope>
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>

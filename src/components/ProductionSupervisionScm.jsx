@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import {
   Accordion,
   AccordionDetails,
@@ -1084,8 +1085,8 @@ export default function ProductionSupervisionScm() {
   const [summary, setSummary] = useState(null);
   const [asOf, setAsOf] = useState(null);
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState('');
-  const [summaryError, setSummaryError] = useState('');
+  const [error, setError] = useOperationMessage("components/ProductionSupervisionScm.jsx:error", { severity: "error", initialValue: '' });
+  const [summaryError, setSummaryError, feedbackFallback_summaryError] = useOperationMessage("components/ProductionSupervisionScm.jsx:summaryError", { severity: "warning", initialValue: '' });
   const [loadedActorId, setLoadedActorId] = useState(actorId);
   const [refreshKey, setRefreshKey] = useState(0);
   const [cursorHistory, setCursorHistory] = useState([]);
@@ -1198,7 +1199,7 @@ export default function ProductionSupervisionScm() {
       active = false;
       controller.abort();
     };
-  }, [actorId, filters, invalidRange, refreshKey]);
+  }, [actorId, filters, invalidRange, refreshKey, setError, setSummaryError]);
 
   useEffect(() => {
     detailRequestRef.current?.abort();
@@ -1463,7 +1464,7 @@ export default function ProductionSupervisionScm() {
           {error}
         </Alert>
       )}
-      {summaryError && <Alert severity="warning">{summaryError}</Alert>}
+      {summaryError && <>{feedbackFallback_summaryError && <Alert severity="warning">{summaryError}</Alert>}</>}
 
       <KpiGrid summary={summary} fallbackItems={filters.vista === 'MANGAS' ? [] : items} canWeighing={canWeighing} />
 

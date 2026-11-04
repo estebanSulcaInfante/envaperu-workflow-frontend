@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { useEffect, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, IconButton, Paper, Table,
@@ -18,14 +19,15 @@ import ProductoDialog from './ProductoDialog';
 import CommercialPresentationsDialog from './CommercialPresentationsDialog';
 import { matchesOmniSearch, uniqueOptions } from '../utils/tableSearch';
 import { useScmActor } from '../context/ScmActorContext';
+import { useOperationMessage } from '../utils/operationFeedbackState';
 
 export default function ProductosAdmin() {
   const { can, experience } = useScmActor();
   const canAdmin = can('ARTICULO_ADMINISTRAR');
   const [productos, setProductos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, isFeedbackFallback] = useOperationMessage('products-admin-error');
+  const [notice, setNotice] = useOperationMessage('products-admin-success', { severity: 'success', operation: 'products-admin' });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProducto, setEditingProducto] = useState(null);
   const [presentationProduct, setPresentationProduct] = useState(null);
@@ -33,7 +35,8 @@ export default function ProductosAdmin() {
   const [familyFilter, setFamilyFilter] = useState('TODAS');
   const [statusFilter, setStatusFilter] = useState('TODOS');
 
-  const fetchProductos = async () => {
+  const fetchProductos = useCallback(async () => {
+    setError('');
     try {
       setLoading(true);
       setProductos(await buscarProductos());
@@ -45,9 +48,9 @@ export default function ProductosAdmin() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [setError]);
 
-  useEffect(() => { fetchProductos(); }, []);
+  useEffect(() => { fetchProductos(); }, [fetchProductos]);
 
   const openDialog = async (product = null) => {
     setError('');
@@ -108,8 +111,8 @@ export default function ProductosAdmin() {
         title="Productos terminados"
         description="Identidades comerciales estables. La composición productiva se gobierna mediante BOM revisionadas en Ingeniería SCM."
       />
-      {error && <Alert severity="error" sx={{ my: 2 }} onClose={() => setError('')}>{error}</Alert>}
-      {notice && <Alert severity="success" sx={{ my: 2 }} onClose={() => setNotice('')}>{notice}</Alert>}
+      {isFeedbackFallback && error && <Alert severity="error" sx={{ my: 2 }} onClose={() => setError('')}>{error}</Alert>}
+      {isFeedbackFallback && notice && <Alert severity="success" sx={{ my: 2 }} onClose={() => setNotice('')}>{notice}</Alert>}
       {!canAdmin && (
         <Alert severity="info" sx={{ my: 2 }}>
           Vista de consulta para {experience.label}. Las altas y cambios corresponden a

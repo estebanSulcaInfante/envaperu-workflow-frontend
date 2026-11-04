@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useState, useEffect, useCallback } from 'react';
 import {
   Paper,
@@ -33,7 +34,7 @@ export default function RegistrosLista() {
   const [ordenes, setOrdenes] = useState([]);
   const [ordenSeleccionada, setOrdenSeleccionada] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/RegistrosLista.jsx:error", { severity: "error", initialValue: null });
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
   
   // Estado para modal de peso
@@ -70,7 +71,7 @@ export default function RegistrosLista() {
     } finally {
       setLoading(false);
     }
-  }, [ordenSeleccionada]);
+  }, [ordenSeleccionada, setError]);
 
   useEffect(() => {
     cargarRegistros();
@@ -174,7 +175,7 @@ export default function RegistrosLista() {
           </Grid>
         </Grid>
 
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {error && <>{feedbackFallback_error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}</>}
         
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>

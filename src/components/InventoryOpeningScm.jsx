@@ -10,6 +10,7 @@ import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useScmActor } from '../context/ScmActorContext';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
+import { useOperationMessage } from '../utils/operationFeedbackState';
 import {
   actualizarAperturaInventarioScm, crearAperturaInventarioScm,
   enviarAperturaInventarioScm, listarAperturasInventarioScm,
@@ -42,8 +43,8 @@ export default function InventoryOpeningScm({
   const [resolution, setResolution] = useState(null);
   const [resolutionReason, setResolutionReason] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, isFeedbackFallback] = useOperationMessage('inventory-opening-error');
+  const [notice, setNotice] = useOperationMessage('inventory-opening-success', { severity: 'success', operation: 'inventory-opening' });
   const [physicalTarget, setPhysicalTarget] = useState(null);
   const [targetForm, setTargetForm] = useState({ material_scm_id: '', ubicacion_codigo: 'A-ENVA-MP-GEN', estado_calidad: 'LIBERADO' });
 
@@ -54,13 +55,14 @@ export default function InventoryOpeningScm({
   const byCode = useMemo(() => new Map(catalog.map((item) => [item.codigo.toUpperCase(), item])), [catalog]);
 
   const load = useCallback(async () => {
+    setError('');
     try {
       const payload = await listarAperturasInventarioScm();
       setItems(payload.items || []);
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se cargaron los lotes de apertura.'));
     }
-  }, []);
+  }, [setError]);
   useEffect(() => { load(); }, [load, refreshVersion]);
 
   const payloadLines = () => form.lineas.map((line) => {
@@ -216,8 +218,8 @@ export default function InventoryOpeningScm({
             {canPrepare && <Button variant="contained" startIcon={<AddIcon />} disabled={busy} onClick={openNew}>Nuevo lote de conteo</Button>}
           </Stack>
         </Stack>
-        {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-        {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+        {isFeedbackFallback && error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+        {isFeedbackFallback && notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
         <TableContainer><Table size="small">
           <TableHead><TableRow><TableCell>Lote / corte</TableCell><TableCell>Contenido</TableCell><TableCell>Estado</TableCell><TableCell>Responsables</TableCell><TableCell align="right">Acciones</TableCell></TableRow></TableHead>
           <TableBody>
@@ -250,7 +252,7 @@ export default function InventoryOpeningScm({
           <Alert severity="info">Registra el conteo observado. Los saldos pendientes de Calidad tendrán disponibilidad cero.</Alert>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField type="date" label="Fecha de corte" InputLabelProps={{ shrink: true }} value={form.fecha_corte} onChange={(event) => setForm({ ...form, fecha_corte: event.target.value })} />
-            <TextField fullWidth label="Motivo y referencia del conteo" value={form.motivo} onChange={(event) => setForm({ ...form, motivo: event.target.value })} />
+            <TextField fullWidth label="Motivo y referencia del conteo" value={form.motivo} onChange={(event) => setForm({ ...form, motivo: event.target.value })}  error={Boolean((error === 'Indica el motivo y completa artículo/material y cantidad en cada línea.' && !form.motivo.trim()))} helperText={(error === 'Indica el motivo y completa artículo/material y cantidad en cada línea.' && !form.motivo.trim()) ? "Indica el motivo del conteo." : (undefined)} />
             {canUseTabularContingency && form.metodo === 'TABULAR_CONTINGENCIA' && <Button startIcon={<UploadFileIcon />} variant="outlined" onClick={() => setPasteOpen(true)}>Pegar tabla</Button>}
           </Stack>
           {!editing && <TextField select label="Método de apertura" value={form.metodo} onChange={(event) => setForm({ ...form, metodo: event.target.value })}>
@@ -277,7 +279,7 @@ export default function InventoryOpeningScm({
                     alignItems: 'center',
                   }}>
                     <FormControl fullWidth><InputLabel id={`opening-item-${index}-label`}>Artículo o material</InputLabel><Select id={`opening-item-${index}`} labelId={`opening-item-${index}-label`} label="Artículo o material" value={line.item_key} onChange={(event) => { const next = [...form.lineas]; next[index] = { ...line, item_key: event.target.value }; setForm({ ...form, lineas: next }); }}>{catalog.map((item) => <MenuItem key={item.key} value={item.key}>{item.codigo} · {item.nombre} · {catalogUnit(item)}</MenuItem>)}</Select></FormControl>
-                    <TextField fullWidth type="number" label={unit ? `Cantidad (${unit})` : 'Cantidad'} value={line.cantidad} onChange={(event) => { const next = [...form.lineas]; next[index] = { ...line, cantidad: event.target.value }; setForm({ ...form, lineas: next }); }} inputProps={{ min: 0.001, step: 0.001 }} InputProps={unit ? { endAdornment: <InputAdornment position="end">{unit}</InputAdornment> } : undefined} />
+                    <TextField fullWidth type="number" label={unit ? `Cantidad (${unit})` : 'Cantidad'} value={line.cantidad} onChange={(event) => { const next = [...form.lineas]; next[index] = { ...line, cantidad: event.target.value }; setForm({ ...form, lineas: next }); }} inputProps={{ min: 0.001, step: 0.001 }} InputProps={unit ? { endAdornment: <InputAdornment position="end">{unit}</InputAdornment> } : undefined}  error={Boolean((error === 'Indica el motivo y completa artículo/material y cantidad en cada línea.' && Number(line.cantidad) <= 0))} helperText={(error === 'Indica el motivo y completa artículo/material y cantidad en cada línea.' && Number(line.cantidad) <= 0) ? "La cantidad debe ser mayor que cero." : (undefined)} />
                     <TextField fullWidth label="Ubicación" value={line.ubicacion_codigo} onChange={(event) => { const next = [...form.lineas]; next[index] = { ...line, ubicacion_codigo: event.target.value.toUpperCase(), ubicacion_nombre: event.target.value }; setForm({ ...form, lineas: next }); }} />
                     <TextField fullWidth select label="Calidad" value={line.estado_calidad} onChange={(event) => { const next = [...form.lineas]; next[index] = { ...line, estado_calidad: event.target.value }; setForm({ ...form, lineas: next }); }} sx={{ minWidth: 150 }}><MenuItem value="LIBERADO">Liberado</MenuItem><MenuItem value="PENDIENTE">Pendiente</MenuItem></TextField>
                     <TextField fullWidth label="Observación" value={line.observacion} onChange={(event) => { const next = [...form.lineas]; next[index] = { ...line, observacion: event.target.value }; setForm({ ...form, lineas: next }); }} />
@@ -300,7 +302,7 @@ export default function InventoryOpeningScm({
 
       <Dialog open={Boolean(resolution)} onClose={() => setResolution(null)} fullWidth maxWidth="sm">
         <DialogTitle>Resolver {resolution?.codigo}</DialogTitle>
-        <DialogContent><Stack spacing={2} sx={{ pt: 1 }}><Alert severity="warning">Aprobar aplicará todas las líneas atómicamente. No se podrá editar ni eliminar el lote.</Alert><TextField multiline minRows={3} label="Evidencia o motivo de resolución" value={resolutionReason} onChange={(event) => setResolutionReason(event.target.value)} /></Stack></DialogContent>
+        <DialogContent><Stack spacing={2} sx={{ pt: 1 }}><Alert severity="warning">Aprobar aplicará todas las líneas atómicamente. No se podrá editar ni eliminar el lote.</Alert><TextField multiline minRows={3} label="Evidencia o motivo de resolución" value={resolutionReason} onChange={(event) => setResolutionReason(event.target.value)}  error={Boolean((error === 'La resolución requiere una evidencia o motivo.' && !resolutionReason.trim()))} helperText={(error === 'La resolución requiere una evidencia o motivo.' && !resolutionReason.trim()) ? "Indica la evidencia o el motivo de resolución." : (undefined)} /></Stack></DialogContent>
         <DialogActions><Button color="error" disabled={busy} onClick={() => resolve('RECHAZAR')}>Rechazar</Button><Button color="success" variant="contained" disabled={busy} onClick={() => resolve('APROBAR')}>Aprobar y aplicar</Button></DialogActions>
       </Dialog>
 

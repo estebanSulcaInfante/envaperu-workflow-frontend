@@ -4,6 +4,7 @@ import {
   Box,
   Button,
   Chip,
+  FormHelperText,
   Paper,
   Stack,
   Typography,
@@ -11,6 +12,7 @@ import {
 import AddPhotoAlternateOutlinedIcon from '@mui/icons-material/AddPhotoAlternateOutlined';
 import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
+import OperationNotice from '../ui/OperationNotice';
 
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp';
 export const IMAGE_MAX_BYTES = 2 * 1024 * 1024;
@@ -126,11 +128,14 @@ export default function OnboardingImagePanel({
                       type="file"
                       accept={IMAGE_ACCEPT}
                       aria-label={`Seleccionar imagen de ${target.label}`}
+                      aria-invalid={Boolean(validationError)}
+                      aria-describedby={validationError ? `image-error-${target.key}` : undefined}
                       onChange={(event) => choose(target, event.target.files?.[0])}
                     />
                   </Button>
 
-                  {validationError && <Alert severity="error">{validationError}</Alert>}
+                  {validationError && <FormHelperText id={`image-error-${target.key}`} error>{validationError}</FormHelperText>}
+                  <OperationNotice message={entry.status === 'ERROR' ? entry.error || 'No se pudo guardar la imagen. Puedes reintentar sin volver a seleccionarla.' : ''} />
                   {(entry.status === 'LOCAL' || selectedKeys[target.key]) && !target.entityId && (
                     <Alert severity="info">
                       El archivo queda solo en esta pestaña hasta aplicar la fase. No recargues

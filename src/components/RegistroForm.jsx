@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useState, useEffect, useRef } from 'react';
 import {
   Paper,
@@ -73,7 +74,7 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
   const [maquinas, setMaquinas] = useState([]);
   const [trabajadores, setTrabajadores] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/RegistroForm.jsx:error", { severity: "error", initialValue: null });
   const [success, setSuccess] = useState(false);
   const [ocrSuccess, setOcrSuccess] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -189,7 +190,7 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
           setError('No se pudo cargar la información de la orden.');
         });
     }
-  }, [ordenId]);
+  }, [ordenId, setError]);
 
   // Inicializar filas con horas fijas (una sola vez)
   useEffect(() => {
@@ -360,7 +361,7 @@ export default function RegistroForm({ ordenId, onRegistroCreado }) {
         </Box>
       )}
 
-      {error && <Alert severity="error" sx={{ mb: 1.5 }}>{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" sx={{ mb: 1.5 }}>{error}</Alert>}</>}
       {ocrSuccess && <Alert severity="info" sx={{ mb: 1.5 }}>📷 Datos escaneados. Revise y corrija antes de guardar.</Alert>}
       {success && <Alert severity="success" sx={{ mb: 1.5 }}>✅ Registro guardado correctamente</Alert>}
 

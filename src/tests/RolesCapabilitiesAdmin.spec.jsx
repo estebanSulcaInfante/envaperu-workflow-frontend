@@ -5,6 +5,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RolesCapabilitiesAdmin from '../components/RolesCapabilitiesAdmin';
+import { FeedbackProvider } from '../context/FeedbackContext';
 import {
   actualizarRolWorkspace,
   actualizarTrabajadorWorkspace,
@@ -90,6 +91,31 @@ describe('TS-010N2: administración de roles y capacidades', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupResponses();
+  });
+
+  it('vincula la validación de roles, principal e identidad a sus controles dentro del modal', async () => {
+    const user = userEvent.setup();
+    render(<ThemeProvider theme={createTheme()}><FeedbackProvider><RolesCapabilitiesAdmin /></FeedbackProvider></ThemeProvider>);
+    await screen.findAllByText('Persona multirrol');
+    await user.click(screen.getByRole('button', { name: 'Administrar roles de Persona multirrol' }));
+    const dialog = screen.getByRole('dialog');
+    const group = within(dialog).getByRole('group', { name: 'Roles asignados' });
+    await user.click(within(group).getByLabelText('Auditor de inventario'));
+    await user.click(within(group).getByLabelText('Jefe de producción'));
+    const save = within(dialog).getByRole('button', { name: 'Guardar asignación' });
+    await user.click(save);
+    expect(group).toHaveAttribute('aria-invalid', 'true');
+    expect(group).toHaveAccessibleDescription('Selecciona al menos un rol activo.');
+    await user.click(within(group).getByLabelText('Auditor de inventario'));
+    await user.click(save);
+    expect(within(dialog).getByRole('combobox', { name: /Rol principal/ })).toHaveAccessibleDescription('Elige como principal uno de los roles asignados.');
+    await user.click(within(dialog).getByRole('combobox', { name: /Rol principal/ }));
+    await user.click(screen.getByRole('option', { name: 'Auditor de inventario' }));
+    await user.click(save);
+    expect(within(dialog).getByRole('textbox', { name: /^Nombres/ })).toHaveAccessibleDescription('Ingresa los nombres.');
+    expect(within(dialog).getByRole('textbox', { name: /^Apellidos/ })).toHaveAccessibleDescription('Ingresa los apellidos.');
+    expect(await screen.findByRole('alert', { name: 'Nombres y apellidos son obligatorios.' })).toBeVisible();
+    expect(actualizarTrabajadorWorkspace).not.toHaveBeenCalled();
   });
 
   it('previsualiza con la proyección pura sin cambiar la identidad activa', async () => {

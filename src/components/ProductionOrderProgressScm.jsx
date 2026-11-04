@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -22,7 +23,7 @@ export default function ProductionOrderProgressScm() {
   const [appliedQuery, setAppliedQuery] = useState(() => searchParams.get('q') || '');
   const [loadedActorId, setLoadedActorId] = useState(actorId);
   const [state, setState] = useState('loading');
-  const [error, setError] = useState('');
+  const [error, setError] = useOperationMessage("components/ProductionOrderProgressScm.jsx:error", { severity: "error", initialValue: '' });
   const activeActorRef = useRef(actorId);
   const requestRef = useRef(0);
   useEffect(() => { activeActorRef.current = actorId; }, [actorId]);
@@ -39,7 +40,7 @@ export default function ProductionOrderProgressScm() {
       if (requestRef.current !== requestId || activeActorRef.current !== requestedActorId) return;
       setError(cause?.response?.data?.error?.message || cause?.response?.data?.message || 'No se pudo cargar el avance de OF.'); setState('error');
     }
-  }, [actorId, query, setSearchParams]);
+  }, [actorId, query, setSearchParams, setError]);
   useEffect(() => {
     // This effect starts the external API read when the active actor changes.
     // eslint-disable-next-line react-hooks/set-state-in-effect

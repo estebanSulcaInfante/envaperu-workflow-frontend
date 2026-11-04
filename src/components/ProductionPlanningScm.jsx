@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
@@ -154,8 +155,8 @@ export default function ProductionPlanningScm() {
   const [orderId, setOrderId] = useState('');
   const [plan, setPlan] = useState(null);
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/ProductionPlanningScm.jsx:error", { severity: "error", initialValue: '' });
+  const [notice, setNotice, feedbackFallback_notice] = useOperationMessage("components/ProductionPlanningScm.jsx:notice", { severity: "success", initialValue: '' });
   const [products, setProducts] = useState([]);
   const [presentations, setPresentations] = useState([]);
   const [createOpen, setCreateOpen] = useState(false);
@@ -203,7 +204,7 @@ export default function ProductionPlanningScm() {
     } finally {
       setBusy(false);
     }
-  }, [loadPlan]);
+  }, [loadPlan, setError]);
 
   useEffect(() => { load(''); }, [load]);
 
@@ -467,8 +468,8 @@ export default function ProductionPlanningScm() {
           confirmación se muestran únicamente a los responsables de planificación.
         </Alert>
       )}
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}</>}
+      {notice && <>{feedbackFallback_notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}</>}
       {routeRefreshResult?.cambios?.length > 0 && (
         <Alert severity="success" onClose={() => setRouteRefreshResult(null)}>
           <Stack spacing={1.25}>

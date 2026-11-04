@@ -1,3 +1,5 @@
+import { useCallback } from "react";
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -38,7 +40,7 @@ function MoldesLista() {
   const navigate = useNavigate();
   const [moldes, setMoldes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/MoldesLista.jsx:error", { severity: "error", initialValue: null });
   const [search, setSearch] = useState('');
   const [configuration, setConfiguration] = useState('TODOS');
   
@@ -51,7 +53,8 @@ function MoldesLista() {
     notas: ''
   });
 
-  const fetchMoldes = async () => {
+  const fetchMoldes = useCallback(async () => {
+    setError('');
     try {
       setLoading(true);
       const data = await obtenerMoldes();
@@ -61,11 +64,11 @@ function MoldesLista() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [setError]);
 
   useEffect(() => {
     fetchMoldes();
-  }, []);
+  }, [fetchMoldes]);
 
   const handleOpenDialog = () => {
     setFormData({
@@ -87,7 +90,7 @@ function MoldesLista() {
       handleCloseDialog();
       fetchMoldes();
     } catch (err) {
-      alert(err.response?.data?.error || 'Error guardando molde');
+      setError(err.response?.data?.error || 'Error guardando molde');
     }
   };
 
@@ -97,7 +100,7 @@ function MoldesLista() {
         await eliminarMolde(codigo);
         fetchMoldes();
       } catch (err) {
-        alert(err.response?.data?.error || 'Error eliminando molde');
+        setError(err.response?.data?.error || 'Error eliminando molde');
       }
     }
   };
@@ -128,7 +131,7 @@ function MoldesLista() {
         />
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}</>}
       {!canAdmin && (
         <Alert severity="info" sx={{ mb: 2 }}>
           Vista de consulta para {experience.label}. La configuración física del molde

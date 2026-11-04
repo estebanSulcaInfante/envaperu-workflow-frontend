@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import {
   useCallback,
   useEffect,
@@ -249,8 +250,8 @@ function ScmEngineeringAdmin() {
   const initializedActor = useRef(false);
   const activeActor = useRef(actorId);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/ScmEngineeringAdmin.jsx:error", { severity: "error", initialValue: '' });
+  const [notice, setNotice, feedbackFallback_notice] = useOperationMessage("components/ScmEngineeringAdmin.jsx:notice", { severity: "success", initialValue: '' });
   const [refreshFailure, setRefreshFailure] = useState(null);
   const [search, setSearch] = useState('');
   const [articles, setArticles] = useState([]);
@@ -260,13 +261,13 @@ function ScmEngineeringAdmin() {
   const [refreshTick, setRefreshTick] = useState(0);
   const [articleCursors, setArticleCursors] = useState({ 0: null });
   const [articleQuery, setArticleQuery] = useState('');
-  const [articlePageError, setArticlePageError] = useState('');
-  const [structurePageError, setStructurePageError] = useState('');
+  const [articlePageError, setArticlePageError] = useOperationMessage("components/ScmEngineeringAdmin.jsx:articlePageError", { severity: "error", initialValue: '' });
+  const [structurePageError, setStructurePageError] = useOperationMessage("components/ScmEngineeringAdmin.jsx:structurePageError", { severity: "error", initialValue: '' });
   const [articlePageLoading, setArticlePageLoading] = useState(false);
   const [structures, setStructures] = useState([]);
   const [routes, setRoutes] = useState([]);
   const [routesLoading, setRoutesLoading] = useState(false);
-  const [routesError, setRoutesError] = useState('');
+  const [routesError, setRoutesError] = useOperationMessage("components/ScmEngineeringAdmin.jsx:routesError", { severity: "error", initialValue: '' });
   const [centers, setCenters] = useState([]);
   const [containers, setContainers] = useState([]);
   const [profiles, setProfiles] = useState([]);
@@ -289,7 +290,7 @@ function ScmEngineeringAdmin() {
   const [ruleCursors, setRuleCursors] = useState({ 0: null });
   const [ruleQuery, setRuleQuery] = useState('');
   const [ruleHistory, setRuleHistory] = useState(false);
-  const [rulePageError, setRulePageError] = useState('');
+  const [rulePageError, setRulePageError] = useOperationMessage("components/ScmEngineeringAdmin.jsx:rulePageError", { severity: "error", initialValue: '' });
   const [rulePageLoading, setRulePageLoading] = useState(false);
   const [approvalPages, setApprovalPages] = useState({});
   const [approvalLoadedDomains, setApprovalLoadedDomains] = useState({});
@@ -306,7 +307,7 @@ function ScmEngineeringAdmin() {
   const ruleReadAbort = useRef(null);
   const ruleReadGeneration = useRef(0);
   const [hydratingEditor, setHydratingEditor] = useState(false);
-  const [hydrationError, setHydrationError] = useState('');
+  const [hydrationError, setHydrationError, feedbackFallback_hydrationError] = useOperationMessage("components/ScmEngineeringAdmin.jsx:hydrationError", { severity: "warning", initialValue: '' });
   const [selectedArticleId, setSelectedArticleId] = useState('');
   const [selectedRouteArticleId, setSelectedRouteArticleId] = useState('');
   const [dialog, setDialog] = useState(null);
@@ -706,7 +707,7 @@ function ScmEngineeringAdmin() {
     approvalQuery, assignmentCursor, assignmentKey, assignmentQuery, assignmentState,
     approvalPages, canReadArticles,
     canReadPackaging, canReadRoutes, canReadStructures, ruleCursors, ruleHistory, rulePageIndex, ruleQuery,
-    selectedArticleId, selectedRouteArticleId, articles, articleCache, tab]);
+    selectedArticleId, selectedRouteArticleId, articles, articleCache, tab, setError, setArticlePageError, setStructurePageError, setRoutesError, setRulePageError]);
   const loadPagedTabRef = useRef(loadPagedTab);
   useEffect(() => {
     loadPagedTabRef.current = loadPagedTab;
@@ -766,7 +767,7 @@ function ScmEngineeringAdmin() {
       ruleReadGeneration.current += 1;
       ruleReadAbort.current?.abort();
     };
-  }, [actorId, capabilityFingerprint, readCapabilityFingerprint]);
+  }, [actorId, capabilityFingerprint, readCapabilityFingerprint, setNotice, setStructurePageError]);
 
   useEffect(() => {
     if (loadedActorId !== actorId) return undefined;
@@ -803,7 +804,7 @@ function ScmEngineeringAdmin() {
     return () => pagedAbort.current?.abort();
   }, [actorId, articlePageIndex, articleQuery, approvalCursors, approvalPage,
     loadedActorId, ruleHistory, rulePageIndex, ruleQuery, selectedArticleId,
-    selectedRouteArticleId, tab, refreshTick]);
+    selectedRouteArticleId, tab, refreshTick, setError]);
 
   useEffect(() => {
     const timer = globalThis.setTimeout(() => {
@@ -1410,8 +1411,8 @@ function ScmEngineeringAdmin() {
           rutas y empaque sin modificar sus revisiones.
         </Alert>
       )}
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}</>}
+      {notice && <>{feedbackFallback_notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}</>}
       {refreshFailure && refreshFailure.actorId === actorId && (tab === 0 || tab === 1 || tab === 2) && (
         <Alert
           severity="warning"
@@ -2705,7 +2706,7 @@ function ScmEngineeringAdmin() {
         <DialogContent>
           <Box sx={{ pt: 1 }}>
             {hydratingEditor && <Alert severity="info">Resolviendo referencias del borrador…</Alert>}
-            {hydrationError && <Alert severity="warning">{hydrationError}</Alert>}
+            {hydrationError && <>{feedbackFallback_hydrationError && <Alert severity="warning">{hydrationError}</Alert>}</>}
             <StructureRevisionEditor
               targetArticle={selectedArticle}
               componentArticles={structureComponentArticles}
@@ -2848,7 +2849,7 @@ function ScmEngineeringAdmin() {
         <DialogContent>
           <Box sx={{ pt: 1 }}>
             {hydratingEditor && <Alert severity="info">Resolviendo referencias del borrador…</Alert>}
-            {hydrationError && <Alert severity="warning">{hydrationError}</Alert>}
+            {hydrationError && <>{feedbackFallback_hydrationError && <Alert severity="warning">{hydrationError}</Alert>}</>}
             <RouteRevisionEditor
               targetArticle={routeTargetArticle}
               articles={[...new Map([...articles, ...articleCache]
@@ -2968,7 +2969,7 @@ function ScmEngineeringAdmin() {
         <DialogContent>
           <Box sx={{ pt: 1 }}>
             {hydratingEditor && <Alert severity="info">Resolviendo referencias de la regla…</Alert>}
-            {hydrationError && <Alert severity="warning">{hydrationError}</Alert>}
+            {hydrationError && <>{feedbackFallback_hydrationError && <Alert severity="warning">{hydrationError}</Alert>}</>}
             <PackagingRuleEditor
               value={ruleForm}
               profiles={profiles}

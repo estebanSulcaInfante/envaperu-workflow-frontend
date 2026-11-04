@@ -10,6 +10,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import PageHeader from './ui/PageHeader';
 import { useScmActor } from '../context/ScmActorContext';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
+import { useOperationMessage } from '../utils/operationFeedbackState';
 import { formatKg as formatKgDisplay } from '../utils/weightDisplay';
 import {
   abrirSesionOperacionAlmacenScm,
@@ -39,8 +40,8 @@ export default function WarehouseOperationsScm({ control = false, transfersOnly 
   const [session, setSession] = useState(null);
   const [scan, setScan] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, isFeedbackFallback] = useOperationMessage('warehouse-operations-error');
+  const [notice, setNotice, , noticeSeverity] = useOperationMessage('warehouse-operations-success', { severity: 'success', operation: 'warehouse-operations' });
   const [traceCode, setTraceCode] = useState('');
   const [trace, setTrace] = useState(null);
   const [loadedActorId, setLoadedActorId] = useState(actorId);
@@ -74,7 +75,7 @@ export default function WarehouseOperationsScm({ control = false, transfersOnly 
     } finally {
       if (requestRef.current === requestId && activeActorRef.current === requestedActorId) setBusy(false);
     }
-  }, [actorId]);
+  }, [actorId, setError]);
   useEffect(() => {
     traceRequestRef.current += 1;
     setWarehouses([]);
@@ -85,7 +86,7 @@ export default function WarehouseOperationsScm({ control = false, transfersOnly 
     setTrace(null);
     setNotice('');
     load();
-  }, [actorId, load]);
+  }, [actorId, load, setNotice]);
 
   const actorReady = loadedActorId === actorId;
   const visibleWarehouses = actorReady ? warehouses : EMPTY_WAREHOUSES;
@@ -189,7 +190,7 @@ export default function WarehouseOperationsScm({ control = false, transfersOnly 
       const returnSession = await prepararRetornoTransferenciaScm(transfer.id);
       setSession(returnSession);
       setMode('ENTREGA');
-      setNotice(`Retorno preparado con ${returnSession.items.length} unidad(es). Confirma para enviarlas de vuelta.`);
+      setNotice(`Retorno preparado con ${returnSession.items.length} unidad(es). Confirma para enviarlas de vuelta.`, { severity: 'info', persistent: true });
       requestAnimationFrame(() => scanRef.current?.focus());
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo preparar el retorno.'));
@@ -217,8 +218,8 @@ export default function WarehouseOperationsScm({ control = false, transfersOnly 
     {visibleReach?.configurado && !visibleReach.control_transversal && (visibleReach.almacenes || []).length === 0 && (
       <Alert severity="warning">No tienes un almacén asignado. Solicita alcance antes de operar.</Alert>
     )}
-    {visibleError && <Alert severity="error" onClose={() => setError('')}>{visibleError}</Alert>}
-    {visibleNotice && <Alert severity="success" onClose={() => setNotice('')}>{visibleNotice}</Alert>}
+    {isFeedbackFallback && visibleError && <Alert severity="error" onClose={() => setError('')}>{visibleError}</Alert>}
+    {isFeedbackFallback && visibleNotice && <Alert severity={noticeSeverity} onClose={() => setNotice('')}>{visibleNotice}</Alert>}
 
     <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
       {[...(visibleSummary.items || []), ...(visibleSummary.materiales || [])].map((item) => <Paper key={`${item.unidad}-${item.almacen_id || 'legacy'}`} variant="outlined" sx={{ p: 2, flex: 1 }}>

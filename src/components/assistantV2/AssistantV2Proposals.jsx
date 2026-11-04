@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../../utils/operationFeedbackState";
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Box, Button, Chip, CircularProgress, Divider, Stack, TextField, Typography } from '@mui/material';
 import { decideScmAssistantProposal, listScmAssistantProposals } from '../../services/scmAssistantV2Api';
@@ -13,14 +14,14 @@ const statusLabel = {
 export default function AssistantV2Proposals() {
   const [payload, setPayload] = useState(null);
   const [selected, setSelected] = useState(null);
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/assistantV2/AssistantV2Proposals.jsx:error", { severity: "error", initialValue: '' });
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     setBusy(true); setError('');
     try { setPayload(await listScmAssistantProposals()); } catch { setError('No se pudieron cargar las propuestas.'); }
     finally { setBusy(false); }
-  }, []);
+  }, [setError]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -44,7 +45,7 @@ export default function AssistantV2Proposals() {
       <Typography variant="caption" sx={{ color: '#b6c1cc' }}>
         Guardar registra una necesidad en backlog. El resumen y el diff se preparan manualmente; no hay generador ni ejecutor de codigo. Aprobar no aplica cambios.
       </Typography>
-      {error && <Alert severity="error">{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
       {!(payload?.items || []).length && !error && <Typography variant="body2" sx={{ color: '#d6dee8' }}>No hay propuestas para revisar.</Typography>}
       {(payload?.items || []).map((item) => (
         <Box key={item.id} sx={{ border: '1px solid #344454', borderRadius: 1.5, p: 1.25 }}>

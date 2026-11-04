@@ -1,3 +1,5 @@
+import { useCallback } from "react";
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Divider, FormControlLabel,
@@ -141,8 +143,8 @@ export default function RolesCapabilitiesAdmin() {
   const [principalSelections, setPrincipalSelections] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError] = useOperationMessage("components/RolesCapabilitiesAdmin.jsx:error", { severity: "error", initialValue: '' });
+  const [notice, setNotice, feedbackFallback_notice] = useOperationMessage("components/RolesCapabilitiesAdmin.jsx:notice", { severity: "success", initialValue: '' });
   const [workerSearch, setWorkerSearch] = useState('');
   const [assignmentWorker, setAssignmentWorker] = useState(null);
   const [assignmentRoleIds, setAssignmentRoleIds] = useState([]);
@@ -150,10 +152,10 @@ export default function RolesCapabilitiesAdmin() {
   const [assignmentIdentity, setAssignmentIdentity] = useState({
     nombres: '', apellidos: '', nombre_corto: '',
   });
-  const [assignmentError, setAssignmentError] = useState('');
+  const [assignmentError, setAssignmentError, feedbackFallback_assignmentError] = useOperationMessage("components/RolesCapabilitiesAdmin.jsx:assignmentError", { severity: "error", initialValue: '' });
   const [assignmentSaving, setAssignmentSaving] = useState(false);
 
-  const load = async (preferredId = null) => {
+  const load = useCallback(async (preferredId = null) => {
     setLoading(true);
     setError('');
     try {
@@ -174,9 +176,9 @@ export default function RolesCapabilitiesAdmin() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [setError]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const preview = useMemo(() => buildActorWorkspace({
     actor: {
@@ -384,7 +386,7 @@ export default function RolesCapabilitiesAdmin() {
         )}
       />
       {error && <Alert severity="error" action={<Button onClick={() => load(form.id)}>Reintentar</Button>}>{error}</Alert>}
-      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {notice && <>{feedbackFallback_notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}</>}
 
       <Grid container spacing={2} alignItems="flex-start">
         <Grid size={{ xs: 12, lg: 3 }}>
@@ -663,7 +665,7 @@ export default function RolesCapabilitiesAdmin() {
             <Alert severity="info">
               Marca todos los roles que esta persona debe conservar. Las capacidades de los roles activos se combinan.
             </Alert>
-            {assignmentError && <Alert severity="error">{assignmentError}</Alert>}
+            {assignmentError && <>{feedbackFallback_assignmentError && <Alert severity="error">{assignmentError}</Alert>}</>}
             <Box>
               <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1 }}>
                 Identidad visible en el sistema
@@ -674,6 +676,8 @@ export default function RolesCapabilitiesAdmin() {
                     fullWidth
                     required
                     label="Nombres"
+                    error={assignmentError === 'Nombres y apellidos son obligatorios.' && !assignmentIdentity.nombres.trim()}
+                    helperText={assignmentError === 'Nombres y apellidos son obligatorios.' && !assignmentIdentity.nombres.trim() ? 'Ingresa los nombres.' : ''}
                     value={assignmentIdentity.nombres}
                     onChange={(event) => setAssignmentIdentity((current) => ({
                       ...current, nombres: event.target.value,
@@ -685,6 +689,8 @@ export default function RolesCapabilitiesAdmin() {
                     fullWidth
                     required
                     label="Apellidos"
+                    error={assignmentError === 'Nombres y apellidos son obligatorios.' && !assignmentIdentity.apellidos.trim()}
+                    helperText={assignmentError === 'Nombres y apellidos son obligatorios.' && !assignmentIdentity.apellidos.trim() ? 'Ingresa los apellidos.' : ''}
                     value={assignmentIdentity.apellidos}
                     onChange={(event) => setAssignmentIdentity((current) => ({
                       ...current, apellidos: event.target.value,
@@ -705,7 +711,7 @@ export default function RolesCapabilitiesAdmin() {
               </Grid>
             </Box>
             <Divider />
-            <Box role="group" aria-label="Roles asignados">
+            <Box role="group" aria-label="Roles asignados" aria-invalid={assignmentError === 'Selecciona al menos un rol activo.' && assignmentRoleIds.length === 0} aria-describedby="assignment-roles-help">
               {roles.filter((role) => role.activo !== false).map((role) => (
                 <FormControlLabel
                   key={role.id}
@@ -718,15 +724,19 @@ export default function RolesCapabilitiesAdmin() {
                   label={role.nombre}
                 />
               ))}
+              <Typography id="assignment-roles-help" variant="caption" color="error" component="p">
+                {assignmentError === 'Selecciona al menos un rol activo.' && assignmentRoleIds.length === 0 ? 'Selecciona al menos un rol activo.' : ''}
+              </Typography>
             </Box>
             <TextField
               select
               fullWidth
               required
               label="Rol principal"
+              error={assignmentError === 'Elige como principal uno de los roles asignados.' && (!assignmentPrimaryId || !assignmentRoleIds.includes(Number(assignmentPrimaryId)))}
               value={assignmentPrimaryId}
               onChange={(event) => setAssignmentPrimaryId(Number(event.target.value))}
-              helperText="Ordena la experiencia inicial; no elimina los permisos aportados por los otros roles."
+              helperText={assignmentError === 'Elige como principal uno de los roles asignados.' && (!assignmentPrimaryId || !assignmentRoleIds.includes(Number(assignmentPrimaryId))) ? 'Elige como principal uno de los roles asignados.' : 'Ordena la experiencia inicial; no elimina los permisos aportados por los otros roles.'}
             >
               {roles.filter((role) => (
                 role.activo !== false && assignmentRoleIds.includes(Number(role.id))

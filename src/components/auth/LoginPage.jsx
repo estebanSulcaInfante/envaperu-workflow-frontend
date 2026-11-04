@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Box,
@@ -12,12 +12,19 @@ import {
 import FactoryOutlinedIcon from '@mui/icons-material/FactoryOutlined';
 import LoginOutlinedIcon from '@mui/icons-material/LoginOutlined';
 import { useAuth } from '../../context/AuthContext';
+import { useOperationFeedback } from '../../context/FeedbackContext';
 
 export default function LoginPage() {
   const { error, signIn } = useAuth();
+  const { notify, clear, isFallback } = useOperationFeedback('auth-login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (error && !isFallback) notify(error, { severity: 'error', operation: 'sign-in', key: 'auth-login:error' });
+    else clear('auth-login:error');
+  }, [clear, error, isFallback, notify]);
 
   const submit = async (event) => {
     event.preventDefault();
@@ -54,7 +61,7 @@ export default function LoginPage() {
           <Typography variant="body2" color="text.secondary">
             Ingresa con la cuenta asignada a tu función. El sistema mostrará únicamente las tareas autorizadas para tu perfil.
           </Typography>
-          {error && <Alert severity="error">{error}</Alert>}
+          {isFallback && error && <Alert severity="error">{error}</Alert>}
           <TextField
             label="Correo"
             type="email"

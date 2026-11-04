@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent,
   DialogTitle, Divider, FormControl, InputAdornment, InputLabel, MenuItem,
@@ -275,15 +276,15 @@ function InventoryWorkspace() {
   const [pageMeta, setPageMeta] = useState({ total: 0, has_more: false, next_cursor: null });
   const [summary, setSummary] = useState({ items: [], materiales: [], piezas_kg: [] });
   const [summaryState, setSummaryState] = useState('loading');
-  const [summaryError, setSummaryError] = useState('');
+  const [summaryError, setSummaryError] = useOperationMessage("components/InventoryScm.jsx:summaryError", { severity: "error", initialValue: '' });
   const [loadedIdentityKey, setLoadedIdentityKey] = useState(identityKey);
   const [articles, setArticles] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [catalogsLoaded, setCatalogsLoaded] = useState(false);
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState('');
-  const [warning, setWarning] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/InventoryScm.jsx:error", { severity: "error", initialValue: '' });
+  const [warning, setWarning, feedbackFallback_warning] = useOperationMessage("components/InventoryScm.jsx:warning", { severity: "warning", initialValue: '' });
+  const [notice, setNotice, feedbackFallback_notice] = useOperationMessage("components/InventoryScm.jsx:notice", { severity: "success", initialValue: '' });
   const [open, setOpen] = useState(false);
   const [actionsAnchor, setActionsAnchor] = useState(null);
   const [openingOpen, setOpeningOpen] = useState(false);
@@ -347,7 +348,7 @@ function InventoryWorkspace() {
         }
       });
     return () => { alive = false; };
-  }, [identityKey, refreshVersion]);
+  }, [identityKey, refreshVersion, setSummaryError]);
 
   useEffect(() => {
     const nextQuery = query.trim();
@@ -536,12 +537,7 @@ function InventoryWorkspace() {
       if (alive) setBusy(false);
     });
     return () => { alive = false; };
-  }, [
-    debouncedQuery, effectiveLedger, effectiveSort, isMovements, isPiecesLedger,
-    locationFilter, page, pageCursors, refreshVersion, rowsPerPage, showPiecesAndWip,
-    stockFilter, warehouseScope,
-    warehouseFilter, piecesUnit,
-  ]);
+  }, [debouncedQuery, effectiveLedger, effectiveSort, isMovements, isPiecesLedger, locationFilter, page, pageCursors, refreshVersion, rowsPerPage, showPiecesAndWip, stockFilter, warehouseScope, warehouseFilter, piecesUnit, setError, setWarning]);
 
   const changeLedger = (_event, value) => {
     setActiveLedger(value);
@@ -658,10 +654,10 @@ function InventoryWorkspace() {
           </Stack>
         )}
       />
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}</>}
       {summaryError && <Alert severity="error" action={<Button color="inherit" onClick={refresh}>Reintentar</Button>}>{summaryError}</Alert>}
-      {warning && <Alert severity="warning" onClose={() => setWarning('')}>{warning}</Alert>}
-      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {warning && <>{feedbackFallback_warning && <Alert severity="warning" onClose={() => setWarning('')}>{warning}</Alert>}</>}
+      {notice && <>{feedbackFallback_notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}</>}
       {warehouseScope?.configurado && warehouseScope.control_transversal && (
         <Alert severity="info"><strong>Control transversal:</strong> puedes consultar todos los almacenes. Las operaciones físicas conservan sus permisos propios.</Alert>
       )}

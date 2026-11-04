@@ -682,7 +682,7 @@ describe('Órdenes de fabricación', () => {
     expect(screen.getByText('4 ciclos calculados')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
     expect(configurarOrdenFabricacionScm).not.toHaveBeenCalled();
-    expect(screen.getByText(/usa 0 si no corresponde/)).toBeVisible();
+    expect(screen.getByRole('spinbutton', { name: 'Material no neto/ciclo (g)' })).toHaveAccessibleDescription(/usa 0 si no corresponde/);
     await user.type(screen.getByRole('spinbutton', { name: 'Material no neto/ciclo (g)' }), '0');
     await user.click(screen.getByRole('button', { name: 'Guardar configuración técnica' }));
     expect(configurarOrdenFabricacionScm).toHaveBeenCalledWith(order.id, expect.objectContaining({

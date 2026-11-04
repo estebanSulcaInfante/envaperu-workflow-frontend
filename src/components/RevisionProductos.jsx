@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useState, useEffect, useCallback } from 'react';
 import {
   Box,
@@ -71,7 +72,7 @@ function RevisionProductos() {
   
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/RevisionProductos.jsx:error", { severity: "error", initialValue: null });
   const [stats, setStats] = useState(null);
   
   // Filtros y paginación
@@ -100,6 +101,7 @@ function RevisionProductos() {
   }, [tipoActual]);
 
   const fetchItems = useCallback(async () => {
+    setError('');
     try {
       setLoading(true);
       const params = {
@@ -122,7 +124,7 @@ function RevisionProductos() {
     } finally {
       setLoading(false);
     }
-  }, [page, filtroEstado, busqueda, tipoActual]);
+  }, [page, filtroEstado, busqueda, tipoActual, setError]);
 
   useEffect(() => {
     fetchItems();
@@ -509,7 +511,7 @@ function RevisionProductos() {
         </Button>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}</>}
 
       {/* Tabs */}
       <Paper sx={{ mb: 2 }}>

@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useState, useCallback } from 'react';
 import {
   Paper,
@@ -47,7 +48,7 @@ function ImportarCatalogo() {
   const [coloresDetectados, setColoresDetectados] = useState(null);
   const [importResult, setImportResult] = useState(null);
   const [crearColoresAuto, setCrearColoresAuto] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/ImportarCatalogo.jsx:error", { severity: "error", initialValue: null });
 
   const handleFileSelect = useCallback((event) => {
     const selectedFile = event.target.files[0];
@@ -58,7 +59,7 @@ function ImportarCatalogo() {
       setImportResult(null);
       setError(null);
     }
-  }, []);
+  }, [setError]);
 
   const handleValidate = async () => {
     if (!file) return;
@@ -126,9 +127,9 @@ function ImportarCatalogo() {
       </Stepper>
       
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
+        <>{feedbackFallback_error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
           {error}
-        </Alert>
+        </Alert>}</>
       )}
       
       {loading && <LinearProgress sx={{ mb: 3 }} />}

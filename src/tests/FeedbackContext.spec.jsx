@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { Dialog, DialogContent } from '@mui/material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { describe, expect, it } from 'vitest';
-import { FeedbackProvider, useFeedback } from '../context/FeedbackContext';
+import { FeedbackProvider, useFeedback, useOperationFeedback } from '../context/FeedbackContext';
 
 function Trigger() {
   const { notify } = useFeedback();
@@ -122,5 +122,72 @@ describe('FeedbackProvider', () => {
       </ThemeProvider>,
     );
     await waitFor(() => expect(screen.queryByText('Fallo persistente')).not.toBeInTheDocument());
+  });
+
+  it('keeps rich JSX messages usable and never exposes object coercion', async () => {
+    function RichTrigger() {
+      const { notify } = useFeedback();
+      return (
+        <>
+          <button type="button" onClick={() => notify({ message: <span>Detalle <strong>disponible</strong></span>, severity: 'info' })}>Detalle</button>
+          <button type="button" onClick={() => notify({ message: <span>Otro <strong>detalle</strong></span>, severity: 'info' })}>Otro detalle</button>
+          <button type="button" onClick={() => notify({ message: <span>Repetible <strong>acción</strong></span>, severity: 'warning', key: 'rich-action' })}>Repetible</button>
+        </>
+      );
+    }
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <FeedbackProvider><RichTrigger /></FeedbackProvider>
+      </ThemeProvider>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Detalle' }));
+    const rich = await screen.findByRole('alert', { name: 'Detalle disponible' });
+    expect(rich).toHaveTextContent('Detalle disponible');
+    expect(rich).not.toHaveTextContent('[object Object]');
+    await user.click(screen.getByRole('button', { name: 'Otro detalle' }));
+    expect(screen.getAllByRole('alert')).toHaveLength(2);
+    await user.click(screen.getByRole('button', { name: 'Repetible' }));
+    await user.click(screen.getByRole('button', { name: 'Repetible' }));
+    expect(screen.getAllByRole('alert')).toHaveLength(3);
+  });
+
+  it('falls back to a safe message for isolated object payloads', async () => {
+    function ObjectTrigger() {
+      const { notify } = useFeedback();
+      return <button type="button" onClick={() => notify({ message: { code: 'E_UNKNOWN' }, severity: 'error' })}>Error desconocido</button>;
+    }
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <FeedbackProvider><ObjectTrigger /></FeedbackProvider>
+      </ThemeProvider>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Error desconocido' }));
+    expect(await screen.findByRole('alert', { name: /Ha ocurrido un error/ })).toBeVisible();
+    expect(screen.queryByText('[object Object]')).not.toBeInTheDocument();
+  });
+
+  it('clears a correlated operation failure before publishing its recovery', async () => {
+    function CorrelatedTrigger() {
+      const { notify } = useOperationFeedback('correlated');
+      return (
+        <>
+          <button type="button" onClick={() => notify({ message: 'No se pudo actualizar', severity: 'error', key: 'correlated-error' })}>Falla</button>
+          <button type="button" onClick={() => notify({ message: 'Actualizado', severity: 'success', clearKey: 'correlated-error', key: 'correlated-success' })}>Recupera</button>
+        </>
+      );
+    }
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <FeedbackProvider><CorrelatedTrigger /></FeedbackProvider>
+      </ThemeProvider>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Falla' }));
+    expect(await screen.findByRole('alert', { name: 'No se pudo actualizar' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Recupera' }));
+    await waitFor(() => expect(screen.queryByRole('alert', { name: 'No se pudo actualizar' })).not.toBeInTheDocument());
+    expect(await screen.findByRole('status', { name: 'Actualizado' })).toBeVisible();
   });
 });

@@ -1,3 +1,5 @@
+import { useOperationFeedback } from '../context/FeedbackContext';
+import OperationNotice from './ui/OperationNotice';
 import { useState, useEffect } from 'react';
 import {
   Paper,
@@ -101,6 +103,7 @@ function LoteColorMarker({ hex }) {
 }
 
 function OrdenForm({ onOrdenCreada }) {
+  const { isFallback: feedbackFallback } = useOperationFeedback('orden-form');
   const [orden, setOrden] = useState(() => {
     // Cargar datos guardados de localStorage al iniciar
     try {
@@ -1420,7 +1423,8 @@ function OrdenForm({ onOrdenCreada }) {
       </Box>
 
       {/* Snackbar para notificaciones */}
-      <Snackbar
+      <OperationNotice message={snackbar.open ? snackbar.message : ''} severity={snackbar.severity} eventKey={snackbar} />
+      {feedbackFallback && <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}
         onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
@@ -1433,7 +1437,7 @@ function OrdenForm({ onOrdenCreada }) {
         >
           {snackbar.message}
         </Alert>
-      </Snackbar>
+      </Snackbar>}
     </Paper>
   );
 }

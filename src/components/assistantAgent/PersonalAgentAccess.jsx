@@ -13,6 +13,7 @@ import {
   SCM_PERSONAL_AGENT_ORIGIN,
 } from '../../config/runtime';
 import { requestPersonalAgentAccess } from '../../services/scmPersonalAgentApi';
+import { useOperationFeedback } from '../../context/FeedbackContext';
 
 const CAPABILITY = 'ASISTENTE_PRODUCCION_USAR';
 const EXCHANGE_PATH = '/_scm/exchange';
@@ -97,6 +98,7 @@ const responseWasRevoked = (payload) => (
 export default function PersonalAgentAccess({ autoStart = false } = {}) {
   const navigate = useNavigate();
   const { session, requestReauthentication } = useAuth();
+  const { notify, clear, isFallback } = useOperationFeedback('personal-agent');
   const {
     actor, actorId, can, error: actorError, loading: actorLoading, refreshActors,
   } = useScmActor();
@@ -161,6 +163,10 @@ export default function PersonalAgentAccess({ autoStart = false } = {}) {
     autoStartAttemptedRef.current = false;
   }, [sessionKey, actorId, capabilitySignal]);
 
+  const requestLogin = useCallback(() => {
+    requestReauthentication?.();
+  }, [requestReauthentication]);
+
   const visible = SCM_PERSONAL_AGENT_ENABLED
     && SCM_AUTH_MODE === 'supabase'
     && Boolean(sessionKey)
@@ -170,6 +176,7 @@ export default function PersonalAgentAccess({ autoStart = false } = {}) {
 
   const startAccess = useCallback(async () => {
     if (preparing || blocked || !visible || !mountedRef.current) return;
+    clear('personal-agent:access');
     const requestActorId = actorId;
     const requestSessionKey = sessionKey;
     const controller = new AbortController();
@@ -201,6 +208,18 @@ export default function PersonalAgentAccess({ autoStart = false } = {}) {
         setFeedback(accessErrorMessage(error));
         setFeedbackStatus(status ?? null);
         setRetryableFailure(status !== 401 && status !== 403);
+        if (!isFallback) {
+          const message = accessErrorMessage(error);
+          const action = status === 401
+            ? <Button color="inherit" size="small" onClick={requestLogin}>Volver a iniciar sesión</Button>
+            : status === 403
+              ? <Button color="inherit" size="small" onClick={() => navigate('/')}>Volver a SCM</Button>
+              : null;
+          notify(message, {
+            severity: 'error', operation: 'personal-agent-access',
+            key: 'personal-agent:access', action,
+          });
+        }
         if (status === 403) {
           setBlocked(true);
           Promise.resolve(refreshActors?.()).catch(() => {});
@@ -213,11 +232,7 @@ export default function PersonalAgentAccess({ autoStart = false } = {}) {
         setPreparing(false);
       }
     }
-  }, [actorId, blocked, preparing, refreshActors, sessionKey, visible]);
-
-  const requestLogin = useCallback(() => {
-    requestReauthentication?.();
-  }, [requestReauthentication]);
+  }, [actorId, blocked, clear, isFallback, navigate, notify, preparing, refreshActors, requestLogin, sessionKey, visible]);
 
   useEffect(() => {
     if (!autoStart || !visible || autoStartAttemptedRef.current) return;
@@ -313,7 +328,7 @@ export default function PersonalAgentAccess({ autoStart = false } = {}) {
         )}
         {visible && feedback && (
           <Stack spacing={1.5} alignItems="flex-start">
-            <Alert
+            {isFallback && <Alert
               severity="error"
               role="alert"
               action={feedbackStatus === 401 ? (
@@ -329,7 +344,7 @@ export default function PersonalAgentAccess({ autoStart = false } = {}) {
               ) : null}
             >
               {feedback}
-            </Alert>
+            </Alert>}
             {retryableFailure && (
               <Button variant="contained" onClick={startAccess} disabled={preparing} loading={preparing}>
                 Reintentar

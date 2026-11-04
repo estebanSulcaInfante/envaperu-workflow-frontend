@@ -1,3 +1,4 @@
+import OperationNotice from "../ui/OperationNotice";
 import { useMemo, useState } from 'react';
 import {
   Alert,
@@ -118,6 +119,7 @@ export default function ActorWorkspaceBar() {
             </>
           )}
         </Stack>
+        <OperationNotice message={error} severity="warning" />
         {error && <Alert severity="warning" sx={{ mt: 0.75 }}>{error}</Alert>}
       </Paper>
 

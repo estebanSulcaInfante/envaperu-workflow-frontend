@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../../utils/operationFeedbackState";
 import { useState } from 'react';
 import {
   Alert,
@@ -46,7 +47,7 @@ export default function ColorFormulationEditor({
   const [materialDialog, setMaterialDialog] = useState({ open: false, index: null, role: 'MATERIA_PRIMA' });
   const [materialName, setMaterialName] = useState('');
   const [materialCategoryId, setMaterialCategoryId] = useState('');
-  const [materialError, setMaterialError] = useState('');
+  const [materialError, setMaterialError, feedbackFallback_materialError] = useOperationMessage("components/productOnboarding/ColorFormulationEditor.jsx:materialError", { severity: "error", initialValue: '' });
   const [savingMaterial, setSavingMaterial] = useState(false);
   const error = (field) => (showValidation ? errors[field] : '');
   const availableRecipes = recipes.filter(
@@ -434,7 +435,7 @@ export default function ColorFormulationEditor({
             <Alert severity="info">
               Se creará en el catálogo general, se refrescará la lista y quedará seleccionado en esta receta.
             </Alert>
-            {materialError && <Alert severity="error">{materialError}</Alert>}
+            {materialError && <>{feedbackFallback_materialError && <Alert severity="error">{materialError}</Alert>}</>}
             <TextField
               autoFocus
               required

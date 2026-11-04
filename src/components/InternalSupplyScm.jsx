@@ -12,6 +12,7 @@ import { useSearchParams } from 'react-router-dom';
 import PageHeader from './ui/PageHeader';
 import { useScmActor } from '../context/ScmActorContext';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
+import { useOperationMessage } from '../utils/operationFeedbackState';
 import {
   asignarFuenteNoExactaAbastecimientoScm,
   asignarMangaAbastecimientoScm,
@@ -171,8 +172,8 @@ export default function InternalSupplyScm() {
   const [exceptionReason, setExceptionReason] = useState('');
   const [candidateCodes, setCandidateCodes] = useState('');
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, isFeedbackFallback] = useOperationMessage('internal-supply-error');
+  const [notice, setNotice] = useOperationMessage('internal-supply-success', { severity: 'success', operation: 'internal-supply' });
   const [inboxSearch, setInboxSearch] = useState('');
 
   const selected = useMemo(
@@ -200,7 +201,7 @@ export default function InternalSupplyScm() {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [setError]);
 
   useEffect(() => { load(searchParams.get('solicitud') || ''); }, [load, searchParams]);
 
@@ -277,8 +278,8 @@ export default function InternalSupplyScm() {
         Perfil actual: <strong>{experience.label}</strong>. Reservar no descuenta stock;
         el Kardex cambia cuando se confirma el despacho y la recepción física.
       </Alert>
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {isFeedbackFallback && error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      {isFeedbackFallback && notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
 
       <SupplyInbox
         requests={requests}

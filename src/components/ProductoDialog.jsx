@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -39,7 +40,7 @@ export default function ProductoDialog({
     initialName: '',
   });
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState('');
+  const [saveError, setSaveError, feedbackFallback_saveError] = useOperationMessage("components/ProductoDialog.jsx:saveError", { severity: "error", initialValue: '' });
   const [attempted, setAttempted] = useState(false);
   const [imageFile, setImageFile] = useState(null);
   const [removeImage, setRemoveImage] = useState(false);
@@ -48,7 +49,7 @@ export default function ProductoDialog({
     obtenerLineas()
       .then((lineas) => setMaestros((current) => ({ ...current, lineas })))
       .catch(() => setSaveError('No se pudieron cargar las líneas.'));
-  }, []);
+  }, [setSaveError]);
 
   useEffect(() => {
     setSaveError('');
@@ -64,7 +65,7 @@ export default function ProductoDialog({
       peso_g: producto.peso_g ?? '',
       marca: producto.marca || '',
     } : emptyProduct);
-  }, [producto, open]);
+  }, [producto, open, setSaveError]);
 
   useEffect(() => {
     let active = true;
@@ -86,7 +87,7 @@ export default function ProductoDialog({
         if (active) setSaveError('No se pudieron cargar las familias de la línea.');
       });
     return () => { active = false; };
-  }, [open, formData.linea_id]);
+  }, [open, formData.linea_id, setSaveError]);
 
   const validation = useMemo(() => {
     const validateNumber = (value, { integer = false, min = 0 } = {}) => {
@@ -176,7 +177,7 @@ export default function ProductoDialog({
       <DialogTitle>{producto ? 'Editar producto terminado' : 'Nuevo producto terminado'}</DialogTitle>
       <DialogContent>
         <Stack spacing={2.5} sx={{ pt: 1 }}>
-          {saveError && <Alert severity="error">{saveError}</Alert>}
+          {saveError && <>{feedbackFallback_saveError && <Alert severity="error">{saveError}</Alert>}</>}
           <Alert severity="info">
             El alta crea únicamente la identidad maestra. La BOM se define y aprueba
             posteriormente en Ingeniería SCM.

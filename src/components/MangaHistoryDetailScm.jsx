@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Accordion,
@@ -930,11 +931,11 @@ export default function MangaHistoryDetailScm({
   directItem = null,
 }) {
   const [listState, setListState] = useState("idle");
-  const [listError, setListError] = useState("");
+  const [listError, setListError] = useOperationMessage("components/MangaHistoryDetailScm.jsx:listError", { severity: "error", initialValue: "" });
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState(null);
   const [detailState, setDetailState] = useState("idle");
-  const [detailError, setDetailError] = useState("");
+  const [detailError, setDetailError] = useOperationMessage("components/MangaHistoryDetailScm.jsx:detailError", { severity: "error", initialValue: "" });
   const [detail, setDetail] = useState(null);
   const [expanded, setExpanded] = useState(false);
   const listController = useRef(null);
@@ -982,7 +983,7 @@ export default function MangaHistoryDetailScm({
     setListError("");
     setDetailError("");
     setDetailState("idle");
-  }, []);
+  }, [setListError, setDetailError]);
   const loadDetail = useCallback(async (item) => {
     if (!item?.id) return;
     sequence.current += 1;
@@ -1008,7 +1009,7 @@ export default function MangaHistoryDetailScm({
       );
       setDetailState("error");
     }
-  }, []);
+  }, [setDetailError]);
   const loadList = useCallback(async () => {
     cancelRequests();
     const current = sequence.current;
@@ -1040,7 +1041,7 @@ export default function MangaHistoryDetailScm({
       );
       setListState("error");
     }
-  }, [cancelRequests, directItem, filters, group, loadDetail, resetData]);
+  }, [cancelRequests, directItem, filters, group, loadDetail, resetData, setListError]);
   useEffect(() => {
     if (!open) {
       cancelRequests();

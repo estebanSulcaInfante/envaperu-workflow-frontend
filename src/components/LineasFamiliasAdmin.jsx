@@ -1,3 +1,5 @@
+import { useCallback } from "react";
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -205,14 +207,14 @@ function LineasFamiliasAdmin() {
   const [loading, setLoading] = useState(true);
   const [associationLoading, setAssociationLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError] = useOperationMessage("components/LineasFamiliasAdmin.jsx:error", { severity: "error", initialValue: '' });
+  const [notice, setNotice, feedbackFallback_notice] = useOperationMessage("components/LineasFamiliasAdmin.jsx:notice", { severity: "success", initialValue: '' });
   const [dialog, setDialog] = useState({ open: false, type: 'linea', item: null });
   const [formData, setFormData] = useState(emptyForm);
 
   const selectedLine = lineas.find((linea) => linea.id === selectedLineId) || null;
 
-  const loadCatalogs = async () => {
+  const loadCatalogs = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -231,9 +233,9 @@ function LineasFamiliasAdmin() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [setError]);
 
-  const loadAssociations = async (lineId) => {
+  const loadAssociations = useCallback(async (lineId) => {
     if (!lineId) {
       setAssociatedFamilies([]);
       return;
@@ -251,16 +253,16 @@ function LineasFamiliasAdmin() {
     } finally {
       setAssociationLoading(false);
     }
-  };
+  }, [setError]);
 
   useEffect(() => {
     loadCatalogs();
-  }, []);
+  }, [loadCatalogs]);
 
   useEffect(() => {
     setSelectedFamilyId('');
     loadAssociations(selectedLineId);
-  }, [selectedLineId]);
+  }, [loadAssociations, selectedLineId]);
 
   const openCreate = (type) => {
     setDialog({ open: true, type, item: null });
@@ -406,7 +408,7 @@ function LineasFamiliasAdmin() {
           {error}
         </Alert>
       )}
-      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {notice && <>{feedbackFallback_notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}</>}
 
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 2 }}>
         <CatalogTable
@@ -543,8 +545,8 @@ function LineasFamiliasAdmin() {
               onChange={(event) => setFormData((current) => ({ ...current, nombre: event.target.value }))}
               required
               autoFocus
-              helperText="Usa un nombre corto, único y reconocible para planta."
-            />
+              helperText={(error === 'Ingresa un nombre.' && !formData.nombre.trim()) ? "Ingresa un nombre." : ("Usa un nombre corto, único y reconocible para planta.")}
+             error={Boolean((error === 'Ingresa un nombre.' && !formData.nombre.trim()))} />
             <FormControlLabel
               control={(
                 <Switch

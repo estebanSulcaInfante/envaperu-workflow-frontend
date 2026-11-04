@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -556,7 +557,7 @@ function OrdenesLista() {
   const printTarget = new URLSearchParams(window.location.search).get('print');
   const [ordenes, setOrdenes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useOperationMessage("components/OrdenesLista.jsx:error", { severity: "error", initialValue: null });
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('TODAS');
   const [printOrder, setPrintOrder] = useState(null);
@@ -576,7 +577,7 @@ function OrdenesLista() {
     } finally {
       setLoading(false);
     }
-  }, [printTarget]);
+  }, [printTarget, setError]);
 
   useEffect(() => {
     fetchOrdenes();
@@ -709,6 +710,7 @@ function OrdenesLista() {
 
 // Componente interno para el formulario de metricas
 function MetricasForm({ orden, onClose, onSuccess }) {
+    const [error, setError, feedbackFallback] = useOperationMessage('order-metrics', { severity: 'error' });
     const [formData, setFormData] = useState({
         snapshot_tiempo_ciclo: orden.tiempo_ciclo || orden.snapshot_tiempo_ciclo || '',
         snapshot_peso_inc_colada: orden.peso_inc_colada || orden.snapshot_peso_inc_colada || ''
@@ -721,6 +723,7 @@ function MetricasForm({ orden, onClose, onSuccess }) {
     };
 
     const handleSubmit = async () => {
+        setError('');
         setLoading(true);
         try {
             await actualizarMetricasOrden(orden.numero_op, {
@@ -730,7 +733,7 @@ function MetricasForm({ orden, onClose, onSuccess }) {
             onSuccess();
         } catch (error) {
             console.error(error);
-            alert("Error al actualizar métricas: " + (error.response?.data?.error || error.message));
+            setError("Error al actualizar métricas: " + (error.response?.data?.error || error.message));
         } finally {
             setLoading(false);
         }
@@ -738,6 +741,7 @@ function MetricasForm({ orden, onClose, onSuccess }) {
 
     return (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            {feedbackFallback && error && <Alert severity="error">{error}</Alert>}
             <Grid container spacing={2}>
                 <Grid size={{ xs: 6 }}>
                     <TextField 

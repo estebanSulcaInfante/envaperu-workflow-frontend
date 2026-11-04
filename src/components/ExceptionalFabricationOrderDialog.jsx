@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel,
@@ -160,7 +161,7 @@ export default function ExceptionalFabricationOrderDialog({
   const [moldDraft, setMoldDraft] = useState(emptyMoldDraft);
   const [pieceCatalog, setPieceCatalog] = useState([]);
   const [moldMutationBusy, setMoldMutationBusy] = useState(false);
-  const [moldMutationError, setMoldMutationError] = useState('');
+  const [moldMutationError, setMoldMutationError, feedbackFallback_moldMutationError] = useOperationMessage("components/ExceptionalFabricationOrderDialog.jsx:moldMutationError", { severity: "error", initialValue: '' });
   const [colorMutationBusy, setColorMutationBusy] = useState(false);
   const colorMutationInFlightRef = useRef(false);
   const [masterPanel, setMasterPanel] = useState(null);
@@ -173,7 +174,7 @@ export default function ExceptionalFabricationOrderDialog({
   const [process, setProcess] = useState('');
   const [busy, setBusy] = useState(false);
   const [loadingMold, setLoadingMold] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/ExceptionalFabricationOrderDialog.jsx:error", { severity: "error", initialValue: '' });
   const [uncertainAttempt, setUncertainAttempt] = useState(null);
   const [moldUncertainAttempt, setMoldUncertainAttempt] = useState(null);
   const [duplicateReviewConfirmed, setDuplicateReviewConfirmed] = useState(false);
@@ -311,7 +312,7 @@ export default function ExceptionalFabricationOrderDialog({
       active = false;
       moldGenerationRef.current += 1;
     };
-  }, [initialSource, open]);
+  }, [initialSource, open, setMoldMutationError, setError]);
 
   useEffect(() => { if (!initialSource) setLocalColors(colors || []); }, [colors, initialSource]);
   useEffect(() => { if (!initialSource) setLocalRecipes(recipes || []); }, [initialSource, recipes]);
@@ -379,7 +380,7 @@ export default function ExceptionalFabricationOrderDialog({
         if (active && routeGenerationRef.current === generation) setRouteLoading(false);
       });
     return () => { active = false; };
-  }, [articleCatalogState, initialSource, open, routeArticleIds]);
+  }, [articleCatalogState, initialSource, open, routeArticleIds, setError]);
 
   useEffect(() => {
     if (!initialSource || duplicateCatalogState !== 'ready') return;
@@ -950,7 +951,7 @@ export default function ExceptionalFabricationOrderDialog({
             Produce PiezaColor para stock sin inventar una OP ni un Producto Terminado. La OF queda
             en borrador y debe liberarse antes de crear OT y mangas.
           </Alert>
-          {error && <Alert severity="error">{error}</Alert>}
+          {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
           {initialSource && (
             <Alert severity={duplicateComparison.changed ? 'warning' : 'info'}>
               <Typography variant="body2" fontWeight={750}>
@@ -1185,7 +1186,7 @@ export default function ExceptionalFabricationOrderDialog({
                       </Box>
                       <Button size="small" onClick={() => setMoldWorkspace('select')} disabled={moldMutationBusy || Boolean(moldUncertainAttempt)}>Volver a OF</Button>
                     </Stack>
-                    {moldMutationError && <Alert severity="error">{moldMutationError}</Alert>}
+                    {moldMutationError && <>{feedbackFallback_moldMutationError && <Alert severity="error">{moldMutationError}</Alert>}</>}
                     {moldUncertainAttempt && (
                       <Alert severity="warning" action={<Button color="inherit" onClick={openMoldCatalog} disabled={moldMutationBusy}>Revisar catálogo</Button>}>
                         Alta incierta: el borrador está conservado y no se enviará otro POST. Revisa el catálogo para reconciliar el molde antes de continuar.

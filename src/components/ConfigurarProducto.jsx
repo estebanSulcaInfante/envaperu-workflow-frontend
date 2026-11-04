@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useState, useEffect } from 'react';
 import {
   Paper,
@@ -60,7 +61,7 @@ function ConfigurarProducto() {
   const navigate = useNavigate();
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/ConfigurarProducto.jsx:error", { severity: "error", initialValue: null });
   
   // Datos del formulario
   const [molde, setMolde] = useState({
@@ -108,6 +109,7 @@ function ConfigurarProducto() {
   // Cargar catálogos
   useEffect(() => {
     const cargarCatalogos = async () => {
+    setError('');
       try {
         setColoresLoading(true);
         setMoldesLoading(true);
@@ -136,7 +138,7 @@ function ConfigurarProducto() {
       }
     };
     cargarCatalogos();
-  }, []);
+  }, [setError]);
 
   useEffect(() => {
     let active = true;
@@ -467,9 +469,9 @@ function ConfigurarProducto() {
       </Typography>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+        <>{feedbackFallback_error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
           {error}
-        </Alert>
+        </Alert>}</>
       )}
 
       <Stepper activeStep={activeStep} orientation="vertical">

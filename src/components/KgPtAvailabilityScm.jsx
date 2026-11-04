@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import {
   Alert, Box, Button, Chip, Divider, Paper, Stack, Tab, Table,
   TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs,
@@ -198,8 +199,8 @@ export default function KgPtAvailabilityScm() {
   const [form, setForm] = useState(emptyManualForm);
   const [adjustment, setAdjustment] = useState(false);
   const [state, setState] = useState('loading');
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/KgPtAvailabilityScm.jsx:error", { severity: "error", initialValue: '' });
+  const [notice, setNotice, feedbackFallback_notice] = useOperationMessage("components/KgPtAvailabilityScm.jsx:notice", { severity: "success", initialValue: '' });
   const [history, setHistory] = useState({});
   const [consultedAt, setConsultedAt] = useState(null);
   const [exportState, setExportState] = useState('ready');
@@ -232,7 +233,7 @@ export default function KgPtAvailabilityScm() {
     try { setPending(JSON.parse(sessionStorage.getItem(storageKey) || 'null')); }
     catch { setError('No se pudo recuperar la solicitud guardada. Revisa el historial antes de continuar.'); }
     setConfirmation(null);
-  }, [storageKey]);
+  }, [storageKey, setError]);
 
   const refresh = useCallback(async () => {
     if (!canView) return false;
@@ -345,8 +346,8 @@ export default function KgPtAvailabilityScm() {
   const typeLabels = { ENTRADA: 'Entrada', SALIDA: 'Salida', AJUSTE_POSITIVO: 'Ajuste positivo', AJUSTE_NEGATIVO: 'Ajuste negativo' };
   return <Stack spacing={2.5}>
     <PageHeader title="Disponibilidad de piezas y PT" description="Piezas medidas, cobertura estimada y movimientos de producto terminado." actions={<Button startIcon={<RefreshIcon />} variant="outlined" onClick={refresh} disabled={state === 'loading'}>Actualizar</Button>} />
-    {notice && <Alert severity="success">{notice}</Alert>}
-    {error && <Alert severity="error">{error}</Alert>}
+    {notice && <>{feedbackFallback_notice && <Alert severity="success">{notice}</Alert>}</>}
+    {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
     {pending && <Alert severity="warning" action={<Button disabled={busy} onClick={() => send(pending)}>Recuperar movimiento</Button>}>Hay un movimiento sin respuesta confirmada: {typeLabels[pending.payload.tipo]} de {pending.payload.cantidad} UN, {pending.product}. Conserva esta solicitud hasta conocer el resultado.</Alert>}
     <Alert severity="info">Los kg medidos están disponibles desde el pesaje, incluso con mangas en proceso. La cobertura de PT es estimada; los productos que comparten piezas compiten por el mismo stock y sus potenciales no se suman.</Alert>
     <Stack component="form" direction="row" spacing={1} onSubmit={(event) => { event.preventDefault(); setQuery(search.trim()); }}>

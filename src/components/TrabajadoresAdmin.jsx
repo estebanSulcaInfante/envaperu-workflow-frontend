@@ -1,3 +1,5 @@
+import { useCallback } from "react";
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -48,7 +50,7 @@ function TrabajadoresAdmin() {
   const [trabajadores, setTrabajadores] = useState([]);
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/TrabajadoresAdmin.jsx:error", { severity: "error", initialValue: null });
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('TODOS');
   const [statusFilter, setStatusFilter] = useState('TODOS');
@@ -66,7 +68,8 @@ function TrabajadoresAdmin() {
     observaciones: ''
   });
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    setError('');
     try {
       setLoading(true);
       const [trabRes, rolesRes] = await Promise.all([
@@ -81,11 +84,11 @@ function TrabajadoresAdmin() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [setError]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const handleOpenNew = () => {
     setEditingId(null);
@@ -141,7 +144,7 @@ function TrabajadoresAdmin() {
       await cambiarEstadoTrabajadorWorkspace(id, !currentEstado);
       await Promise.all([fetchData(), refreshActors()]);
     } catch {
-      alert('Error cambiando estado');
+      setError('Error cambiando estado');
     }
   };
 
@@ -176,7 +179,7 @@ function TrabajadoresAdmin() {
         />
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}</>}
 
       <DataTableToolbar
         searchValue={search}

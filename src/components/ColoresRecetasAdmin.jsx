@@ -1,3 +1,5 @@
+import { useCallback } from "react";
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -150,8 +152,8 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
   const [loading, setLoading] = useState(true);
   const [recipeLoading, setRecipeLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/ColoresRecetasAdmin.jsx:error", { severity: "error", initialValue: '' });
+  const [notice, setNotice, feedbackFallback_notice] = useOperationMessage("components/ColoresRecetasAdmin.jsx:notice", { severity: "success", initialValue: '' });
   const [colorDialog, setColorDialog] = useState({ open: false, item: null });
   const [colorForm, setColorForm] = useState(emptyColor);
   const [familyDialogOpen, setFamilyDialogOpen] = useState(false);
@@ -187,7 +189,7 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
     });
   }, [ingredients, recipeDialog.duplicateSource, recipeForm.lineas]);
 
-  const loadCatalog = async () => {
+  const loadCatalog = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -215,9 +217,9 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
     } finally {
       setLoading(false);
     }
-  };
+  }, [initialColorId, setError]);
 
-  const loadRecipes = async (colorId) => {
+  const loadRecipes = useCallback(async (colorId) => {
     if (!colorId) {
       setRecipes([]);
       return;
@@ -236,10 +238,10 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
     } finally {
       setRecipeLoading(false);
     }
-  };
+  }, [setError]);
 
-  useEffect(() => { loadCatalog(); }, []);
-  useEffect(() => { loadRecipes(selectedColorId); }, [selectedColorId]);
+  useEffect(() => { loadCatalog(); }, [loadCatalog]);
+  useEffect(() => { loadRecipes(selectedColorId); }, [loadRecipes, selectedColorId]);
 
   const openNewColor = () => {
     setColorDialog({ open: true, item: null });
@@ -714,8 +716,8 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
         />
       )}
 
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}</>}
+      {notice && <>{feedbackFallback_notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}</>}
       {uncertainRecipeAttempt && !recipeDialog.open && (
         <Alert severity="warning" action={<Stack direction="row" spacing={1}><Button color="inherit" onClick={reopenUncertainRecipe}>Reabrir copia</Button><Button color="inherit" onClick={reconcileRecipeAttempt} disabled={reconcilingRecipe}>{reconcilingRecipe ? 'Consultando…' : 'Revisar catálogo'}</Button></Stack>}>
           Hay un guardado de copia sin confirmar. Revisa el catálogo antes de volver a duplicar; puedes restaurar el formulario original.
@@ -834,16 +836,16 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
       <Dialog open={colorDialog.open} onClose={() => !saving && setColorDialog({ open: false, item: null })} maxWidth="sm" fullWidth>
         <DialogTitle>{colorDialog.item ? 'Editar color' : 'Nuevo color de producción'}</DialogTitle>
         <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
-          <TextField label="Nombre del color base" value={colorForm.nombre} onChange={(event) => setColorForm((current) => ({ ...current, nombre: event.target.value }))} autoFocus fullWidth />
+          <TextField label="Nombre del color base" value={colorForm.nombre} onChange={(event) => setColorForm((current) => ({ ...current, nombre: event.target.value }))} autoFocus fullWidth  error={Boolean((error === 'Completa el nombre y el acabado del color.' && !colorForm.nombre.trim()))} helperText={(error === 'Completa el nombre y el acabado del color.' && !colorForm.nombre.trim()) ? "Completa el nombre del color." : (undefined)} />
           <Stack spacing={0.5}>
-            <TextField select label="Acabado / familia de color" value={colorForm.familia_color_id} onChange={(event) => setColorForm((current) => ({ ...current, familia_color_id: event.target.value }))} fullWidth>{families.filter((family) => family.activo !== false || family.id === colorForm.familia_color_id).map((family) => <MenuItem key={family.id} value={family.id}>{family.nombre}{family.activo === false ? ' (INACTIVA)' : ''}</MenuItem>)}</TextField>
+            <TextField select label="Acabado / familia de color" value={colorForm.familia_color_id} onChange={(event) => setColorForm((current) => ({ ...current, familia_color_id: event.target.value }))} fullWidth error={Boolean((error === 'Completa el nombre y el acabado del color.' && !colorForm.familia_color_id))} helperText={(error === 'Completa el nombre y el acabado del color.' && !colorForm.familia_color_id) ? "Selecciona el acabado del color." : (undefined)} >{families.filter((family) => family.activo !== false || family.id === colorForm.familia_color_id).map((family) => <MenuItem key={family.id} value={family.id}>{family.nombre}{family.activo === false ? ' (INACTIVA)' : ''}</MenuItem>)}</TextField>
             <Button size="small" startIcon={<AddOutlinedIcon />} sx={{ alignSelf: 'flex-start' }} onClick={() => { resetFamilyForm(); setFamilyDialogOpen(true); }}>Crear acabado / familia</Button>
           </Stack>
           <ColorHexPickerField
             value={colorForm.hex_referencia}
             onChange={(hex_referencia) => setColorForm((current) => ({ ...current, hex_referencia }))}
             disabled={saving}
-          />
+           error={Boolean((error === 'El HEX debe usar el formato #RRGGBB.' && Boolean(colorForm.hex_referencia) && !/^#[0-9a-fA-F]{6}$/.test(colorForm.hex_referencia)))} helperText={(error === 'El HEX debe usar el formato #RRGGBB.' && Boolean(colorForm.hex_referencia) && !/^#[0-9a-fA-F]{6}$/.test(colorForm.hex_referencia)) ? "El HEX debe usar el formato #RRGGBB." : (undefined)} />
           {colorDialog.item && <FormControlLabel control={<Switch checked={colorForm.activo} onChange={(event) => setColorForm((current) => ({ ...current, activo: event.target.checked }))} />} label="Disponible para nuevas OP" />}
         </Stack></DialogContent>
         <DialogActions><Button onClick={() => setColorDialog({ open: false, item: null })} disabled={saving}>Cancelar</Button><Button variant="contained" onClick={saveColor} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</Button></DialogActions>
@@ -855,7 +857,7 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
           <Stack spacing={2} sx={{ pt: 1 }}>
             <Alert severity="info">Define acabados como SÓLIDO, CARAMELO, TRANSPARENTE o PASTEL. Una familia inactiva deja de estar disponible para colores nuevos, sin romper los existentes.</Alert>
             <Grid container spacing={1} alignItems="center">
-              <Grid size={{ xs: 12, sm: 7 }}><TextField fullWidth label="Nombre de familia" value={familyForm.nombre} onChange={(event) => setFamilyForm((current) => ({ ...current, nombre: event.target.value }))} /></Grid>
+              <Grid size={{ xs: 12, sm: 7 }}><TextField fullWidth label="Nombre de familia" value={familyForm.nombre} onChange={(event) => setFamilyForm((current) => ({ ...current, nombre: event.target.value }))}  error={Boolean((error === 'Ingresa el nombre de la familia de color.' && !familyForm.nombre.trim()))} helperText={(error === 'Ingresa el nombre de la familia de color.' && !familyForm.nombre.trim()) ? "Ingresa el nombre de la familia de color." : (undefined)} /></Grid>
               <Grid size={{ xs: 12, sm: 3 }}><TextField fullWidth label="Código automático" value={editingFamily ? (familyForm.codigo_display || familyForm.codigo) : 'FC-######'} disabled helperText={editingFamily ? 'Código inmutable' : 'Se asignará al guardar'} /></Grid>
               <Grid size={{ xs: 12, sm: 2 }}><Button fullWidth variant="contained" onClick={saveFamily} disabled={saving}>{editingFamily ? 'Guardar' : 'Crear'}</Button></Grid>
             </Grid>
@@ -886,7 +888,7 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
       <Dialog open={recipeDialog.open} onClose={() => !saving && !reconcilingRecipe && cancelRecipeDialog()} maxWidth="md" fullWidth>
         <DialogTitle>{recipeDialog.duplicateSource ? `Duplicar como borrador · ${recipeDialog.duplicateSource.nombre_variante}` : recipeDialog.item ? `${recipeDialog.item.estado === 'APROBADA' ? 'Nueva revisión de' : 'Editar'} ${recipeDialog.item.nombre_variante}` : `Nueva receta para ${selectedColor?.nombre || ''}`}</DialogTitle>
         <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
-          {error && <Alert severity="error">{error}</Alert>}
+          {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
           {recipeDialog.duplicateSource && duplicateRecipeLoading && <Alert severity="info">Consultando colores, materiales y recetas vigentes… El guardado está bloqueado hasta completar la consulta.</Alert>}
           {recipeDialog.duplicateSource && duplicateRecipeLoadError && <Alert severity="error" action={<Button color="inherit" onClick={() => openDuplicateRecipe(recipeDialog.duplicateSource)}>Reintentar consulta</Button>}>No se pudo preparar la copia con los maestros vigentes.</Alert>}
           {recipeDialog.duplicateSource && <Alert severity="info">Fuente: {recipeDialog.duplicateSource.nombre_variante} · revisión {recipeDialog.duplicateSource.revision || '—'}. Se guardará una variante nueva BORRADOR y no predeterminada; aprobar es una acción posterior.</Alert>}
@@ -896,7 +898,7 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
           {recipeDialog.item?.estado === 'APROBADA' && <Alert severity="info">La revisión aprobada no será sobrescrita: se conservará inactiva y se creará la siguiente revisión.</Alert>}
           <Box component="fieldset" disabled={saving || reconcilingRecipe || Boolean(uncertainRecipeAttempt)} sx={{ border: 0, p: 0, m: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <Grid container spacing={1.5}>
-            <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Nombre de variante" value={recipeForm.nombre_variante} onChange={(event) => { if (!recipeInputsLocked) setRecipeForm((current) => ({ ...current, nombre_variante: event.target.value })); }} helperText="Máximo 120 caracteres" slotProps={{ htmlInput: { maxLength: 120 } }} /></Grid>
+            <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Nombre de variante" value={recipeForm.nombre_variante} onChange={(event) => { if (!recipeInputsLocked) setRecipeForm((current) => ({ ...current, nombre_variante: event.target.value })); }} helperText={((error === 'Selecciona un color e ingresa el nombre de la variante.' && !recipeForm.nombre_variante.trim()) || (error === 'El nombre de variante no puede superar 120 caracteres.' && recipeForm.nombre_variante.trim().length > 120) || (error === 'El nombre de variante ya existe para este color y alcance. Elige otro.' && recipes.some((item) => String(item.nombre_variante || '').trim().toLocaleLowerCase() === recipeForm.nombre_variante.trim().toLocaleLowerCase()))) ? error : ("Máximo 120 caracteres")} slotProps={{ htmlInput: { maxLength: 120 } }}  error={Boolean(((error === 'Selecciona un color e ingresa el nombre de la variante.' && !recipeForm.nombre_variante.trim()) || (error === 'El nombre de variante no puede superar 120 caracteres.' && recipeForm.nombre_variante.trim().length > 120) || (error === 'El nombre de variante ya existe para este color y alcance. Elige otro.' && recipes.some((item) => String(item.nombre_variante || '').trim().toLocaleLowerCase() === recipeForm.nombre_variante.trim().toLocaleLowerCase()))))} /></Grid>
             <Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Producto SKU (opcional)" value={recipeForm.producto_sku} onChange={(event) => { if (!recipeInputsLocked) setRecipeForm((current) => ({ ...current, producto_sku: event.target.value })); }} helperText="Vacío = receta general del color" /></Grid>
             <Grid size={{ xs: 12, md: 4 }}><TextField select fullWidth label="Estado" value={recipeForm.estado} disabled={Boolean(recipeDialog.duplicateSource)} onChange={(event) => { if (!recipeInputsLocked) setRecipeForm((current) => ({ ...current, estado: event.target.value, es_default: event.target.value === 'APROBADA' ? current.es_default : false })); }}><MenuItem value="BORRADOR">BORRADOR</MenuItem>{canPublishRecipe && !recipeDialog.duplicateSource && <MenuItem value="APROBADA">APROBADA</MenuItem>}</TextField></Grid>
             <Grid size={{ xs: 12, md: 4 }}><TextField fullWidth type="number" label="Base virgen (kg)" value={recipeForm.base_virgen_kg} onChange={(event) => { if (!recipeInputsLocked) setRecipeForm((current) => ({ ...current, base_virgen_kg: event.target.value })); }} slotProps={{ htmlInput: { min: 0.001, step: 0.001 } }} /></Grid>
@@ -913,9 +915,9 @@ function ColoresRecetasAdmin({ embedded = false, initialColorId = null, onRecipe
             return (
               <Paper key={`${index}-${line.material_id}`} variant="outlined" sx={{ p: 1.5 }}>
                 <Grid container spacing={1.25} alignItems="center">
-                  <Grid size={{ xs: 12, md: 5 }}><Stack spacing={0.5}><TextField select fullWidth size="small" label="Material" value={line.material_id} onChange={(event) => updateRecipeLine(index, 'material_id', event.target.value)}>{ingredients.filter((item) => item.activo !== false).map((item) => <MenuItem key={item.id} value={item.id}>{item.codigo} · {item.nombre}</MenuItem>)}</TextField><Button size="small" startIcon={<AddOutlinedIcon />} sx={{ alignSelf: 'flex-start' }} onClick={() => setMaterialDialog({ open: true, lineIndex: index, role: line.tipo_componente })}>Crear {line.tipo_componente === 'MATERIA_PRIMA' ? 'materia prima' : line.tipo_componente === 'ADITIVO' ? 'aditivo' : 'colorante'}</Button></Stack></Grid>
+                  <Grid size={{ xs: 12, md: 5 }}><Stack spacing={0.5}><TextField select fullWidth size="small" label="Material" value={line.material_id} onChange={(event) => updateRecipeLine(index, 'material_id', event.target.value)} error={Boolean((error === 'Completa el material y una cantidad positiva en cada línea.' && !line.material_id))} helperText={(error === 'Completa el material y una cantidad positiva en cada línea.' && !line.material_id) ? "Selecciona el material de esta línea." : (undefined)} >{ingredients.filter((item) => item.activo !== false).map((item) => <MenuItem key={item.id} value={item.id}>{item.codigo} · {item.nombre}</MenuItem>)}</TextField><Button size="small" startIcon={<AddOutlinedIcon />} sx={{ alignSelf: 'flex-start' }} onClick={() => setMaterialDialog({ open: true, lineIndex: index, role: line.tipo_componente })}>Crear {line.tipo_componente === 'MATERIA_PRIMA' ? 'materia prima' : line.tipo_componente === 'ADITIVO' ? 'aditivo' : 'colorante'}</Button></Stack></Grid>
                   <Grid size={{ xs: 12, md: 2.5 }}><TextField select fullWidth size="small" label="Rol" value={line.tipo_componente} disabled={selectedIngredient?.clase === 'MATERIA_PRIMA'} onChange={(event) => updateRecipeLine(index, 'tipo_componente', event.target.value)}>{selectedIngredient?.clase === 'MATERIA_PRIMA' ? <MenuItem value="MATERIA_PRIMA">Materia prima</MenuItem> : selectedIngredient?.clase === 'COLORANTE' ? [<MenuItem key="COLORANTE" value="COLORANTE">Colorante</MenuItem>, <MenuItem key="ADITIVO" value="ADITIVO">Aditivo</MenuItem>] : [<MenuItem key="MATERIA_PRIMA" value="MATERIA_PRIMA">Materia prima</MenuItem>, <MenuItem key="COLORANTE" value="COLORANTE">Colorante</MenuItem>, <MenuItem key="ADITIVO" value="ADITIVO">Aditivo</MenuItem>]}</TextField></Grid>
-                  <Grid size={{ xs: 10, md: isRaw ? 4 : 2 }}><TextField fullWidth size="small" type="number" label={isRaw ? 'Materia prima (%)' : 'Dosis (g)'} value={line.cantidad} onChange={(event) => updateRecipeLine(index, 'cantidad', event.target.value)} slotProps={{ htmlInput: { min: 0.0001, max: isRaw ? 100 : undefined, step: isRaw ? 0.01 : 0.0001 } }} /></Grid>
+                  <Grid size={{ xs: 10, md: isRaw ? 4 : 2 }}><TextField fullWidth size="small" type="number" label={isRaw ? 'Materia prima (%)' : 'Dosis (g)'} value={line.cantidad} onChange={(event) => updateRecipeLine(index, 'cantidad', event.target.value)} slotProps={{ htmlInput: { min: 0.0001, max: isRaw ? 100 : undefined, step: isRaw ? 0.01 : 0.0001 } }}  error={Boolean((error === 'Completa el material y una cantidad positiva en cada línea.' && Number(line.cantidad) <= 0))} helperText={(error === 'Completa el material y una cantidad positiva en cada línea.' && Number(line.cantidad) <= 0) ? "Indica una cantidad positiva." : (undefined)} /></Grid>
                   {!isRaw && <Grid size={{ xs: 10, md: 2 }}><TextField fullWidth size="small" type="number" label="Por kg virgen" value={line.base_kg} onChange={(event) => updateRecipeLine(index, 'base_kg', event.target.value)} slotProps={{ htmlInput: { min: 0.001, step: 0.001 } }} /></Grid>}
                   <Grid size={{ xs: 2, md: 0.5 }}><IconButton aria-label={`Eliminar componente ${index + 1}`} color="error" onClick={() => removeRecipeLine(index)}><DeleteOutlineIcon fontSize="small" /></IconButton></Grid>
                 </Grid>

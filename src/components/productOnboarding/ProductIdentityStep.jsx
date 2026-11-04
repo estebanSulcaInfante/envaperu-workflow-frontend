@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../../utils/operationFeedbackState";
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -58,7 +59,7 @@ export default function ProductIdentityStep({
   const identity = useMemo(() => normalizeIdentityData(value), [value]);
   const [catalogs, setCatalogs] = useState({ products: [], lines: [], families: [] });
   const [loading, setLoading] = useState(true);
-  const [catalogError, setCatalogError] = useState('');
+  const [catalogError, setCatalogError, feedbackFallback_catalogError] = useOperationMessage("components/productOnboarding/ProductIdentityStep.jsx:catalogError", { severity: "error", initialValue: '' });
   const [classificationDialog, setClassificationDialog] = useState({
     open: false,
     entity: 'linea',
@@ -79,7 +80,7 @@ export default function ProductIdentityStep({
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [onProductsChange]);
+  }, [onProductsChange, setCatalogError]);
 
   useEffect(() => {
     const query = String(identity.producto.producto || '').trim();
@@ -119,7 +120,7 @@ export default function ProductIdentityStep({
         if (active) setCatalogError('No se pudieron cargar las familias vinculadas a la L\u00ednea.');
       });
     return () => { active = false; };
-  }, [identity.producto.linea_id]);
+  }, [identity.producto.linea_id, setCatalogError]);
 
   const errors = validateIdentity(identity, catalogs.products);
   const duplicate = findExactProductDuplicate(identity, catalogs.products);
@@ -220,7 +221,7 @@ export default function ProductIdentityStep({
         </Typography>
       </Box>
 
-      {catalogError && <Alert severity="error">{catalogError}</Alert>}
+      {catalogError && <>{feedbackFallback_catalogError && <Alert severity="error">{catalogError}</Alert>}</>}
       {duplicate && (
         <Alert severity="warning">
           Ya existe <strong>{duplicate.cod_sku_pt}</strong> con el mismo nombre. Usa

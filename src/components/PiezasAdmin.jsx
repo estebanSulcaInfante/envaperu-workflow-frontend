@@ -1,3 +1,5 @@
+import { useCallback } from "react";
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -76,7 +78,7 @@ function PiezasAdmin() {
   const [familiasLinea, setFamiliasLinea] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/PiezasAdmin.jsx:error", { severity: "error", initialValue: null });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPieza, setEditingPieza] = useState(null);
   const [formData, setFormData] = useState(emptyForm);
@@ -94,7 +96,8 @@ function PiezasAdmin() {
     initialName: '',
   });
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    setError('');
     try {
       setLoading(true);
       const [pieceData, lineData, familyData, colorData] = await Promise.all([
@@ -112,11 +115,11 @@ function PiezasAdmin() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [setError]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   useEffect(() => {
     let active = true;
@@ -352,9 +355,9 @@ function PiezasAdmin() {
       </Box>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+        <>{feedbackFallback_error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
           {error}
-        </Alert>
+        </Alert>}</>
       )}
       {!canAdmin && (
         <Alert severity="info" sx={{ mb: 2 }}>

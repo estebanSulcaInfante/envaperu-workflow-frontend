@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DirectKgBatchWithdrawals from '../components/DirectKgBatchWithdrawals';
+import { FeedbackProvider } from '../context/FeedbackContext';
+import { ThemeProvider, createTheme } from '@mui/material';
 
 const api = vi.hoisted(() => ({
   resolve: vi.fn(),
@@ -441,6 +443,25 @@ describe('salida directa KG a Armado', () => {
     expect(api.resolve).not.toHaveBeenCalledWith('EXTRA');
     sendScan('EXTRA');
     await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(33));
+  });
+
+  it('mantiene la cola llena como advertencia persistente y conserva la lectura', async () => {
+    const first = deferred();
+    api.resolve.mockReturnValue(first.promise);
+    render(<ThemeProvider theme={createTheme()}><FeedbackProvider><DirectKgBatchWithdrawals /></FeedbackProvider></ThemeProvider>);
+    for (let index = 0; index < 32; index += 1) sendScan(`Q${index}`);
+    sendScan('EXTRA');
+    const warning = screen.getByRole('alert', { name: /La cola esta llena/ });
+    expect(warning).toHaveClass('MuiAlert-colorWarning');
+    vi.useFakeTimers();
+    try {
+      await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+      expect(screen.getByRole('alert', { name: /La cola esta llena/ })).toBeVisible();
+      expect(screen.getByLabelText('Escanear QR de manga KG')).toHaveValue('EXTRA');
+      expect(api.create).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('no emite acierto al resolver una identidad bloqueada', async () => {

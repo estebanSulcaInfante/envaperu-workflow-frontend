@@ -4,6 +4,7 @@ import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useScmActor } from '../context/ScmActorContext';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
+import { useOperationMessage } from '../utils/operationFeedbackState';
 import { commandKgCustody, listKgWithdrawals, resolveKgUnit } from '../services/scmKgCustodyApi';
 import PageHeader from './ui/PageHeader';
 import DirectKgBatchWithdrawals from './DirectKgBatchWithdrawals';
@@ -22,8 +23,8 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
   const [mode, setMode] = useState('');
   const [tare, setTare] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, isFeedbackFallback] = useOperationMessage('warehouse-kg-custody-error');
+  const [notice, setNotice] = useOperationMessage('warehouse-kg-custody-success', { severity: 'success', operation: 'warehouse-kg-custody' });
   const [parts, setParts] = useState([]);
   const [pending, setPending] = useState(null);
   const inFlight = useRef(false);
@@ -44,7 +45,7 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
     try { setPending(JSON.parse(sessionStorage.getItem(storageKey) || 'null')); }
     catch { setPending(null); }
     load().catch((e) => setError(mensajeErrorScm(e, 'No se pudo consultar la custodia KG.')));
-  }, [load, storageKey]);
+  }, [load, setError, setNotice, storageKey]);
 
   const resolve = async (value = code) => {
     if (inFlight.current || pending || !value.trim()) return;
@@ -144,8 +145,8 @@ export default function WarehouseKgCustodyScm({ readOnly = false }) {
       )}
     />
     <Alert severity="info">Almacén conserva la custodia. Los remanentes vuelven con peso automático y quedan disponibles al confirmar su recepción.</Alert>
-    {error && <Alert severity="error">{error}</Alert>}
-    {notice && <Alert severity="success">{notice}</Alert>}
+    {isFeedbackFallback && error && <Alert severity="error">{error}</Alert>}
+    {isFeedbackFallback && notice && <Alert severity="success">{notice}</Alert>}
     {pending && <Alert severity="warning" action={<Button disabled={busy || readOnly} onClick={() => execute(null, null, null, true)}>Recuperar operación</Button>}>
       Hay una solicitud sin resultado confirmado. Conserve esta identidad y recupere la misma operación antes de continuar.
     </Alert>}

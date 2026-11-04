@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../../utils/operationFeedbackState";
 import {
   useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
@@ -285,7 +286,7 @@ function OnboardingLanding() {
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/productOnboarding/ProductOnboardingPage.jsx:error", { severity: "error", initialValue: '' });
 
   useEffect(() => {
     listarAltasProducto()
@@ -295,7 +296,7 @@ function OnboardingLanding() {
       })
       .catch(() => setError('No se pudieron consultar las altas en curso.'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [setError]);
 
   const createDraft = async () => {
     setCreating(true);
@@ -352,7 +353,7 @@ function OnboardingLanding() {
         </Stack>
       </Paper>
 
-      {error && <Alert severity="error">{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
       <Box>
         <Typography variant="h6" sx={{ fontWeight: 850 }}>Continuar una carga</Typography>
         <Typography variant="body2" color="text.secondary">
@@ -420,7 +421,7 @@ function OnboardingDraft({ draftId, stepId }) {
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState('idle');
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/productOnboarding/ProductOnboardingPage.jsx:error", { severity: "error", initialValue: '' });
   const [showValidation, setShowValidation] = useState(false);
   const [conflict, setConflict] = useState(null);
   const [applicationResults, setApplicationResults] = useState({});
@@ -428,7 +429,7 @@ function OnboardingDraft({ draftId, stepId }) {
     ESTRUCTURA: false,
     RUTA_EMPAQUE: false,
   });
-  const [completionMessage, setCompletionMessage] = useState('');
+  const [completionMessage, setCompletionMessage, feedbackFallback_completionMessage] = useOperationMessage("components/productOnboarding/ProductOnboardingPage.jsx:completionMessage", { severity: "success", initialValue: '' });
   const [superseding, setSuperseding] = useState({});
   const [restoringColors, setRestoringColors] = useState(false);
   const [imageEntries, setImageEntries] = useState({});
@@ -687,7 +688,7 @@ function OnboardingDraft({ draftId, stepId }) {
       });
     saveQueueRef.current = queuedSave;
     return queuedSave;
-  }, [draftId, replaceSession]);
+  }, [draftId, replaceSession, setError]);
 
   useEffect(() => {
     let effectActive = true;
@@ -738,7 +739,7 @@ function OnboardingDraft({ draftId, stepId }) {
     };
     loadRequestedStep();
     return () => { effectActive = false; };
-  }, [draftId, navigate, replaceLocalStep, replaceSession, stepId, writeStep]);
+  }, [draftId, navigate, replaceLocalStep, replaceSession, stepId, writeStep, setError]);
 
   useEffect(() => {
     if (!dirty || !session || conflict || activeSupersedesKey) return undefined;
@@ -1140,9 +1141,9 @@ function OnboardingDraft({ draftId, stepId }) {
           {'Un cambio anterior invalid\u00f3 '}{invalidated.size}{' fase(s). El rail las marca para revisarlas sin borrar su historial.'}
         </Alert>
       )}
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}</>}
       {completionMessage && !sessionFinalized && (
-        <Alert severity="success">{completionMessage}</Alert>
+        <>{feedbackFallback_completionMessage && <Alert severity="success">{completionMessage}</Alert>}</>
       )}
       {sessionFinalized && (
         <Alert severity={session.readiness?.status === 'READY' ? 'success' : 'warning'}>

@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Drawer, Checkbox, FormControl, FormControlLabel, InputLabel,
@@ -268,8 +269,8 @@ export default function FabricationOrdersScm() {
   });
   const [form, setForm] = useState(formFromOrder(null));
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/FabricationOrdersScm.jsx:error", { severity: "error", initialValue: '' });
+  const [notice, setNotice, feedbackFallback_notice] = useOperationMessage("components/FabricationOrdersScm.jsx:notice", { severity: "success", initialValue: '' });
   const [exceptionalOpen, setExceptionalOpen] = useState(false);
   const [duplicateSource, setDuplicateSource] = useState(null);
   const [formulaRunIndex, setFormulaRunIndex] = useState(null);
@@ -480,7 +481,7 @@ export default function FabricationOrdersScm() {
       }
     }
     return () => { active = false; };
-  }, [canEdit, loadCatalog, query, queryOrder, queryPage, queryPageSize, queryStatus, requestedOrderId]);
+  }, [canEdit, loadCatalog, query, queryOrder, queryPage, queryPageSize, queryStatus, requestedOrderId, setError]);
 
   useEffect(() => {
     const state = navigationStateRef.current;
@@ -1113,7 +1114,7 @@ export default function FabricationOrdersScm() {
           corresponden al responsable de producción.
         </Alert>
       )}
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}</>}
       {Object.entries(catalogStatus)
         .filter(([, status]) => status.error)
         .map(([key, status]) => (
@@ -1137,7 +1138,7 @@ export default function FabricationOrdersScm() {
           Volver a bandeja
         </Button>
       )}
-      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {notice && <>{feedbackFallback_notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}</>}
       {selected && !requestedOrderId && <Alert severity="info">
         {selected?.origen_demanda === 'REEMPLAZO_OF'
           ? 'Este reemplazo conserva cantidades, colores y parámetros originales. Solo se modifica la receta; debes guardarla antes de liberar.'
@@ -1506,7 +1507,7 @@ export default function FabricationOrdersScm() {
                 loading={catalogStatus.moldes.loading}
                 required
                 noOptionsText="No hay moldes compatibles"
-              />
+               error={Boolean((error === 'Selecciona un molde.' && !form.molde_id))} helperText={(error === 'Selecciona un molde.' && !form.molde_id) ? "Selecciona un molde." : (undefined)} />
               <SearchableCatalogAutocomplete
                 id="of-machine"
                 label="Máquina sugerida (opcional)"
@@ -1552,14 +1553,14 @@ export default function FabricationOrdersScm() {
                 required
                 label="Material no neto/ciclo (g)"
                 value={form.snapshot_peso_colada_gr}
-                helperText="Canal, bebedero y rebaba; no incluye las piezas."
+                helperText={(error === 'Indica el material no neto por ciclo entre 0 y 99999 g; usa 0 si no corresponde.' && (form.snapshot_peso_colada_gr === '' || !Number.isFinite(Number(form.snapshot_peso_colada_gr)) || Number(form.snapshot_peso_colada_gr) < 0 || Number(form.snapshot_peso_colada_gr) > 99999)) ? "Indica un valor entre 0 y 99999 g; usa 0 si no corresponde." : ("Canal, bebedero y rebaba; no incluye las piezas.")}
                 slotProps={{ htmlInput: { min: 0, max: 99999, step: 0.1 } }}
                 disabled={!canEdit || selected.estado !== 'BORRADOR' || selected.origen_demanda === 'REEMPLAZO_OF'}
                 onChange={(event) => {
                   setForm((current) => ({ ...current, snapshot_peso_colada_gr: event.target.value }));
                   setDraftDirty(true);
                 }}
-              />
+               error={Boolean((error === 'Indica el material no neto por ciclo entre 0 y 99999 g; usa 0 si no corresponde.' && (form.snapshot_peso_colada_gr === '' || !Number.isFinite(Number(form.snapshot_peso_colada_gr)) || Number(form.snapshot_peso_colada_gr) < 0 || Number(form.snapshot_peso_colada_gr) > 99999)))} />
               {hasMoldMeasurements && (
                 <Alert severity="info" sx={{ gridColumn: '1 / -1' }}>
                   Maestro {selectedMold.codigo}: {moldMeasurement(selectedMold.cavidades_totales, 0)} cavidad(es),{' '}

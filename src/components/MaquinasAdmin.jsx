@@ -1,3 +1,5 @@
+import { useCallback } from "react";
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -47,7 +49,7 @@ function MaquinasAdmin() {
   const [maquinas, setMaquinas] = useState([]);
   const [tipos, setTipos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/MaquinasAdmin.jsx:error", { severity: "error", initialValue: null });
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('TODOS');
   const [physicalStatus, setPhysicalStatus] = useState('TODOS');
@@ -55,7 +57,7 @@ function MaquinasAdmin() {
   const [typesDialogOpen, setTypesDialogOpen] = useState(false);
   const [editingType, setEditingType] = useState(null);
   const [typeForm, setTypeForm] = useState({ nombre: '', proceso: 'INYECCION', fabricante: '', modelo: '', capacidad_toneladas: '' });
-  const [typeError, setTypeError] = useState('');
+  const [typeError, setTypeError, feedbackFallback_typeError] = useOperationMessage("components/MaquinasAdmin.jsx:typeError", { severity: "error", initialValue: '' });
 
   // Formulario
   const [openDialog, setOpenDialog] = useState(false);
@@ -70,7 +72,8 @@ function MaquinasAdmin() {
     activo: true
   });
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    setError('');
     try {
       setLoading(true);
       const [maqRes, tiposRes] = await Promise.all([
@@ -85,11 +88,11 @@ function MaquinasAdmin() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [setError]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const handleOpenNew = () => {
     setEditingId(null);
@@ -195,7 +198,7 @@ function MaquinasAdmin() {
       await toggleEstadoMaquina(id, nuevoEstado);
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'Error cambiando estado');
+      setError(err.response?.data?.error || 'Error cambiando estado');
     }
   };
 
@@ -245,7 +248,7 @@ function MaquinasAdmin() {
         />
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}</>}
 
       <DataTableToolbar
         searchValue={search}
@@ -341,7 +344,7 @@ function MaquinasAdmin() {
                     onChange={(e) => {
                       updateMaquina(m.id, { ...m, activo: e.target.checked })
                         .then(() => fetchData())
-                        .catch(err => alert(err.response?.data?.error || 'Error'));
+                        .catch(err => setError(err.response?.data?.error || 'Error'));
                     }}
                     color="primary"
                     size="small"
@@ -456,7 +459,7 @@ function MaquinasAdmin() {
         <DialogTitle>Tipos de máquina</DialogTitle>
         <DialogContent dividers>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {typeError && <Alert severity="error">{typeError}</Alert>}
+            {typeError && <>{feedbackFallback_typeError && <Alert severity="error">{typeError}</Alert>}</>}
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.2fr 1fr 1fr 1fr' }, gap: 1 }}>
               <TextField label="Código automático" value={editingType ? editingType.codigo : 'TMQ-######'} disabled helperText="Código inmutable" />
               <TextField label="Nombre" value={typeForm.nombre} onChange={(event) => setTypeForm((current) => ({ ...current, nombre: event.target.value }))} />

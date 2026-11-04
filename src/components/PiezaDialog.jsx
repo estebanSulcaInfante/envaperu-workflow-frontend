@@ -13,8 +13,10 @@ import {
 } from '../services/api';
 import CreateOptionAutocomplete from './ui/CreateOptionAutocomplete';
 import ColorQuickCreateDialog from './ui/ColorQuickCreateDialog';
+import { useOperationMessage } from '../utils/operationFeedbackState';
 
 function PiezaDialog({ open, onClose, pieza }) {
+  const [error, setError, feedbackFallback] = useOperationMessage('pieza-dialog:error');
   const [formData, setFormData] = useState({
     sku: '',
     nombre: '',
@@ -40,6 +42,7 @@ function PiezaDialog({ open, onClose, pieza }) {
 
   useEffect(() => {
     const loadMaestros = async () => {
+    setError('');
       try {
         const [resLineas, resColores, resPiezas] = await Promise.all([
           obtenerLineas(),
@@ -53,11 +56,12 @@ function PiezaDialog({ open, onClose, pieza }) {
           piezasGlobales: resPiezas,
         }));
       } catch (err) {
+        setError('No se pudieron cargar los catálogos de piezas. Vuelve a abrir el formulario para reintentar.');
         console.error('Error cargando maestros piezas', err);
       }
     };
     loadMaestros();
-  }, []);
+  }, [setError]);
 
   useEffect(() => {
     if (pieza) {
@@ -150,10 +154,11 @@ function PiezaDialog({ open, onClose, pieza }) {
 
   const handleSubmit = async () => {
     if (formData.pieza_id && (!formData.linea_id || !formData.familia_id)) {
-      alert('La pieza global seleccionada no tiene una clasificación Línea/Familia válida.');
+      setError('La pieza global seleccionada no tiene una clasificación Línea/Familia válida.');
       return;
     }
 
+    setError('');
     try {
       const { sku, ...editableData } = formData;
       const data = {
@@ -168,7 +173,7 @@ function PiezaDialog({ open, onClose, pieza }) {
       }
       onClose();
     } catch {
-      alert('Error guardando pieza');
+      setError('No se pudo guardar la pieza. Conservamos los datos para corregir o reintentar.');
     }
   };
 
@@ -178,6 +183,7 @@ function PiezaDialog({ open, onClose, pieza }) {
       <DialogTitle>{pieza ? 'Editar Pieza' : 'Nueva Pieza'}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
+          {feedbackFallback && error && <Alert severity="error">{error}</Alert>}
           <Stack direction="row" spacing={2}>
             <TextField
               label="SKU"
