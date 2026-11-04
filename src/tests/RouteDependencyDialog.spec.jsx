@@ -11,15 +11,25 @@ const api = vi.hoisted(() => ({
   createRoute: vi.fn(),
   updateRoute: vi.fn(),
   resolveArticles: vi.fn(),
+  articlePage: vi.fn(),
+  createWip: vi.fn(),
+  structures: vi.fn(),
+  createStructure: vi.fn(),
 }));
 
 vi.mock('../services/scmEngineeringApi', () => ({
   obtenerActorScm: () => 7,
+  listarArticulosPaginaScm: api.articlePage,
+  obtenerRutaScm: undefined,
   listarRutasArticuloScm: api.routes,
   listarCentrosTrabajoScm: api.centers,
   crearCentroTrabajoScm: api.createCenter,
   crearRutaArticuloScm: api.createRoute,
   actualizarRutaScm: api.updateRoute,
+  crearArticuloWipScm: api.createWip,
+  listarEstructurasScm: api.structures,
+  crearEstructuraScm: api.createStructure,
+  hidratarEstructurasScm: () => Promise.resolve({ approved: [], referenced: [], missing_article_ids: [], missing_revision_ids: [] }),
   resolverArticulosScm: api.resolveArticles,
   mensajeErrorScm: (error, fallback) => error?.message || fallback,
 }));
@@ -34,6 +44,9 @@ const renderDialog = (props = {}) => render(
       articleId={target.id}
       canView
       canAdmin
+      articleCanAdmin={true}
+      structureCanView={true}
+      structureCanAdmin={true}
       onClose={vi.fn()}
       {...props}
     />
@@ -47,12 +60,16 @@ describe('RouteDependencyDialog contextual', () => {
     api.createCenter.mockReset().mockResolvedValue({ id: 2, codigo: 'INY-02', nombre: 'Inyectora 2', tipo: 'INYECCION', activo: true });
     api.createRoute.mockReset().mockResolvedValue({ id: 10, estado: 'BORRADOR' });
     api.resolveArticles.mockReset().mockResolvedValue({ items: [target] });
+    api.articlePage.mockReset().mockResolvedValue({ items: [], has_more: false, next_cursor: null });
+    api.createWip.mockReset().mockResolvedValue({ id: 506, codigo: 'WIP-506', nombre: 'WIP nuevo', clase: 'SUBENSAMBLE_WIP', activo: true });
+    api.structures.mockReset().mockResolvedValue([]);
+    api.createStructure.mockReset().mockResolvedValue({ id: 33, estado: 'BORRADOR', numero_revision: 1, componentes: [] });
   });
 
   it('mantiene el contexto directo y permite crear un centro sin usar otra salida', async () => {
     const user = userEvent.setup();
     renderDialog();
-    expect(await screen.findByText(/artículo directo PC-TAPA/)).toBeVisible();
+    expect(await screen.findByText(/artículo directo .*PC-TAPA/)).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Nueva ruta' }));
     await user.click(screen.getByRole('combobox', { name: 'Tipo de operación' }));
     await user.click(screen.getByRole('option', { name: 'INYECCIÓN' }));
@@ -67,6 +84,59 @@ describe('RouteDependencyDialog contextual', () => {
     renderDialog({ targetArticle: { ...target, clase: 'SUBENSAMBLE_WIP' } });
     expect(await screen.findByText(/Solo se admite una Pieza-color directa/)).toBeVisible();
     expect(api.routes).not.toHaveBeenCalled();
+  });
+
+  it('busca y selecciona un owner WIP/PT remoto sin sustituir la salida PC de la OF', async () => {
+    const user = userEvent.setup();
+    api.articlePage.mockResolvedValue({
+      items: [{ id: 506, codigo: 'WIP-506', nombre: 'Subensamble remoto', clase: 'SUBENSAMBLE_WIP', activo: true }],
+      has_more: false,
+      next_cursor: null,
+    });
+    renderDialog();
+    expect(await screen.findByRole('button', { name: /Usar .*WIP-506.*como dueño/i })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: /Usar .*WIP-506.*como dueño/i }));
+    expect(await screen.findByText(/Propietario explícito: .*WIP-506/)).toBeVisible();
+    expect(screen.getByText(/salida física de la OF sigue siendo .*PC-TAPA/)).toBeVisible();
+    await waitFor(() => expect(api.routes).toHaveBeenCalledWith(506, 7, expect.any(AbortSignal)));
+    expect(api.articlePage).toHaveBeenCalledWith(7, expect.objectContaining({
+      clases: 'SUBENSAMBLE_WIP,PRODUCTO_TERMINADO',
+      limite: 25,
+    }), expect.any(AbortSignal));
+  });
+
+  it('mantiene editable y enfocado el buscador de owner mientras el GET permite otra consulta', async () => {
+    const user = userEvent.setup();
+    const pending = [];
+    api.articlePage.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+    renderDialog();
+    const ownerSearch = screen.getByRole('textbox', { name: 'Buscar dueño WIP o PT' });
+
+    await waitFor(() => expect(api.articlePage).toHaveBeenCalledTimes(1), { timeout: 1000 });
+    expect(ownerSearch).not.toBeDisabled();
+    await user.click(ownerSearch);
+    await user.type(ownerSearch, 'WIP');
+    await waitFor(() => expect(api.articlePage).toHaveBeenCalledTimes(2), { timeout: 1000 });
+    expect(api.articlePage.mock.calls[1][1]).toEqual(expect.objectContaining({ q: 'WIP', limite: 25 }));
+    expect(ownerSearch).not.toBeDisabled();
+    expect(ownerSearch).toHaveFocus();
+
+    pending[0]?.({ items: [], has_more: false, next_cursor: null });
+    pending[1]?.({ items: [], has_more: false, next_cursor: null });
+  });
+
+  it('confirma un WIP owner como maestro independiente y vuelve al frame de ruta', async () => {
+    const user = userEvent.setup();
+    api.createWip.mockResolvedValue({ id: 506, codigo: 'WIP-506', nombre: 'WIP preparado', clase: 'SUBENSAMBLE_WIP', activo: true });
+    renderDialog();
+    await user.click(screen.getByRole('button', { name: 'Preparar ruta para otro artículo' }));
+    await user.type(screen.getByRole('textbox', { name: 'Nombre del WIP' }), 'WIP preparado');
+    await user.click(screen.getByRole('button', { name: 'Confirmar WIP' }));
+    await waitFor(() => expect(api.createWip).toHaveBeenCalledWith({
+      nombre: 'WIP preparado', descripcion: null, requiere_calidad: false,
+    }));
+    expect(screen.getByText(/dueño de ruta .*WIP-506/)).toBeVisible();
+    expect(screen.getByText(/salida OF .*PC-TAPA/)).toBeVisible();
   });
 
   it('exige una salida explícita cuando la corrida tiene múltiples propietarios directos', async () => {

@@ -104,10 +104,10 @@ export const descartarEstructuraScm = (revision, motivo) => data(
     config(true),
   ),
 );
-export const retirarEstructuraScm = (revision) => data(
+export const retirarEstructuraScm = (revision, motivo) => data(
   () => api.post(
     `/scm/v1/estructuras/${revision.id}/retirar`,
-    { version: revision.version },
+    { version: revision.version, ...(motivo ? { motivo } : {}) },
     config(true),
   ),
 );
@@ -134,6 +134,15 @@ export const crearRutaScm = (productId, payload) => data(
 );
 export const listarRutasArticuloScm = (articleId, actorId, signal) => items(
   () => api.get(`/scm/v1/articulos/${encodeURIComponent(articleId)}/rutas`, configForActor(actorId, false, signal)),
+);
+export const listarOperacionesRutaPorSalidaScm = (outputArticleId, actorId, params = {}, signal) => data(
+  () => api.get(`/scm/v1/articulos/${encodeURIComponent(outputArticleId)}/operaciones-ruta`, {
+    ...configForActor(actorId, false, signal),
+    params: pageParams({ limit: 25, ...params }),
+  }),
+);
+export const obtenerRutaScm = (routeId, actorId, signal) => data(
+  () => api.get(`/scm/v1/rutas/${encodeURIComponent(routeId)}`, configForActor(actorId, false, signal)),
 );
 export const crearRutaArticuloScm = (articleId, payload) => data(
   () => api.post(

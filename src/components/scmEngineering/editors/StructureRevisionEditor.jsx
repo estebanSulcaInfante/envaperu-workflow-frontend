@@ -28,6 +28,9 @@ function StructureRevisionEditor({
   onSubmit,
   onCancel,
   onNavigateStructure,
+  onSearchArticles,
+  searchArticlesLoading = false,
+  isStructureLoaded = () => true,
   busy = false,
   readOnly = false,
   submitLabel = 'Guardar borrador',
@@ -95,6 +98,9 @@ function StructureRevisionEditor({
                 value={line.articulo_id}
                 placeholder="Buscar pieza-color o WIP"
                 disabled={disabled}
+                remote={Boolean(onSearchArticles)}
+                onSearch={onSearchArticles}
+                searchLoading={searchArticlesLoading}
                 onChange={(articleId) => updateLine(index, { articulo_id: articleId })}
               />
               <TextField
@@ -160,8 +166,9 @@ function StructureRevisionEditor({
                   </Button>
                 ) : undefined}
               >
-                {selected.codigo} no tiene una estructura aprobada. No publiques esta BOM
-                hasta definir la composición del WIP.
+                {isStructureLoaded(selected.id)
+                  ? `No se encontró una BOM aprobada para ${selected.codigo}. Puedes consultar o preparar una BOM independiente antes de continuar.`
+                  : `Consulta la estructura de ${selected.codigo} antes de afirmar que falta una revisión aprobada.`}
               </Alert>
             )}
           </Box>

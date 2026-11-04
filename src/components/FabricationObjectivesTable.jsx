@@ -112,8 +112,19 @@ export default function FabricationObjectivesTable({
   routeCanView = false,
   articleCanView = false,
   routeCanAdmin = false,
+  articleCanAdmin = false,
+  structureCanView = false,
+  structureCanAdmin = false,
+  canRouteApprove = false,
+  canRoutePublish = false,
+  canStructureApprove = false,
+  canStructurePublish = false,
   routeError = '',
   onRefreshRoutes,
+  routePageMetaByArticle = {},
+  onSearchRoutes,
+  onLoadMoreRoutes,
+  actorId,
 }) {
   const globalMeasured = progress?.kgMedido ?? progress?.kgFinalizados;
   const globalProgress = progress?.state === 'ready'
@@ -273,29 +284,51 @@ export default function FabricationObjectivesTable({
                             })}
                             getOptionKey={(option) => option?.operacion_ruta_revision_id}
                             getPrimary={(option) => `${option?.nombre || `Operación ${option?.id}`} · ${fabricationProcessLabel(option?.proceso || option?.tipo)}`}
+                            getInputLabel={(option) => `${option?.nombre || `Operación ${option?.id}`} · ${fabricationProcessLabel(option?.proceso || option?.tipo)}`}
                             getSecondary={(option) => {
                               const outputName = option?.articulo_salida?.nombre;
                               const outputCode = option?.articulo_salida?.codigo;
-                              if (outputName || outputCode) return [outputName, outputCode].filter(Boolean).join(' · ');
-                              return option?.ruta_numero_revision ? `Ruta rev. ${option.ruta_numero_revision}` : '';
+                              const owner = option?.owner_route_target_article || option?.ownerRouteTargetArticle;
+                              const ownerName = owner?.nombre;
+                              const ownerCode = owner?.codigo;
+                              const routeRevision = option?.ruta_numero_revision || option?.route_revision_number;
+                              return [
+                                [outputName, outputCode].filter(Boolean).join(' · '),
+                                [ownerName, ownerCode].filter(Boolean).join(' · '),
+                                routeRevision ? `Ruta rev. ${routeRevision}` : '',
+                              ].filter(Boolean).join(' · ');
                             }}
                             getSearchText={(option) => [option?.nombre, option?.proceso, option?.tipo, option?.articulo_salida?.nombre, option?.articulo_salida?.codigo].filter(Boolean).join(' ')}
                             loading={routeLoading}
+                            onSearch={onSearchRoutes ? (query) => onSearchRoutes(run, query) : undefined}
+                            onLoadMore={onLoadMoreRoutes ? () => onLoadMoreRoutes(run) : undefined}
+                            hasMore={Boolean(routePageMetaByArticle[String(routeArticleId)]?.hasMore)}
                             disabled={!canEdit || routeReadOnly || order.estado !== 'BORRADOR' || order.origen_demanda === 'REEMPLAZO_OF'}
                             noOptionsText={routeLoading ? 'Cargando rutas compatibles…' : 'Sin ruta aprobada para la salida exacta'}
                             helperText="APROBADA · OP_OT · salida exacta del color/molde"
                             sx={{ flex: 1, minWidth: 0 }}
                           />
                           <RouteActionsMenu
+                            actorId={actorId}
                             run={run}
                             selectedRoute={selectedRoute}
                             availableRoutes={routeCatalog}
                             canViewRoutes={routeCanView}
                             canViewArticles={articleCanView}
                             canAdminRoutes={routeCanAdmin}
+                            canAdminArticles={articleCanAdmin}
+                            canViewStructures={structureCanView}
+                            canAdminStructures={structureCanAdmin}
+                            canApproveRoutes={canRouteApprove}
+                            canPublishRoutes={canRoutePublish}
+                            canApproveStructures={canStructureApprove}
+                            canPublishStructures={canStructurePublish}
                             loading={routeLoading}
                             error={routeError}
                             onRefresh={onRefreshRoutes}
+                            routePageMeta={routePageMetaByArticle[String(routeArticleId)]}
+                            onRouteSearch={onSearchRoutes ? (query) => onSearchRoutes(run, query) : undefined}
+                            onRouteNextPage={onLoadMoreRoutes ? () => onLoadMoreRoutes(run) : undefined}
                             frozen={Boolean(routeFrozen)}
                             frozenHash={routeFrozen ? persistedRouteHash : undefined}
                             onInspect={onRefreshRoutes}

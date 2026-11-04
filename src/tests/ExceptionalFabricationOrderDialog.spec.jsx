@@ -26,6 +26,11 @@ vi.mock('../services/scmCatalogApi', () => ({ listarCategoriasRecepcionScm: api.
 vi.mock('../services/scmEngineeringApi', () => ({
   obtenerActorScm: () => 1,
   listarArticulosScm: api.articles,
+  listarArticulosPaginaScm: () => Promise.resolve({ items: [], has_more: false, next_cursor: null }),
+  obtenerRutaScm: undefined,
+  resolverArticulosScm: () => Promise.resolve({ items: [] }),
+  hidratarEstructurasScm: () => Promise.resolve({ items: [] }),
+  listarOperacionesRutaPorSalidaScm: undefined,
   listarRutasArticuloScm: api.routes,
   listarCentrosTrabajoScm: api.centers,
   crearCentroTrabajoScm: api.createCenter,

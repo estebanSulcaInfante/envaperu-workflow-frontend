@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel,
   Divider, FormControl, IconButton, InputLabel, MenuItem, Paper, Select,
@@ -131,6 +131,7 @@ const catalogItems = (response) => (Array.isArray(response) ? response : respons
 
 export default function ExceptionalFabricationOrderDialog({
   open,
+  actorId: actorIdProp,
   molds,
   machines,
   colors,
@@ -141,7 +142,15 @@ export default function ExceptionalFabricationOrderDialog({
   routeCanView = false,
   routeCanAdmin = false,
   articleCanView = false,
+  articleCanAdmin = false,
+  structureCanView = false,
+  structureCanAdmin = false,
+  canRouteApprove = false,
+  canRoutePublish = false,
+  canStructureApprove = false,
+  canStructurePublish = false,
 }) {
+  const actorId = actorIdProp ?? scmEngineeringApi.obtenerActorScm?.();
   const [reason, setReason] = useState('');
   const [reasonOption, setReasonOption] = useState('');
   const [reasonOther, setReasonOther] = useState('');
@@ -177,6 +186,7 @@ export default function ExceptionalFabricationOrderDialog({
   const [masterBusy, setMasterBusy] = useState(false);
   const [masterDirty, setMasterDirty] = useState(false);
   const [routesByArticle, setRoutesByArticle] = useState({});
+  const [routePageMetaByArticle, setRoutePageMetaByArticle] = useState({});
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeCatalogState, setRouteCatalogState] = useState('idle');
   const [routeError, setRouteError] = useState('');
@@ -192,6 +202,8 @@ export default function ExceptionalFabricationOrderDialog({
   const [duplicateCatalogError, setDuplicateCatalogError] = useState('');
   const idempotencyRef = useRef({ fingerprint: '', key: '' });
   const routeGenerationRef = useRef(0);
+  const routeSearchGenerationRef = useRef(new Map());
+  const routeSearchAbortRef = useRef(new Map());
   const articleGenerationRef = useRef(0);
   const moldGenerationRef = useRef(0);
   const catalogGenerationRef = useRef(0);
@@ -342,6 +354,7 @@ export default function ExceptionalFabricationOrderDialog({
   useEffect(() => {
     if (!open) {
       setRoutesByArticle({});
+      setRoutePageMetaByArticle({});
       setRouteLoading(false);
       setRouteCatalogState('idle');
       return undefined;
@@ -361,6 +374,8 @@ export default function ExceptionalFabricationOrderDialog({
     }
     const generation = ++routeGenerationRef.current;
     let active = true;
+    const controller = new AbortController();
+    const searchAbortControllers = routeSearchAbortRef.current;
     setRouteLoading(true);
     setRouteCatalogState('loading');
     setRouteError('');
@@ -371,8 +386,26 @@ export default function ExceptionalFabricationOrderDialog({
       listRoutes = null;
     }
     listRoutes ||= (() => Promise.resolve([]));
-    Promise.all(routeArticleIds.map((articleId) => listRoutes(articleId)
-      .then((items) => [articleId, items || []])))
+    const outputReader = scmEngineeringApi.listarOperacionesRutaPorSalidaScm;
+    const readRoutes = outputReader
+      ? (articleId) => outputReader(articleId, actorId, { limite: 100 }, controller.signal)
+      : listRoutes;
+    Promise.all(routeArticleIds.map((articleId) => readRoutes(articleId)
+      .then((page) => {
+        const items = Array.isArray(page) ? page : page?.items || [];
+        if (!Array.isArray(page)) {
+          setRoutePageMetaByArticle((current) => ({
+            ...current,
+            [String(articleId)]: {
+              hasMore: Boolean(page?.has_more),
+              nextCursor: page?.next_cursor || null,
+              total: page?.total ?? null,
+              query: page?.q || '',
+            },
+          }));
+        }
+        return [articleId, items];
+      })))
       .then((entries) => {
         if (!active || routeGenerationRef.current !== generation) return;
         setRoutesByArticle(Object.fromEntries(entries));
@@ -390,8 +423,14 @@ export default function ExceptionalFabricationOrderDialog({
       .finally(() => {
         if (active && routeGenerationRef.current === generation) setRouteLoading(false);
       });
-    return () => { active = false; };
-  }, [articleCatalogState, initialSource, open, routeArticleIds, routeRefreshKey]);
+    return () => {
+      active = false;
+      controller.abort();
+      searchAbortControllers.forEach((pendingController) => pendingController.abort());
+      searchAbortControllers.clear();
+      routeSearchGenerationRef.current = new Map();
+    };
+  }, [actorId, articleCatalogState, initialSource, open, routeArticleIds, routeRefreshKey]);
 
   useEffect(() => {
     if (!initialSource || duplicateCatalogState !== 'ready') return;
@@ -966,6 +1005,68 @@ export default function ExceptionalFabricationOrderDialog({
     ? outputGroups[routeWorkspace].filter((output) => output.article
       && !['PRODUCTO_TERMINADO', 'SUBENSAMBLE_WIP'].includes(output.article.clase))
     : [];
+  const searchRoutePageForArticle = useCallback(async (articleId, query = '', cursor = null) => {
+    const reader = scmEngineeringApi.listarOperacionesRutaPorSalidaScm;
+    if (typeof reader !== 'function' || articleId == null) return;
+    const key = `${actorId}:${articleId}`;
+    routeSearchAbortRef.current.get(key)?.abort();
+    const controller = new AbortController();
+    routeSearchAbortRef.current.set(key, controller);
+    const generation = (routeSearchGenerationRef.current.get(key) || 0) + 1;
+    routeSearchGenerationRef.current.set(key, generation);
+    setRouteLoading(true);
+    try {
+      const payload = await reader(articleId, actorId, {
+        limite: 100,
+        q: query.trim() || undefined,
+        cursor: cursor || undefined,
+      }, controller.signal);
+      if (controller.signal.aborted || routeSearchGenerationRef.current.get(key) !== generation) return;
+      const rows = payload?.items || [];
+      setRoutesByArticle((current) => ({
+        ...current,
+        [String(articleId)]: cursor
+          ? [...(current[String(articleId)] || []), ...rows]
+          : rows,
+      }));
+      setRoutePageMetaByArticle((current) => ({
+        ...current,
+        [String(articleId)]: {
+          hasMore: Boolean(payload?.has_more),
+          nextCursor: payload?.next_cursor || null,
+          total: payload?.total ?? null,
+          query,
+        },
+      }));
+    } catch (requestError) {
+      if (!controller.signal.aborted && routeSearchGenerationRef.current.get(key) === generation) {
+        setRouteError(scmEngineeringApi.mensajeErrorScm(requestError, 'No se pudieron buscar las rutas compatibles.'));
+      }
+    } finally {
+      if (routeSearchAbortRef.current.get(key) === controller) {
+        routeSearchAbortRef.current.delete(key);
+        if (routeSearchGenerationRef.current.get(key) === generation) setRouteLoading(false);
+      }
+    }
+  }, [actorId]);
+  const articleIdForExceptionalRun = useCallback((run, index) => (
+    (outputGroups[index] || []).map((output) => output.article?.id).find((id) => id != null)
+      ?? (run?.salidas || []).map((output) => output.articulo?.id
+        ?? output.articulo_salida?.id
+        ?? output.articulo_scm_id
+        ?? output.articulo_id
+        ?? output.articulo_salida_id).find((id) => id != null)
+  ), [outputGroups]);
+  const searchRoutesForExceptionalRun = useCallback((run, index, query = '') => (
+    searchRoutePageForArticle(articleIdForExceptionalRun(run, index), query, null)
+  ), [articleIdForExceptionalRun, searchRoutePageForArticle]);
+  const loadMoreRoutesForExceptionalRun = useCallback((run, index) => {
+    const articleId = articleIdForExceptionalRun(run, index);
+    const meta = routePageMetaByArticle[String(articleId)] || {};
+    return meta.nextCursor
+      ? searchRoutePageForArticle(articleId, meta.query || '', meta.nextCursor)
+      : Promise.resolve();
+  }, [articleIdForExceptionalRun, routePageMetaByArticle, searchRoutePageForArticle]);
   const routeWorkspaceTarget = routeWorkspaceSelectedRoute?.articulo_salida
     || routeWorkspaceOutputs.find((output) => String(output.article?.id) === String(routeWorkspaceTargetId))?.article
     || (routeWorkspaceOutputs.length === 1 ? routeWorkspaceOutputs[0]?.article : null);
@@ -998,9 +1099,13 @@ export default function ExceptionalFabricationOrderDialog({
               </Alert>
               {routeWorkspaceMode === 'inspect' ? (
                 <RouteInspectionPanel inline open onClose={closeRouteWorkspace}
+                  actorId={actorId}
                   run={routeWorkspaceRun} selectedRoute={routeWorkspaceSelectedRoute}
                   availableRoutes={Object.values(routesByArticle).flat()} loading={routeLoading}
-                  error={routeError} onRefresh={() => setRouteRefreshKey((value) => value + 1)} />
+                  error={routeError} onRefresh={() => setRouteRefreshKey((value) => value + 1)}
+                  routePageMeta={routePageMetaByArticle[String(articleIdForExceptionalRun(routeWorkspaceRun, routeWorkspace))]}
+                  onRouteSearch={(query) => searchRoutesForExceptionalRun(routeWorkspaceRun, routeWorkspace, query)}
+                  onRouteNextPage={() => loadMoreRoutesForExceptionalRun(routeWorkspaceRun, routeWorkspace)} />
               ) : !routeWorkspaceTarget ? (
                 <Stack spacing={1.5}>
                 <Button onClick={closeRouteWorkspace} sx={{ alignSelf: 'flex-start' }}>Volver a OF</Button>
@@ -1029,6 +1134,15 @@ export default function ExceptionalFabricationOrderDialog({
                   articleId={routeWorkspaceTarget.id}
                   canView={routeCanView && articleCanView}
                   canAdmin={routeCanAdmin}
+                  routeCanView={routeCanView}
+                  routeCanAdmin={routeCanAdmin}
+                  structureCanView={structureCanView}
+                  structureCanAdmin={structureCanAdmin}
+                  articleCanAdmin={articleCanAdmin}
+                  canRouteApprove={canRouteApprove}
+                  canRoutePublish={canRoutePublish}
+                  canStructureApprove={canStructureApprove}
+                  canStructurePublish={canStructurePublish}
                   onSaved={() => {
                     closeRouteWorkspace();
                     setRouteRefreshKey((value) => value + 1);
@@ -1511,8 +1625,24 @@ export default function ExceptionalFabricationOrderDialog({
                       option?.articulo_salida?.codigo,
                     ].filter(Boolean).join(' ')}
                     getPrimary={(option) => `${option.nombre} · ${fabricationProcessLabel(option.proceso)}`}
-                    getSecondary={(option) => option.articulo_salida?.nombre || option.articulo_salida?.codigo || option.route_codigo}
+                    getInputLabel={(option) => `${option.nombre} · ${fabricationProcessLabel(option.proceso)}`}
+                    getSecondary={(option) => {
+                      const output = option.articulo_salida || option.output_article;
+                      const owner = option.owner_route_target_article || option.ownerRouteTargetArticle;
+                      const outputLabel = [output?.nombre, output?.codigo].filter(Boolean).join(' · ');
+                      const ownerLabel = [owner?.nombre, owner?.codigo].filter(Boolean).join(' · ');
+                      const routeRevision = option.ruta_numero_revision || option.route_revision_number;
+                      return [
+                        outputLabel,
+                        ownerLabel,
+                        routeRevision ? `Ruta rev. ${routeRevision}` : '',
+                        !outputLabel && !ownerLabel && !routeRevision ? option.route_codigo : '',
+                      ].filter(Boolean).join(' · ');
+                    }}
                     loading={routeLoading}
+                    onSearch={(query) => searchRoutesForExceptionalRun(run, runIndex, query)}
+                    onLoadMore={() => loadMoreRoutesForExceptionalRun(run, runIndex)}
+                    hasMore={Boolean(routePageMetaByArticle[String(articleIdForExceptionalRun(run, runIndex))]?.hasMore)}
                     disabled={allBusy}
                     noOptionsText={routeLoading ? 'Cargando rutas compatibles…' : 'Sin ruta aprobada para estas salidas'}
                     helperText="Sólo se muestran revisiones APROBADA / OP_OT con salida exacta del objetivo."
@@ -1520,6 +1650,7 @@ export default function ExceptionalFabricationOrderDialog({
                 )}
                 {run.color_produccion_id && routeCanView && outputGroups[runIndex]?.length > 0 && (
                   <RouteActionsMenu
+                    actorId={actorId}
                     actionId={`exceptional-route-actions-${run.key}`}
                     run={{ ...run, codigo: run.codigo || `Objetivo ${runIndex + 1}`, salidas: outputGroups[runIndex].map((output) => ({ articulo: output.article })) }}
                     selectedRoute={routeOptionsForRun(
@@ -1530,10 +1661,20 @@ export default function ExceptionalFabricationOrderDialog({
                     canViewRoutes={routeCanView}
                     canViewArticles={articleCanView}
                     canAdminRoutes={routeCanAdmin}
+                    canAdminArticles={articleCanAdmin}
+                    canViewStructures={structureCanView}
+                    canAdminStructures={structureCanAdmin}
+                    canApproveRoutes={canRouteApprove}
+                    canPublishRoutes={canRoutePublish}
+                    canApproveStructures={canStructureApprove}
+                    canPublishStructures={canStructurePublish}
                     loading={routeLoading}
                     error={routeError}
                     frozen={false}
                     onRefresh={() => setRouteRefreshKey((value) => value + 1)}
+                    routePageMeta={routePageMetaByArticle[String(articleIdForExceptionalRun(run, runIndex))]}
+                    onRouteSearch={(query) => searchRoutesForExceptionalRun(run, runIndex, query)}
+                    onRouteNextPage={() => loadMoreRoutesForExceptionalRun(run, runIndex)}
                     onAdminRoute={() => { setRouteWorkspaceMode('manage'); setRouteWorkspaceTargetId(''); setRouteWorkspace(runIndex); }}
                     onInspectRoute={() => { setRouteWorkspaceMode('inspect'); setRouteWorkspaceTargetId(''); setRouteWorkspace(runIndex); }}
                     orderCode={initialSource?.codigo || 'OF en borrador'}

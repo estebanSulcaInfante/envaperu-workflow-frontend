@@ -784,7 +784,7 @@ describe('Ingeniería SCM R-core', () => {
 
     await user.click(within(dialog).getByRole('combobox', { name: 'Centro de trabajo' }));
     await user.click(screen.getByRole('option', { name: /CT-000007.*Mesa de prearmado/ }));
-    await user.click(within(dialog).getByRole('combobox', { name: 'Estructura aprobada' }));
+    await user.click(within(dialog).getByRole('combobox', { name: 'BOM vinculada' }));
     await user.click(screen.getByRole('option', { name: /WIP-000001.*rev\. 2/ }));
     await user.type(
       within(dialog).getByRole('textbox', { name: 'Nombre de la operación' }),
@@ -848,7 +848,7 @@ describe('Ingeniería SCM R-core', () => {
     ));
   });
 
-  it('deriva ARMADO y selecciona solamente la BOM aprobada compatible con la salida', async () => {
+  it('deriva ARMADO, mantiene la BOM aprobada por defecto y permite una opción compatible', async () => {
     const approvedStructure = {
       id: 41,
       numero_revision: 1,
@@ -894,9 +894,9 @@ describe('Ingeniería SCM R-core', () => {
       .toHaveTextContent('ARMADO');
     expect(within(dialog).getByRole('combobox', { name: 'Forma de ejecución' }))
       .toHaveTextContent(/Prearmado o armado/);
-    expect(within(dialog).getByRole('combobox', { name: 'Estructura aprobada' }))
+    expect(within(dialog).getByRole('combobox', { name: 'BOM vinculada' }))
       .toHaveTextContent(/PT-000001.*rev\. 1/);
-    await user.click(within(dialog).getByRole('combobox', { name: 'Estructura aprobada' }));
+    await user.click(within(dialog).getByRole('combobox', { name: 'BOM vinculada' }));
     expect(screen.getByRole('option', { name: /PT-000001.*rev\. 1/ })).toBeVisible();
     expect(screen.queryByRole('option', { name: /WIP-000001/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole('option', { name: /PT-000001.*rev\. 1/ }));
@@ -941,7 +941,7 @@ describe('Ingeniería SCM R-core', () => {
     await user.click(screen.getByRole('option', { name: /CT-000007.*Mesa de armado/ }));
 
     expect(within(dialog).getByText(
-      /No existe una BOM aprobada cuyo resultado sea PT-000001/i,
+      /No hay una BOM compatible consultada cuyo resultado sea PT-000001/i,
     )).toBeVisible();
     await user.click(within(dialog).getByRole('button', { name: 'Ir a Estructuras BOM' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: /Nueva ruta/ })).not.toBeInTheDocument());

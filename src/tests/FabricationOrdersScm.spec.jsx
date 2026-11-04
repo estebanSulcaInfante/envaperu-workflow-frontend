@@ -8,7 +8,15 @@ import {
 } from 'vitest';
 import FabricationOrdersScm from '../components/FabricationOrdersScm';
 
-const auth = vi.hoisted(() => ({ actorId: 1, article: true, articleView: true, routeView: true, routeAdmin: true, ofEdit: true }));
+const auth = vi.hoisted(() => ({
+  actorId: 1,
+  article: true,
+  articleView: true,
+  routeView: true,
+  routeAdmin: true,
+  ofEdit: true,
+  outputRoutes: vi.fn(),
+}));
 
 vi.mock('../services/api', () => ({
   obtenerColores: vi.fn().mockResolvedValue([]),
@@ -42,6 +50,7 @@ vi.mock('../services/scmEngineeringApi', () => ({
   listarCentrosTrabajoScm: vi.fn().mockResolvedValue([]),
   listarEstructurasScm: vi.fn().mockResolvedValue([]),
   hidratarEstructurasScm: vi.fn().mockResolvedValue({ approved: [], referenced: [] }),
+  listarOperacionesRutaPorSalidaScm: auth.outputRoutes,
   listarRutasArticuloScm: vi.fn().mockResolvedValue([]),
   mensajeErrorScm: (error, fallback) => error?.message || fallback,
 }));
@@ -231,6 +240,10 @@ describe('Órdenes de fabricación', () => {
     listarArticulosScm.mockResolvedValue([]);
     listarRutasArticuloScm.mockClear();
     listarRutasArticuloScm.mockResolvedValue([]);
+    auth.outputRoutes.mockReset();
+    auth.outputRoutes.mockImplementation((articleId, requestedActor, options, signal) => (
+      listarRutasArticuloScm(articleId, requestedActor, options, signal)
+    ));
     crearOrdenFabricacionExcepcionalScm.mockReset();
     configurarOrdenFabricacionScm.mockReset();
     cerrarOrdenFabricacionScm.mockReset();
@@ -452,6 +465,46 @@ describe('Órdenes de fabricación', () => {
       }],
     }), expect.any(String));
     expect(await screen.findByText(/OF-000010 creada como reposición/)).toBeVisible();
+  });
+
+  it.each([
+    ['capacidad de artículo explícita', true, false],
+    ['sin capacidad de artículo', false, true],
+  ])('propaga capacidades independientes a Nueva OF: %s', async (_label, articleAdmin, expectDisabled) => {
+    const user = userEvent.setup();
+    auth.article = articleAdmin;
+    obtenerMoldes.mockResolvedValue([{
+      codigo: 'ML-OF-CAPS', nombre: 'Molde caps', activo: true,
+      tiempo_ciclo_std: 20, peso_colada_gr: 2,
+      formas: [{ pieza_id: 31, pieza_codigo: 'PZ-CAPS', nombre: 'Pieza caps', activo: true, cavidades: 1, peso_unitario_gr: 12, variantes: [{ sku: 'PC-CAPS', color_produccion_id: 5 }] }],
+    }]);
+    obtenerMolde.mockResolvedValue({
+      codigo: 'ML-OF-CAPS', nombre: 'Molde caps', activo: true,
+      tiempo_ciclo_std: 20, peso_colada_gr: 2,
+      formas: [{ pieza_id: 31, pieza_codigo: 'PZ-CAPS', nombre: 'Pieza caps', activo: true, cavidades: 1, peso_unitario_gr: 12, variantes: [{ sku: 'PC-CAPS', color_produccion_id: 5 }] }],
+    });
+    obtenerMaquinas.mockResolvedValue([{ id: 8, codigo: 'INY-CAPS', nombre: 'Inyectora caps', activo: true, estado: 'OPERATIVA', tipo_maquina: { proceso: 'INYECCION' } }]);
+    obtenerColores.mockResolvedValue([{ id: 5, nombre: 'ROJO', activo: true }]);
+    listarArticulosScm.mockResolvedValue([{ id: 91, codigo: 'PC-CAPS', nombre: 'Pieza caps', clase: 'PIEZA_COLOR', pieza_id: 31, subtipo: { pieza_color_sku: 'PC-CAPS' } }]);
+    obtenerRecetasColorMaestras.mockResolvedValue({ items: [] });
+    render(<ThemeProvider theme={createTheme()}><MemoryRouter><FabricationOrdersScm /></MemoryRouter></ThemeProvider>);
+    await user.click(await screen.findByRole('button', { name: 'Nueva OF de reposición' }));
+    await user.click(screen.getByRole('combobox', { name: 'Motivo de reposición' }));
+    await user.click(screen.getByRole('option', { name: 'Otro', exact: true }));
+    await user.type(screen.getByRole('textbox', { name: 'Especifica el motivo' }), 'Prueba capacidades OF');
+    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    await user.click(await screen.findByRole('option', { name: /Molde caps.*ML-OF-CAPS/ }));
+    await user.click(screen.getByRole('combobox', { name: 'Proceso de fabricación' }));
+    await user.click(screen.getByRole('option', { name: 'Inyección' }));
+    await user.click(screen.getByRole('combobox', { name: 'Máquina sugerida (opcional)' }));
+    await user.click(await screen.findByRole('option', { name: /INY-CAPS/ }));
+    await user.click(screen.getByRole('combobox', { name: 'Color del objetivo 1' }));
+    await user.click(await screen.findByRole('option', { name: 'ROJO' }));
+    await user.click(screen.getByRole('button', { name: /Acciones de ruta para Objetivo 1/ }));
+    await user.click(screen.getByRole('menuitem', { name: 'Administrar' }));
+    const ownerButton = await screen.findByRole('button', { name: 'Preparar ruta para otro artículo' });
+    if (expectDisabled) expect(ownerButton).toBeDisabled();
+    else expect(ownerButton).toBeEnabled();
   });
 
   it('explica el siguiente paso cuando Planificación todavía no generó OF', async () => {
@@ -945,6 +998,86 @@ describe('Órdenes de fabricación', () => {
     expect(configurarOrdenFabricacionScm.mock.calls[0][1].corridas[0]).toHaveProperty('operacion_ruta_revision_id', 88);
   });
 
+  it('descarta una búsqueda de rutas diferida del actor anterior al cambiar la OF de contexto', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-route-actor-stale', codigo: 'OF-ROUTE-ACTOR', estado: 'BORRADOR', version: 1,
+      fuente_proceso: 'EXPLICITO', snapshot_proceso: 'INYECCION', molde_id: 'M-ACTOR',
+      snapshot_tiempo_ciclo_seg: '20', snapshot_horas_turno: '8', snapshot_peso_colada_gr: '2',
+      corridas: [{
+        id: 'run-actor-stale', codigo: 'C01', color_produccion_id: 7, objetivo_neto_kg: '1', salidas: [
+          { id: 'out-actor-stale', articulo: { id: 5, pieza_id: 5, nombre: 'Pieza actor', codigo: 'PC-ACTOR' } },
+        ],
+      }],
+    };
+    const routeFor = (operationId, revisionId, name, hash) => ({
+      operation_id: operationId,
+      route_revision_id: revisionId,
+      route_revision_number: 1,
+      route_content_hash: hash,
+      route_state: 'APROBADA',
+      operation: { id: operationId, clave: `OP-${operationId}`, nombre: name, tipo: 'INYECCION', executor_kind: 'OP_OT' },
+      output_article: { id: 5, codigo: 'PC-ACTOR', clase: 'PIEZA_COLOR' },
+      owner_route_target_article: { id: 506, codigo: 'WIP-506', clase: 'SUBENSAMBLE_WIP' },
+    });
+    const actorARoute = routeFor(501, 701, 'Ruta actor A', 'hash-actor-a');
+    const actorBRoute = routeFor(502, 702, 'Ruta actor B buscar', 'hash-actor-b');
+    let resolveSearchA;
+    auth.outputRoutes.mockImplementation((_articleId, requestedActor, options) => {
+      if (options?.q === 'buscar') return new Promise((resolve) => { resolveSearchA = resolve; });
+      return Promise.resolve({ items: [requestedActor === 1 ? actorARoute : actorBRoute], total: 1, has_more: false });
+    });
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarArticulosScm.mockResolvedValue([{ id: 5, clase: 'PIEZA_COLOR', activo: true, subtipo: { pieza_color_sku: 'SKU-ACTOR' } }]);
+    obtenerMoldes.mockResolvedValue([{
+      codigo: 'M-ACTOR', nombre: 'Molde actor', activo: true,
+      formas: [{ pieza_id: 5, activo: true, variantes: [{ color_produccion_id: 7, sku: 'SKU-ACTOR' }] }],
+    }]);
+    const view = renderDetail(order);
+    const routeInput = await screen.findByRole('combobox', { name: 'Operación de ruta (opcional)' });
+    await user.click(routeInput);
+    expect(await screen.findByRole('option', { name: /Ruta actor A/ })).toBeVisible();
+    await user.type(routeInput, 'buscar');
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await waitFor(() => expect(auth.outputRoutes).toHaveBeenCalledWith(
+      5,
+      1,
+      expect.objectContaining({ q: 'buscar', limite: 100 }),
+      expect.any(AbortSignal),
+    ));
+
+    auth.actorId = 2;
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter initialEntries={[`/produccion/ordenes-fabricacion?of=${order.id}`]}>
+          <FabricationOrdersScm />
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+    await waitFor(() => expect(auth.outputRoutes).toHaveBeenCalledWith(
+      '5',
+      2,
+      expect.objectContaining({ limite: 100 }),
+      expect.any(AbortSignal),
+    ));
+    resolveSearchA({ items: [actorARoute], total: 1, has_more: false });
+    const refreshedRouteInput = screen.getByRole('combobox', { name: 'Operación de ruta (opcional)' });
+    await user.clear(refreshedRouteInput);
+    await waitFor(() => expect(refreshedRouteInput).not.toBeDisabled());
+    await user.click(refreshedRouteInput);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await waitFor(() => expect(auth.outputRoutes).toHaveBeenCalledWith(
+      5,
+      2,
+      expect.objectContaining({ q: undefined, limite: 100 }),
+      expect.any(AbortSignal),
+    ));
+    expect(auth.outputRoutes.mock.calls.some(([articleId, requestedActor]) => (
+      String(articleId) === '5' && requestedActor === 2
+    ))).toBe(true);
+    expect(screen.queryByRole('option', { name: /Ruta actor A/ })).not.toBeInTheDocument();
+  });
+
   it('permite reintentar una ruta fallida sin perder las rutas ya resueltas', async () => {
     const order = {
       id: 'of-route-retry', codigo: 'OF-ROUTE-RETRY', estado: 'BORRADOR', version: 7,
@@ -1127,7 +1260,9 @@ describe('Órdenes de fabricación', () => {
         </MemoryRouter>
       </ThemeProvider>,
     );
-    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith('5', 1));
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(
+      '5', 1, expect.objectContaining({ limite: 100 }), expect.any(AbortSignal),
+    ));
     auth.actorId = 2;
     view.rerender(
       <ThemeProvider theme={createTheme()}>
@@ -1136,11 +1271,13 @@ describe('Órdenes de fabricación', () => {
         </MemoryRouter>
       </ThemeProvider>,
     );
-    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith('5', 2));
-    firstRoutes.resolve([{ id: 50, numero_revision: 1, estado: 'APROBADA', content_hash: 'hash-a', operaciones: [{ id: 501, nombre: 'Ruta A', tipo: 'INYECCION', articulo_salida: { id: 5 } }] }]);
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(
+      '5', 2, expect.objectContaining({ limite: 100 }), expect.any(AbortSignal),
+    ));
+    firstRoutes.resolve([{ id: 50, numero_revision: 1, estado: 'APROBADA', content_hash: 'hash-a', operaciones: [{ id: 501, nombre: 'Ruta A', tipo: 'INYECCION', executor_kind: 'OP_OT', articulo_salida: { id: 5 } }] }]);
     await waitFor(() => expect(screen.getByText('OF-RACE-B')).toBeVisible());
     expect(screen.queryByDisplayValue('Ruta A · Inyección')).not.toBeInTheDocument();
-    secondRoutes.resolve([{ id: 60, numero_revision: 1, estado: 'APROBADA', content_hash: 'hash-b', operaciones: [{ id: 601, nombre: 'Ruta B', tipo: 'INYECCION', articulo_salida: { id: 5 } }] }]);
+    secondRoutes.resolve([{ id: 60, numero_revision: 1, estado: 'APROBADA', content_hash: 'hash-b', operaciones: [{ id: 601, nombre: 'Ruta B', tipo: 'INYECCION', executor_kind: 'OP_OT', articulo_salida: { id: 5 } }] }]);
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Operación de ruta (opcional)' }).value).toMatch(/Ruta B/));
     expect(screen.queryByDisplayValue('Ruta A · Inyección')).not.toBeInTheDocument();
   });
