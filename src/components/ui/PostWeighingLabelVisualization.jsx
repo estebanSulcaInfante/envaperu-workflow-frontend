@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions,
   DialogContent, DialogTitle, FormControl, InputLabel, MenuItem, Paper,
@@ -16,6 +16,7 @@ import {
   buildPostWeighingReprintItem,
   isPostWeighingLabel,
 } from './postWeighingReprintModel';
+import { useFeedback } from '../../context/FeedbackContext';
 
 const randomOperationId = () => (
   globalThis.crypto.randomUUID()
@@ -81,6 +82,7 @@ function PostWeighingLabelContent({
   canReprint = false,
   actorId,
 }) {
+  const { notify } = useFeedback();
   const [open, setOpen] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [copias, setCopias] = useState('1');
@@ -99,6 +101,10 @@ function PostWeighingLabelContent({
   const sourceKeyRef = useRef('');
   const restoringRef = useRef(false);
   const confirmBusyRef = useRef(false);
+  const reportError = useCallback((message, severity = 'error', key = 'post-reprint') => {
+    setError(message);
+    notify({ message, severity, key });
+  }, [notify]);
 
   const item = useMemo(
     () => buildPostWeighingReprintItem({ pesaje, label, copias: Number(copias) }),
@@ -173,10 +179,10 @@ function PostWeighingLabelContent({
       .catch((cause) => {
         if (!active) return;
         setStationsState('error');
-        setError(errorMessage(cause, 'No se pudo cargar el catálogo de estaciones.'));
+      reportError(errorMessage(cause, 'No se pudo cargar el catálogo de estaciones.'), 'error', 'post-reprint-stations');
       });
     return () => { active = false; };
-  }, [open, stationId]);
+  }, [open, reportError, stationId]);
 
   if (!isPostWeighingLabel(label)) return null;
 
@@ -235,7 +241,7 @@ function PostWeighingLabelContent({
       setPreview(null);
       setFrozenPayload(null);
       setState('idle');
-      setError(errorMessage(cause, 'No se pudo validar la vista previa. La selección puede haber cambiado.'));
+      reportError(errorMessage(cause, 'No se pudo validar la vista previa. La selección puede haber cambiado.'), 'error', 'post-reprint-preview');
     }
   };
   const confirmRequest = async () => {
@@ -253,7 +259,7 @@ function PostWeighingLabelContent({
       operationId, state: 'confirming',
     })) {
       confirmBusyRef.current = false;
-      setError('No se puede conservar esta operación en el navegador. No se envió la solicitud.');
+      reportError('No se puede conservar esta operación en el navegador. No se envió la solicitud.', 'error', 'post-reprint-storage');
       return;
     }
     setState('confirming');
@@ -268,7 +274,7 @@ function PostWeighingLabelContent({
         setState('queued');
       } else {
         setState('uncertain');
-        setError('La respuesta no confirmó una solicitud en cola. Conservamos la misma operación; consulta el estado si existe un request_id.');
+        reportError('La respuesta no confirmó una solicitud en cola. Conservamos la misma operación; consulta el estado si existe un request_id.', 'warning', 'post-reprint-uncertain');
       }
     } catch (cause) {
       if (sourceKeyRef.current !== requestSourceKey) return;
@@ -279,9 +285,9 @@ function PostWeighingLabelContent({
         setFrozenPayload(null);
       }
       setState(uncertain ? 'uncertain' : (statusCode === 409 ? 'idle' : 'preview-ready'));
-      setError(uncertain
+      reportError(uncertain
         ? `No sabemos si la operación ${operationId} llegó al servidor. Conservamos la misma operación; consulta el estado antes de repetir.`
-        : errorMessage(cause, 'No se pudo confirmar la reimpresión. Revisa la selección y la vista previa.'));
+        : errorMessage(cause, 'No se pudo confirmar la reimpresión. Revisa la selección y la vista previa.'), uncertain ? 'warning' : 'error', 'post-reprint-confirm');
     } finally {
       confirmBusyRef.current = false;
     }
@@ -296,7 +302,7 @@ function PostWeighingLabelContent({
       setState('queued');
     } catch (cause) {
       setState('uncertain');
-      setError(errorMessage(cause, 'No se pudo consultar el estado. No reenvíes bytes ni abras otra solicitud.'));
+      reportError(errorMessage(cause, 'No se pudo consultar el estado. No reenvíes bytes ni abras otra solicitud.'), 'warning', 'post-reprint-status');
     }
   };
 

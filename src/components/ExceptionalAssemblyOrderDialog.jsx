@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
@@ -26,6 +26,7 @@ import {
 } from '../services/scmEngineeringApi';
 import { crearOrdenArmadoExcepcionalScm } from '../services/scmAssemblyApi';
 import ScmArticleAutocomplete from './ui/ScmArticleAutocomplete';
+import { useFeedback } from '../context/FeedbackContext';
 
 const emptyForm = {
   articulo_salida_id: '',
@@ -72,6 +73,7 @@ const eligibleRouteOperations = (routes, structures, targetArticleId) => {
 };
 
 function ExceptionalAssemblyOrderDialog({ open, onClose, onCreated }) {
+  const { notify } = useFeedback();
   const [form, setForm] = useState(emptyForm);
   const [wips, setWips] = useState([]);
   const [routes, setRoutes] = useState([]);
@@ -82,7 +84,7 @@ function ExceptionalAssemblyOrderDialog({ open, onClose, onCreated }) {
   const [reasonOption, setReasonOption] = useState('');
   const [error, setError] = useState('');
 
-  const loadWips = async () => {
+  const loadWips = useCallback(async () => {
     setCatalogLoading(true);
     setError('');
     try {
@@ -91,14 +93,16 @@ function ExceptionalAssemblyOrderDialog({ open, onClose, onCreated }) {
         item.activo !== false && item.clase === 'SUBENSAMBLE_WIP'
       )));
     } catch (requestError) {
-      setError(mensajeErrorScm(
+      const message = mensajeErrorScm(
         requestError,
         'No se pudieron cargar los WIP habilitados.',
-      ));
+      );
+      setError(message);
+      notify({ message, severity: 'error', key: 'exceptional-oa-wips' });
     } finally {
       setCatalogLoading(false);
     }
-  };
+  }, [notify]);
 
   useEffect(() => {
     if (!open) return;
@@ -108,7 +112,7 @@ function ExceptionalAssemblyOrderDialog({ open, onClose, onCreated }) {
     setStructures([]);
     setError('');
     loadWips();
-  }, [open]);
+  }, [loadWips, open]);
 
   useEffect(() => {
     let active = true;
@@ -133,17 +137,19 @@ function ExceptionalAssemblyOrderDialog({ open, onClose, onCreated }) {
         if (active) {
           setRoutes([]);
           setStructures([]);
-          setError(mensajeErrorScm(
+          const message = mensajeErrorScm(
             requestError,
             'No se pudo validar la ingeniería aprobada del WIP.',
-          ));
+          );
+          setError(message);
+          notify({ message, severity: 'error', key: 'exceptional-oa-engineering' });
         }
       })
       .finally(() => {
         if (active) setEngineeringLoading(false);
       });
     return () => { active = false; };
-  }, [form.articulo_salida_id, open]);
+  }, [form.articulo_salida_id, notify, open]);
 
   const selectedWip = wips.find(
     (item) => String(item.id) === String(form.articulo_salida_id),
@@ -182,10 +188,12 @@ function ExceptionalAssemblyOrderDialog({ open, onClose, onCreated }) {
       onCreated(created);
       onClose();
     } catch (requestError) {
-      setError(mensajeErrorScm(
+      const message = mensajeErrorScm(
         requestError,
         'No se pudo crear el borrador de OA excepcional.',
-      ));
+      );
+      setError(message);
+      notify({ message, severity: 'error', key: 'exceptional-oa-create' });
     } finally {
       setSaving(false);
     }

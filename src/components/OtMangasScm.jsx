@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import {
   Alert, AlertTitle, Autocomplete, Box, Button, Card, CardActionArea, Checkbox, Chip, CircularProgress,
   Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl,
-  FormControlLabel, InputLabel, MenuItem, Pagination, Paper, Select, Stack, Table, TableBody, TableCell,
+  FormControlLabel, FormHelperText, InputLabel, MenuItem, Pagination, Paper, Select, Stack, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
   Typography, useMediaQuery,
 } from '@mui/material';
@@ -59,6 +59,7 @@ import { selectCurrentPostLabel } from './ui/postWeighingReprintModel';
 import WorkKgAllocation from './WorkKgAllocation';
 import { buildKgAssignment } from '../utils/workKgAssignment';
 import { useScmActor } from '../context/ScmActorContext';
+import { useFeedback } from '../context/FeedbackContext';
 import { todayInLima } from '../utils/limaDate';
 import {
   buildScmPrelabelPreviewUrl,
@@ -1046,6 +1047,7 @@ export default function OtMangasScm({ view = 'all' }) {
   const isLanding = view === 'landing';
   const isDetail = view === 'detail';
   const { actorId, can, canAny, experience } = useScmActor();
+  const { notify, dismissByKey } = useFeedback();
   const [searchParams, setSearchParams] = useSearchParams();
   const isGlobalView = !isDetail && searchParams.get('vista') === 'todas';
   const initialJourneyContextRef = useRef(null);
@@ -1197,6 +1199,98 @@ export default function OtMangasScm({ view = 'all' }) {
   const [error, setError] = useState('');
   const [packagingBlocker, setPackagingBlocker] = useState(null);
   const [notice, setNotice] = useState('');
+  const noticeOptionsRef = useRef(new Map());
+  const feedbackRetryRefs = useRef({ refresh: () => {}, moldCatalog: () => {} });
+  const setPersistentNotice = (message) => {
+    noticeOptionsRef.current.set(message, { severity: 'warning', persistent: true });
+    setNotice(message);
+  };
+  const feedbackRef = useRef({ error: '', relief: '', notice: '' });
+  useEffect(() => {
+    const keySuffix = selectedOtId || 'ot-index';
+    if (error && error !== feedbackRef.current.error) {
+      const uncertain = /no sabemos|no confirmó|confirmado.*actualiza|aplicado, pero no actualizado|consulta el estado/i.test(error);
+      const key = `ot-event:${keySuffix}:${error}`;
+      notify({ message: error, severity: uncertain ? 'warning' : 'error', key });
+      feedbackRef.current.error = error;
+      feedbackRef.current.errorKey = key;
+    } else if (!error) {
+      dismissByKey(feedbackRef.current.errorKey);
+      feedbackRef.current.error = '';
+      feedbackRef.current.errorKey = '';
+    }
+    if (reliefError && reliefError !== feedbackRef.current.relief) {
+      const key = `ot-relief:${keySuffix}:${reliefError}`;
+      notify({ message: reliefError, severity: 'error', key });
+      feedbackRef.current.relief = reliefError;
+      feedbackRef.current.reliefKey = key;
+    } else if (!reliefError) {
+      dismissByKey(feedbackRef.current.reliefKey);
+      feedbackRef.current.relief = '';
+      feedbackRef.current.reliefKey = '';
+    }
+    if (notice && notice !== feedbackRef.current.notice) {
+      const explicitOptions = noticeOptionsRef.current.get(notice);
+      const partial = explicitOptions?.persistent
+        || /aplicado, pero no actualizado|resultado no confirmado|revisa|consulta el estado/i.test(notice);
+      const key = `ot-success:${keySuffix}:${notice}`;
+      notify({
+        message: notice,
+        severity: explicitOptions?.severity || (partial ? 'warning' : 'success'),
+        persistent: partial,
+        key,
+      });
+      feedbackRef.current.notice = notice;
+      feedbackRef.current.noticeKey = key;
+    } else if (!notice) {
+      dismissByKey(feedbackRef.current.noticeKey);
+      feedbackRef.current.notice = '';
+      feedbackRef.current.noticeKey = '';
+      noticeOptionsRef.current.clear();
+    }
+    const eventErrors = [
+      ['global-catalog', globalCatalogError, 'error'],
+      ['fabrication-order-search', fabricationOrderPickerError, 'error'],
+      ['ot-detail', selectedOtDetailError, 'error'],
+      ['plan-mangas', planLoadError, 'error'],
+      ['continuity', continuityError, 'error'],
+      ['work-plan', selectedWorkPlanError, 'error'],
+      ['extra-requests', extraRequestsError, 'error'],
+      ['identity', identityError, 'error'],
+      ['global-worker-warning', globalWorkerWarning, 'warning'],
+      ['mold-catalog-warning', moldCatalogWarning, 'warning'],
+      ['center-catalog-warning', centerCatalogWarning, 'warning'],
+      ['journey-fabricacion-warning', journeyWarnings.FABRICACION, 'warning'],
+      ['journey-ensamble-warning', journeyWarnings.ENSAMBLE, 'warning'],
+    ];
+    eventErrors.forEach(([slot, message, severity]) => {
+      if (message && message !== feedbackRef.current[slot]) {
+        const retryAction = {
+          'global-catalog': <Button color="inherit" size="small" onClick={() => setGlobalReloadSignal((value) => value + 1)}>Reintentar</Button>,
+          'ot-detail': <Button color="inherit" size="small" onClick={() => setOtDetailReload((value) => value + 1)}>Reintentar</Button>,
+          'plan-mangas': <Button color="inherit" size="small" onClick={() => setPlanReload((value) => value + 1)}>Reintentar</Button>,
+          continuity: <Button color="inherit" size="small" onClick={() => setContinuityReload((value) => value + 1)}>Reintentar</Button>,
+          'work-plan': <Button color="inherit" size="small" onClick={() => setSelectedWorkPlanReload((value) => value + 1)}>Reintentar</Button>,
+          'global-worker-warning': <Button color="inherit" size="small" onClick={() => feedbackRetryRefs.current.refresh()}>Reintentar</Button>,
+          'mold-catalog-warning': <Button color="inherit" size="small" onClick={() => feedbackRetryRefs.current.moldCatalog()}>Reintentar moldes</Button>,
+          'center-catalog-warning': <Button color="inherit" size="small" onClick={() => feedbackRetryRefs.current.refresh()}>Reintentar</Button>,
+          'journey-fabricacion-warning': <Button color="inherit" size="small" onClick={() => feedbackRetryRefs.current.refresh()}>Reintentar</Button>,
+          'journey-ensamble-warning': <Button color="inherit" size="small" onClick={() => feedbackRetryRefs.current.refresh()}>Reintentar</Button>,
+        }[slot];
+        const key = `ot-${slot}:${keySuffix}:${message}`;
+        notify({ message, severity, persistent: true, key, action: retryAction });
+        feedbackRef.current[slot] = message;
+        feedbackRef.current[`${slot}Key`] = key;
+      } else if (!message) {
+        dismissByKey(feedbackRef.current[`${slot}Key`]);
+        feedbackRef.current[slot] = '';
+        feedbackRef.current[`${slot}Key`] = '';
+      }
+    });
+  }, [centerCatalogWarning, continuityError, error, extraRequestsError, fabricationOrderPickerError,
+    globalCatalogError, globalWorkerWarning, identityError, journeyWarnings, moldCatalogWarning,
+    notice, notify, planLoadError, reliefError, selectedOtDetailError, selectedOtId,
+    selectedWorkPlanError, dismissByKey]);
   const [printJob, setPrintJob] = useState(loadLastPendingPrintJob);
   const [replacementPrintJobs, setReplacementPrintJobs] = useState([]);
   const [mangaActionDialog, setMangaActionDialog] = useState(null);
@@ -1221,6 +1315,8 @@ export default function OtMangasScm({ view = 'all' }) {
     destinoTrabajoId: '', destinoAsignacionId: '', motivo: '', operationId: '',
   });
   const [assignmentCorrectionPreview, setAssignmentCorrectionPreview] = useState(null);
+  const [touchedFields, setTouchedFields] = useState({});
+  const touchField = (field) => setTouchedFields((current) => ({ ...current, [field]: true }));
 
   const selectedOtSummary = useMemo(
     () => {
@@ -2229,7 +2325,7 @@ export default function OtMangasScm({ view = 'all' }) {
     loadExtraRequests, selectedWorkId, selectedWorkIsLegacy, selectedWorkOrderId,
   ]);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     if (isGlobalView) {
       setGlobalReloadSignal((current) => current + 1);
       return;
@@ -2243,7 +2339,12 @@ export default function OtMangasScm({ view = 'all' }) {
     } finally {
       setBusy(false);
     }
-  };
+  }, [isGlobalView, loadOts, selectedOtId, selectedWorkId]);
+
+  useEffect(() => {
+    feedbackRetryRefs.current.refresh = refresh;
+    feedbackRetryRefs.current.moldCatalog = loadMoldCatalog;
+  }, [loadMoldCatalog, refresh]);
 
   const changeJourneyFilters = (nextFilters) => {
     const journeyChanged = nextFilters.fecha_operativa !== listFilters.fecha_operativa
@@ -2673,6 +2774,7 @@ export default function OtMangasScm({ view = 'all' }) {
 
   const openReliefDialog = () => {
     setReliefError('');
+    setTouchedFields({});
     setSelectedRelief([]);
     setReliefForm((current) => ({ ...current, reason: '', confirmEmptyStickers: false }));
     setReliefDialogOpen(true);
@@ -2955,9 +3057,10 @@ export default function OtMangasScm({ view = 'all' }) {
       setAssignmentCorrectionForm({
         destinoTrabajoId: '', destinoAsignacionId: '', motivo: '', operationId: '',
       });
+      setTouchedFields({});
       setAssignmentCorrectionPreview(null);
       if (canReattributeManga && targetsResult.status === 'rejected') {
-        setNotice('Se abrió la manga, pero no se pudieron cargar los Trabajos destino. Reintenta al volver a abrirla.');
+        setPersistentNotice('Se abrió la manga, pero no se pudieron cargar los Trabajos destino. Reintenta al volver a abrirla.');
       }
     } catch (requestError) {
       mangaOpenRequestedRef.current = false;
@@ -3124,7 +3227,7 @@ export default function OtMangasScm({ view = 'all' }) {
       try {
         await loadOts(selectedOt?.public_id, selectedWork?.id);
       } catch {
-        setNotice(
+        setPersistentNotice(
           `Corrección ${result.correccion.id} aplicada. La vista quedó pendiente de actualizar; usa Recargar y no continúes con el rótulo anterior hasta coordinar su actualización.`,
         );
       }
@@ -4018,6 +4121,7 @@ export default function OtMangasScm({ view = 'all' }) {
                     {...params}
                     label="Orden de fabricación"
                     placeholder="Buscar por molde, código o ID de OF"
+                    error={fabricationOrderInputDirty}
                     helperText={fabricationOrderInputDirty
                       ? 'Selecciona una OF de los resultados para confirmar la búsqueda'
                       : undefined}
@@ -4108,7 +4212,7 @@ export default function OtMangasScm({ view = 'all' }) {
               </Box>
             )}
             {availableRuns.length > 1 && (
-              <FormControl fullWidth sx={{ minWidth: 0 }}>
+              <FormControl fullWidth sx={{ minWidth: 0 }} error={error === 'Selecciona OT, color, maquinista y saldo nuevo o una manga abierta compatible.'}>
                 <InputLabel id="production-color-select-label">Color a fabricar</InputLabel>
                 <Select
                   id="production-color-select"
@@ -4885,25 +4989,30 @@ export default function OtMangasScm({ view = 'all' }) {
                 a otra OT, usa la continuidad al agregar el Trabajo de color posterior.
               </Alert>
             )}
-            <FormControl fullWidth size="small">
+            <FormControl fullWidth size="small" error={Boolean(touchedFields.reliefWorker && !reliefForm.workerId)}>
               <InputLabel id="relief-worker-label">Nuevo maquinista</InputLabel>
               <Select
                 id="relief-worker"
                 labelId="relief-worker-label"
                 label="Nuevo maquinista"
                 value={reliefForm.workerId}
+                onBlur={() => touchField('reliefWorker')}
                 onChange={(event) => setReliefForm({ ...reliefForm, workerId: event.target.value })}
               >
                 {reliefWorkers.map((item) => (
                   <MenuItem key={item.id} value={item.id}>{item.nombre_completo}</MenuItem>
                 ))}
               </Select>
+              {touchedFields.reliefWorker && !reliefForm.workerId && <FormHelperText>Selecciona el nuevo maquinista.</FormHelperText>}
             </FormControl>
             <TextField
               fullWidth
               size="small"
               label="Motivo del relevo"
               value={reliefForm.reason}
+              error={Boolean(touchedFields.reliefReason && !reliefForm.reason.trim())}
+              helperText={touchedFields.reliefReason && !reliefForm.reason.trim() ? 'Indica el motivo del relevo.' : undefined}
+              onBlur={() => touchField('reliefReason')}
               onChange={(event) => setReliefForm({ ...reliefForm, reason: event.target.value })}
             />
             {selectedRelief.length === 0 && selectedWork?.estado !== 'EN_EJECUCION' && (
@@ -5032,12 +5141,13 @@ export default function OtMangasScm({ view = 'all' }) {
                       compatible y se bloquea si ya hubo recepción, reserva, retiro, retorno,
                       división o movimiento posterior.
                     </Typography>
-                    <FormControl fullWidth size="small">
+                    <FormControl fullWidth size="small" error={Boolean(touchedFields.correctionTarget && !assignmentCorrectionForm.destinoTrabajoId)}>
                       <InputLabel id="assignment-correction-target-label">Trabajo destino</InputLabel>
                       <Select
                         labelId="assignment-correction-target-label"
                         label="Trabajo destino"
                         value={assignmentCorrectionForm.destinoTrabajoId}
+                        onBlur={() => touchField('correctionTarget')}
                         onChange={(event) => {
                           setAssignmentCorrectionForm((current) => ({
                             ...current,
@@ -5057,14 +5167,16 @@ export default function OtMangasScm({ view = 'all' }) {
                             </MenuItem>
                           ))}
                       </Select>
+                      {touchedFields.correctionTarget && !assignmentCorrectionForm.destinoTrabajoId && <FormHelperText>Selecciona el Trabajo destino.</FormHelperText>}
                     </FormControl>
                     {assignmentCorrectionForm.destinoTrabajoId && (
-                      <FormControl fullWidth size="small">
+                      <FormControl fullWidth size="small" error={Boolean(touchedFields.correctionAssignment && !assignmentCorrectionForm.destinoAsignacionId)}>
                         <InputLabel id="assignment-correction-assignment-label">Asignación destino</InputLabel>
                         <Select
                           labelId="assignment-correction-assignment-label"
                           label="Asignación destino"
                           value={assignmentCorrectionForm.destinoAsignacionId}
+                          onBlur={() => touchField('correctionAssignment')}
                           onChange={(event) => {
                             setAssignmentCorrectionForm((current) => ({
                               ...current, destinoAsignacionId: event.target.value, operationId: '',
@@ -5083,6 +5195,7 @@ export default function OtMangasScm({ view = 'all' }) {
                             </MenuItem>
                           ))}
                         </Select>
+                        {touchedFields.correctionAssignment && !assignmentCorrectionForm.destinoAsignacionId && <FormHelperText>Selecciona la asignación destino.</FormHelperText>}
                       </FormControl>
                     )}
                     <Button
@@ -5171,6 +5284,9 @@ export default function OtMangasScm({ view = 'all' }) {
                       multiline
                       minRows={2}
                       value={assignmentCorrectionForm.motivo}
+                      error={Boolean(touchedFields.correctionReason && !assignmentCorrectionForm.motivo.trim())}
+                      helperText={touchedFields.correctionReason && !assignmentCorrectionForm.motivo.trim() ? 'Indica el motivo de la corrección.' : undefined}
+                      onBlur={() => touchField('correctionReason')}
                       onChange={(event) => setAssignmentCorrectionForm((current) => ({
                         ...current, motivo: event.target.value, operationId: '',
                       }))}
@@ -5285,6 +5401,9 @@ export default function OtMangasScm({ view = 'all' }) {
                     multiline
                     minRows={2}
                     value={correctionForm.motivo}
+                    error={Boolean(touchedFields.correctionReason && !correctionForm.motivo.trim())}
+                    helperText={touchedFields.correctionReason && !correctionForm.motivo.trim() ? 'Indica el motivo de la corrección.' : undefined}
+                    onBlur={() => touchField('correctionReason')}
                     onChange={(event) => setCorrectionForm({
                       ...correctionForm, motivo: event.target.value,
                     })}
@@ -5316,6 +5435,7 @@ export default function OtMangasScm({ view = 'all' }) {
                         labelId="reopening-type-label"
                         label="Tipo de reapertura"
                         value={reopeningForm.tipo_reapertura}
+                        onBlur={() => touchField('reopeningType')}
                         onChange={(event) => setReopeningForm({
                           ...reopeningForm, tipo_reapertura: event.target.value,
                         })}
@@ -5324,6 +5444,7 @@ export default function OtMangasScm({ view = 'all' }) {
                         <MenuItem value="CIERRE_ACCIDENTAL">Cierre accidental</MenuItem>
                         <MenuItem value="CONTINUAR_LLENADO">Continuar llenado</MenuItem>
                       </Select>
+                      {touchedFields.reopeningType && !reopeningForm.tipo_reapertura && <FormHelperText>Selecciona el tipo de reapertura.</FormHelperText>}
                     </FormControl>
                     {reopeningForm.tipo_reapertura === 'CIERRE_ACCIDENTAL' && (
                       <Alert severity="info">
@@ -5346,6 +5467,9 @@ export default function OtMangasScm({ view = 'all' }) {
                       multiline
                       minRows={2}
                       value={reopeningForm.motivo}
+                      error={Boolean(touchedFields.reopeningReason && !reopeningForm.motivo.trim())}
+                      helperText={touchedFields.reopeningReason && !reopeningForm.motivo.trim() ? 'Indica el motivo de reapertura.' : undefined}
+                      onBlur={() => touchField('reopeningReason')}
                       onChange={(event) => setReopeningForm({
                         ...reopeningForm, motivo: event.target.value,
                       })}
@@ -5383,6 +5507,9 @@ export default function OtMangasScm({ view = 'all' }) {
                       multiline
                       minRows={2}
                       value={annulmentForm.motivo}
+                      error={Boolean(touchedFields.annulmentReason && !annulmentForm.motivo.trim())}
+                      helperText={touchedFields.annulmentReason && !annulmentForm.motivo.trim() ? 'Indica el motivo de anulación.' : undefined}
+                      onBlur={() => touchField('annulmentReason')}
                       onChange={(event) => setAnnulmentForm({
                         ...annulmentForm, motivo: event.target.value,
                       })}

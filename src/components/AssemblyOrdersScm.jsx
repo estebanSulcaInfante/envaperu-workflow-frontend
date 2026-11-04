@@ -48,6 +48,7 @@ import EmptyState from './ui/EmptyState';
 import OrderScheduleStrip from './ui/OrderScheduleStrip';
 import ExceptionalAssemblyOrderDialog from './ExceptionalAssemblyOrderDialog';
 import { useScmActor } from '../context/ScmActorContext';
+import { useFeedback } from '../context/FeedbackContext';
 import { todayInLima } from '../utils/limaDate';
 
 const actions = {
@@ -67,6 +68,7 @@ const colorWorkOutputsLabel = (work) => (work?.articulos_salida || [])
 
 export default function AssemblyOrdersScm() {
   const { actorId, can, experience } = useScmActor();
+  const { notify } = useFeedback();
   const actorIdRef = useRef(actorId);
   actorIdRef.current = actorId;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -98,6 +100,21 @@ export default function AssemblyOrdersScm() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const feedbackRef = useRef({ error: '', detail: '', notice: '' });
+  useEffect(() => {
+    if (error && error !== feedbackRef.current.error) {
+      notify({ message: error, severity: 'error', key: `assembly:${error}` });
+      feedbackRef.current.error = error;
+    } else if (!error) feedbackRef.current.error = '';
+    if (detailError && detailError !== feedbackRef.current.detail) {
+      notify({ message: detailError, severity: 'error', key: `assembly-detail:${orderId}:${detailError}` });
+      feedbackRef.current.detail = detailError;
+    } else if (!detailError) feedbackRef.current.detail = '';
+    if (notice && notice !== feedbackRef.current.notice) {
+      notify({ message: notice, severity: 'success', persistent: false, key: `assembly-success:${notice}` });
+      feedbackRef.current.notice = notice;
+    } else if (!notice) feedbackRef.current.notice = '';
+  }, [detailError, error, notify, notice, orderId]);
   const [closeOpen, setCloseOpen] = useState(false);
   const [otOpen, setOtOpen] = useState(false);
   const [exceptionalOrderOpen, setExceptionalOrderOpen] = useState(false);

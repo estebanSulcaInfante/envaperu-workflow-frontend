@@ -9,6 +9,7 @@ import DataTableToolbar from './ui/DataTableToolbar';
 import { matchesOmniSearch } from '../utils/tableSearch';
 import { listarOtScm } from '../services/scmOtApi';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
+import { useFeedback } from '../context/FeedbackContext';
 
 const GLOBAL_DEFAULTS = {
   q: '', estado: 'TODOS', tipo: 'TODOS', turno: 'TODOS', from: '', to: '', maquina: '',
@@ -157,6 +158,7 @@ const payloadItems = (payload) => Array.isArray(payload) ? payload : (payload?.i
 export default function OtGlobalIndex({
   reloadSignal = 0, actorId = '', orders = [], molds = [], machines = [], catalogWarning = '',
 }) {
+  const { notify } = useFeedback();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const [items, setItems] = useState([]);
@@ -172,6 +174,13 @@ export default function OtGlobalIndex({
   const actorScopeRef = useRef(actorId);
   actorScopeRef.current = actorId;
   const previousActorRef = useRef(actorId);
+  const feedbackRef = useRef('');
+  useEffect(() => {
+    if (error && error !== feedbackRef.current) {
+      notify({ message: error, severity: 'error', key: `ot-index:${actorId}:${error}` });
+      feedbackRef.current = error;
+    } else if (!error) feedbackRef.current = '';
+  }, [actorId, error, notify]);
 
   const load = useCallback(async () => {
     const requestId = requestRef.current + 1;

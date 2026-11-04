@@ -2,9 +2,11 @@ import { useRef, useState, useEffect } from 'react';
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material';
 import { useScmActor } from '../context/ScmActorContext';
 import { cerrarMangaDesdeControlScm } from '../services/scmOtApi';
+import { useFeedback } from '../context/FeedbackContext';
 
 export default function CloseKgControlAction({ manga, onClosed }) {
   const { actorId } = useScmActor();
+  const { notify } = useFeedback();
   const storageKey = `scm-kg-close:${actorId}:${manga.public_id}`;
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -18,8 +20,12 @@ export default function CloseKgControlAction({ manga, onClosed }) {
       const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
       setIntent(saved);
       if (saved) { setReason(saved.payload.motivo); setOpen(true); }
-    } catch { setError('No se pudo recuperar la solicitud guardada. Revisa el historial antes de continuar.'); }
-  }, [storageKey]);
+    } catch {
+      const message = 'No se pudo recuperar la solicitud guardada. Revisa el historial antes de continuar.';
+      setError(message);
+      notify({ message, severity: 'error', key: 'kg-close-recovery' });
+    }
+  }, [notify, storageKey]);
   const submit = async () => {
     if (flight.current || !reason.trim()) return;
     const request = intent || { key: crypto.randomUUID(), payload: { version: manga.version, motivo: reason.trim() } };
@@ -33,11 +39,17 @@ export default function CloseKgControlAction({ manga, onClosed }) {
       setOpen(false); setIntent(null); setReason('');
       setConfirmed(true);
       try { await onClosed(); }
-      catch { setError('Cierre confirmado. Actualiza la consulta para ver el estado nuevo; no repitas el cierre.'); }
+      catch {
+        const message = 'Cierre confirmado. Actualiza la consulta para ver el estado nuevo; no repitas el cierre.';
+        setError(message);
+        notify({ message, severity: 'warning', key: 'kg-close-refresh' });
+      }
     } catch (e) {
       const status = e.response?.status;
       if (!request.sent && status >= 400 && status < 500 && ![408, 429].includes(status) && e.response?.data?.error?.code !== 'IDEMPOTENCY_OPERATION_INCOMPLETE') { sessionStorage.removeItem(storageKey); setIntent(null); }
-      setError(e.response?.data?.error?.message || 'No se pudo confirmar el resultado. Reintenta con la misma solicitud.');
+      const message = e.response?.data?.error?.message || 'No se pudo confirmar el resultado. Reintenta con la misma solicitud.';
+      setError(message);
+      notify({ message, severity: 'error', key: `kg-close:${manga.public_id}` });
     } finally { flight.current = false; setBusy(false); }
   };
   return <>

@@ -1,7 +1,9 @@
 import { Alert, Box, Button, Paper, Stack, TextField, Typography } from '@mui/material';
 import { formatPlanningKg } from '../utils/workKgAssignment';
+import { fieldErrorProps } from '../utils/fieldValidation';
 
 export default function WorkKgAllocation({ line, model, onEdit, disabled, compact = false }) {
+  const kgFieldProps = fieldErrorProps(model.error ? { kg: model.error } : {}, 'kg');
   const content = (
     <>
       <Box sx={{ minWidth: 0 }}>
@@ -45,9 +47,9 @@ export default function WorkKgAllocation({ line, model, onEdit, disabled, compac
         value={model.input}
         disabled={disabled}
         onChange={(event) => onEdit({ text: event.target.value })}
-        error={Boolean(model.error)}
+        {...kgFieldProps}
         inputProps={{ inputMode: 'decimal' }}
-        helperText={model.error || 'Peso neto teórico de la salida: sin tara ni colada; no es peso real de balanza.'}
+        helperText={kgFieldProps.helperText || 'Peso neto teórico de la salida: sin tara ni colada; no es peso real de balanza.'}
         fullWidth
       />
       {model.needsChoice && (

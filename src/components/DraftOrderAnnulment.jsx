@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
+import { useFeedback } from '../context/FeedbackContext';
 
 export default function DraftOrderAnnulment({ order, allowed, disabled, onSubmit, onSuccess }) {
+  const { notify } = useFeedback();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -25,7 +27,9 @@ export default function DraftOrderAnnulment({ order, allowed, disabled, onSubmit
       setOpen(false);
       await onSuccess?.();
     } catch (requestError) {
-      setError(mensajeErrorScm(requestError, 'No se pudo anular. Vuelva y actualice la orden antes de reintentar.'));
+      const message = mensajeErrorScm(requestError, 'No se pudo anular. Vuelva y actualice la orden antes de reintentar.');
+      setError(message);
+      notify({ message, severity: 'error', key: `draft-annul:${reviewedOrder?.id || reviewedOrder?.codigo || 'order'}` });
     } finally {
       setBusy(false);
     }

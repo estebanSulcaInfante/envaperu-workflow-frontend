@@ -5,8 +5,10 @@ import {
 } from '@mui/material';
 import { anularOtScm } from '../services/scmOtApi';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
+import { useFeedback } from '../context/FeedbackContext';
 
 export function OtCreationReview({ form, machine, worker, disabled, onConfirm, onRefresh }) {
+  const { notify } = useFeedback();
   const [review, setReview] = useState(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -22,7 +24,9 @@ export function OtCreationReview({ form, machine, worker, disabled, onConfirm, o
       setReview(null);
     } catch (failure) {
       setUncertain(!failure.response || failure.response.status >= 500);
-      setError(mensajeErrorScm(failure, 'No se confirmó la creación. Reintenta sin cambiar los datos; se conserva la misma operación.'));
+      const message = mensajeErrorScm(failure, 'No se confirmó la creación. Reintenta sin cambiar los datos; se conserva la misma operación.');
+      setError(message);
+      notify({ message, severity: 'error', key: 'ot-creation-review' });
     } finally {
       sendingRef.current = false;
       setSending(false);
@@ -50,7 +54,11 @@ export function OtCreationReview({ form, machine, worker, disabled, onConfirm, o
         <Button autoFocus disabled={sending || uncertain} onClick={() => setReview(null)}>Volver</Button>
         {uncertain && onRefresh && <Button disabled={sending} onClick={async () => {
           try { await onRefresh(); setReview(null); setUncertain(false); }
-          catch { setError('No se pudieron consultar las jornadas. Reintenta cuando Central esté disponible.'); }
+          catch {
+            const message = 'No se pudieron consultar las jornadas. Reintenta cuando Central esté disponible.';
+            setError(message);
+            notify({ message, severity: 'error', key: 'ot-creation-refresh' });
+          }
         }}>Consultar jornadas</Button>}
         <Button variant="contained" disabled={sending || !review?.form.maquina_id || !review?.form.fecha_operativa || !review?.form.turno} onClick={confirm}>
           {sending ? 'Creando…' : 'Confirmar creación'}
@@ -61,6 +69,7 @@ export function OtCreationReview({ form, machine, worker, disabled, onConfirm, o
 }
 
 export function OtAnnulmentAction({ ot, allowed, onSuccess, onRefresh }) {
+  const { notify } = useFeedback();
   const [review, setReview] = useState(null);
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
@@ -90,7 +99,9 @@ export function OtAnnulmentAction({ ot, allowed, onSuccess, onRefresh }) {
     } catch (failure) {
       setConflict(failure.response?.status === 409 || failure.response?.status === 403);
       setUncertain(!failure.response || failure.response.status >= 500);
-      setError(mensajeErrorScm(failure, 'No se confirmó la anulación. Reintenta la misma operación o consulta el estado antes de volver a decidir.'));
+      const message = mensajeErrorScm(failure, 'No se confirmó la anulación. Reintenta la misma operación o consulta el estado antes de volver a decidir.');
+      setError(message);
+      notify({ message, severity: 'error', key: 'ot-annulment' });
     } finally {
       sendingRef.current = false;
       setSending(false);
@@ -121,7 +132,11 @@ export function OtAnnulmentAction({ ot, allowed, onSuccess, onRefresh }) {
         <Button disabled={sending || uncertain} onClick={() => setReview(null)}>Volver</Button>
         {(conflict || uncertain) && <Button disabled={sending} onClick={async () => {
           try { await onRefresh(); setReview(null); setUncertain(false); }
-          catch { setError('No se pudo consultar el estado. Reintenta cuando Central esté disponible.'); }
+          catch {
+            const message = 'No se pudo consultar el estado. Reintenta cuando Central esté disponible.';
+            setError(message);
+            notify({ message, severity: 'error', key: 'ot-annulment-refresh' });
+          }
         }}>Consultar estado</Button>}
         <Button color="error" variant="contained" disabled={sending || conflict || !reason.trim()} onClick={confirm}>
           {sending ? 'Anulando…' : uncertain ? 'Reintentar anulación' : 'Anular OT'}
