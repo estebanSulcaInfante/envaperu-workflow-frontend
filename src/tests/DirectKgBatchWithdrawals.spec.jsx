@@ -509,12 +509,17 @@ describe('salida directa KG a Armado', () => {
   });
 
   it('bloquea el POST si no puede persistir el intento antes de enviarlo', async () => {
-    render(<DirectKgBatchWithdrawals />);
+    render(<ThemeProvider theme={createTheme()}><FeedbackProvider><DirectKgBatchWithdrawals /></FeedbackProvider></ThemeProvider>);
     await chooseContext(); await scan('QR-1');
     await waitFor(() => expect(confirmButton()).toBeEnabled());
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Quota'); });
     fireEvent.click(confirmButton());
-    await screen.findByText(/no se pudo guardar la solicitud pendiente/i);
+    await screen.findByTestId('storage-error-inline');
+    expect(screen.getByTestId('storage-error-inline')).toHaveTextContent(/confirmación permanece bloqueada/i);
+    expect(confirmButton()).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cerrar notificación' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar notificación' }));
+    expect(screen.getByTestId('storage-error-inline')).toBeVisible();
     expect(api.create).not.toHaveBeenCalled();
   });
 

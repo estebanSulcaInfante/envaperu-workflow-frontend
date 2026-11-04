@@ -166,7 +166,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
   const [loadingWorkers, setLoadingWorkers] = useState(false);
   const [error, setError, feedbackFallback_error] = useOperationMessage("components/DirectKgBatchWithdrawals.jsx:error", { severity: "error", initialValue: '' });
   const [notice, setNotice, feedbackFallback_notice, noticeSeverity] = useOperationMessage("components/DirectKgBatchWithdrawals.jsx:notice", { severity: "success", initialValue: '' });
-  const [storageError, setStorageError, feedbackFallback_storageError] = useOperationMessage("components/DirectKgBatchWithdrawals.jsx:storageError", { severity: "error", initialValue: '' });
+  const [storageError, setStorageError] = useOperationMessage("components/DirectKgBatchWithdrawals.jsx:storageError", { severity: "error", initialValue: '' });
   const [pending, setPending] = useState(null);
   const [complete, setComplete] = useState(null);
   const [confirming, setConfirming] = useState(false);
@@ -724,7 +724,11 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
         <Typography color="text.secondary">Elige el destino una vez, escanea cada manga y confirma la salida del lote.</Typography>
       </Box>
       {!hasCapabilities && <Alert severity="warning">Para confirmar se necesitan PICKING_PREPARAR y PICKING_DESPACHAR. Puedes revisar la selección mientras se habilitan ambas capacidades.</Alert>}
-      {storageError && <>{feedbackFallback_storageError && <Alert severity="error">{storageError}</Alert>}</>}
+      {storageError && (
+        <Alert severity="error" role="alert" data-testid="storage-error-inline">
+          {storageError} La confirmación permanece bloqueada hasta recuperar el almacenamiento local.
+        </Alert>
+      )}
       {error && <>{feedbackFallback_error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}</>}
       {notice && <>{feedbackFallback_notice && <Alert severity={noticeSeverity} onClose={() => setNotice('')}>{notice}</Alert>}</>}
       {audioStatus === 'suspended' && <Alert severity="warning" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => activateAudio()}>Activar y probar sonido</Button>}>El sonido de lectura está suspendido. Puedes activarlo para recibir feedback.</Alert>}
