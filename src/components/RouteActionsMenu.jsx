@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, Divider, Drawer, IconButton, ListItemIcon, ListSubheader, Menu, MenuItem, Paper, Stack, Typography,
+  Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, ListItemIcon, ListSubheader, Menu, MenuItem, Stack, Typography,
 } from '@mui/material';
 import MoreVertOutlinedIcon from '@mui/icons-material/MoreVertOutlined';
 import EngineeringOutlinedIcon from '@mui/icons-material/EngineeringOutlined';
 import RefreshOutlinedIcon from '@mui/icons-material/RefreshOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import CloseOutlinedIcon from '@mui/icons-material/CloseOutlined';
-import ScmEngineeringAdmin from './ScmEngineeringAdmin';
+import RouteDependencyDialog from './RouteDependencyDialog';
 
 const valueOf = (...values) => values.find((value) => value !== null && value !== undefined && value !== '');
 
@@ -57,7 +57,7 @@ const revisionNumberOf = (selectedRoute, run, revision, frozen) => valueOf(
 
 const routeHashOf = (revision) => valueOf(revision?.content_hash, revision?.hash);
 
-function RouteInspectionPanel({
+export function RouteInspectionPanel({
   open,
   onClose,
   run,
@@ -68,6 +68,7 @@ function RouteInspectionPanel({
   onRefresh,
   frozen = false,
   frozenHash: frozenHashOverride,
+  inline = false,
 }) {
   const colorName = run?.color_nombre || run?.color?.nombre || run?.color_produccion?.nombre;
   const runContext = [run?.codigo || run?.id, colorName].filter(Boolean).join(' · ');
@@ -90,19 +91,10 @@ function RouteInspectionPanel({
   const revisionNumber = revisionNumberOf(selectedRoute, run, revision, frozen);
   const operations = revision?.operaciones || [];
 
-  return (
-    <Drawer anchor="right" open={open} onClose={onClose}>
-      <Paper
-        role="dialog"
-        aria-label={frozen ? 'Ruta congelada' : 'Ruta seleccionada'}
-        square
-        elevation={0}
-        sx={{ width: { xs: 'min(100vw, 420px)', sm: 420 }, height: '100%', p: 2, overflowY: 'auto' }}
-      >
+  const content = (
         <Stack spacing={1.5}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
             <Box>
-              <Typography component="h2" variant="h6" fontWeight={800}>{frozen ? 'Ruta congelada' : 'Ruta seleccionada'}</Typography>
               <Typography variant="body2" color="text.secondary">Consulta de solo lectura · {runContext || 'objetivo'}</Typography>
             </Box>
             <IconButton aria-label="Cerrar detalle de ruta" onClick={onClose} size="small">
@@ -164,12 +156,22 @@ function RouteInspectionPanel({
             </>
           )}
         </Stack>
-      </Paper>
-    </Drawer>
+  );
+  if (inline) return <Stack spacing={2}>{content}<Button onClick={onClose} sx={{ alignSelf: 'flex-start' }}>Volver a OF</Button></Stack>;
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" transitionDuration={0} aria-labelledby="route-inspection-title">
+      <DialogTitle id="route-inspection-title">{frozen ? 'Ruta congelada' : 'Ruta seleccionada'}</DialogTitle>
+      <DialogContent dividers>{content}</DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Volver a OF</Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
 export default function RouteActionsMenu({
+  actionId,
+  onInspectRoute,
   run,
   selectedRoute,
   availableRoutes = [],
@@ -182,30 +184,33 @@ export default function RouteActionsMenu({
   frozen = false,
   frozenHash,
   onInspect,
+  onAdminRoute,
   orderCode,
 }) {
   const [anchorEl, setAnchorEl] = useState(null);
   const [inspectionOpen, setInspectionOpen] = useState(false);
   const [engineeringOpen, setEngineeringOpen] = useState(false);
-  const [engineeringMounted, setEngineeringMounted] = useState(false);
-  const engineeringCloseRef = useRef(null);
   const actionsButtonRef = useRef(null);
   const restoreFocusRef = useRef(false);
   const articleId = articleIdOf(run, selectedRoute);
+  const directPieceOutputs = (run?.salidas || []).map((item) => item?.articulo)
+    .filter((article) => article && !['PRODUCTO_TERMINADO', 'SUBENSAMBLE_WIP'].includes(article.clase));
+  const routeTargetArticle = selectedRoute?.articulo_salida
+    || (directPieceOutputs.length === 1 ? directPieceOutputs[0] : null);
   const operationSelected = Boolean(selectedRoute || run?.operacion_ruta || run?.operacion_ruta_revision_id);
-  const canAdmin = canViewRoutes && canViewArticles && canAdminRoutes && articleId != null;
+  const canAdmin = canViewRoutes && canViewArticles && canAdminRoutes
+    && (routeTargetArticle?.id != null || directPieceOutputs.length > 0)
+    && !['PRODUCTO_TERMINADO', 'SUBENSAMBLE_WIP'].includes(routeTargetArticle?.clase);
   const canInspect = canViewRoutes && operationSelected;
   const menuOpen = Boolean(anchorEl);
   const openEngineering = () => {
     setAnchorEl(null);
     setInspectionOpen(false);
-    setEngineeringMounted(true);
     setEngineeringOpen(true);
   };
-  const closeEngineering = ({ preserveDraft = false } = {}) => {
+  const closeEngineering = () => {
     restoreFocusRef.current = true;
     setEngineeringOpen(false);
-    if (!preserveDraft) setEngineeringMounted(false);
   };
   const closeInspection = () => {
     restoreFocusRef.current = true;
@@ -223,6 +228,7 @@ export default function RouteActionsMenu({
   return (
     <>
       <IconButton
+        id={actionId}
         ref={actionsButtonRef}
         size="small"
         aria-label={`Acciones de ruta para ${run?.codigo || run?.id || 'objetivo'}`}
@@ -248,7 +254,8 @@ export default function RouteActionsMenu({
           onClick={() => {
             setAnchorEl(null);
             onInspect?.(run);
-            setInspectionOpen(true);
+            if (onInspectRoute) onInspectRoute();
+            else setInspectionOpen(true);
           }}
         >
           <ListItemIcon><VisibilityOutlinedIcon fontSize="small" /></ListItemIcon>
@@ -259,7 +266,11 @@ export default function RouteActionsMenu({
           disabled={!canAdmin}
           onClick={(event) => {
             if (!canAdmin) event.preventDefault();
-            if (canAdmin) openEngineering();
+            if (canAdmin) {
+              setAnchorEl(null);
+              if (onAdminRoute) onAdminRoute(run);
+              else openEngineering();
+            }
           }}
         >
           <ListItemIcon><EngineeringOutlinedIcon fontSize="small" /></ListItemIcon>
@@ -288,33 +299,20 @@ export default function RouteActionsMenu({
         frozen={frozen}
         frozenHash={frozenHash}
       />
-      {engineeringMounted && (
-        <Drawer
-          anchor="right"
-          open={engineeringOpen}
-          onClose={() => engineeringCloseRef.current?.()}
-        >
-          <Paper
-            role="region"
-            aria-label={`Ingeniería de ruta ${run?.codigo || run?.id || 'objetivo'}`}
-            square
-            elevation={0}
-            sx={{ width: { xs: 'min(100vw, 1000px)', lg: 960 }, height: '100%', p: { xs: 1, md: 2 }, overflowY: 'auto' }}
-          >
-            <ScmEngineeringAdmin
-              embeddedContext={{
-                mode: 'embedded',
-                articleId,
-                colorName: run?.color_nombre || run?.color?.nombre || run?.color_produccion?.nombre,
-                orderCode: orderCode || run?.codigo || run?.id,
-              }}
-              embeddedCloseRef={engineeringCloseRef}
-              onEmbeddedClose={closeEngineering}
-              onEmbeddedRouteChanged={() => onRefresh?.(run)}
-            />
-          </Paper>
-        </Drawer>
-      )}
+      <RouteDependencyDialog
+        open={engineeringOpen}
+        onClose={closeEngineering}
+        run={run}
+        selectedRoute={selectedRoute}
+        targetArticle={routeTargetArticle}
+        articleId={routeTargetArticle?.id}
+        canView={canViewRoutes && canViewArticles}
+        canAdmin={canAdmin}
+        frozen={frozen}
+        frozenHash={frozenHash}
+        onSaved={() => onRefresh?.(run)}
+        orderCode={orderCode || run?.codigo || run?.id}
+      />
     </>
   );
 }

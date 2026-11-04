@@ -1741,6 +1741,9 @@ export default function FabricationOrdersScm() {
         colors={colors}
         recipes={recipes}
         onClose={() => { setExceptionalOpen(false); setDuplicateSource(null); }}
+        routeCanView={canViewRoutes}
+        routeCanAdmin={canAdminRoutes}
+        articleCanView={canViewArticles}
         onCreated={async (created) => {
           await Promise.all([
             loadCatalog('moldes'),

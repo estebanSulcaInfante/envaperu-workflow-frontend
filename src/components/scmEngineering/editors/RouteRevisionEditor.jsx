@@ -58,6 +58,8 @@ function RouteRevisionEditor({
   onCancel,
   onNavigateStructure,
   onRefreshStructures,
+  onCreateCenter,
+  createCenterPanel = null,
   busy = false,
   readOnly = false,
   submitLabel = 'Guardar borrador',
@@ -376,6 +378,17 @@ function RouteRevisionEditor({
                     ))}
                   </Select>
                 </FormControl>
+                {onCreateCenter && !readOnly && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => onCreateCenter(index, operation)}
+                    disabled={disabled}
+                    sx={{ alignSelf: { xs: 'stretch', md: 'center' }, whiteSpace: 'nowrap' }}
+                  >
+                    Crear centro aquí
+                  </Button>
+                )}
                 {terminal ? (
                   <TextField
                     fullWidth
@@ -432,6 +445,7 @@ function RouteRevisionEditor({
                   </FormControl>
                 )}
               </Stack>
+              {createCenterPanel?.operationIndex === index && createCenterPanel.node}
               {!terminalPieceColor && operation.executor_kind === 'ORDEN_OPERACION'
                 && outputArticle
                 && structureOptions.length === 0 && (
