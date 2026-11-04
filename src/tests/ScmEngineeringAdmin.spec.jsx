@@ -147,6 +147,17 @@ const renderPage = () => render(
   </ThemeProvider>,
 );
 
+const renderEmbeddedPage = (callbacks = {}) => render(
+  <ThemeProvider theme={createTheme()}>
+    <ScmEngineeringAdmin
+      embeddedContext={{
+        mode: 'embedded', articleId: 2, colorName: 'Azul', orderCode: 'OF-EMBEDDED',
+      }}
+      {...callbacks}
+    />
+  </ThemeProvider>,
+);
+
 describe('Ingeniería SCM R-core', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -207,6 +218,97 @@ describe('Ingeniería SCM R-core', () => {
       version: 1,
       activo: true,
     });
+  });
+
+  it('renderiza el editor de rutas embebido y exige confirmar el descarte antes de volver', async () => {
+    const user = userEvent.setup();
+    const onEmbeddedClose = vi.fn();
+    listarCentrosTrabajoScm.mockResolvedValue([{
+      id: 7, codigo: 'CT-000007', nombre: 'Inyectora contextual', tipo: 'INYECCION', activo: true,
+    }]);
+    renderEmbeddedPage({ onEmbeddedClose });
+
+    expect(await screen.findByRole('button', { name: 'Nueva ruta' })).toBeVisible();
+    expect(screen.queryByRole('tab', { name: 'Artículos' })).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Artículo objetivo' })).toBeDisabled();
+    expect(screen.getByText(/OF-EMBEDDED/)).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Nueva ruta' }));
+    expect(screen.queryByRole('dialog', { name: /Nueva ruta/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Nueva ruta' })).not.toBeInTheDocument();
+
+    const name = screen.getByRole('textbox', { name: 'Nombre de la operación' });
+    await user.type(name, 'Ruta contextual');
+    await user.click(screen.getByRole('button', { name: 'Volver a lista' }));
+    expect(screen.getByText(/Hay cambios del borrador de ingeniería/)).toBeVisible();
+    expect(onEmbeddedClose).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Seguir editando' }));
+    expect(screen.getByRole('textbox', { name: 'Nombre de la operación' })).toHaveValue('Ruta contextual');
+    await user.click(screen.getByRole('button', { name: 'Volver a lista' }));
+    await user.click(screen.getByRole('button', { name: 'Descartar y volver' }));
+    expect(onEmbeddedClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox', { name: 'Nombre de la operación' })).not.toBeInTheDocument();
+  });
+
+  it('refresca la lista embebida después de crear y deja disponible la aprobación', async () => {
+    const user = userEvent.setup();
+    let created = false;
+    const draft = {
+      id: 91,
+      numero_revision: 3,
+      version: 1,
+      estado: 'BORRADOR',
+      creada_por_id: 1,
+      articulo_objetivo_id: 2,
+      articulo_objetivo: articles[1],
+      operaciones: [{ id: 910, nombre: 'Ruta contextual', tipo: 'INYECCION', executor_kind: 'OP_OT', articulo_salida_id: 2, articulo_salida: articles[1] }],
+      precedencias: [],
+    };
+    listarCentrosTrabajoScm.mockResolvedValue([{
+      id: 7, codigo: 'CT-000007', nombre: 'Inyectora contextual', tipo: 'INYECCION', activo: true,
+    }]);
+    listarRutasArticuloScm.mockImplementation(() => Promise.resolve(created ? [draft] : []));
+    crearRutaArticuloScm.mockImplementation(async () => {
+      created = true;
+      return draft;
+    });
+    const onEmbeddedRouteChanged = vi.fn();
+    renderEmbeddedPage({ onEmbeddedRouteChanged });
+    await user.click(await screen.findByRole('button', { name: 'Nueva ruta' }));
+    await user.type(screen.getByRole('textbox', { name: 'Nombre de la operación' }), 'Ruta contextual');
+    await user.click(screen.getByRole('combobox', { name: 'Centro de trabajo' }));
+    await user.click(screen.getByRole('option', { name: /CT-000007.*Inyectora contextual/ }));
+    await user.click(screen.getByRole('button', { name: 'Crear borrador' }));
+    expect(await screen.findByText('Borrador de ruta creado.')).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Publicar (queda aprobada)' })).toBeVisible();
+    expect(onEmbeddedRouteChanged).toHaveBeenCalled();
+  });
+
+  it('navega a BOM en embedded sin exponer aprobar/rechazar ni mutar la revisión', async () => {
+    const user = userEvent.setup();
+    const pendingStructure = {
+      id: 190,
+      numero_revision: 4,
+      estado: 'PENDIENTE_APROBACION',
+      articulo_resultado_id: 2,
+      articulo_resultado: articles[1],
+      componentes: [],
+    };
+    listarCentrosTrabajoScm.mockResolvedValue([{
+      id: 8, codigo: 'PRE', nombre: 'Mesa prearmado', tipo: 'PREARMADO', activo: true,
+    }]);
+    listarRutasArticuloScm.mockResolvedValue([]);
+    listarEstructurasScm.mockResolvedValue([pendingStructure]);
+    renderEmbeddedPage();
+    await user.click(await screen.findByRole('button', { name: 'Nueva ruta' }));
+    await user.click(screen.getByRole('combobox', { name: 'Centro de trabajo' }));
+    await user.click(screen.getByRole('option', { name: /PRE · Mesa prearmado/ }));
+    await user.click(await screen.findByRole('button', { name: 'Ir a Estructuras BOM' }));
+    await screen.findByText(/revisión 4/i);
+    expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rechazar' })).not.toBeInTheDocument();
+    expect(aprobarEstructuraScm).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Volver a ruta' }));
+    expect(screen.getByText(/PRE · Mesa prearmado/)).toBeVisible();
   });
 
   it('carga una pagina de asignaciones sin consultar perfiles por cada articulo', async () => {
@@ -682,7 +784,7 @@ describe('Ingeniería SCM R-core', () => {
 
     await user.click(within(dialog).getByRole('combobox', { name: 'Centro de trabajo' }));
     await user.click(screen.getByRole('option', { name: /CT-000007.*Mesa de prearmado/ }));
-    await user.click(within(dialog).getByRole('combobox', { name: 'Estructura aprobada' }));
+    await user.click(within(dialog).getByRole('combobox', { name: 'BOM vinculada' }));
     await user.click(screen.getByRole('option', { name: /WIP-000001.*rev\. 2/ }));
     await user.type(
       within(dialog).getByRole('textbox', { name: 'Nombre de la operación' }),
@@ -746,7 +848,7 @@ describe('Ingeniería SCM R-core', () => {
     ));
   });
 
-  it('deriva ARMADO y selecciona solamente la BOM aprobada compatible con la salida', async () => {
+  it('deriva ARMADO, mantiene la BOM aprobada por defecto y permite una opción compatible', async () => {
     const approvedStructure = {
       id: 41,
       numero_revision: 1,
@@ -792,9 +894,9 @@ describe('Ingeniería SCM R-core', () => {
       .toHaveTextContent('ARMADO');
     expect(within(dialog).getByRole('combobox', { name: 'Forma de ejecución' }))
       .toHaveTextContent(/Prearmado o armado/);
-    expect(within(dialog).getByRole('combobox', { name: 'Estructura aprobada' }))
+    expect(within(dialog).getByRole('combobox', { name: 'BOM vinculada' }))
       .toHaveTextContent(/PT-000001.*rev\. 1/);
-    await user.click(within(dialog).getByRole('combobox', { name: 'Estructura aprobada' }));
+    await user.click(within(dialog).getByRole('combobox', { name: 'BOM vinculada' }));
     expect(screen.getByRole('option', { name: /PT-000001.*rev\. 1/ })).toBeVisible();
     expect(screen.queryByRole('option', { name: /WIP-000001/ })).not.toBeInTheDocument();
     await user.click(screen.getByRole('option', { name: /PT-000001.*rev\. 1/ }));
@@ -839,7 +941,7 @@ describe('Ingeniería SCM R-core', () => {
     await user.click(screen.getByRole('option', { name: /CT-000007.*Mesa de armado/ }));
 
     expect(within(dialog).getByText(
-      /No existe una BOM aprobada cuyo resultado sea PT-000001/i,
+      /No hay una BOM compatible consultada cuyo resultado sea PT-000001/i,
     )).toBeVisible();
     await user.click(within(dialog).getByRole('button', { name: 'Ir a Estructuras BOM' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: /Nueva ruta/ })).not.toBeInTheDocument());

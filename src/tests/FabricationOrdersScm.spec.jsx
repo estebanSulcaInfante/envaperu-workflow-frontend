@@ -1,13 +1,22 @@
 import { createTheme, ThemeProvider } from '@mui/material';
+import { useEffect } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import {
   beforeEach, describe, expect, it, vi,
 } from 'vitest';
 import FabricationOrdersScm from '../components/FabricationOrdersScm';
 
-const auth = vi.hoisted(() => ({ article: true }));
+const auth = vi.hoisted(() => ({
+  actorId: 1,
+  article: true,
+  articleView: true,
+  routeView: true,
+  routeAdmin: true,
+  ofEdit: true,
+  outputRoutes: vi.fn(),
+}));
 
 vi.mock('../services/api', () => ({
   obtenerColores: vi.fn().mockResolvedValue([]),
@@ -37,6 +46,11 @@ vi.mock('../services/scmOtApi', () => ({
 vi.mock('../services/scmEngineeringApi', () => ({
   obtenerActorScm: () => 1,
   listarArticulosScm: vi.fn().mockResolvedValue([]),
+  listarArticulosPaginaScm: vi.fn().mockResolvedValue({ items: [], total: 0, has_more: false }),
+  listarCentrosTrabajoScm: vi.fn().mockResolvedValue([]),
+  listarEstructurasScm: vi.fn().mockResolvedValue([]),
+  hidratarEstructurasScm: vi.fn().mockResolvedValue({ approved: [], referenced: [] }),
+  listarOperacionesRutaPorSalidaScm: auth.outputRoutes,
   listarRutasArticuloScm: vi.fn().mockResolvedValue([]),
   mensajeErrorScm: (error, fallback) => error?.message || fallback,
 }));
@@ -46,7 +60,14 @@ vi.mock('../services/scmProductionObservabilityApi', () => ({
 
 vi.mock('../context/ScmActorContext', () => ({
   useScmActor: () => ({
-    can: (capability) => capability !== 'ARTICULO_ADMINISTRAR' || auth.article,
+    actorId: auth.actorId,
+    can: (capability) => (
+      (capability !== 'ARTICULO_ADMINISTRAR' || auth.article)
+      && (capability !== 'ARTICULO_VER' || auth.articleView)
+      && (capability !== 'RUTA_VER' || auth.routeView)
+      && (capability !== 'RUTA_ADMINISTRAR' || auth.routeAdmin)
+      && (capability !== 'OF_EDITAR_BORRADOR' || auth.ofEdit)
+    ),
     canAny: () => true,
     experience: { label: 'Gerencia' },
   }),
@@ -56,7 +77,9 @@ import {
   obtenerColores, obtenerMaquinas, obtenerMolde, obtenerMoldes,
   obtenerRecetasColorMaestras,
 } from '../services/api';
-import { listarArticulosScm, listarRutasArticuloScm } from '../services/scmEngineeringApi';
+import {
+  listarArticulosPaginaScm, listarArticulosScm, listarCentrosTrabajoScm, listarRutasArticuloScm,
+} from '../services/scmEngineeringApi';
 import {
   cerrarOrdenFabricacionScm,
   anularOrdenFabricacionScm,
@@ -201,7 +224,12 @@ describe('Órdenes de fabricación', () => {
     expect(await screen.findByText('Sin coincidencias en la consulta')).toBeVisible();
   });
   beforeEach(() => {
+    auth.actorId = 1;
     auth.article = true;
+    auth.articleView = true;
+    auth.routeView = true;
+    auth.routeAdmin = true;
+    auth.ofEdit = true;
     listarOrdenesFabricacionScm.mockResolvedValue({ items: [], pagination: { page: 1, page_size: 25, total: 0, total_pages: 0 } });
     obtenerColores.mockResolvedValue([]);
     obtenerMaquinas.mockResolvedValue([]);
@@ -210,7 +238,12 @@ describe('Órdenes de fabricación', () => {
     obtenerMolde.mockReset();
     obtenerOrdenFabricacionScm.mockReset();
     listarArticulosScm.mockResolvedValue([]);
+    listarRutasArticuloScm.mockClear();
     listarRutasArticuloScm.mockResolvedValue([]);
+    auth.outputRoutes.mockReset();
+    auth.outputRoutes.mockImplementation((articleId, requestedActor, options, signal) => (
+      listarRutasArticuloScm(articleId, requestedActor, options, signal)
+    ));
     crearOrdenFabricacionExcepcionalScm.mockReset();
     configurarOrdenFabricacionScm.mockReset();
     cerrarOrdenFabricacionScm.mockReset();
@@ -432,6 +465,46 @@ describe('Órdenes de fabricación', () => {
       }],
     }), expect.any(String));
     expect(await screen.findByText(/OF-000010 creada como reposición/)).toBeVisible();
+  });
+
+  it.each([
+    ['capacidad de artículo explícita', true, false],
+    ['sin capacidad de artículo', false, true],
+  ])('propaga capacidades independientes a Nueva OF: %s', async (_label, articleAdmin, expectDisabled) => {
+    const user = userEvent.setup();
+    auth.article = articleAdmin;
+    obtenerMoldes.mockResolvedValue([{
+      codigo: 'ML-OF-CAPS', nombre: 'Molde caps', activo: true,
+      tiempo_ciclo_std: 20, peso_colada_gr: 2,
+      formas: [{ pieza_id: 31, pieza_codigo: 'PZ-CAPS', nombre: 'Pieza caps', activo: true, cavidades: 1, peso_unitario_gr: 12, variantes: [{ sku: 'PC-CAPS', color_produccion_id: 5 }] }],
+    }]);
+    obtenerMolde.mockResolvedValue({
+      codigo: 'ML-OF-CAPS', nombre: 'Molde caps', activo: true,
+      tiempo_ciclo_std: 20, peso_colada_gr: 2,
+      formas: [{ pieza_id: 31, pieza_codigo: 'PZ-CAPS', nombre: 'Pieza caps', activo: true, cavidades: 1, peso_unitario_gr: 12, variantes: [{ sku: 'PC-CAPS', color_produccion_id: 5 }] }],
+    });
+    obtenerMaquinas.mockResolvedValue([{ id: 8, codigo: 'INY-CAPS', nombre: 'Inyectora caps', activo: true, estado: 'OPERATIVA', tipo_maquina: { proceso: 'INYECCION' } }]);
+    obtenerColores.mockResolvedValue([{ id: 5, nombre: 'ROJO', activo: true }]);
+    listarArticulosScm.mockResolvedValue([{ id: 91, codigo: 'PC-CAPS', nombre: 'Pieza caps', clase: 'PIEZA_COLOR', pieza_id: 31, subtipo: { pieza_color_sku: 'PC-CAPS' } }]);
+    obtenerRecetasColorMaestras.mockResolvedValue({ items: [] });
+    render(<ThemeProvider theme={createTheme()}><MemoryRouter><FabricationOrdersScm /></MemoryRouter></ThemeProvider>);
+    await user.click(await screen.findByRole('button', { name: 'Nueva OF de reposición' }));
+    await user.click(screen.getByRole('combobox', { name: 'Motivo de reposición' }));
+    await user.click(screen.getByRole('option', { name: 'Otro', exact: true }));
+    await user.type(screen.getByRole('textbox', { name: 'Especifica el motivo' }), 'Prueba capacidades OF');
+    await user.click(screen.getByRole('combobox', { name: 'Molde' }));
+    await user.click(await screen.findByRole('option', { name: /Molde caps.*ML-OF-CAPS/ }));
+    await user.click(screen.getByRole('combobox', { name: 'Proceso de fabricación' }));
+    await user.click(screen.getByRole('option', { name: 'Inyección' }));
+    await user.click(screen.getByRole('combobox', { name: 'Máquina sugerida (opcional)' }));
+    await user.click(await screen.findByRole('option', { name: /INY-CAPS/ }));
+    await user.click(screen.getByRole('combobox', { name: 'Color del objetivo 1' }));
+    await user.click(await screen.findByRole('option', { name: 'ROJO' }));
+    await user.click(screen.getByRole('button', { name: /Acciones de ruta para Objetivo 1/ }));
+    await user.click(screen.getByRole('menuitem', { name: 'Administrar' }));
+    const ownerButton = await screen.findByRole('button', { name: 'Preparar ruta para otro artículo' });
+    if (expectDisabled) expect(ownerButton).toBeDisabled();
+    else expect(ownerButton).toBeEnabled();
   });
 
   it('explica el siguiente paso cuando Planificación todavía no generó OF', async () => {
@@ -925,6 +998,86 @@ describe('Órdenes de fabricación', () => {
     expect(configurarOrdenFabricacionScm.mock.calls[0][1].corridas[0]).toHaveProperty('operacion_ruta_revision_id', 88);
   });
 
+  it('descarta una búsqueda de rutas diferida del actor anterior al cambiar la OF de contexto', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-route-actor-stale', codigo: 'OF-ROUTE-ACTOR', estado: 'BORRADOR', version: 1,
+      fuente_proceso: 'EXPLICITO', snapshot_proceso: 'INYECCION', molde_id: 'M-ACTOR',
+      snapshot_tiempo_ciclo_seg: '20', snapshot_horas_turno: '8', snapshot_peso_colada_gr: '2',
+      corridas: [{
+        id: 'run-actor-stale', codigo: 'C01', color_produccion_id: 7, objetivo_neto_kg: '1', salidas: [
+          { id: 'out-actor-stale', articulo: { id: 5, pieza_id: 5, nombre: 'Pieza actor', codigo: 'PC-ACTOR' } },
+        ],
+      }],
+    };
+    const routeFor = (operationId, revisionId, name, hash) => ({
+      operation_id: operationId,
+      route_revision_id: revisionId,
+      route_revision_number: 1,
+      route_content_hash: hash,
+      route_state: 'APROBADA',
+      operation: { id: operationId, clave: `OP-${operationId}`, nombre: name, tipo: 'INYECCION', executor_kind: 'OP_OT' },
+      output_article: { id: 5, codigo: 'PC-ACTOR', clase: 'PIEZA_COLOR' },
+      owner_route_target_article: { id: 506, codigo: 'WIP-506', clase: 'SUBENSAMBLE_WIP' },
+    });
+    const actorARoute = routeFor(501, 701, 'Ruta actor A', 'hash-actor-a');
+    const actorBRoute = routeFor(502, 702, 'Ruta actor B buscar', 'hash-actor-b');
+    let resolveSearchA;
+    auth.outputRoutes.mockImplementation((_articleId, requestedActor, options) => {
+      if (options?.q === 'buscar') return new Promise((resolve) => { resolveSearchA = resolve; });
+      return Promise.resolve({ items: [requestedActor === 1 ? actorARoute : actorBRoute], total: 1, has_more: false });
+    });
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarArticulosScm.mockResolvedValue([{ id: 5, clase: 'PIEZA_COLOR', activo: true, subtipo: { pieza_color_sku: 'SKU-ACTOR' } }]);
+    obtenerMoldes.mockResolvedValue([{
+      codigo: 'M-ACTOR', nombre: 'Molde actor', activo: true,
+      formas: [{ pieza_id: 5, activo: true, variantes: [{ color_produccion_id: 7, sku: 'SKU-ACTOR' }] }],
+    }]);
+    const view = renderDetail(order);
+    const routeInput = await screen.findByRole('combobox', { name: 'Operación de ruta (opcional)' });
+    await user.click(routeInput);
+    expect(await screen.findByRole('option', { name: /Ruta actor A/ })).toBeVisible();
+    await user.type(routeInput, 'buscar');
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await waitFor(() => expect(auth.outputRoutes).toHaveBeenCalledWith(
+      5,
+      1,
+      expect.objectContaining({ q: 'buscar', limite: 100 }),
+      expect.any(AbortSignal),
+    ));
+
+    auth.actorId = 2;
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter initialEntries={[`/produccion/ordenes-fabricacion?of=${order.id}`]}>
+          <FabricationOrdersScm />
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+    await waitFor(() => expect(auth.outputRoutes).toHaveBeenCalledWith(
+      '5',
+      2,
+      expect.objectContaining({ limite: 100 }),
+      expect.any(AbortSignal),
+    ));
+    resolveSearchA({ items: [actorARoute], total: 1, has_more: false });
+    const refreshedRouteInput = screen.getByRole('combobox', { name: 'Operación de ruta (opcional)' });
+    await user.clear(refreshedRouteInput);
+    await waitFor(() => expect(refreshedRouteInput).not.toBeDisabled());
+    await user.click(refreshedRouteInput);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await waitFor(() => expect(auth.outputRoutes).toHaveBeenCalledWith(
+      5,
+      2,
+      expect.objectContaining({ q: undefined, limite: 100 }),
+      expect.any(AbortSignal),
+    ));
+    expect(auth.outputRoutes.mock.calls.some(([articleId, requestedActor]) => (
+      String(articleId) === '5' && requestedActor === 2
+    ))).toBe(true);
+    expect(screen.queryByRole('option', { name: /Ruta actor A/ })).not.toBeInTheDocument();
+  });
+
   it('permite reintentar una ruta fallida sin perder las rutas ya resueltas', async () => {
     const order = {
       id: 'of-route-retry', codigo: 'OF-ROUTE-RETRY', estado: 'BORRADOR', version: 7,
@@ -952,5 +1105,217 @@ describe('Órdenes de fabricación', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Reintentar rutas' }));
     await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByText(/No se pudieron cargar las rutas opcionales/)).not.toBeInTheDocument());
+  });
+
+  it('no consulta rutas ni ofrece acciones a un perfil sin RUTA_VER', async () => {
+    auth.routeView = false;
+    const order = {
+      id: 'of-route-restricted', codigo: 'OF-ROUTE-RESTRICTED', estado: 'LIBERADA', version: 2,
+      corridas: [{
+        id: 'run-restricted', codigo: 'C01', operacion_ruta_revision_id: 201,
+        operacion_ruta: { id: 201, nombre: 'Ruta restringida', ruta_revision_id: 20 },
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza 5', codigo: 'PC-5' } }],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    renderDetail(order);
+    await screen.findByText('Configuración del recurso');
+    expect(listarRutasArticuloScm).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Acciones de ruta para C01' })).not.toBeInTheDocument();
+  });
+
+  it('gates Administrar by route/article read plus route administration, independently of OF editing', async () => {
+    auth.articleView = false;
+    const order = {
+      id: 'of-route-admin', codigo: 'OF-ROUTE-ADMIN', estado: 'LIBERADA', version: 2,
+      corridas: [{
+        id: 'run-admin', codigo: 'C01', operacion_ruta_revision_id: 201,
+        operacion_ruta: { id: 201, nombre: 'Ruta de administración', ruta_revision_id: 20 },
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza 5', codigo: 'PC-5' } }],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarRutasArticuloScm.mockResolvedValue([{ id: 20, numero_revision: 3, estado: 'APROBADA', content_hash: 'hash-20', operaciones: [] }]);
+    renderDetail(order);
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Acciones de ruta para C01' }));
+    const admin = screen.getByRole('menuitem', { name: 'Administrar' });
+    expect(admin).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('menuitem', { name: 'Ver ruta' })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: 'Actualizar' })).toBeEnabled();
+  });
+
+  it('abre Ingeniería de rutas en la superficie OF sin popup ni URL padre', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-route-admin-embedded', codigo: 'OF-ROUTE-EMBEDDED', estado: 'LIBERADA', version: 2,
+      corridas: [{
+        id: 'run-admin-embedded', codigo: 'C01', color_nombre: 'Azul', operacion_ruta_revision_id: 201,
+        operacion_ruta: { id: 201, nombre: 'Ruta contextual', ruta_revision_id: 20 },
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza 5', codigo: 'PC-5', clase: 'PIEZA_COLOR' } }],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarArticulosPaginaScm.mockResolvedValue({
+      items: [{ id: 5, nombre: 'Pieza 5', codigo: 'PC-5', clase: 'PIEZA_COLOR', activo: true }],
+      total: 1, has_more: false, next_cursor: null,
+    });
+    listarCentrosTrabajoScm.mockResolvedValue([{ id: 1, codigo: 'INY', nombre: 'Inyectora', tipo: 'INYECCION', activo: true }]);
+    listarRutasArticuloScm.mockResolvedValue([{ id: 20, numero_revision: 3, estado: 'APROBADA', content_hash: 'hash-20', operaciones: [] }]);
+    renderDetail(order);
+    const initialUrl = window.location.href;
+    const actionsButton = await screen.findByRole('button', { name: 'Acciones de ruta para C01' });
+    await user.click(actionsButton);
+    await user.click(screen.getByRole('menuitem', { name: 'Administrar' }));
+    expect(await screen.findByRole('region', { name: 'Ingeniería de ruta C01' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: /Ruta · PC-5 · OF-ROUTE-EMBEDDED/ })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Administrar' })).not.toBeInTheDocument();
+    expect(window.location.href).toBe(initialUrl);
+    await user.click(screen.getByRole('button', { name: 'Volver a OF' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Ingeniería de ruta C01' })).not.toBeInTheDocument());
+    expect(window.location.href).toBe(initialUrl);
+    expect(actionsButton).toHaveFocus();
+  });
+
+  it('protege el borrador de Ingeniería al cerrar embedded con Escape', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-route-embedded-guard', codigo: 'OF-ROUTE-GUARD', estado: 'BORRADOR', version: 2,
+      corridas: [{
+        id: 'run-embedded-guard', codigo: 'C01', color_nombre: 'Azul',
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza 5', codigo: 'PC-5', clase: 'PIEZA_COLOR' } }],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarArticulosPaginaScm.mockResolvedValue({
+      items: [{ id: 5, nombre: 'Pieza 5', codigo: 'PC-5', clase: 'PIEZA_COLOR', activo: true }],
+      total: 1, has_more: false, next_cursor: null,
+    });
+    listarCentrosTrabajoScm.mockResolvedValue([{ id: 1, codigo: 'INY', nombre: 'Inyectora', tipo: 'INYECCION', activo: true }]);
+    listarRutasArticuloScm.mockResolvedValue([]);
+    renderDetail(order);
+    await user.click(await screen.findByRole('button', { name: 'Acciones de ruta para C01' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Administrar' }));
+    await user.click(await screen.findByRole('button', { name: 'Nueva ruta' }));
+    await user.type(screen.getByRole('textbox', { name: 'Nombre de la operación' }), 'Borrador protegido');
+    await user.keyboard('{Escape}');
+    expect(await screen.findByText(/Hay cambios del borrador de ingeniería/)).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Ingeniería de ruta C01' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Descartar y volver' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Ingeniería de ruta C01' })).not.toBeInTheDocument());
+  });
+
+  it('mantiene acciones de ruta autorizadas cuando OF_EDITAR_BORRADOR está ausente', async () => {
+    auth.ofEdit = false;
+    const order = {
+      id: 'of-route-of-readonly', codigo: 'OF-ROUTE-OF-READONLY', estado: 'LIBERADA', version: 2,
+      corridas: [{
+        id: 'run-of-readonly', codigo: 'C01', operacion_ruta_revision_id: 201,
+        operacion_ruta: { id: 201, nombre: 'Ruta autorizada', ruta_revision_id: 20 },
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza 5', codigo: 'PC-5' } }],
+      }],
+    };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarRutasArticuloScm.mockResolvedValue([{ id: 20, numero_revision: 3, estado: 'APROBADA', content_hash: 'hash-20', operaciones: [] }]);
+    renderDetail(order);
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Acciones de ruta para C01' }));
+    expect(screen.getByRole('menuitem', { name: 'Ver ruta' })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: 'Administrar' })).toBeEnabled();
+  });
+
+  it('aísla respuestas tardías al cambiar actor y OF durante la consulta de rutas', async () => {
+    const deferred = () => {
+      let resolve;
+      const promise = new Promise((nextResolve) => { resolve = nextResolve; });
+      return { promise, resolve };
+    };
+    const firstRoutes = deferred();
+    const secondRoutes = deferred();
+    const orderA = {
+      id: 'of-race-a', codigo: 'OF-RACE-A', estado: 'LIBERADA', version: 1,
+      corridas: [{ id: 'run-race-a', codigo: 'C01', operacion_ruta_revision_id: 501,
+        operacion_ruta: { id: 501, nombre: 'Ruta A', ruta_revision_id: 50 },
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza A', codigo: 'PC-A' } }] }],
+    };
+    const orderB = {
+      id: 'of-race-b', codigo: 'OF-RACE-B', estado: 'LIBERADA', version: 1,
+      corridas: [{ id: 'run-race-b', codigo: 'C01', operacion_ruta_revision_id: 601,
+        operacion_ruta: { id: 601, nombre: 'Ruta B', ruta_revision_id: 60 },
+        salidas: [{ articulo: { id: 5, nombre: 'Pieza B', codigo: 'PC-B' } }] }],
+    };
+    const RouteDriver = ({ orderId }) => {
+      const navigate = useNavigate();
+      useEffect(() => { navigate(`/produccion/ordenes-fabricacion?of=${orderId}`); }, [navigate, orderId]);
+      return <FabricationOrdersScm />;
+    };
+    auth.actorId = 1;
+    obtenerOrdenFabricacionScm.mockImplementation((id) => Promise.resolve(id === 'of-race-b' ? orderB : orderA));
+    listarRutasArticuloScm.mockImplementation((articleId, actorId) => {
+      if (String(articleId) !== '5') return Promise.resolve([]);
+      return Number(actorId) === 1 ? firstRoutes.promise : secondRoutes.promise;
+    });
+    const view = render(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter initialEntries={['/produccion/ordenes-fabricacion?of=of-race-a']}>
+          <RouteDriver orderId="of-race-a" />
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(
+      '5', 1, expect.objectContaining({ limite: 100 }), expect.any(AbortSignal),
+    ));
+    auth.actorId = 2;
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter initialEntries={['/produccion/ordenes-fabricacion?of=of-race-a']}>
+          <RouteDriver orderId="of-race-b" />
+        </MemoryRouter>
+      </ThemeProvider>,
+    );
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(
+      '5', 2, expect.objectContaining({ limite: 100 }), expect.any(AbortSignal),
+    ));
+    firstRoutes.resolve([{ id: 50, numero_revision: 1, estado: 'APROBADA', content_hash: 'hash-a', operaciones: [{ id: 501, nombre: 'Ruta A', tipo: 'INYECCION', executor_kind: 'OP_OT', articulo_salida: { id: 5 } }] }]);
+    await waitFor(() => expect(screen.getByText('OF-RACE-B')).toBeVisible());
+    expect(screen.queryByDisplayValue('Ruta A · Inyección')).not.toBeInTheDocument();
+    secondRoutes.resolve([{ id: 60, numero_revision: 1, estado: 'APROBADA', content_hash: 'hash-b', operaciones: [{ id: 601, nombre: 'Ruta B', tipo: 'INYECCION', executor_kind: 'OP_OT', articulo_salida: { id: 5 } }] }]);
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Operación de ruta (opcional)' }).value).toMatch(/Ruta B/));
+    expect(screen.queryByDisplayValue('Ruta A · Inyección')).not.toBeInTheDocument();
+  });
+
+  it('actualiza el catálogo de rutas sin reiniciar el borrador ni la selección congelada', async () => {
+    const user = userEvent.setup();
+    const order = {
+      id: 'of-route-refresh', codigo: 'OF-ROUTE-REFRESH', estado: 'BORRADOR', version: 2,
+      fuente_proceso: 'EXPLICITO', snapshot_proceso: 'INYECCION', molde_id: 'M-ROUTE',
+      corridas: [{
+        id: 'run-refresh', codigo: 'C01', objetivo_neto_kg: '1', operacion_ruta_revision_id: 201,
+        operacion_ruta: {
+          id: 201, nombre: 'Ruta congelada', tipo: 'INYECCION', ruta_revision_id: 20,
+          ruta_numero_revision: 3, ruta_content_hash: 'hash-20',
+        },
+        salidas: [{ id: 'out-refresh', articulo: { id: 5, pieza_id: 5, nombre: 'Pieza 5', codigo: 'PC-5' } }],
+      }],
+    };
+    const oldRoute = { id: 20, numero_revision: 3, estado: 'APROBADA', content_hash: 'hash-20', operaciones: [{ id: 201, executor_kind: 'OP_OT', tipo: 'INYECCION', nombre: 'Ruta congelada', articulo_salida: { id: 5 } }] };
+    const newRoute = { id: 21, numero_revision: 4, estado: 'APROBADA', content_hash: 'hash-21', operaciones: [{ id: 202, executor_kind: 'OP_OT', tipo: 'INYECCION', nombre: 'Ruta sucesora', articulo_salida: { id: 5 } }] };
+    listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
+    listarRutasArticuloScm.mockResolvedValueOnce([oldRoute]).mockResolvedValueOnce([newRoute]);
+    obtenerMoldes.mockResolvedValue([{ codigo: 'M-ROUTE', nombre: 'Molde route', activo: true, formas: [{ pieza_id: 5, activo: true }] }]);
+    renderDetail(order);
+    const target = await screen.findByRole('spinbutton', { name: /Objetivo neto/ });
+    await user.click(target);
+    await user.clear(target);
+    await user.type(target, '5.125');
+    await user.tab();
+    const routeInput = screen.getByRole('combobox', { name: 'Operación de ruta (opcional)' });
+    expect(routeInput).toHaveValue('Ruta congelada · Inyección');
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith('5', 1));
+    await user.click(screen.getByRole('button', { name: 'Acciones de ruta para C01' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Actualizar' }));
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledTimes(2));
+    expect(target).toHaveValue(5.13);
+    await user.click(target);
+    expect(target).toHaveValue(5.125);
+    expect(screen.getByRole('combobox', { name: 'Operación de ruta (opcional)' })).toHaveValue('Ruta congelada · Inyección');
   });
 });

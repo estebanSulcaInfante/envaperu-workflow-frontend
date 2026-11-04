@@ -58,6 +58,12 @@ function RouteRevisionEditor({
   onCancel,
   onNavigateStructure,
   onRefreshStructures,
+  onSearchArticles,
+  searchArticlesLoading = false,
+  onPrepareWip,
+  isStructureLoaded = () => true,
+  onCreateCenter,
+  createCenterPanel = null,
   busy = false,
   readOnly = false,
   submitLabel = 'Guardar borrador',
@@ -156,7 +162,7 @@ function RouteRevisionEditor({
           ? targetArticle
           : articlesById.get(Number(operation.articulo_salida_id));
         const compatibleStructures = structures.filter((item) => (
-          item.estado === 'APROBADA'
+          ['BORRADOR', 'PENDIENTE', 'PENDIENTE_APROBACION', 'APROBADA'].includes(item.estado)
           && Number(item.articulo_resultado_id) === Number(outputArticle?.id)
         ));
         const referencedStructure = structures.find((item) => (
@@ -376,6 +382,17 @@ function RouteRevisionEditor({
                     ))}
                   </Select>
                 </FormControl>
+                {onCreateCenter && !readOnly && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => onCreateCenter(index, operation)}
+                    disabled={disabled}
+                    sx={{ alignSelf: { xs: 'stretch', md: 'center' }, whiteSpace: 'nowrap' }}
+                  >
+                    Crear centro aquí
+                  </Button>
+                )}
                 {terminal ? (
                   <TextField
                     fullWidth
@@ -386,81 +403,106 @@ function RouteRevisionEditor({
                     helperText={`Esta operación termina la ruta y produce ${targetArticle?.codigo || 'el artículo objetivo seleccionado'}.`}
                   />
                 ) : (
-                  <ScmArticleAutocomplete
-                    label="Salida intermedia (Pieza-color o WIP)"
-                    articles={intermediateArticles}
-                    value={operation.articulo_salida_id}
-                    disabled={disabled}
-                    onChange={(articleId) => {
-                      const approved = operation.executor_kind === 'ORDEN_OPERACION'
-                        ? approvedStructureByArticleId.get(Number(articleId))
-                        : null;
-                      updateOperation(index, {
-                        articulo_salida_id: articleId,
-                        estructura_revision_id: approved ? String(approved.id) : '',
-                      });
-                    }}
-                  />
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: { lg: 'center' }, flex: 1 }}>
+                    <ScmArticleAutocomplete
+                      label="Salida intermedia (Pieza-color o WIP)"
+                      articles={intermediateArticles}
+                      value={operation.articulo_salida_id}
+                      disabled={disabled}
+                      remote={Boolean(onSearchArticles)}
+                      onSearch={onSearchArticles}
+                      searchLoading={searchArticlesLoading}
+                      onChange={(articleId) => {
+                        const approved = operation.executor_kind === 'ORDEN_OPERACION'
+                          ? approvedStructureByArticleId.get(Number(articleId))
+                          : null;
+                        updateOperation(index, {
+                          articulo_salida_id: articleId,
+                          estructura_revision_id: approved ? String(approved.id) : '',
+                        });
+                      }}
+                    />
+                    {onPrepareWip && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => onPrepareWip(index)}
+                        disabled={disabled}
+                        sx={{ whiteSpace: 'nowrap' }}
+                      >
+                        Alta WIP
+                      </Button>
+                    )}
+                  </Box>
                 )}
                 {operation.executor_kind === 'ORDEN_OPERACION' && (
-                  <FormControl fullWidth size="small">
-                    <InputLabel id={`route-step-${index}-structure-label`}>
-                      Estructura aprobada
-                    </InputLabel>
-                    <Select
-                      labelId={`route-step-${index}-structure-label`}
-                      label="Estructura aprobada"
-                      value={operation.estructura_revision_id}
-                      disabled={disabled}
-                      onOpen={() => onRefreshStructures?.(operation.articulo_salida_id)}
-                      onChange={(event) => updateOperation(index, {
-                        estructura_revision_id: event.target.value,
-                      })}
-                    >
-                      {structureOptions.map((item) => (
-                        <MenuItem
-                          key={item.id}
-                          value={String(item.id)}
-                          disabled={item.estado !== 'APROBADA'}
-                        >
-                          {item.articulo_resultado?.codigo || outputArticle?.codigo}
-                          {' · rev. '}{item.numero_revision}
-                          {item.estado !== 'APROBADA' ? ` · ${item.estado}` : ''}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1}
+                    sx={{ alignItems: { sm: 'center' }, flex: 1 }}
+                  >
+                    <FormControl fullWidth size="small">
+                      <InputLabel id={`route-step-${index}-structure-label`}>
+                        BOM vinculada
+                      </InputLabel>
+                      <Select
+                        labelId={`route-step-${index}-structure-label`}
+                        label="BOM vinculada"
+                        value={operation.estructura_revision_id}
+                        disabled={disabled}
+                        onOpen={() => onRefreshStructures?.(operation.articulo_salida_id)}
+                        onChange={(event) => updateOperation(index, {
+                          estructura_revision_id: event.target.value,
+                        })}
+                      >
+                        {structureOptions.map((item) => (
+                          <MenuItem
+                            key={item.id}
+                            value={String(item.id)}
+                          >
+                            {item.articulo_resultado?.codigo || outputArticle?.codigo}
+                            {' · rev. '}{item.numero_revision}
+                            {item.estado !== 'APROBADA' ? ` · ${item.estado}` : ''}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    {outputArticle && onNavigateStructure && (
+                      <Button
+                        color="inherit"
+                        size="small"
+                        variant="outlined"
+                        onClick={() => onNavigateStructure(outputArticle.id)}
+                        disabled={busy || !onNavigateStructure}
+                        sx={{ whiteSpace: 'nowrap' }}
+                      >
+                        Ir a Estructuras BOM
+                      </Button>
+                    )}
+                  </Stack>
                 )}
               </Stack>
+              {createCenterPanel?.operationIndex === index && createCenterPanel.node}
               {!terminalPieceColor && operation.executor_kind === 'ORDEN_OPERACION'
                 && outputArticle
                 && structureOptions.length === 0 && (
                 <Alert
                   severity="warning"
-                  action={(onRefreshStructures || onNavigateStructure) ? (
+                  action={onRefreshStructures ? (
                     <Stack direction="row" spacing={0.5}>
-                      {onRefreshStructures && (
-                        <Button
-                          color="inherit"
-                          size="small"
-                          onClick={() => onRefreshStructures(outputArticle.id)}
-                        >
-                          Actualizar lista
-                        </Button>
-                      )}
-                      {onNavigateStructure && (
-                        <Button
-                          color="inherit"
-                          size="small"
-                          onClick={() => onNavigateStructure(outputArticle.id)}
-                        >
-                          Ir a Estructuras BOM
-                        </Button>
-                      )}
+                      <Button
+                        color="inherit"
+                        size="small"
+                        onClick={() => onRefreshStructures(outputArticle.id)}
+                      >
+                        Actualizar lista
+                      </Button>
                     </Stack>
                   ) : undefined}
                 >
-                  No existe una BOM aprobada cuyo resultado sea {outputArticle.codigo}.
+                  {isStructureLoaded?.(outputArticle.id)
+                    ? `No hay una BOM compatible consultada cuyo resultado sea ${outputArticle.codigo}.`
+                    : `Consulta las BOM de ${outputArticle.codigo} antes de afirmar que falta una revisión aprobada.`}
                 </Alert>
               )}
               {operation.tipo === 'PREARMADO' && (

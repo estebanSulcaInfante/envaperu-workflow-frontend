@@ -19,6 +19,37 @@ export const routeOperationsForArticle = (routes, article) => {
   const articleId = articleIdOf(article);
   if (articleId == null) return [];
   return (routes || []).flatMap((route) => {
+    // The output reader returns one flat operation per row.  Keep the route
+    // owner and physical output separate so an OF never adopts the owner as
+    // its selected output.
+    if (route?.operation_id != null || route?.operationId != null) {
+      const operationId = route.operation_id ?? route.operationId;
+      const output = route.output_article || route.outputArticle || route.articulo_salida;
+      const outputId = output?.id ?? route.output_article_id ?? route.articulo_salida_id;
+      if (String(outputId) !== String(articleId)
+        || normalizeFabricationProcess(route.route_state || route.routeState || route.estado) !== 'APROBADA'
+        || normalizeFabricationProcess(route.operation?.executor_kind || route.executor_kind) !== 'OP_OT'
+        || !ROUTE_PROCESSES.has(normalizeFabricationProcess(route.operation?.tipo || route.tipo))) return [];
+      return [{
+        id: operationId,
+        operation_id: operationId,
+        operacion_ruta_revision_id: operationId,
+        ruta_revision_id: route.route_revision_id ?? route.routeRevisionId ?? route.ruta_revision_id,
+        ruta_numero_revision: route.route_revision_number ?? route.routeRevisionNumber ?? route.ruta_numero_revision,
+        ruta_hash: route.route_content_hash ?? route.routeContentHash ?? route.ruta_content_hash,
+        route_content_hash: route.route_content_hash ?? route.routeContentHash ?? route.ruta_content_hash,
+        proceso: normalizeFabricationProcess(route.operation?.tipo || route.tipo),
+        nombre: route.operation?.nombre || route.nombre || route.operation?.clave || route.clave || `Operación ${operationId}`,
+        route_codigo: route.route_codigo || `Ruta ${route.route_revision_id ?? route.routeRevisionId ?? ''}`,
+        articulo_salida: output || { id: articleId },
+        output_article: output || { id: articleId },
+        owner_route_target_article: route.owner_route_target_article || route.ownerRouteTargetArticle || route.articulo_objetivo,
+        owner_route_target_article_id: route.owner_route_target_article_id
+          ?? route.ownerRouteTargetArticle?.id
+          ?? route.articulo_objetivo_id,
+        route_state: route.route_state || route.routeState || route.estado,
+      }];
+    }
     const routeState = normalizeFabricationProcess(route?.estado);
     if (routeState !== 'APROBADA') return [];
     return (route?.operaciones || []).filter((operation) => (

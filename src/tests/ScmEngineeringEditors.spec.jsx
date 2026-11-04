@@ -248,9 +248,91 @@ describe('editores compartidos de Ingenieria SCM', () => {
       />,
     );
 
-    expect(screen.getByText(/No existe una BOM aprobada/i)).toBeVisible();
+    expect(screen.getByText(/No hay una BOM compatible consultada/i)).toBeVisible();
     await user.click(screen.getByRole('button', { name: /Actualizar lista/i }));
     expect(onRefreshStructures).toHaveBeenCalledWith(30);
+  });
+
+  it('usa búsqueda remota para salidas y expone alta WIP por operación', async () => {
+    const user = userEvent.setup();
+    const onSearchArticles = vi.fn();
+    const onPrepareWip = vi.fn();
+    renderEditor(
+      <RouteRevisionEditor
+        targetArticle={targetProduct}
+        articles={[targetProduct, piece]}
+        centers={[{ id: 5, codigo: 'CT-000005', nombre: 'Armado', tipo: 'ENSAMBLE', activo: true }]}
+        value={{
+          notas: '',
+          operaciones: [
+            { clave: 'OP1', secuencia_visible: '1', nombre: 'Preparar', tipo: 'ENSAMBLE', executor_kind: 'ORDEN_OPERACION', centro_trabajo_id: '5', articulo_salida_id: '11', estructura_revision_id: '', permite_concurrente: false },
+            { clave: 'OP2', secuencia_visible: '2', nombre: 'Terminar', tipo: 'ENSAMBLE', executor_kind: 'ORDEN_OPERACION', centro_trabajo_id: '5', articulo_salida_id: '30', estructura_revision_id: '', permite_concurrente: false },
+          ],
+        }}
+        onChange={vi.fn()}
+        onSearchArticles={onSearchArticles}
+        onPrepareWip={onPrepareWip}
+      />,
+    );
+    const search = screen.getByRole('combobox', { name: /Salida intermedia/i });
+    await user.type(search, 'WIP-506');
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    expect(onSearchArticles).toHaveBeenCalledWith('WIP-506');
+    await user.click(screen.getByRole('button', { name: 'Alta WIP' }));
+    expect(onPrepareWip).toHaveBeenCalledWith(0);
+  });
+
+  it('permite vincular BOM PENDIENTE en ruta editable, sin marcarla aprobada', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderEditor(
+      <RouteRevisionEditor
+        targetArticle={targetProduct}
+        articles={[targetProduct]}
+        centers={[{ id: 5, codigo: 'CT-000005', nombre: 'Armado', tipo: 'ENSAMBLE', activo: true }]}
+        structures={[{ id: 41, articulo_resultado_id: 30, numero_revision: 2, estado: 'PENDIENTE' }]}
+        value={{
+          notas: '',
+          operaciones: [{ clave: 'OP1', secuencia_visible: '1', nombre: 'Armar', tipo: 'ENSAMBLE', executor_kind: 'ORDEN_OPERACION', centro_trabajo_id: '5', articulo_salida_id: '30', estructura_revision_id: '', permite_concurrente: false }],
+        }}
+        onChange={onChange}
+      />,
+    );
+    await user.click(screen.getByLabelText('BOM vinculada'));
+    const option = await screen.findByRole('option', { name: /rev\. 2.*PENDIENTE/i });
+    expect(option).not.toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('no afirma que falta BOM del hijo antes de hidratar su catálogo', () => {
+    renderEditor(
+      <StructureRevisionEditor
+        targetArticle={targetProduct}
+        componentArticles={[wip]}
+        structures={[]}
+        value={{ notas: '', componentes: [{ articulo_id: String(wip.id), cantidad: '1', merma_tecnica_pct: '0' }] }}
+        onChange={vi.fn()}
+        isStructureLoaded={() => false}
+        onNavigateStructure={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Consulta la estructura de WIP-000020 antes de afirmar/i)).toBeVisible();
+  });
+
+  it('asiste sin imponer clausura transitiva cuando la BOM aprobada del hijo no aparece', () => {
+    renderEditor(
+      <StructureRevisionEditor
+        targetArticle={targetProduct}
+        componentArticles={[wip]}
+        structures={[]}
+        value={{ notas: '', componentes: [{ articulo_id: String(wip.id), cantidad: '1', merma_tecnica_pct: '0' }] }}
+        onChange={vi.fn()}
+        isStructureLoaded={() => true}
+        onNavigateStructure={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/No se encontró una BOM aprobada para WIP-000020/)).toBeVisible();
+    expect(screen.getByText(/Puedes consultar o preparar una BOM independiente/)).toBeVisible();
+    expect(screen.queryByText(/No publiques esta BOM/)).not.toBeInTheDocument();
   });
 
   it('expone perfil y regla de empaque como formularios controlados, sin inventar aprobacion', async () => {

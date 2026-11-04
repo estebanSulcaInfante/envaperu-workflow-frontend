@@ -7,6 +7,7 @@ import ExceptionalFabricationOrderDialog from '../components/ExceptionalFabricat
 
 const api = vi.hoisted(() => ({
   create: vi.fn(), mold: vi.fn(), articles: vi.fn(), routes: vi.fn(),
+  centers: vi.fn(), createCenter: vi.fn(), createRoute: vi.fn(), updateRoute: vi.fn(),
   createMold: vi.fn(), pieces: vi.fn(), enableColor: vi.fn(),
   molds: vi.fn(), colors: vi.fn(), recipes: vi.fn(), ingredients: vi.fn(), categories: vi.fn(),
 }));
@@ -25,7 +26,16 @@ vi.mock('../services/scmCatalogApi', () => ({ listarCategoriasRecepcionScm: api.
 vi.mock('../services/scmEngineeringApi', () => ({
   obtenerActorScm: () => 1,
   listarArticulosScm: api.articles,
+  listarArticulosPaginaScm: () => Promise.resolve({ items: [], has_more: false, next_cursor: null }),
+  obtenerRutaScm: undefined,
+  resolverArticulosScm: () => Promise.resolve({ items: [] }),
+  hidratarEstructurasScm: () => Promise.resolve({ items: [] }),
+  listarOperacionesRutaPorSalidaScm: undefined,
   listarRutasArticuloScm: api.routes,
+  listarCentrosTrabajoScm: api.centers,
+  crearCentroTrabajoScm: api.createCenter,
+  crearRutaArticuloScm: api.createRoute,
+  actualizarRutaScm: api.updateRoute,
   mensajeErrorScm: (error, fallback) => error?.message || fallback,
 }));
 vi.mock('../services/scmOtApi', () => ({ crearOrdenFabricacionExcepcionalScm: api.create }));
@@ -38,7 +48,7 @@ const mold = {
   }],
 };
 
-const renderDialog = (machines = [], recipes = []) => render(
+const renderDialog = (machines = [], recipes = [], extraProps = {}) => render(
   <ThemeProvider theme={createTheme()}>
     <MemoryRouter>
       <ExceptionalFabricationOrderDialog
@@ -49,6 +59,7 @@ const renderDialog = (machines = [], recipes = []) => render(
         recipes={recipes}
         onClose={vi.fn()}
         onCreated={vi.fn()}
+        {...extraProps}
       />
     </MemoryRouter>
   </ThemeProvider>,
@@ -79,6 +90,7 @@ describe('alta de reposición: intento idempotente', () => {
       id: 99, codigo: 'ART-1', clase: 'PIEZA_COLOR', subtipo: { pieza_color_sku: 'SKU-1' },
     }]);
     api.routes.mockResolvedValue([]);
+    api.centers.mockResolvedValue([{ id: 1, codigo: 'INY-01', nombre: 'Inyectora 1', tipo: 'INYECCION', activo: true }]);
     api.pieces.mockResolvedValue([]);
     api.molds.mockResolvedValue([{ ...mold, nombre: 'Molde catálogo', formas: mold.formas }]);
     api.colors.mockResolvedValue([{ id: 1, nombre: 'Rojo', activo: true }]);
@@ -1014,6 +1026,31 @@ describe('alta de reposición: intento idempotente', () => {
     expect(screen.getByRole('combobox', { name: 'Motivo de reposición' })).toHaveTextContent('Completar Stock');
     expect(screen.getByRole('combobox', { name: 'Molde' })).toHaveValue('Molde 1');
     expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(10);
+  });
+
+  it('conserva el campo del borrador al entrar a ruta contextual y volver a OF', async () => {
+    const user = userEvent.setup();
+    renderDialog([], [], { routeCanView: true, routeCanAdmin: true, articleCanView: true });
+    await fillValidForm(user);
+
+    const routeActions = await screen.findByRole('button', { name: 'Acciones de ruta para Objetivo 1' });
+    const initialRouteReads = api.routes.mock.calls.length;
+    await user.click(routeActions);
+    await user.click(screen.getByRole('menuitem', { name: 'Actualizar' }));
+    await waitFor(() => expect(api.routes.mock.calls.length).toBeGreaterThan(initialRouteReads));
+    expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(10);
+    await user.click(routeActions);
+    await user.click(screen.getByRole('menuitem', { name: 'Administrar' }));
+    expect(await screen.findByText('Borrador de OF conservado')).toBeVisible();
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.queryByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Molde', exact: true })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Volver a OF' }));
+
+    expect(screen.getByRole('combobox', { name: 'Motivo de reposición' })).toHaveTextContent('Completar Stock');
+    expect(screen.getByRole('combobox', { name: 'Molde' })).toHaveValue('Molde 1');
+    expect(screen.getByRole('spinbutton', { name: 'Objetivo 1 (kg netos)' })).toHaveValue(10);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Acciones de ruta para Objetivo 1' })).toHaveFocus());
   });
 
   it('descarta el molde diferido al limpiar y reabrir', async () => {

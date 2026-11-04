@@ -47,4 +47,3 @@ export function useOperationMessage(scope, options = {}) {
   }, [contextKey, dismiss, instanceId, isFallback, notify, scope]);
   return [value, setOperationValue, isFallback, severity];
 }
-

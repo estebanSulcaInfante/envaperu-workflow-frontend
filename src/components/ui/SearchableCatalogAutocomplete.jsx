@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Autocomplete, Box, CircularProgress, IconButton, Menu, MenuItem, Stack, TextField, Typography,
 } from '@mui/material';
@@ -29,6 +29,8 @@ export default function SearchableCatalogAutocomplete({
   getOptionKey = (option) => option?.id ?? option?.codigo,
   getPrimary = defaultPrimary,
   getSecondary = defaultSecondary,
+  getInputLabel,
+  getTitleLabel,
   getSearchText,
   getOptionDisabled,
   getColorHex = colorHexFor,
@@ -43,12 +45,46 @@ export default function SearchableCatalogAutocomplete({
   size = 'small',
   sx,
   actions = [],
+  onSearch,
+  onLoadMore,
+  hasMore = false,
 }) {
   const [actionsAnchor, setActionsAnchor] = useState(null);
-  const normalizedOptions = useMemo(() => options.filter(Boolean), [options]);
+  const [inputValue, setInputValue] = useState('');
+  const searchHandlerRef = useRef(onSearch);
+  const searchMountedRef = useRef(false);
+  const previousValueKeyRef = useRef(Symbol('uninitialized'));
+  searchHandlerRef.current = onSearch;
+  const loadMoreOption = useMemo(() => ({ __loadMore: true, id: `${id}-load-more` }), [id]);
+  const normalizedOptions = useMemo(() => {
+    const rows = options.filter(Boolean);
+    return hasMore && onLoadMore ? [...rows, loadMoreOption] : rows;
+  }, [hasMore, loadMoreOption, onLoadMore, options]);
   const valueKey = value == null ? null : String(getOptionKey(value));
-  const selectedValue = normalizedOptions.find((option) => String(getOptionKey(option)) === valueKey) || value;
-  const optionLabel = (option) => [getPrimary(option), getSecondary(option)].filter(Boolean).join(' · ');
+  const isLoadMore = (option) => Boolean(option?.__loadMore);
+  const selectedValue = normalizedOptions.find((option) => !isLoadMore(option) && String(getOptionKey(option)) === valueKey) || value;
+  const optionLabel = (option) => isLoadMore(option)
+    ? 'Cargar más resultados'
+    : getInputLabel?.(option) || getPrimary(option);
+  const optionTitle = (option) => isLoadMore(option)
+    ? 'Cargar más resultados'
+    : getTitleLabel?.(option) || [getPrimary(option), getSecondary(option)].filter(Boolean).join(' · ');
+  const selectedLabel = selectedValue ? optionLabel(selectedValue) : '';
+
+  useEffect(() => {
+    if (previousValueKeyRef.current === valueKey) return;
+    previousValueKeyRef.current = valueKey;
+    setInputValue(selectedLabel);
+  }, [selectedLabel, valueKey]);
+
+  useEffect(() => {
+    if (!searchHandlerRef.current || !searchMountedRef.current) {
+      searchMountedRef.current = true;
+      return undefined;
+    }
+    const timer = setTimeout(() => searchHandlerRef.current?.(inputValue), 300);
+    return () => clearTimeout(timer);
+  }, [inputValue]);
 
   return (
     <Autocomplete
@@ -64,15 +100,24 @@ export default function SearchableCatalogAutocomplete({
       loadingText="Cargando opciones…"
       slotProps={{ clearIndicator: { tabIndex: 0, sx: { visibility: 'visible' } } }}
       noOptionsText={normalizedOptions.length ? 'Sin coincidencias' : noOptionsText}
-      getOptionLabel={getPrimary}
-      getOptionDisabled={getOptionDisabled}
-      isOptionEqualToValue={(option, selected) => String(getOptionKey(option)) === String(getOptionKey(selected))}
+      getOptionLabel={optionLabel}
+      getOptionDisabled={(option) => isLoadMore(option) ? loading : getOptionDisabled?.(option)}
+      isOptionEqualToValue={(option, selected) => !isLoadMore(option) && !isLoadMore(selected) && String(getOptionKey(option)) === String(getOptionKey(selected))}
       filterOptions={(available, state) => {
         const query = normalize(state.inputValue.trim());
         if (!query) return available;
-        return available.filter((option) => normalize(getSearchText?.(option) || [getPrimary(option), getSecondary(option)].join(' ')).includes(query));
+        return available.filter((option) => isLoadMore(option)
+          || normalize(getSearchText?.(option) || [getPrimary(option), getSecondary(option)].join(' ')).includes(query));
+      }}
+      inputValue={inputValue}
+      onInputChange={(event, next, reason) => {
+        if (reason === 'input' || reason === 'clear') setInputValue(next);
       }}
       onChange={(event, next, reason) => {
+        if (isLoadMore(next)) {
+          onLoadMore?.();
+          return;
+        }
         // Clearing the search text is not clearing the persisted identity.
         if (reason === 'clear' && event?.type !== 'click') return;
         if ((next == null ? null : String(getOptionKey(next))) === valueKey) return;
@@ -80,6 +125,9 @@ export default function SearchableCatalogAutocomplete({
       }}
       renderOption={(props, option) => {
         const { key, ...optionProps } = props;
+        if (isLoadMore(option)) {
+          return <Box component="li" key={key} {...optionProps}><Typography color="primary" fontWeight={750}>Cargar más resultados</Typography></Box>;
+        }
         const primary = getPrimary(option);
         const secondary = getSecondary(option);
         const hex = getColorHex?.(option);
@@ -106,7 +154,7 @@ export default function SearchableCatalogAutocomplete({
           placeholder={placeholder}
           error={error}
           helperText={helperText || (selectedValue ? getSecondary(selectedValue) : undefined)}
-          inputProps={{ ...params.inputProps, title: selectedValue ? optionLabel(selectedValue) : undefined, 'aria-disabled': disabled ? 'true' : undefined }}
+          inputProps={{ ...params.inputProps, title: selectedValue ? optionTitle(selectedValue) : undefined, 'aria-disabled': disabled ? 'true' : undefined }}
           InputProps={{
             ...params.InputProps,
             endAdornment: (

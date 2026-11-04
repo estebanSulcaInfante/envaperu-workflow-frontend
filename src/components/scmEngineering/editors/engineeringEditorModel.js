@@ -180,7 +180,7 @@ export const validateRouteValue = (value = {}, targetArticle = null, articles = 
       !operation.centro_trabajo_id ? `Selecciona el centro de trabajo del ${step}.` : '',
       !operation.articulo_salida_id ? `Define la salida del ${step}.` : '',
       operation.executor_kind === 'ORDEN_OPERACION' && !operation.estructura_revision_id
-        ? `Selecciona una estructura aprobada compatible para el ${step}.`
+        ? `Selecciona una BOM compatible para el ${step}; la aprobación se gobierna por separado.`
         : '',
     ].filter(Boolean);
   });

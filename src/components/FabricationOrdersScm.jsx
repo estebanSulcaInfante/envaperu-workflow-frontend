@@ -241,6 +241,16 @@ export default function FabricationOrdersScm() {
   const canPauseExecution = can('OF_PAUSAR_EJECUCION');
   const canCancelExecution = can('OF_CANCELAR_EJECUCION');
   const canCreateExceptional = can('OF_EXCEPCIONAL_CREAR');
+  const canViewRoutes = can('RUTA_VER');
+  const canViewArticles = can('ARTICULO_VER');
+  const canAdminRoutes = can('RUTA_ADMINISTRAR');
+  const canAdminArticles = can('ARTICULO_ADMINISTRAR');
+  const canViewStructures = can('ESTRUCTURA_VER');
+  const canAdminStructures = can('ESTRUCTURA_ADMINISTRAR');
+  const canApproveRoutes = can('RUTA_APROBAR');
+  const canPublishRoutes = can('RUTA_PUBLICAR_DIRECTO');
+  const canApproveStructures = can('ESTRUCTURA_APROBAR');
+  const canPublishStructures = can('ESTRUCTURA_PUBLICAR_DIRECTO');
   const canViewOt = can('OT_VER');
   const canViewWeights = can('MANGA_PESAJE_VER');
   const [orders, setOrders] = useState([]);
@@ -296,10 +306,24 @@ export default function FabricationOrdersScm() {
   const routeCacheRef = useRef(new Map());
   const routePendingRef = useRef(new Map());
   const routeFailuresRef = useRef(new Map());
+  const routeInvalidationRef = useRef(new Map());
+  const routeSearchGenerationRef = useRef(new Map());
+  const routeSearchAbortRef = useRef(new Map());
+  const detailRoutesByArticleRef = useRef({});
+  const detailRoutesActorRef = useRef(actorId);
   const [detailRoutesByArticle, setDetailRoutesByArticle] = useState({});
+  const [detailRoutesMetaByArticle, setDetailRoutesMetaByArticle] = useState({});
   const [detailRoutesLoading, setDetailRoutesLoading] = useState(false);
   const [detailRoutesError, setDetailRoutesError] = useState('');
   const [routeRetryNonce, setRouteRetryNonce] = useState(0);
+  detailRoutesByArticleRef.current = detailRoutesByArticle;
+  if (detailRoutesActorRef.current !== actorId) {
+    detailRoutesActorRef.current = actorId;
+    detailRoutesByArticleRef.current = {};
+  }
+  useEffect(() => {
+    setDetailRoutesMetaByArticle({});
+  }, [actorId]);
 
   const loadCatalog = useCallback((key) => {
     const requests = {
@@ -356,6 +380,87 @@ export default function FabricationOrdersScm() {
     () => requestedOrderId ? detailOrder : null,
     [detailOrder, requestedOrderId],
   );
+  const refreshRoutesForRun = useCallback((run) => {
+    const articleIds = (run?.salidas || [])
+      .map((output) => output.articulo?.id
+        ?? output.articulo_salida?.id
+        ?? output.articulo_scm_id
+        ?? output.articulo_id
+        ?? output.articulo_salida_id)
+      .filter((id) => id != null)
+      .map(String);
+    articleIds.forEach((articleId) => {
+      const key = `${actorId}:${articleId}`;
+      routeCacheRef.current.delete(key);
+      routeFailuresRef.current.delete(key);
+      routePendingRef.current.delete(key);
+      routeInvalidationRef.current.set(key, (routeInvalidationRef.current.get(key) || 0) + 1);
+    });
+    setDetailRoutesError('');
+    setRouteRetryNonce((value) => value + 1);
+  }, [actorId]);
+  const searchRoutePageForArticle = useCallback(async (articleId, query = '', cursor = null) => {
+    const reader = scmEngineeringApi.listarOperacionesRutaPorSalidaScm;
+    if (typeof reader !== 'function' || articleId == null) return;
+    const key = `${actorId}:${articleId}`;
+    routeSearchAbortRef.current.get(key)?.abort();
+    const controller = new AbortController();
+    routeSearchAbortRef.current.set(key, controller);
+    const generation = (routeSearchGenerationRef.current.get(key) || 0) + 1;
+    routeSearchGenerationRef.current.set(key, generation);
+    setDetailRoutesLoading(true);
+    try {
+      const payload = await reader(articleId, actorId, {
+        limite: 100,
+        q: query.trim() || undefined,
+        cursor: cursor || undefined,
+      }, controller.signal);
+      if (controller.signal.aborted || routeSearchGenerationRef.current.get(key) !== generation) return;
+      const rows = payload?.items || [];
+      setDetailRoutesByArticle((current) => ({
+        ...current,
+        [String(articleId)]: cursor
+          ? [...(current[String(articleId)] || []), ...rows]
+          : rows,
+      }));
+      setDetailRoutesMetaByArticle((current) => ({
+        ...current,
+        [String(articleId)]: {
+          hasMore: Boolean(payload?.has_more),
+          nextCursor: payload?.next_cursor || null,
+          total: payload?.total ?? null,
+          query,
+        },
+      }));
+    } catch (requestError) {
+      if (!controller.signal.aborted && routeSearchGenerationRef.current.get(key) === generation) {
+        setDetailRoutesError(mensajeErrorScm(requestError, 'No se pudieron buscar las rutas del objetivo.'));
+      }
+    } finally {
+      if (routeSearchAbortRef.current.get(key) === controller) {
+        routeSearchAbortRef.current.delete(key);
+        if (routeSearchGenerationRef.current.get(key) === generation) setDetailRoutesLoading(false);
+      }
+    }
+  }, [actorId]);
+  const searchRoutesForRun = useCallback((run, query = '') => {
+    const articleId = (run?.salidas || []).map((output) => output.articulo?.id
+      ?? output.articulo_salida?.id
+      ?? output.articulo_scm_id
+      ?? output.articulo_id
+      ?? output.articulo_salida_id).find((id) => id != null);
+    return searchRoutePageForArticle(articleId, query, null);
+  }, [searchRoutePageForArticle]);
+  const loadMoreRoutesForRun = useCallback((run) => {
+    const articleId = (run?.salidas || []).map((output) => output.articulo?.id
+      ?? output.articulo_salida?.id
+      ?? output.articulo_scm_id
+      ?? output.articulo_id
+      ?? output.articulo_salida_id).find((id) => id != null);
+    const meta = detailRoutesMetaByArticle[String(articleId)] || {};
+    if (!meta.nextCursor) return Promise.resolve();
+    return searchRoutePageForArticle(articleId, meta.query || '', meta.nextCursor);
+  }, [detailRoutesMetaByArticle, searchRoutePageForArticle]);
   const selectedDuplicateEligibility = useMemo(
     () => duplicateEligibility(selected),
     [selected],
@@ -505,7 +610,7 @@ export default function FabricationOrdersScm() {
       .filter((id) => id != null)
       .map(String)) || [];
     const uniqueIds = [...new Set(articleIds)];
-    if (!selected || !canEdit || selected.estado !== 'BORRADOR' || !uniqueIds.length) {
+    if (!selected || !canViewRoutes || !uniqueIds.length) {
       setDetailRoutesByArticle({});
       setDetailRoutesLoading(false);
       setDetailRoutesError('');
@@ -513,11 +618,20 @@ export default function FabricationOrdersScm() {
     }
     const generation = ++routeGenerationRef.current;
     let active = true;
+    const controller = new AbortController();
+    const searchAbortControllers = routeSearchAbortRef.current;
     setDetailRoutesLoading(true);
     setDetailRoutesError('');
     let listRoutes;
+    let readsPaged = false;
     try {
-      listRoutes = scmEngineeringApi.listarRutasArticuloScm;
+      const outputReader = scmEngineeringApi.listarOperacionesRutaPorSalidaScm;
+      listRoutes = outputReader
+        ? ((articleId, actor, signal) => {
+          readsPaged = true;
+          return outputReader(articleId, actor, { limite: 100 }, signal);
+        })
+        : scmEngineeringApi.listarRutasArticuloScm;
     } catch {
       listRoutes = null;
     }
@@ -542,23 +656,46 @@ export default function FabricationOrdersScm() {
         return;
       }
       routeFailuresRef.current.delete(key);
+      const invalidation = routeInvalidationRef.current.get(key) || 0;
       const request = Promise.resolve()
-        .then(() => listRoutes(articleId))
-        .then((items) => {
-          const value = items || [];
-          routeCacheRef.current.set(key, value);
-          routeFailuresRef.current.delete(key);
+        .then(() => listRoutes(articleId, actorId, controller.signal))
+        .then((page) => {
+          const value = Array.isArray(page) ? page : page?.items || [];
+          if (readsPaged && !controller.signal.aborted) {
+            setDetailRoutesMetaByArticle((current) => ({
+              ...current,
+              [articleId]: {
+                hasMore: Boolean(page?.has_more),
+                nextCursor: page?.next_cursor || null,
+                total: page?.total ?? null,
+                query: page?.q || '',
+              },
+            }));
+          }
+          if ((routeInvalidationRef.current.get(key) || 0) === invalidation) {
+            routeCacheRef.current.set(key, value);
+            routeFailuresRef.current.delete(key);
+          }
           return value;
         })
         .catch((requestError) => {
-          routeFailuresRef.current.set(key, { nonce: routeRetryNonce, error: requestError });
+          if ((routeInvalidationRef.current.get(key) || 0) === invalidation) {
+            routeFailuresRef.current.set(key, { nonce: routeRetryNonce, error: requestError });
+          }
           throw requestError;
         })
-        .finally(() => routePendingRef.current.delete(key));
+        .finally(() => {
+          if (routePendingRef.current.get(key) === request) routePendingRef.current.delete(key);
+        });
       routePendingRef.current.set(key, request);
       missing.push([articleId, request]);
     });
-    setDetailRoutesByArticle(cached);
+    const retained = detailRoutesActorRef.current === actorId
+      ? Object.fromEntries(uniqueIds
+        .filter((articleId) => Object.prototype.hasOwnProperty.call(detailRoutesByArticleRef.current, articleId))
+        .map((articleId) => [articleId, detailRoutesByArticleRef.current[articleId]]))
+      : {};
+    setDetailRoutesByArticle({ ...retained, ...cached });
     Promise.all(missing.map(([articleId, request]) => request.then(
       (value) => ({ articleId, value }),
       (requestError) => ({ articleId, requestError }),
@@ -586,8 +723,14 @@ export default function FabricationOrdersScm() {
       .finally(() => {
         if (active && routeGenerationRef.current === generation) setDetailRoutesLoading(false);
       });
-    return () => { active = false; };
-  }, [actorId, canEdit, routeRetryNonce, selected]);
+    return () => {
+      active = false;
+      controller.abort();
+      searchAbortControllers.forEach((pendingController) => pendingController.abort());
+      searchAbortControllers.clear();
+      routeSearchGenerationRef.current = new Map();
+    };
+  }, [actorId, canViewRoutes, routeRetryNonce, selected]);
 
   useEffect(() => {
     if (!busy && !formulaBusy && !draftDirty && !formulaDirty) return undefined;
@@ -1402,6 +1545,7 @@ export default function FabricationOrdersScm() {
             description="Todos los colores permanecen visibles. Edita metas en conjunto y expande composición o salidas de cada objetivo sin ocultar los demás."
           >
             <FabricationObjectivesTable
+              actorId={actorId}
               order={selected}
               form={form}
               selectedMold={selectedMold}
@@ -1420,6 +1564,21 @@ export default function FabricationOrdersScm() {
               routeOptionsByArticle={detailRoutesByArticle}
               routeLoading={detailRoutesLoading}
               routeReadOnly={Boolean(selected.plan_produccion_id)}
+              routeCanView={canViewRoutes}
+              articleCanView={canViewArticles}
+              routeCanAdmin={canAdminRoutes}
+              articleCanAdmin={canAdminArticles}
+              structureCanView={canViewStructures}
+              structureCanAdmin={canAdminStructures}
+              canRouteApprove={canApproveRoutes}
+              canRoutePublish={canPublishRoutes}
+              canStructureApprove={canApproveStructures}
+              canStructurePublish={canPublishStructures}
+              routeError={detailRoutesError}
+              onRefreshRoutes={refreshRoutesForRun}
+              routePageMetaByArticle={detailRoutesMetaByArticle}
+              onSearchRoutes={(run, query) => searchRoutesForRun(run, query)}
+              onLoadMoreRoutes={loadMoreRoutesForRun}
             />
           </DocumentSection>
 
@@ -1688,6 +1847,7 @@ export default function FabricationOrdersScm() {
       </Drawer>
 
       <ExceptionalFabricationOrderDialog
+        actorId={actorId}
         open={exceptionalOpen}
         initialSource={duplicateSource}
         molds={molds}
@@ -1695,6 +1855,16 @@ export default function FabricationOrdersScm() {
         colors={colors}
         recipes={recipes}
         onClose={() => { setExceptionalOpen(false); setDuplicateSource(null); }}
+        routeCanView={canViewRoutes}
+        routeCanAdmin={canAdminRoutes}
+        articleCanView={canViewArticles}
+        articleCanAdmin={canAdminArticles}
+        structureCanView={canViewStructures}
+        structureCanAdmin={canAdminStructures}
+        canRouteApprove={canApproveRoutes}
+        canRoutePublish={canPublishRoutes}
+        canStructureApprove={canApproveStructures}
+        canStructurePublish={canPublishStructures}
         onCreated={async (created) => {
           await Promise.all([
             loadCatalog('moldes'),

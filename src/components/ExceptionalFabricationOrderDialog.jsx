@@ -1,5 +1,5 @@
 import { useOperationMessage } from "../utils/operationFeedbackState";
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel,
   Divider, FormControl, IconButton, InputLabel, MenuItem, Paper, Select,
@@ -20,6 +20,8 @@ import SearchableCatalogAutocomplete from './ui/SearchableCatalogAutocomplete';
 import WeightInput from './ui/WeightInput';
 import PieceCompositionEditor from './productOnboarding/PieceCompositionEditor';
 import FirstOfMasterPanel from './firstOf/FirstOfMasterPanel';
+import RouteDependencyDialog from './RouteDependencyDialog';
+import RouteActionsMenu, { RouteInspectionPanel } from './RouteActionsMenu';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import AddCircleOutlineOutlinedIcon from '@mui/icons-material/AddCircleOutlineOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
@@ -130,6 +132,7 @@ const catalogItems = (response) => (Array.isArray(response) ? response : respons
 
 export default function ExceptionalFabricationOrderDialog({
   open,
+  actorId: actorIdProp,
   molds,
   machines,
   colors,
@@ -137,7 +140,18 @@ export default function ExceptionalFabricationOrderDialog({
   onClose,
   onCreated,
   initialSource = null,
+  routeCanView = false,
+  routeCanAdmin = false,
+  articleCanView = false,
+  articleCanAdmin = false,
+  structureCanView = false,
+  structureCanAdmin = false,
+  canRouteApprove = false,
+  canRoutePublish = false,
+  canStructureApprove = false,
+  canStructurePublish = false,
 }) {
+  const actorId = actorIdProp ?? scmEngineeringApi.obtenerActorScm?.();
   const [reason, setReason] = useState('');
   const [reasonOption, setReasonOption] = useState('');
   const [reasonOther, setReasonOther] = useState('');
@@ -165,9 +179,15 @@ export default function ExceptionalFabricationOrderDialog({
   const [colorMutationBusy, setColorMutationBusy] = useState(false);
   const colorMutationInFlightRef = useRef(false);
   const [masterPanel, setMasterPanel] = useState(null);
+  const [routeWorkspace, setRouteWorkspace] = useState(null);
+  const [routeWorkspaceTargetId, setRouteWorkspaceTargetId] = useState('');
+  const [routeWorkspaceMode, setRouteWorkspaceMode] = useState('manage');
+  const [routeRefreshKey, setRouteRefreshKey] = useState(0);
+  const routeCloseRequestRef = useRef(null);
   const [masterBusy, setMasterBusy] = useState(false);
   const [masterDirty, setMasterDirty] = useState(false);
   const [routesByArticle, setRoutesByArticle] = useState({});
+  const [routePageMetaByArticle, setRoutePageMetaByArticle] = useState({});
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeCatalogState, setRouteCatalogState] = useState('idle');
   const [routeError, setRouteError] = useState('');
@@ -183,6 +203,8 @@ export default function ExceptionalFabricationOrderDialog({
   const [duplicateCatalogError, setDuplicateCatalogError] = useState('');
   const idempotencyRef = useRef({ fingerprint: '', key: '' });
   const routeGenerationRef = useRef(0);
+  const routeSearchGenerationRef = useRef(new Map());
+  const routeSearchAbortRef = useRef(new Map());
   const articleGenerationRef = useRef(0);
   const moldGenerationRef = useRef(0);
   const catalogGenerationRef = useRef(0);
@@ -225,6 +247,8 @@ export default function ExceptionalFabricationOrderDialog({
     setMoldMutationError('');
     setColorMutationBusy(false);
     setMasterPanel(null);
+    setRouteWorkspace(null);
+    setRouteWorkspaceTargetId('');
     setMasterBusy(false);
     setMasterDirty(false);
     moldGenerationRef.current += 1;
@@ -331,6 +355,7 @@ export default function ExceptionalFabricationOrderDialog({
   useEffect(() => {
     if (!open) {
       setRoutesByArticle({});
+      setRoutePageMetaByArticle({});
       setRouteLoading(false);
       setRouteCatalogState('idle');
       return undefined;
@@ -350,6 +375,8 @@ export default function ExceptionalFabricationOrderDialog({
     }
     const generation = ++routeGenerationRef.current;
     let active = true;
+    const controller = new AbortController();
+    const searchAbortControllers = routeSearchAbortRef.current;
     setRouteLoading(true);
     setRouteCatalogState('loading');
     setRouteError('');
@@ -360,8 +387,26 @@ export default function ExceptionalFabricationOrderDialog({
       listRoutes = null;
     }
     listRoutes ||= (() => Promise.resolve([]));
-    Promise.all(routeArticleIds.map((articleId) => listRoutes(articleId)
-      .then((items) => [articleId, items || []])))
+    const outputReader = scmEngineeringApi.listarOperacionesRutaPorSalidaScm;
+    const readRoutes = outputReader
+      ? (articleId) => outputReader(articleId, actorId, { limite: 100 }, controller.signal)
+      : listRoutes;
+    Promise.all(routeArticleIds.map((articleId) => readRoutes(articleId)
+      .then((page) => {
+        const items = Array.isArray(page) ? page : page?.items || [];
+        if (!Array.isArray(page)) {
+          setRoutePageMetaByArticle((current) => ({
+            ...current,
+            [String(articleId)]: {
+              hasMore: Boolean(page?.has_more),
+              nextCursor: page?.next_cursor || null,
+              total: page?.total ?? null,
+              query: page?.q || '',
+            },
+          }));
+        }
+        return [articleId, items];
+      })))
       .then((entries) => {
         if (!active || routeGenerationRef.current !== generation) return;
         setRoutesByArticle(Object.fromEntries(entries));
@@ -379,8 +424,14 @@ export default function ExceptionalFabricationOrderDialog({
       .finally(() => {
         if (active && routeGenerationRef.current === generation) setRouteLoading(false);
       });
-    return () => { active = false; };
-  }, [articleCatalogState, initialSource, open, routeArticleIds, setError]);
+    return () => {
+      active = false;
+      controller.abort();
+      searchAbortControllers.forEach((pendingController) => pendingController.abort());
+      searchAbortControllers.clear();
+      routeSearchGenerationRef.current = new Map();
+    };
+  }, [actorId, articleCatalogState, initialSource, open, routeArticleIds, routeRefreshKey, setError]);
 
   useEffect(() => {
     if (!initialSource || duplicateCatalogState !== 'ready') return;
@@ -654,7 +705,7 @@ export default function ExceptionalFabricationOrderDialog({
     (sum, piece) => sum + Number(piece.cavidades || 0) * Number(piece.peso_unitario_gr || 0),
     0,
   );
-  const parentFormVisible = moldWorkspace === 'select' && !masterPanel;
+  const parentFormVisible = moldWorkspace === 'select' && !masterPanel && routeWorkspace == null;
   const buildPayload = () => ({
       motivo: reason.trim(),
     // A process inferred from linked route operations is response context,
@@ -935,10 +986,101 @@ export default function ExceptionalFabricationOrderDialog({
     onClose();
   };
 
+  const routeWorkspaceRun = routeWorkspace == null ? null : runs[routeWorkspace] || null;
+  const closeRouteWorkspace = () => {
+    const actionId = routeWorkspaceRun ? `exceptional-route-actions-${routeWorkspaceRun.key}` : null;
+    setRouteWorkspace(null);
+    setRouteWorkspaceTargetId('');
+    if (actionId) requestAnimationFrame(() => document.getElementById(actionId)?.focus());
+  };
+  const routeWorkspaceRoutes = routeWorkspaceRun
+    ? routeOptionsForRun(
+      { ...routeWorkspaceRun, salidas: outputGroups[routeWorkspace].map((output) => ({ articulo: output.article })) },
+      routesByArticle,
+    )
+    : [];
+  const routeWorkspaceSelectedRoute = routeWorkspaceRoutes.find(
+    (route) => String(route.operacion_ruta_revision_id) === String(routeWorkspaceRun?.operacion_ruta_revision_id),
+  ) || null;
+  const routeWorkspaceOutputs = routeWorkspaceRun
+    ? outputGroups[routeWorkspace].filter((output) => output.article
+      && !['PRODUCTO_TERMINADO', 'SUBENSAMBLE_WIP'].includes(output.article.clase))
+    : [];
+  const searchRoutePageForArticle = useCallback(async (articleId, query = '', cursor = null) => {
+    const reader = scmEngineeringApi.listarOperacionesRutaPorSalidaScm;
+    if (typeof reader !== 'function' || articleId == null) return;
+    const key = `${actorId}:${articleId}`;
+    routeSearchAbortRef.current.get(key)?.abort();
+    const controller = new AbortController();
+    routeSearchAbortRef.current.set(key, controller);
+    const generation = (routeSearchGenerationRef.current.get(key) || 0) + 1;
+    routeSearchGenerationRef.current.set(key, generation);
+    setRouteLoading(true);
+    try {
+      const payload = await reader(articleId, actorId, {
+        limite: 100,
+        q: query.trim() || undefined,
+        cursor: cursor || undefined,
+      }, controller.signal);
+      if (controller.signal.aborted || routeSearchGenerationRef.current.get(key) !== generation) return;
+      const rows = payload?.items || [];
+      setRoutesByArticle((current) => ({
+        ...current,
+        [String(articleId)]: cursor
+          ? [...(current[String(articleId)] || []), ...rows]
+          : rows,
+      }));
+      setRoutePageMetaByArticle((current) => ({
+        ...current,
+        [String(articleId)]: {
+          hasMore: Boolean(payload?.has_more),
+          nextCursor: payload?.next_cursor || null,
+          total: payload?.total ?? null,
+          query,
+        },
+      }));
+    } catch (requestError) {
+      if (!controller.signal.aborted && routeSearchGenerationRef.current.get(key) === generation) {
+        setRouteError(scmEngineeringApi.mensajeErrorScm(requestError, 'No se pudieron buscar las rutas compatibles.'));
+      }
+    } finally {
+      if (routeSearchAbortRef.current.get(key) === controller) {
+        routeSearchAbortRef.current.delete(key);
+        if (routeSearchGenerationRef.current.get(key) === generation) setRouteLoading(false);
+      }
+    }
+  }, [actorId]);
+  const articleIdForExceptionalRun = useCallback((run, index) => (
+    (outputGroups[index] || []).map((output) => output.article?.id).find((id) => id != null)
+      ?? (run?.salidas || []).map((output) => output.articulo?.id
+        ?? output.articulo_salida?.id
+        ?? output.articulo_scm_id
+        ?? output.articulo_id
+        ?? output.articulo_salida_id).find((id) => id != null)
+  ), [outputGroups]);
+  const searchRoutesForExceptionalRun = useCallback((run, index, query = '') => (
+    searchRoutePageForArticle(articleIdForExceptionalRun(run, index), query, null)
+  ), [articleIdForExceptionalRun, searchRoutePageForArticle]);
+  const loadMoreRoutesForExceptionalRun = useCallback((run, index) => {
+    const articleId = articleIdForExceptionalRun(run, index);
+    const meta = routePageMetaByArticle[String(articleId)] || {};
+    return meta.nextCursor
+      ? searchRoutePageForArticle(articleId, meta.query || '', meta.nextCursor)
+      : Promise.resolve();
+  }, [articleIdForExceptionalRun, routePageMetaByArticle, searchRoutePageForArticle]);
+  const routeWorkspaceTarget = routeWorkspaceSelectedRoute?.articulo_salida
+    || routeWorkspaceOutputs.find((output) => String(output.article?.id) === String(routeWorkspaceTargetId))?.article
+    || (routeWorkspaceOutputs.length === 1 ? routeWorkspaceOutputs[0]?.article : null);
+
   return (
-    <Dialog open={open} onClose={allBusy || masterDirty ? undefined : onClose} fullWidth maxWidth="md">
+    <Dialog open={open} onClose={allBusy || masterDirty ? undefined : routeWorkspace != null ? () => {
+      if (routeWorkspaceMode === 'inspect' || !routeWorkspaceTarget) closeRouteWorkspace();
+      else routeCloseRequestRef.current?.();
+    } : onClose} fullWidth maxWidth="md">
       <DialogTitle>
-        {masterPanel
+        {routeWorkspace != null
+          ? `Ruta de OF · ${initialSource?.codigo || 'borrador nuevo'}`
+          : masterPanel
           ? (masterPanel.kind === 'color' ? 'Administrar color de producción' : 'Administrar receta de color')
           : moldWorkspace === 'create'
             ? 'Crear molde para esta OF'
@@ -947,6 +1089,69 @@ export default function ExceptionalFabricationOrderDialog({
       </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
+          {routeWorkspace != null && (
+            <>
+              <Alert severity="info">
+                <Typography variant="body2" fontWeight={750}>Borrador de OF conservado</Typography>
+                <Typography variant="body2">
+                  Corrida {routeWorkspace + 1} · {colorLabel(colorOptions.find((color) => String(color.id) === String(routeWorkspaceRun?.color_produccion_id)) || { id: routeWorkspaceRun?.color_produccion_id })}
+                  {routeWorkspaceTarget?.codigo ? ` · ${routeWorkspaceTarget.codigo}` : ''}
+                </Typography>
+              </Alert>
+              {routeWorkspaceMode === 'inspect' ? (
+                <RouteInspectionPanel inline open onClose={closeRouteWorkspace}
+                  actorId={actorId}
+                  run={routeWorkspaceRun} selectedRoute={routeWorkspaceSelectedRoute}
+                  availableRoutes={Object.values(routesByArticle).flat()} loading={routeLoading}
+                  error={routeError} onRefresh={() => setRouteRefreshKey((value) => value + 1)}
+                  routePageMeta={routePageMetaByArticle[String(articleIdForExceptionalRun(routeWorkspaceRun, routeWorkspace))]}
+                  onRouteSearch={(query) => searchRoutesForExceptionalRun(routeWorkspaceRun, routeWorkspace, query)}
+                  onRouteNextPage={() => loadMoreRoutesForExceptionalRun(routeWorkspaceRun, routeWorkspace)} />
+              ) : !routeWorkspaceTarget ? (
+                <Stack spacing={1.5}>
+                <Button onClick={closeRouteWorkspace} sx={{ alignSelf: 'flex-start' }}>Volver a OF</Button>
+                <Alert severity="warning">
+                  Selecciona explícitamente la salida Pieza-color que administrará esta ruta.
+                  <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap">
+                    {routeWorkspaceOutputs.map((output) => (
+                      <Button key={output.article.id} size="small" variant="outlined" onClick={() => setRouteWorkspaceTargetId(String(output.article.id))}>
+                        {[output.pieza_nombre || output.article.nombre, output.article.codigo].filter(Boolean).join(' · ') || output.article.id}
+                      </Button>
+                    ))}
+                  </Stack>
+                </Alert>
+                </Stack>
+              ) : (
+                <RouteDependencyDialog
+                  externalCloseRequestRef={routeCloseRequestRef}
+                  parentDialog
+                  open
+                  onClose={closeRouteWorkspace}
+                  orderCode={initialSource?.codigo || 'Nueva OF'}
+                  run={{ ...routeWorkspaceRun, codigo: `Objetivo ${routeWorkspace + 1}`,
+                    color_nombre: colorLabel(colorOptions.find((color) => String(color.id) === String(routeWorkspaceRun?.color_produccion_id)) || { id: routeWorkspaceRun?.color_produccion_id }) }}
+                  selectedRoute={routeWorkspaceSelectedRoute}
+                  targetArticle={routeWorkspaceTarget}
+                  articleId={routeWorkspaceTarget.id}
+                  canView={routeCanView && articleCanView}
+                  canAdmin={routeCanAdmin}
+                  routeCanView={routeCanView}
+                  routeCanAdmin={routeCanAdmin}
+                  structureCanView={structureCanView}
+                  structureCanAdmin={structureCanAdmin}
+                  articleCanAdmin={articleCanAdmin}
+                  canRouteApprove={canRouteApprove}
+                  canRoutePublish={canRoutePublish}
+                  canStructureApprove={canStructureApprove}
+                  canStructurePublish={canStructurePublish}
+                  onSaved={() => {
+                    closeRouteWorkspace();
+                    setRouteRefreshKey((value) => value + 1);
+                  }}
+                />
+              )}
+            </>
+          )}
           <Alert severity="info" sx={{ display: parentFormVisible ? undefined : 'none' }}>
             Produce PiezaColor para stock sin inventar una OP ni un Producto Terminado. La OF queda
             en borrador y debe liberarse antes de crear OT y mangas.
@@ -1101,7 +1306,7 @@ export default function ExceptionalFabricationOrderDialog({
               </Select>
             </FormControl>
             <Box sx={{ gridColumn: '1 / -1' }}>
-              {moldWorkspace === 'select' && !masterPanel && (
+              {parentFormVisible && (
                 <Stack spacing={1}>
                   <SearchableCatalogAutocomplete
                     key={moldSelectionRevision}
@@ -1421,11 +1626,59 @@ export default function ExceptionalFabricationOrderDialog({
                       option?.articulo_salida?.codigo,
                     ].filter(Boolean).join(' ')}
                     getPrimary={(option) => `${option.nombre} · ${fabricationProcessLabel(option.proceso)}`}
-                    getSecondary={(option) => option.articulo_salida?.nombre || option.articulo_salida?.codigo || option.route_codigo}
+                    getInputLabel={(option) => `${option.nombre} · ${fabricationProcessLabel(option.proceso)}`}
+                    getSecondary={(option) => {
+                      const output = option.articulo_salida || option.output_article;
+                      const owner = option.owner_route_target_article || option.ownerRouteTargetArticle;
+                      const outputLabel = [output?.nombre, output?.codigo].filter(Boolean).join(' · ');
+                      const ownerLabel = [owner?.nombre, owner?.codigo].filter(Boolean).join(' · ');
+                      const routeRevision = option.ruta_numero_revision || option.route_revision_number;
+                      return [
+                        outputLabel,
+                        ownerLabel,
+                        routeRevision ? `Ruta rev. ${routeRevision}` : '',
+                        !outputLabel && !ownerLabel && !routeRevision ? option.route_codigo : '',
+                      ].filter(Boolean).join(' · ');
+                    }}
                     loading={routeLoading}
+                    onSearch={(query) => searchRoutesForExceptionalRun(run, runIndex, query)}
+                    onLoadMore={() => loadMoreRoutesForExceptionalRun(run, runIndex)}
+                    hasMore={Boolean(routePageMetaByArticle[String(articleIdForExceptionalRun(run, runIndex))]?.hasMore)}
                     disabled={allBusy}
                     noOptionsText={routeLoading ? 'Cargando rutas compatibles…' : 'Sin ruta aprobada para estas salidas'}
                     helperText="Sólo se muestran revisiones APROBADA / OP_OT con salida exacta del objetivo."
+                  />
+                )}
+                {run.color_produccion_id && routeCanView && outputGroups[runIndex]?.length > 0 && (
+                  <RouteActionsMenu
+                    actorId={actorId}
+                    actionId={`exceptional-route-actions-${run.key}`}
+                    run={{ ...run, codigo: run.codigo || `Objetivo ${runIndex + 1}`, salidas: outputGroups[runIndex].map((output) => ({ articulo: output.article })) }}
+                    selectedRoute={routeOptionsForRun(
+                      { ...run, salidas: outputGroups[runIndex].map((output) => ({ articulo: output.article })) },
+                      routesByArticle,
+                    ).find((option) => String(option.operacion_ruta_revision_id) === String(run.operacion_ruta_revision_id)) || null}
+                    availableRoutes={Object.values(routesByArticle).flat()}
+                    canViewRoutes={routeCanView}
+                    canViewArticles={articleCanView}
+                    canAdminRoutes={routeCanAdmin}
+                    canAdminArticles={articleCanAdmin}
+                    canViewStructures={structureCanView}
+                    canAdminStructures={structureCanAdmin}
+                    canApproveRoutes={canRouteApprove}
+                    canPublishRoutes={canRoutePublish}
+                    canApproveStructures={canStructureApprove}
+                    canPublishStructures={canStructurePublish}
+                    loading={routeLoading}
+                    error={routeError}
+                    frozen={false}
+                    onRefresh={() => setRouteRefreshKey((value) => value + 1)}
+                    routePageMeta={routePageMetaByArticle[String(articleIdForExceptionalRun(run, runIndex))]}
+                    onRouteSearch={(query) => searchRoutesForExceptionalRun(run, runIndex, query)}
+                    onRouteNextPage={() => loadMoreRoutesForExceptionalRun(run, runIndex)}
+                    onAdminRoute={() => { setRouteWorkspaceMode('manage'); setRouteWorkspaceTargetId(''); setRouteWorkspace(runIndex); }}
+                    onInspectRoute={() => { setRouteWorkspaceMode('inspect'); setRouteWorkspaceTargetId(''); setRouteWorkspace(runIndex); }}
+                    orderCode={initialSource?.codigo || 'OF en borrador'}
                   />
                 )}
                 {!initialSource && run.operacion_ruta_revision_id && routeCatalogState === 'ready'
