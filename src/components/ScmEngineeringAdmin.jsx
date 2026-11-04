@@ -1166,7 +1166,7 @@ function ScmEngineeringAdmin({
       return;
     }
     onEmbeddedClose?.({ preserveDraft: false });
-  }, [embedded, hydratingEditor, onEmbeddedClose, routeDraftDirty, saving]);
+  }, [embedded, hydratingEditor, onEmbeddedClose, routeDraftDirty, saving, setNotice]);
 
   const requestRouteEditorClose = useCallback(() => {
     if (!embedded) {
@@ -1183,7 +1183,7 @@ function ScmEngineeringAdmin({
     }
     routeBaselineRef.current = null;
     setDialog(null);
-  }, [embedded, hydratingEditor, routeDraftDirty, saving]);
+  }, [embedded, hydratingEditor, routeDraftDirty, saving, setNotice]);
 
   const navigateFromRouteToStructure = useCallback((articleId) => {
     if (!embedded) {
