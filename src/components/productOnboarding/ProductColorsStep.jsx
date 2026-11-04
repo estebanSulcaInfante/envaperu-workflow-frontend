@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../../utils/operationFeedbackState";
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -87,10 +88,10 @@ export default function ProductColorsStep({
     colors: [], pieces: [], finishes: [], ingredients: [], recipes: [], materialCategories: [],
   });
   const [loading, setLoading] = useState(true);
-  const [catalogError, setCatalogError] = useState('');
+  const [catalogError, setCatalogError, feedbackFallback_catalogError] = useOperationMessage("components/productOnboarding/ProductColorsStep.jsx:catalogError", { severity: "warning", initialValue: '' });
   const [finishDialog, setFinishDialog] = useState({ open: false, colorClientId: null });
   const [finishName, setFinishName] = useState('');
-  const [finishError, setFinishError] = useState('');
+  const [finishError, setFinishError, feedbackFallback_finishError] = useOperationMessage("components/productOnboarding/ProductColorsStep.jsx:finishError", { severity: "error", initialValue: '' });
   const [savingFinish, setSavingFinish] = useState(false);
   const errors = useMemo(
     () => validateColors(data, pieces, moldGroups),
@@ -186,7 +187,7 @@ export default function ProductColorsStep({
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [setCatalogError]);
 
   const createIngredient = async (payload) => {
     const created = await crearMaterialScm(payload);
@@ -301,7 +302,7 @@ export default function ProductColorsStep({
         </Typography>
       </Box>
 
-      {catalogError && <Alert severity="warning">{catalogError}</Alert>}
+      {catalogError && <>{feedbackFallback_catalogError && <Alert severity="warning">{catalogError}</Alert>}</>}
       {!pieces.length && (
         <Alert severity="warning">
           La fase Componentes aún no aporta piezas resueltas. Vuelve a esa fase antes de aplicar colores.
@@ -735,7 +736,7 @@ export default function ProductColorsStep({
             <Alert severity="info">
               Crea un acabado reutilizable como TRANSPARENTE, PASTEL, CARAMELO o MATE.
             </Alert>
-            {finishError && <Alert severity="error">{finishError}</Alert>}
+            {finishError && <>{feedbackFallback_finishError && <Alert severity="error">{finishError}</Alert>}</>}
             <TextField
               autoFocus
               fullWidth

@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -459,7 +460,7 @@ export default function ProductionProgressDashboard({ initialDate, initialPeriod
   const [data, setData] = useState(null);
   const [filterOptions, setFilterOptions] = useState({ ops: [], machines: [], shifts: [] });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useOperationMessage("components/ProductionProgressDashboard.jsx:error", { severity: "error", initialValue: null });
   const [refreshKey, setRefreshKey] = useState(0);
   const [expanded, setExpanded] = useState(null);
 
@@ -514,7 +515,7 @@ export default function ProductionProgressDashboard({ initialDate, initialPeriod
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [period, month, date, op, machine, shift, refreshKey]);
+  }, [period, month, date, op, machine, shift, refreshKey, setError]);
 
   const hasDelayedData = data?.items.some((item) => item.communication_status !== 'RECIENTE');
   const visibleItems = useMemo(

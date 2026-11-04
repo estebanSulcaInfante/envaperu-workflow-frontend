@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import {
   Alert, Button, Checkbox, Chip, FormControl, FormControlLabel, InputLabel,
   MenuItem, Paper, Select, Stack, TextField, Typography,
@@ -56,8 +57,8 @@ export default function WarehouseSetupScm() {
   const [warehouse, setWarehouse] = useState(warehouseInitial);
   const [location, setLocation] = useState(locationInitial);
   const [scope, setScope] = useState(scopeInitial);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/WarehouseSetupScm.jsx:error", { severity: "error", initialValue: '' });
+  const [notice, setNotice, feedbackFallback_notice] = useOperationMessage("components/WarehouseSetupScm.jsx:notice", { severity: "success", initialValue: '' });
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -67,7 +68,7 @@ export default function WarehouseSetupScm() {
     setWarehouses(warehousePayload.items || []);
     setWorkers((workerPayload.items || workerPayload || []).filter((item) => item.activo !== false));
   }, []);
-  useEffect(() => { load().catch((requestError) => setError(mensajeErrorScm(requestError))); }, [load]);
+  useEffect(() => { load().catch((requestError) => setError(mensajeErrorScm(requestError))); }, [load, setError]);
 
   const selectedWarehouse = useMemo(
     () => warehouses.find((item) => item.id === location.warehouseId),
@@ -82,7 +83,7 @@ export default function WarehouseSetupScm() {
 
   return <Stack spacing={2.5}>
     <PageHeader title="Almacenes, ubicaciones y alcance" description="Configura la jerarquía real. El sistema no crea códigos físicos inventados." />
-    {error && <Alert severity="error">{error}</Alert>}{notice && <Alert severity="success">{notice}</Alert>}
+    {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}{notice && <>{feedbackFallback_notice && <Alert severity="success">{notice}</Alert>}</>}
     <Alert severity="warning">Cuando se crea el primer almacén activo, el Kardex pasa a filtrar por asignación y clase.</Alert>
 
     {warehouses.length > 0 && <Paper variant="outlined" sx={{ p: 2 }}>

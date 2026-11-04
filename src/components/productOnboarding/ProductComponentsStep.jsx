@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../../utils/operationFeedbackState";
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -42,7 +43,7 @@ export default function ProductComponentsStep({
   const data = normalizeComponentsData(value, resolvedReferences);
   const [catalogs, setCatalogs] = useState({ molds: [], pieces: [] });
   const [loading, setLoading] = useState(true);
-  const [catalogError, setCatalogError] = useState('');
+  const [catalogError, setCatalogError, feedbackFallback_catalogError] = useOperationMessage("components/productOnboarding/ProductComponentsStep.jsx:catalogError", { severity: "warning", initialValue: '' });
   const errors = useMemo(() => validateComponents(data), [data]);
   const resolved = resolvedReferences?.COMPONENTES || resolvedReferences || {};
   const resolvedGroups = Array.isArray(resolved.moldes) && resolved.moldes.length
@@ -69,7 +70,7 @@ export default function ProductComponentsStep({
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [setCatalogError]);
 
   const updateGroup = (groupId, updater) => onChange({
     ...data,
@@ -132,7 +133,7 @@ export default function ProductComponentsStep({
         </Typography>
       </Box>
 
-      {catalogError && <Alert severity="warning">{catalogError}</Alert>}
+      {catalogError && <>{feedbackFallback_catalogError && <Alert severity="warning">{catalogError}</Alert>}</>}
       <ApplicationResultSummary
         result={applicationResult}
         references={resolvedReferences}

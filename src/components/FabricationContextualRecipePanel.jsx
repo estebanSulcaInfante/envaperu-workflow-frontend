@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Checkbox, FormControlLabel, Grid, MenuItem,
@@ -35,7 +36,7 @@ export default function FabricationContextualRecipePanel({
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/FabricationContextualRecipePanel.jsx:error", { severity: "error", initialValue: '' });
   const [colorMode, setColorMode] = useState('EXISTENTE');
   const [selectedColorId, setSelectedColorId] = useState(colorId || '');
   const [newColorName, setNewColorName] = useState('');
@@ -78,7 +79,7 @@ export default function FabricationContextualRecipePanel({
       if (active) setError(apiMessage(requestError));
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [setError]);
 
   const rawPercent = useMemo(() => lines
     .filter((line) => line.role === 'MATERIA_PRIMA')
@@ -189,7 +190,7 @@ export default function FabricationContextualRecipePanel({
     <Stack spacing={2} sx={{ maxWidth: 850, mx: 'auto', pb: 3 }}>
       <Typography variant="h6" fontWeight={800}>Formulación para {run.codigo}</Typography>
       <Alert severity="info">Completa el color y la receta aquí. Las altas nuevas y la selección se guardan juntas al confirmar.</Alert>
-      {error && <Alert severity="error">{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
       {loading && <Alert severity="info">Cargando colores, materiales y categorías…</Alert>}
       <Paper variant="outlined" sx={{ position: 'sticky', top: 0, zIndex: 1, p: 1, bgcolor: 'background.paper' }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="flex-end" spacing={1}>
@@ -206,15 +207,15 @@ export default function FabricationContextualRecipePanel({
           </TextField>
           {fixedColor && <Alert severity="info">El color de este objetivo ya está fijado por sus salidas PiezaColor.</Alert>}
           {colorMode === 'EXISTENTE' ? (
-            <TextField select fullWidth label="Color" value={selectedColorId} onChange={(event) => setSelectedColorId(event.target.value)} disabled={busy || fixedColor}>
+            <TextField select fullWidth label="Color" value={selectedColorId} onChange={(event) => setSelectedColorId(event.target.value)} disabled={busy || fixedColor} error={Boolean((error === 'Selecciona un color de producción.' && !selectedColorId))} helperText={(error === 'Selecciona un color de producción.' && !selectedColorId) ? "Selecciona un color de producción." : (undefined)} >
               {colors.filter((item) => item.activo !== false).map((item) => <MenuItem key={item.id} value={item.id}>{item.nombre || item.color_base_nombre}</MenuItem>)}
             </TextField>
           ) : (
             <Grid container spacing={1.5}>
-              <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Nombre del color base" value={newColorName} onChange={(event) => setNewColorName(event.target.value)} /></Grid>
+              <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Nombre del color base" value={newColorName} onChange={(event) => setNewColorName(event.target.value)}  error={Boolean((error === 'Para el color nuevo, ingresa su nombre y acabado o familia.' && !newColorName.trim()))} helperText={(error === 'Para el color nuevo, ingresa su nombre y acabado o familia.' && !newColorName.trim()) ? "Ingresa el nombre del color." : (undefined)} /></Grid>
               <Grid size={{ xs: 12, sm: 6 }}><TextField select fullWidth label="Acabado / familia" value={familyId} onChange={(event) => setFamilyId(event.target.value)}><MenuItem value="">Crear familia nueva</MenuItem>{activeFamilies.map((item) => <MenuItem key={item.id} value={item.id}>{item.nombre}</MenuItem>)}</TextField></Grid>
-              {!familyId && <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Nombre de la nueva familia" value={newFamilyName} onChange={(event) => setNewFamilyName(event.target.value)} /></Grid>}
-              <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="HEX de referencia (opcional)" placeholder="#F2C94C" value={hex} onChange={(event) => setHex(event.target.value)} /></Grid>
+              {!familyId && <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Nombre de la nueva familia" value={newFamilyName} onChange={(event) => setNewFamilyName(event.target.value)}  error={Boolean((error === 'Para el color nuevo, ingresa su nombre y acabado o familia.' && !familyId && !newFamilyName.trim()))} helperText={(error === 'Para el color nuevo, ingresa su nombre y acabado o familia.' && !familyId && !newFamilyName.trim()) ? "Ingresa la familia o selecciona una existente." : (undefined)} /></Grid>}
+              <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="HEX de referencia (opcional)" placeholder="#F2C94C" value={hex} onChange={(event) => setHex(event.target.value)}  error={Boolean((error === 'El HEX debe tener el formato #RRGGBB.' && Boolean(hex) && !/^#[0-9a-fA-F]{6}$/.test(hex)))} helperText={(error === 'El HEX debe tener el formato #RRGGBB.' && Boolean(hex) && !/^#[0-9a-fA-F]{6}$/.test(hex)) ? "El HEX debe tener el formato #RRGGBB." : (undefined)} /></Grid>
             </Grid>
           )}
         </Stack>
@@ -223,14 +224,14 @@ export default function FabricationContextualRecipePanel({
         <Stack spacing={1.5}>
           <Typography fontWeight={800}>Receta</Typography>
           <Grid container spacing={1.5}>
-            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Nombre de variante" value={variant} onChange={(event) => setVariant(event.target.value)} /></Grid>
+            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth label="Nombre de variante" value={variant} onChange={(event) => setVariant(event.target.value)}  error={Boolean((error === 'Ingresa una variante y una base virgen positiva.' && !variant.trim()))} helperText={(error === 'Ingresa una variante y una base virgen positiva.' && !variant.trim()) ? "Ingresa el nombre de variante." : (undefined)} /></Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
               <TextField select fullWidth label="Alcance de la receta" value={productSku} onChange={(event) => setProductSku(event.target.value)} helperText="General sirve para las salidas compatibles de este objetivo.">
                 <MenuItem value="">General</MenuItem>
                 {productScopes.map((sku) => <MenuItem key={sku} value={sku}>Producto {sku}</MenuItem>)}
               </TextField>
             </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth type="number" label="Base virgen (kg)" value={baseKg} onChange={(event) => setBaseKg(event.target.value)} slotProps={{ htmlInput: { min: 0.001, step: 0.001 } }} /></Grid>
+            <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth type="number" label="Base virgen (kg)" value={baseKg} onChange={(event) => setBaseKg(event.target.value)} slotProps={{ htmlInput: { min: 0.001, step: 0.001 } }}  error={Boolean((error === 'Ingresa una variante y una base virgen positiva.' && !(Number(baseKg) > 0)))} helperText={(error === 'Ingresa una variante y una base virgen positiva.' && !(Number(baseKg) > 0)) ? "Indica una base virgen positiva." : (undefined)} /></Grid>
             <Grid size={{ xs: 12, sm: 6 }}><FormControlLabel control={<Checkbox checked={isDefault} onChange={(event) => setIsDefault(event.target.checked)} />} label="Predeterminada al aprobar" /></Grid>
           </Grid>
           <TextField fullWidth multiline minRows={2} label="Notas" value={notes} onChange={(event) => setNotes(event.target.value)} />
@@ -259,15 +260,15 @@ export default function FabricationContextualRecipePanel({
                 <Stack spacing={1.25}>
                   <Grid container spacing={1.25} alignItems="center">
                     <Grid size={{ xs: 12, sm: 3 }}><TextField select fullWidth size="small" label="Rol" value={line.role} onChange={(event) => editLine(line.key, { role: event.target.value, materialRef: '' })}><MenuItem value="MATERIA_PRIMA">Materia prima</MenuItem><MenuItem value="COLORANTE">Colorante</MenuItem><MenuItem value="ADITIVO">Aditivo</MenuItem></TextField></Grid>
-                    <Grid size={{ xs: 12, sm: 5 }}><TextField select fullWidth size="small" label={`Material ${index + 1}`} value={line.materialRef} onChange={(event) => editLine(line.key, { materialRef: event.target.value })}><MenuItem value="">Seleccionar</MenuItem>{candidates.map((item) => <MenuItem key={item.id} value={item.id}>{item.nombre} · {item.codigo}</MenuItem>)}<MenuItem value="NUEVO">+ Crear {raw ? 'materia prima' : line.role === 'ADITIVO' ? 'aditivo' : 'colorante'}</MenuItem></TextField></Grid>
-                    <Grid size={{ xs: 10, sm: 3 }}><TextField fullWidth size="small" type="number" label={raw ? 'Porcentaje (%)' : 'Dosis (g)'} value={line.amount} onChange={(event) => editLine(line.key, { amount: event.target.value })} slotProps={{ htmlInput: { min: 0.0001, max: raw ? 100 : undefined, step: raw ? 0.01 : 0.0001 } }} /></Grid>
+                    <Grid size={{ xs: 12, sm: 5 }}><TextField select fullWidth size="small" label={`Material ${index + 1}`} value={line.materialRef} onChange={(event) => editLine(line.key, { materialRef: event.target.value })} error={Boolean((error === 'Cada componente necesita material, cantidad y, si es nuevo, categoría de recepción.' && (line.materialRef || line.amount || line.newName) && !line.materialRef && !line.newName.trim()))} helperText={(error === 'Cada componente necesita material, cantidad y, si es nuevo, categoría de recepción.' && (line.materialRef || line.amount || line.newName) && !line.materialRef && !line.newName.trim()) ? "Selecciona el material." : (undefined)} ><MenuItem value="">Seleccionar</MenuItem>{candidates.map((item) => <MenuItem key={item.id} value={item.id}>{item.nombre} · {item.codigo}</MenuItem>)}<MenuItem value="NUEVO">+ Crear {raw ? 'materia prima' : line.role === 'ADITIVO' ? 'aditivo' : 'colorante'}</MenuItem></TextField></Grid>
+                    <Grid size={{ xs: 10, sm: 3 }}><TextField fullWidth size="small" type="number" label={raw ? 'Porcentaje (%)' : 'Dosis (g)'} value={line.amount} onChange={(event) => editLine(line.key, { amount: event.target.value })} slotProps={{ htmlInput: { min: 0.0001, max: raw ? 100 : undefined, step: raw ? 0.01 : 0.0001 } }}  error={Boolean((error === 'Cada componente necesita material, cantidad y, si es nuevo, categoría de recepción.' && (line.materialRef || line.amount || line.newName) && !(Number(line.amount) > 0)))} helperText={(error === 'Cada componente necesita material, cantidad y, si es nuevo, categoría de recepción.' && (line.materialRef || line.amount || line.newName) && !(Number(line.amount) > 0)) ? "Indica una cantidad positiva." : (undefined)} /></Grid>
                     <Grid size={{ xs: 2, sm: 1 }}><Button aria-label={`Quitar componente ${index + 1}`} color="error" onClick={() => removeLine(line.key)}><DeleteOutlineIcon /></Button></Grid>
                   </Grid>
                   {!raw && <TextField size="small" type="number" label="Por kg virgen" value={line.baseKg || baseKg} onChange={(event) => editLine(line.key, { baseKg: event.target.value })} sx={{ maxWidth: 190 }} />}
                   {line.materialRef === 'NUEVO' && (
                     <Grid container spacing={1.25}>
-                      <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth size="small" label="Nombre del material nuevo" value={line.newName} onChange={(event) => editLine(line.key, { newName: event.target.value })} /></Grid>
-                      <Grid size={{ xs: 12, sm: 6 }}><TextField select fullWidth size="small" label="Categoría de recepción" value={line.categoryId} onChange={(event) => editLine(line.key, { categoryId: event.target.value })}>{activeCategories.map((item) => <MenuItem key={item.id} value={item.id}>{item.codigo} · {item.nombre}</MenuItem>)}</TextField></Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}><TextField fullWidth size="small" label="Nombre del material nuevo" value={line.newName} onChange={(event) => editLine(line.key, { newName: event.target.value })}  error={Boolean((error === 'Cada componente necesita material, cantidad y, si es nuevo, categoría de recepción.' && line.materialRef === 'NUEVO' && !line.newName.trim()))} helperText={(error === 'Cada componente necesita material, cantidad y, si es nuevo, categoría de recepción.' && line.materialRef === 'NUEVO' && !line.newName.trim()) ? "Ingresa el nombre del material." : (undefined)} /></Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}><TextField select fullWidth size="small" label="Categoría de recepción" value={line.categoryId} onChange={(event) => editLine(line.key, { categoryId: event.target.value })} error={Boolean((error === 'Cada componente necesita material, cantidad y, si es nuevo, categoría de recepción.' && line.materialRef === 'NUEVO' && !line.categoryId))} helperText={(error === 'Cada componente necesita material, cantidad y, si es nuevo, categoría de recepción.' && line.materialRef === 'NUEVO' && !line.categoryId) ? "Selecciona la categoría de recepción." : (undefined)} >{activeCategories.map((item) => <MenuItem key={item.id} value={item.id}>{item.codigo} · {item.nombre}</MenuItem>)}</TextField></Grid>
                       {activeCategories.length === 0 && <Grid size={{ xs: 12 }}><Alert severity="warning">No hay categorías activas; configura una antes de dar de alta materiales.</Alert></Grid>}
                     </Grid>
                   )}

@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress,
@@ -801,14 +802,14 @@ export default function ControlAvanceOfTv() {
   const [payloadActorId, setPayloadActorId] = useState(null);
   const [lastSuccess, setLastSuccess] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/ControlAvanceOfTv.jsx:error", { severity: "error", initialValue: '' });
   const [search, setSearch] = useState('');
   const [orderDirection, setOrderDirection] = useState('asc');
   const [tvMode, setTvMode] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth || 1366);
   const [wideViewport, setWideViewport] = useState(() => window.innerWidth >= 900);
   const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight || 768);
-  const [fullscreenWarning, setFullscreenWarning] = useState('');
+  const [fullscreenWarning, setFullscreenWarning, feedbackFallback_fullscreenWarning] = useOperationMessage("components/ControlAvanceOfTv.jsx:fullscreenWarning", { severity: "warning", initialValue: '' });
   const [slide, setSlide] = useState(0);
   const [paused, setPaused] = useState(false);
   const rootRef = useRef(null);
@@ -839,7 +840,7 @@ export default function ControlAvanceOfTv() {
     } finally {
       if (!signal?.aborted && requestId === requestSeq.current) setLoading(false);
     }
-  }, [actorId]);
+  }, [actorId, setError]);
 
   useEffect(() => {
     requestSeq.current += 1;
@@ -859,7 +860,7 @@ export default function ControlAvanceOfTv() {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [refresh]);
+  }, [refresh, setError]);
 
   const activePayload = payloadActorId === actorId ? payload : null;
   const canonicalGroups = useMemo(() => (activePayload?.items || [])
@@ -1058,7 +1059,7 @@ export default function ControlAvanceOfTv() {
           <Button variant="contained" startIcon={tvMode ? <FullscreenExitOutlinedIcon /> : <FullscreenOutlinedIcon />} onClick={setFullscreen}>{tvMode ? 'Salir de TV' : 'Modo TV'}</Button>
         </Stack>
       </Stack>
-      {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}</>}
       {!tvMode && (
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
           <TextField fullWidth size="small" label="Filtrar OF, pieza o objetivo de color" value={search} onChange={(event) => { setSearch(event.target.value); setSlide(0); }} />
@@ -1068,7 +1069,7 @@ export default function ControlAvanceOfTv() {
           <Chip label="Solo OF activas" color="primary" variant="outlined" />
         </Stack>
       )}
-      {fullscreenWarning && <Alert severity="warning" sx={{ mb: 1 }}>{fullscreenWarning}</Alert>}
+      {fullscreenWarning && <>{feedbackFallback_fullscreenWarning && <Alert severity="warning" sx={{ mb: 1 }}>{fullscreenWarning}</Alert>}</>}
       {loading && !payload && <Stack alignItems="center" sx={{ py: 6 }}><CircularProgress /><Typography sx={{ mt: 1 }}>Consultando avance.</Typography></Stack>}
       {!loading && !legacyTvParts.length && !canonicalParts.length && <Alert severity="info">No hay salidas de OF activas para mostrar.</Alert>}
       {tvMode && (hasCanonicalGroups ? currentPage.rows.length > 0 : currentPage.length > 0) && (

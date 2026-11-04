@@ -11,6 +11,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useScmActor } from '../context/ScmActorContext';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
+import { useOperationMessage } from '../utils/operationFeedbackState';
 import {
   abrirSesionRecepcionScm,
   cerrarSesionRecepcionScm,
@@ -219,8 +220,8 @@ export default function WarehouseReceivingScm() {
     ...emptyReceivingPayload,
   });
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, isFeedbackFallback] = useOperationMessage('warehouse-receiving-error');
+  const [notice, setNotice] = useOperationMessage('warehouse-receiving-success', { severity: 'success', operation: 'warehouse-receiving' });
   const [tab, setTab] = useState(0);
   const [scan, setScan] = useState('');
   const [candidate, setCandidate] = useState(null);
@@ -250,7 +251,7 @@ export default function WarehouseReceivingScm() {
     setSession(null);
     setScan('');
     setInteractionState('ESPERANDO_QR');
-  }, [actorId]);
+  }, [actorId, setError, setNotice]);
 
   const load = useCallback(async () => {
     const requestId = loadRequestRef.current + 1;
@@ -268,7 +269,7 @@ export default function WarehouseReceivingScm() {
     } finally {
       if (loadRequestRef.current === requestId) setBusy(false);
     }
-  }, [actorId]);
+  }, [actorId, setError]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -552,8 +553,8 @@ export default function WarehouseReceivingScm() {
         description="Acepta bolsas pesadas, conserva su identidad y separa existencia física de stock liberado."
         actions={<Button startIcon={<RefreshIcon />} variant="outlined" onClick={load}>Actualizar</Button>}
       />
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {isFeedbackFallback && error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      {isFeedbackFallback && notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       <Alert severity="info">
         Almacén no vuelve a contar ni pesar: compara la manga física con sus dos etiquetas.
         En el piloto KG, el stock está disponible desde el pesaje; recibir en Almacén traslada su ubicación. Las existencias históricas conservan su estado registrado.

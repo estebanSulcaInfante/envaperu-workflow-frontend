@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -718,8 +719,8 @@ function OpmPreparationWorkspace() {
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [feedback, setFeedback] = useState('');
+  const [error, setError] = useOperationMessage("components/OpmPreparationWorkspace.jsx:error", { severity: "error", initialValue: '' });
+  const [feedback, setFeedback, feedbackFallback_feedback] = useOperationMessage("components/OpmPreparationWorkspace.jsx:feedback", { severity: "success", initialValue: '' });
   const [createGroup, setCreateGroup] = useState(null);
   const [reasonDialog, setReasonDialog] = useState(null);
   const [weightDialog, setWeightDialog] = useState(null);
@@ -756,7 +757,7 @@ function OpmPreparationWorkspace() {
     } finally {
       setLoading(false);
     }
-  }, [can]);
+  }, [can, setError]);
 
   useEffect(() => { loadQueue(); }, [loadQueue]);
 
@@ -779,7 +780,7 @@ function OpmPreparationWorkspace() {
         if (active) setError('No se pudieron cargar las ubicaciones físicas autorizadas. Los movimientos quedan bloqueados.');
       });
     return () => { active = false; };
-  }, [actorId, selectedId]);
+  }, [actorId, selectedId, setError]);
 
   const loadDetail = useCallback(async (opmId) => {
     const response = await obtenerDetalleOrdenPreparacionMaterial(opmId);
@@ -807,7 +808,7 @@ function OpmPreparationWorkspace() {
     } finally {
       setDetailLoading(false);
     }
-  }, [loadDetail]);
+  }, [loadDetail, setError]);
 
   const refreshDetail = useCallback(async () => {
     if (!selected?.id) return;
@@ -828,7 +829,7 @@ function OpmPreparationWorkspace() {
     } finally {
       setDetailLoading(false);
     }
-  }, [loadQueue, refreshDetail, selected?.id]);
+  }, [loadQueue, refreshDetail, selected?.id, setError, setFeedback]);
 
   const executeMutation = async (command) => {
     const {
@@ -1243,7 +1244,7 @@ function OpmPreparationWorkspace() {
       <Alert severity="info" icon={<ScienceOutlinedIcon />}>
         Este es el flujo canónico OPM: una preparación puede cubrir varios Trabajos de color. La molienda (OM) permanece aguas arriba y entrega insumos identificados; no sustituye la OPM. La premezcla ligada a un solo objetivo permanece disponible abajo como flujo legacy temporal y no crea stock reutilizable.
       </Alert>
-      {feedback && <Alert severity="success" onClose={() => setFeedback('')}>{feedback}</Alert>}
+      {feedback && <>{feedbackFallback_feedback && <Alert severity="success" onClose={() => setFeedback('')}>{feedback}</Alert>}</>}
       {error && (
         <Alert
           severity="error"

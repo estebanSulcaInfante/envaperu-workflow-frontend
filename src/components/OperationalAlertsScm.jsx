@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import PageHeader from './ui/PageHeader';
 import { useScmActor } from '../context/ScmActorContext';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
+import { useOperationMessage } from '../utils/operationFeedbackState';
 import {
   aprobarRevisionReglaAlerta, crearRevisionReglaAlerta,
   gestionarAlertaOperativa, listarAlertasOperativas, listarReglasAlerta,
@@ -23,8 +24,8 @@ export default function OperationalAlertsScm() {
   const { can, experience } = useScmActor();
   const [tab, setTab] = useState(0);
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, isFeedbackFallback] = useOperationMessage('operational-alerts-error');
+  const [notice, setNotice] = useOperationMessage('operational-alerts-success', { severity: 'success', operation: 'operational-alerts' });
   const [alerts, setAlerts] = useState([]);
   const [rules, setRules] = useState([]);
   const [counts, setCounts] = useState({});
@@ -54,7 +55,7 @@ export default function OperationalAlertsScm() {
     } finally {
       setBusy(false);
     }
-  }, [filters]);
+  }, [filters, setError]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -110,8 +111,8 @@ export default function OperationalAlertsScm() {
         actions={<Button startIcon={<RefreshIcon />} variant="outlined" onClick={load}>Actualizar</Button>}
       />
       {busy && <LinearProgress />}
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {isFeedbackFallback && error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      {isFeedbackFallback && notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
       <Alert severity="info">
         Reconocer significa “ya la vi”; no resuelve, aprueba ni borra la inconsistencia.
       </Alert>

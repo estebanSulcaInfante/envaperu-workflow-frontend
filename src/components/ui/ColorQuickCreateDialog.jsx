@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../../utils/operationFeedbackState";
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -34,7 +35,7 @@ function ColorQuickCreateDialog({
   const [familias, setFamilias] = useState([]);
   const [loadingFamilies, setLoadingFamilies] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/ui/ColorQuickCreateDialog.jsx:error", { severity: "error", initialValue: '' });
 
   useEffect(() => {
     if (!open) return undefined;
@@ -67,7 +68,7 @@ function ColorQuickCreateDialog({
     return () => {
       active = false;
     };
-  }, [initialName, open]);
+  }, [initialName, open, setError]);
 
   const handleClose = () => {
     if (!saving) onClose?.();
@@ -102,11 +103,11 @@ function ColorQuickCreateDialog({
     <Dialog open={open} onClose={handleClose} maxWidth="xs" fullWidth>
       <DialogTitle>Nuevo color de producción</DialogTitle>
       <DialogContent dividers>
-        <Stack component="form" id="quick-create-color-form" spacing={2} onSubmit={handleSubmit}>
+        <Stack component="form" id="quick-create-color-form" spacing={2} onSubmit={handleSubmit} noValidate>
           <Typography variant="body2" color="text.secondary">
             El color operativo combina un color base con su acabado.
           </Typography>
-          {error && <Alert severity="error">{error}</Alert>}
+          {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
           <TextField
             autoFocus
             label="Color base"
@@ -118,12 +119,13 @@ function ColorQuickCreateDialog({
             required
             inputProps={{ maxLength: 50 }}
             placeholder="Ej. VERDE"
-          />
-          <FormControl required disabled={loadingFamilies || saving}>
+           error={Boolean((error === 'Completa el nombre y el acabado del color.' && !form.nombre.trim()))} helperText={(error === 'Completa el nombre y el acabado del color.' && !form.nombre.trim()) ? "Completa el nombre del color." : (undefined)} />
+          <FormControl required disabled={loadingFamilies || saving} error={error === 'Completa el nombre y el acabado del color.' && !form.familia_color_id}>
             <InputLabel id="quick-color-family-label">Acabado</InputLabel>
             <Select
               labelId="quick-color-family-label"
               label="Acabado"
+              inputProps={{ 'aria-describedby': 'quick-color-family-help' }}
               value={form.familia_color_id}
               onChange={(event) => setForm((current) => ({
                 ...current,
@@ -135,7 +137,7 @@ function ColorQuickCreateDialog({
                 <MenuItem key={familia.id} value={familia.id}>{familia.nombre}</MenuItem>
               ))}
             </Select>
-            <FormHelperText>Ej. sólido, transparente o caramelo</FormHelperText>
+            <FormHelperText id="quick-color-family-help">{error === 'Completa el nombre y el acabado del color.' && !form.familia_color_id ? 'Selecciona el acabado del color.' : 'Ej. sólido, transparente o caramelo'}</FormHelperText>
           </FormControl>
         </Stack>
       </DialogContent>

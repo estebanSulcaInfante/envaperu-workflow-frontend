@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useState } from 'react';
 import {
   Alert,
@@ -32,7 +33,7 @@ export default function FabricationOrderReplacement({
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/FabricationOrderReplacement.jsx:error", { severity: "error", initialValue: '' });
   const [reviewedOrder, setReviewedOrder] = useState(null);
   const [operationId, setOperationId] = useState(null);
   const [reviewReady, setReviewReady] = useState(false);
@@ -117,7 +118,7 @@ export default function FabricationOrderReplacement({
             Mismo objetivo; nueva OF en borrador; no modifica OA ni órdenes en ejecución.
             La receta aprobada se selecciona explícitamente antes de liberar.
           </Alert>
-          {error && <Alert severity="error">{error}</Alert>}
+          {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
           <TextField
             autoFocus
             label="Motivo de reemplazo"

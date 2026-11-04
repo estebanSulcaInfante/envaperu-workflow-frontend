@@ -47,7 +47,8 @@ describe('imágenes de la alta integral', () => {
     });
 
     expect(onSelect).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert')).toHaveTextContent(/JPEG, PNG o WEBP/i);
+    expect(screen.getByLabelText(/Seleccionar imagen de COLADOR #3/i)).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText(/Seleccionar imagen de COLADOR #3/i)).toHaveAccessibleDescription(/JPEG, PNG o WEBP/i);
   });
 
   it('muestra error retryable y una imagen ya persistida sin base64', async () => {

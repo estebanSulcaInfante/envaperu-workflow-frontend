@@ -1,3 +1,5 @@
+import { useCallback } from "react";
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useState, useEffect } from 'react';
 import {
   Box,
@@ -34,7 +36,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 function TalonariosAdmin() {
   const [talonarios, setTalonarios] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/TalonariosAdmin.jsx:error", { severity: "error", initialValue: null });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [siguiente, setSiguiente] = useState(null);
   const [search, setSearch] = useState('');
@@ -46,7 +48,8 @@ function TalonariosAdmin() {
     descripcion: ''
   });
 
-  const fetchTalonarios = async () => {
+  const fetchTalonarios = useCallback(async () => {
+    setError('');
     try {
       setLoading(true);
       const res = await fetch(`${API_URL}/api/talonarios?activos=false`);
@@ -57,7 +60,7 @@ function TalonariosAdmin() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [setError]);
 
   const fetchSiguiente = async () => {
     try {
@@ -76,7 +79,7 @@ function TalonariosAdmin() {
   useEffect(() => {
     fetchTalonarios();
     fetchSiguiente();
-  }, []);
+  }, [fetchTalonarios]);
 
   const handleOpenDialog = () => {
     // Sugerir siguiente rango basado en último talonario
@@ -160,7 +163,7 @@ function TalonariosAdmin() {
         />
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}</>}
 
       <DataTableToolbar
         searchValue={search}

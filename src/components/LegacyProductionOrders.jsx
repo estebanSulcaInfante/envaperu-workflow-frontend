@@ -1,3 +1,5 @@
+import { useOperationMessage } from '../utils/operationFeedbackState';
+import OperationNotice from './ui/OperationNotice';
 import { Fragment, useEffect, useState } from 'react';
 import {
   Alert,
@@ -277,7 +279,7 @@ export default function LegacyProductionOrders() {
   const [requestedBy, setRequestedBy] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice, feedbackFallback_notice] = useOperationMessage('legacy-production:notice', { severity: 'info', persistent: true });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -347,7 +349,7 @@ export default function LegacyProductionOrders() {
       setLoading(true);
       setRefresh((value) => value + 1);
     } catch (requestError) {
-      setNotice(requestError?.response?.data?.message || 'No se pudo registrar el comando.');
+      setNotice(requestError?.response?.data?.message || 'No se pudo registrar el comando.', { severity: 'error' });
     } finally {
       setSubmitting(false);
     }
@@ -420,6 +422,7 @@ export default function LegacyProductionOrders() {
         />
       </Box>
 
+      <OperationNotice message={error ? 'No se pudo consultar el historial de pesajes.' : ''} />
       {error && <Alert severity="error" sx={{ mb: 2 }}>No se pudo consultar el historial de pesajes.</Alert>}
       {loading && !data && <Box sx={{ minHeight: 280, display: 'grid', placeItems: 'center' }}><CircularProgress /></Box>}
       {data?.items.length > 0 && (mobile
@@ -481,12 +484,13 @@ export default function LegacyProductionOrders() {
           </Paper>
         </Box>
       )}
-      <Snackbar
+      {feedbackFallback_notice && <Snackbar
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         autoHideDuration={5000}
         message={notice}
         onClose={() => setNotice('')}
         open={Boolean(notice)}
-      />
+      />}
     </Box>
   );
 }

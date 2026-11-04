@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -410,7 +411,7 @@ function ReceptionDraft({ workspace, onBack, onCommit, initialReception = null }
   const [draft, setDraft] = useState(initialDraft);
   const [intakeType, setIntakeType] = useState(initialReception?.isExceptional ? 'EXCEPCIONAL' : 'ORDINARIA');
   const [managementDecision, setManagementDecision] = useState('');
-  const [message, setMessage] = useState('');
+  const [message, setMessage, feedbackFallback_message] = useOperationMessage("components/RecepcionMateriales.jsx:message", { severity: "success", initialValue: '' });
 
   const switchMode = (value) => {
     setMode(value);
@@ -432,7 +433,7 @@ function ReceptionDraft({ workspace, onBack, onCommit, initialReception = null }
         <IconButton onClick={onBack}><ArrowBackOutlinedIcon /></IconButton>
         <Box><Typography variant="h5" sx={{ fontWeight: 850 }}>{initialReception ? `Editar ${initialReception.id}` : 'Nueva recepción de materia prima'}</Typography><Typography variant="body2" color="text.secondary">CRUD mock en memoria; confirmar crea lote y saldos locales</Typography></Box>
       </Stack>
-      {message && <Alert severity="success" onClose={() => setMessage('')}>{message}</Alert>}
+      {message && <>{feedbackFallback_message && <Alert severity="success" onClose={() => setMessage('')}>{message}</Alert>}</>}
       <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2.5 } }}>
         <Stack spacing={2.5}>
           <Box>
@@ -520,7 +521,7 @@ function PurchaseOrderForm({ initialOrder, workspace, onSave, onCancel }) {
       receivedKg: 0,
     }]
   ));
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/RecepcionMateriales.jsx:error", { severity: "error", initialValue: '' });
   const editing = Boolean(initialOrder);
 
   const updateLine = (id, field, value) => setLines((current) => current.map((line) => (
@@ -568,7 +569,7 @@ function PurchaseOrderForm({ initialOrder, workspace, onSave, onCancel }) {
           <Typography variant="h5" sx={{ fontWeight: 850 }}>{editing ? 'Editar borrador' : 'Crear orden de compra'}</Typography>
           <Typography variant="body2" color="text.secondary">Los cambios viven únicamente en memoria y se pierden al recargar.</Typography>
         </Box>
-        {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+        {error && <>{feedbackFallback_error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}</>}
         <TextField select fullWidth label="Proveedor de la orden" value={providerId} onChange={(event) => setProviderId(Number(event.target.value))}>
           {workspace.providers.filter((provider) => provider.active).map((provider) => (
             <MenuItem key={provider.id} value={provider.id}>{provider.code} · {provider.name}</MenuItem>
@@ -609,7 +610,7 @@ function PurchaseOrderForm({ initialOrder, workspace, onSave, onCancel }) {
 function PurchaseOrdersPanel({ workspace, orders, onChange }) {
   const [selectedId, setSelectedId] = useState(orders[0]?.id);
   const [editor, setEditor] = useState(null);
-  const [message, setMessage] = useState('');
+  const [message, setMessage, feedbackFallback_message] = useOperationMessage("components/RecepcionMateriales.jsx:message", { severity: "success", initialValue: '' });
   const selected = orders.find((item) => item.id === selectedId) || orders[0];
 
   const replaceSelected = (changes, successMessage) => {
@@ -671,7 +672,7 @@ function PurchaseOrdersPanel({ workspace, orders, onChange }) {
   if (!selected) return null;
   return (
     <Stack spacing={2}>
-      {message && <Alert severity="success" onClose={() => setMessage('')}>{message}</Alert>}
+      {message && <>{feedbackFallback_message && <Alert severity="success" onClose={() => setMessage('')}>{message}</Alert>}</>}
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, lg: 4 }}>
           <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
@@ -792,7 +793,7 @@ function RecepcionMateriales({ forcedSection }) {
       .then((data) => setWorkspace(data))
       .catch(() => setError('No se pudo cargar el prototipo local.'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [setError]);
 
   const section = forcedSection || ['compras', 'calidad', 'inventario', 'documentos', 'catalogos', 'configuracion', 'cobertura']
     .find((item) => location.pathname.includes(`/${item}`)) || 'recepciones';

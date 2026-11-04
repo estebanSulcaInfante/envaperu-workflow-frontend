@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent,
   DialogTitle, Divider, FormControl, FormControlLabel, IconButton, InputLabel, LinearProgress, MenuItem,
@@ -49,8 +50,8 @@ export default function ReprocessingScm({ initialTab = 0 }) {
   const { can, experience } = useScmActor();
   const [tab, setTab] = useState(initialTab);
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/ReprocessingScm.jsx:error", { severity: "error", initialValue: '' });
+  const [notice, setNotice, feedbackFallback_notice] = useOperationMessage("components/ReprocessingScm.jsx:notice", { severity: "success", initialValue: '' });
   const [refs, setRefs] = useState({
     familias_material: [], procesos: [], condiciones: [], colores: [],
     familias_color: [], materiales_salida: [], ubicaciones: [],
@@ -108,16 +109,17 @@ export default function ReprocessingScm({ initialTab = 0 }) {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [setError]);
 
   const loadMaster = useCallback(async () => {
+    setError('');
     try {
       const payload = await listarMaestroReproceso(masterType);
       setMasterItems(payload.items || []);
     } catch (requestError) {
       setError(mensajeErrorScm(requestError, 'No se pudo cargar el maestro.'));
     }
-  }, [masterType]);
+  }, [masterType, setError]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (tab === 4) loadMaster(); }, [loadMaster, tab]);
@@ -274,8 +276,8 @@ export default function ReprocessingScm({ initialTab = 0 }) {
         actions={<Button startIcon={<RefreshIcon />} variant="outlined" onClick={load}>Actualizar</Button>}
       />
       {busy && <LinearProgress />}
-      {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-      {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}</>}
+      {notice && <>{feedbackFallback_notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}</>}
       <Alert severity="info">
         El peso de almacén crea saldo una vez. El peso previo al molino lo concilia y consume;
         nunca se suman como dos entradas.

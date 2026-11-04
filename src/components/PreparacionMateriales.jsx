@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -444,8 +445,8 @@ function LegacyPreparacionMateriales() {
   const [selectedLot, setSelectedLot] = useState('');
   const [tab, setTab] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [feedback, setFeedback] = useState(null);
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/PreparacionMateriales.jsx:error", { severity: "error", initialValue: null });
+  const [feedback, setFeedback, feedbackFallback_feedback] = useOperationMessage("components/PreparacionMateriales.jsx:feedback", { severity: "success", initialValue: null });
   const [commandBusy, setCommandBusy] = useState(false);
   const [returnDialog, setReturnDialog] = useState(null);
   const [premixDialog, setPremixDialog] = useState(null);
@@ -465,7 +466,7 @@ function LegacyPreparacionMateriales() {
     } finally {
       setLoading(false);
     }
-  }, [numeroOp]);
+  }, [numeroOp, setError]);
 
   useEffect(() => {
     loadWorkspace();
@@ -585,8 +586,8 @@ function LegacyPreparacionMateriales() {
         </Stack>
       </Box>
 
-      {feedback && <Alert severity="success" onClose={() => setFeedback(null)} sx={{ mb: 2 }}>{feedback}</Alert>}
-      {error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}
+      {feedback && <>{feedbackFallback_feedback && <Alert severity="success" onClose={() => setFeedback(null)} sx={{ mb: 2 }}>{feedback}</Alert>}</>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>{error}</Alert>}</>}
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 1 }}>
         <Grid container spacing={2} alignItems="center">

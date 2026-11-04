@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../../utils/operationFeedbackState";
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -46,7 +47,7 @@ export default function ProductStructureStep({
   const data = normalizeStructureStepData(value, resolvedReferences);
   const [catalogs, setCatalogs] = useState({ articles: [], structures: [] });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/productOnboarding/ProductStructureStep.jsx:error", { severity: "error", initialValue: '' });
   const [wipDialogOpen, setWipDialogOpen] = useState(false);
   const targetArticle = productArticle(catalogs.articles, productRef);
   const editorValue = useMemo(
@@ -102,7 +103,7 @@ export default function ProductStructureStep({
       })
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [productRef]);
+  }, [productRef, setError]);
 
   useEffect(() => {
     if (!targetArticle || data.target_article_ref) return;
@@ -136,7 +137,7 @@ export default function ProductStructureStep({
           Define la composición con el mismo editor canónico de Ingeniería SCM.
         </Typography>
       </Stack>
-      {error && <Alert severity="error">{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
       {!targetArticle && (
         <Alert severity="warning">
           El PT {productRef || 'de la sesión'} aún no tiene un Artículo SCM resoluble.

@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -88,10 +89,10 @@ export default function MangaExplorerScm() {
   const [items, setItems] = useState([]);
   const [page, setPage] = useState({ next_cursor: null, has_more: false, limit: 25 });
   const [state, setState] = useState('idle');
-  const [error, setError] = useState('');
+  const [error, setError] = useOperationMessage("components/MangaExplorerScm.jsx:error", { severity: "error", initialValue: '' });
   const [cursorInvalidated, setCursorInvalidated] = useState(false);
   const [exportState, setExportState] = useState('idle');
-  const [exportError, setExportError] = useState('');
+  const [exportError, setExportError] = useOperationMessage("components/MangaExplorerScm.jsx:exportError", { severity: "error", initialValue: '' });
   const [cursorStack, setCursorStack] = useState(['']);
   const listSequence = useRef(0);
   const exportSequence = useRef(0);
@@ -136,7 +137,7 @@ export default function MangaExplorerScm() {
       setCursorInvalidated(cause?.response?.status === 409 && cause?.response?.data?.error?.code === 'STALE_MANGA_EXPLORER_CURSOR');
       setError(errorMessage(cause));
     }
-  }, [actorId, setSearchParams]);
+  }, [actorId, setSearchParams, setError]);
 
   useEffect(() => {
     const parsed = { ...initialFilters, ...parseFilters(searchParams) };
@@ -151,7 +152,7 @@ export default function MangaExplorerScm() {
       controller.current?.abort();
       exportController.current?.abort();
     };
-  }, [actorId, load, searchParams]);
+  }, [actorId, load, searchParams, setExportError]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const submit = (event) => {

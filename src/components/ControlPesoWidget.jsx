@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useState, useEffect, useCallback } from 'react';
 import {
   Box,
@@ -29,9 +30,10 @@ export default function ControlPesoWidget({ registroId, onUpdate }) {
   const [loading, setLoading] = useState(false);
   const [nuevoPeso, setNuevoPeso] = useState('');
   const [nuevoColor, setNuevoColor] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/ControlPesoWidget.jsx:error", { severity: "error", initialValue: '' });
 
   const cargarDatos = useCallback(async () => {
+    setError('');
     if (!registroId) return;
     setLoading(true);
     try {
@@ -46,7 +48,7 @@ export default function ControlPesoWidget({ registroId, onUpdate }) {
     } finally {
       setLoading(false);
     }
-  }, [registroId]);
+  }, [registroId, setError]);
 
   useEffect(() => {
     cargarDatos();
@@ -87,7 +89,7 @@ export default function ControlPesoWidget({ registroId, onUpdate }) {
         <Typography variant="h6" color="white">Control de Peso (Doble Verificación)</Typography>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}</>}
 
       {/* Loading Spinner */}
       {loading && (

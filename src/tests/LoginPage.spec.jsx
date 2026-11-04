@@ -1,7 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import LoginPage from '../components/auth/LoginPage';
+import { FeedbackProvider } from '../context/FeedbackContext';
+import { ThemeProvider, createTheme } from '@mui/material';
 
 const authState = vi.hoisted(() => ({
   error: '',
@@ -37,5 +39,21 @@ describe('inicio de sesión SCM', () => {
     render(<LoginPage />);
 
     expect(screen.getByText('Correo o contraseña incorrectos.')).toBeInTheDocument();
+  });
+
+  it('retira el aviso al recuperarse y no lo arrastra a la sesión autenticada', async () => {
+    authState.error = 'Correo o contraseña incorrectos.';
+    const page = (scope, children) => <ThemeProvider theme={createTheme()}><FeedbackProvider scopeKey={scope}>{children}</FeedbackProvider></ThemeProvider>;
+    const { rerender } = render(page('auth:login', <LoginPage />));
+    expect(await screen.findByRole('alert', { name: 'Correo o contraseña incorrectos.' })).toBeVisible();
+    authState.error = '';
+    rerender(page('auth:login', <LoginPage />));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    authState.error = 'Correo o contraseña incorrectos.';
+    rerender(page('auth:login', <LoginPage />));
+    expect(await screen.findByRole('alert', { name: 'Correo o contraseña incorrectos.' })).toBeVisible();
+    rerender(page('auth:authenticated', <p>Sesión iniciada</p>));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(screen.getByText('Sesión iniciada')).toBeVisible();
   });
 });

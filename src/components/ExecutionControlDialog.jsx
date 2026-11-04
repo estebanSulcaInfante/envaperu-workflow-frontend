@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useMemo, useRef, useState } from 'react';
 import {
   Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -48,7 +49,7 @@ export default function ExecutionControlDialog({ open, order, canPause, canCance
   const [impact, setImpact] = useState(null);
   const [reason, setReason] = useState('');
   const [state, setState] = useState('idle');
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/ExecutionControlDialog.jsx:error", { severity: "error", initialValue: '' });
   const [operationId, setOperationId] = useState('');
   const [successMessage, setSuccessMessage] = useState('Cambio confirmado por Central.');
   const [uncertainSnapshot, setUncertainSnapshot] = useState(null);
@@ -241,7 +242,7 @@ export default function ExecutionControlDialog({ open, order, canPause, canCance
       {state === 'resolving' && <Stack direction="row" spacing={1} alignItems="center"><CircularProgress size={18} /> <Typography variant="body2">Revisando estado autoritativo…</Typography></Stack>}
       {completed && <Alert severity="success"><Typography variant="body2">{successMessage}</Typography></Alert>}
       {!completed && impact && <Alert severity={impact.can_execute ? 'info' : 'warning'}><Typography variant="body2"><strong>{impact.trabajos?.afectados ?? 0}</strong> trabajos afectados · {impact.mangas_abiertas || 0} mangas abiertas · {impact.reservas_activas || 0} reservas activas.</Typography>{impact.producido?.length > 0 && <Typography variant="body2">Producido conservado: {impact.producido.map(producedLabel).join(' · ')}</Typography>}{impact.compromisos_residuales?.length > 0 && <Typography variant="body2">Compromiso residual: {impact.compromisos_residuales.map((item) => `${item.cantidad}${item.unidad ? ` ${item.unidad}` : ''}`).join(' · ')}</Typography>}{!impact.can_execute && <Stack component="ul" sx={{ mb: 0, pl: 2 }}>{(impact.blockers || []).map((blocker) => <li key={blocker.code}><strong>{blocker.code}</strong>: {blocker.message}{blocker.recovery ? ` ${blocker.recovery}` : ''}</li>)}</Stack>}</Alert>}
-      {error && <Alert severity="error">{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
       {uncertaintyLocked && <Button variant="outlined" onClick={() => inspect(action, { authoritative: true })} disabled={state === 'resolving' || state === 'submitting'}>Revisar estado autoritativo</Button>}
       <TextField label="Motivo" value={reason} onChange={(event) => setReason(event.target.value)} required multiline minRows={2} inputProps={{ maxLength: 500 }} helperText="Obligatorio para auditar y reintentar una respuesta incierta." disabled={!impact?.can_execute || uncertaintyLocked || state === 'submitting' || completed} />
     </Stack></DialogContent>

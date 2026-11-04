@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../../utils/operationFeedbackState";
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -34,7 +35,7 @@ function ClassificationQuickCreateDialog({
 }) {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/ui/ClassificationQuickCreateDialog.jsx:error", { severity: "error", initialValue: '' });
   const [globalFamilies, setGlobalFamilies] = useState([]);
   const [checkingFamilies, setCheckingFamilies] = useState(false);
   const isFamily = entity === 'familia';
@@ -58,7 +59,7 @@ function ClassificationQuickCreateDialog({
     } else {
       setGlobalFamilies([]);
     }
-  }, [entity, initialName, open]);
+  }, [entity, initialName, open, setError]);
 
   const handleClose = () => {
     if (!saving) onClose?.();
@@ -111,13 +112,14 @@ function ClassificationQuickCreateDialog({
           id="quick-create-classification-form"
           spacing={2}
           onSubmit={handleSubmit}
+          noValidate
         >
           {isFamily && (
             <Typography variant="body2" color="text.secondary">
               Se asociará inmediatamente a la Línea <strong>{linea?.nombre || 'no seleccionada'}</strong>.
             </Typography>
           )}
-          {error && <Alert severity="error">{error}</Alert>}
+          {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
           {isFamily && existingFamily && (
             <Alert severity="info">
               La Familia <strong>{existingFamily.nombre}</strong> ya existe globalmente.
@@ -142,7 +144,7 @@ function ClassificationQuickCreateDialog({
             inputProps={{ maxLength: 100 }}
             required
             autoFocus
-          />
+           error={Boolean((error === 'Completa el nombre.' && !form.nombre.trim()))} helperText={(error === 'Completa el nombre.' && !form.nombre.trim()) ? "Completa el nombre." : (undefined)} />
         </Stack>
       </DialogContent>
       <DialogActions>

@@ -7,6 +7,7 @@ import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
 import ReplayRoundedIcon from '@mui/icons-material/ReplayRounded';
 import { buildScmAgentChatPayload, createClientRequestId, getScmAgentState, sendScmAgentChat, SCM_AGENT_UI_TIMEOUT } from '../../services/scmAgentApi';
 import { AgentOrb } from './AgentOrb';
+import { useOperationFeedback } from '../../context/FeedbackContext';
 
 const initialAvailability = { phase: 'checking', data: null, error: null };
 
@@ -25,23 +26,31 @@ export default function AssistantAgentPanel({ open, onClose, onStateChange }) {
   const [historyNotice, setHistoryNotice] = useState('');
   const [generation, setGeneration] = useState('idle');
   const [retryAvailability, setRetryAvailability] = useState(0);
+  const { notify, clear, isFallback } = useOperationFeedback('assistant-agent');
   const requestRef = useRef(null);
+  const submitRef = useRef(null);
   const attemptRef = useRef(0);
   const timerRef = useRef(null);
   const inputRef = useRef(null);
   const logEndRef = useRef(null);
 
   const checkAvailability = useCallback(() => {
+    clear('assistant-agent:availability');
     const controller = new AbortController();
     setAvailability({ phase: 'checking', data: null, error: null });
     getScmAgentState({ signal: controller.signal }).then((data) => {
       setAvailability({ phase: 'ready', data, error: null });
     }).catch((requestError) => {
       if (requestError?.name === 'CanceledError' || requestError?.name === 'AbortError') return;
-      setAvailability({ phase: 'error', data: null, error: errorMessage(requestError) });
+      const message = errorMessage(requestError);
+      setAvailability({ phase: 'error', data: null, error: message });
+      if (!isFallback) notify(message, {
+        severity: 'error', operation: 'agent-availability', key: 'assistant-agent:availability',
+        action: <Button size="small" onClick={() => setRetryAvailability((value) => value + 1)}>Reintentar</Button>,
+      });
     });
     return () => controller.abort();
-  }, []);
+  }, [clear, isFallback, notify]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -93,6 +102,7 @@ export default function AssistantAgentPanel({ open, onClose, onStateChange }) {
     const clientRequestId = createClientRequestId();
     const attemptId = attemptRef.current + 1;
     attemptRef.current = attemptId;
+    clear('assistant-agent:query');
     setError(null);
     setGeneration('loading');
     setRetryQuery(value);
@@ -121,7 +131,14 @@ export default function AssistantAgentPanel({ open, onClose, onStateChange }) {
       if (requestError?.name === 'CanceledError' || requestError?.name === 'AbortError') {
         setGeneration('stopped');
       } else {
-        setError(errorMessage(requestError));
+        const message = errorMessage(requestError);
+        setError(message);
+        if (!isFallback) {
+          notify(message, {
+            severity: 'error', operation: 'agent-query', key: 'assistant-agent:query',
+            action: <Button size="small" startIcon={<ReplayRoundedIcon />} onClick={() => submitRef.current?.(undefined, value)}>Reintentar</Button>,
+          });
+        }
         setGeneration('error');
       }
       requestRef.current = null;
@@ -129,6 +146,7 @@ export default function AssistantAgentPanel({ open, onClose, onStateChange }) {
       if (isCurrent()) window.clearTimeout(timerRef.current);
     }
   };
+  submitRef.current = submit;
 
   const handleKeyDown = (event) => {
     if (event.nativeEvent?.isComposing || event.isComposing) return;
@@ -151,7 +169,7 @@ export default function AssistantAgentPanel({ open, onClose, onStateChange }) {
         <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
             {availability.phase === 'checking' && <Stack direction="row" spacing={1} alignItems="center" role="status"><CircularProgress size={16} /><Typography variant="body2">Comprobando disponibilidad…</Typography></Stack>}
-            {availability.phase === 'error' && <Alert severity="error" action={<Button size="small" onClick={() => setRetryAvailability((value) => value + 1)}>Reintentar</Button>}>{availability.error}</Alert>}
+            {isFallback && availability.phase === 'error' && <Alert severity="error" action={<Button size="small" onClick={() => setRetryAvailability((value) => value + 1)}>Reintentar</Button>}>{availability.error}</Alert>}
             {unavailable && <Alert severity="warning">{availability.data?.message || 'El agente SCM no está disponible para este propietario.'}</Alert>}
             {ready && !messages.length && <Typography variant="body2" color="text.secondary">Consulta la información empresarial disponible para este agente de solo lectura.</Typography>}
             <Stack component="div" role="log" aria-live="polite" spacing={1.5} sx={{ mt: messages.length ? 0 : 2 }}>
@@ -160,7 +178,7 @@ export default function AssistantAgentPanel({ open, onClose, onStateChange }) {
             </Stack>
             {generation === 'loading' && <Stack direction="row" spacing={1} alignItems="center" role="status" sx={{ mt: 2 }}><CircularProgress size={15} /><Typography variant="caption">Esperando respuesta del agente…</Typography><Button size="small" startIcon={<StopCircleOutlinedIcon />} onClick={stopWaiting}>Dejar de esperar</Button></Stack>}
             {generation === 'stopped' && <Alert severity="info" sx={{ mt: 2 }}>Dejaste de esperar. La ejecución remota puede continuar; solo se detuvo esta espera HTTP.</Alert>}
-            {error && <Alert severity="error" sx={{ mt: 2 }} action={<Button size="small" startIcon={<ReplayRoundedIcon />} onClick={() => submit(undefined, retryQuery)}>Reintentar</Button>}>{error}</Alert>}
+            {isFallback && error && <Alert severity="error" sx={{ mt: 2 }} action={<Button size="small" startIcon={<ReplayRoundedIcon />} onClick={() => submit(undefined, retryQuery)}>Reintentar</Button>}>{error}</Alert>}
             {historyNotice && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>{historyNotice}</Typography>}
           </Box>
           <Divider />

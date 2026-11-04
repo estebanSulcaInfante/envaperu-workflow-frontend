@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Chip, CircularProgress, Container, Divider, Paper,
@@ -25,8 +26,8 @@ export default function PreparedMaterialMachineScanner() {
   const [bagQr, setBagQr] = useState('');
   const [resolved, setResolved] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/PreparedMaterialMachineScanner.jsx:error", { severity: "error", initialValue: '' });
+  const [success, setSuccess, feedbackFallback_success] = useOperationMessage("components/PreparedMaterialMachineScanner.jsx:success", { severity: "success", initialValue: '' });
   const [lastActivity, setLastActivity] = useState(Date.now());
 
   useEffect(() => { machineRef.current?.focus(); }, []);
@@ -44,7 +45,7 @@ export default function PreparedMaterialMachineScanner() {
       }
     }, 1000);
     return () => globalThis.clearInterval(timer);
-  }, [lastActivity, machineLocked]);
+  }, [lastActivity, machineLocked, setSuccess, setError]);
 
   const lockMachine = () => {
     const normalized = machineQr.trim();
@@ -136,8 +137,8 @@ export default function PreparedMaterialMachineScanner() {
         {!can('MATERIAL_PREPARADO_RECIBIR_MAQUINA') && (
           <Alert severity="warning">Tu perfil no puede confirmar recepciones de material preparado.</Alert>
         )}
-        {error && <Alert severity="error" role="alert">{error}</Alert>}
-        {success && <Alert severity="success" role="status">{success}</Alert>}
+        {error && <>{feedbackFallback_error && <Alert severity="error" role="alert">{error}</Alert>}</>}
+        {success && <>{feedbackFallback_success && <Alert severity="success" role="status">{success}</Alert>}</>}
         <Paper variant="outlined" sx={{ p: { xs: 2, md: 3 } }}>
           <Stack spacing={2.5}>
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="stretch">

@@ -1,3 +1,4 @@
+import OperationNotice from "./ui/OperationNotice";
 import { Fragment, useMemo, useState } from 'react';
 import {
   Alert, Box, Button, Chip, IconButton, LinearProgress, Paper, Stack,
@@ -94,6 +95,7 @@ export default function FabricationProgressObjectivesTable({
         </Box>
         {groups.length > 0 && <Button size="small" onClick={toggleAll} aria-label={allExpanded ? 'Ocultar objetivos' : 'Mostrar todos los objetivos'}>{allExpanded ? 'Ocultar objetivos' : 'Mostrar todos los objetivos'}</Button>}
       </Stack>
+      <OperationNotice message={error} />
       {error && <Alert severity="error" sx={{ mx: 2, mb: 2 }} action={onRetry ? <Button color="inherit" onClick={onRetry}>Reintentar</Button> : undefined}>{error}</Alert>}
       {loading && <Typography role="status" sx={{ p: 2 }}>Cargando objetivos…</Typography>}
       {!loading && !error && !rows.length && <Typography sx={{ p: 2 }} color="text.secondary">No hay objetivos de producción para mostrar.</Typography>}

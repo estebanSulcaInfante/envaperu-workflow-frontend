@@ -26,7 +26,7 @@ export function ColorSwatch({ hex, size = 28 }) {
   );
 }
 
-export default function ColorHexPickerField({ value = '', onChange, disabled = false }) {
+export default function ColorHexPickerField({ value = '', onChange, disabled = false, error = false, helperText }) {
   const normalizedValue = String(value || '').toUpperCase();
   const validHex = COLOR_HEX_PATTERN.test(normalizedValue) ? normalizedValue : null;
   const update = (nextValue) => onChange?.(String(nextValue || '').toUpperCase());
@@ -46,6 +46,8 @@ export default function ColorHexPickerField({ value = '', onChange, disabled = f
         />
         <TextField
           label="HEX de referencia (opcional)"
+          error={error}
+          helperText={helperText}
           placeholder="#F2C94C"
           value={normalizedValue}
           onChange={(event) => update(event.target.value)}

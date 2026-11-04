@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useCallback, useEffect, useState } from 'react';
 import {
   Alert, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -35,8 +36,8 @@ export default function CommercialPresentationsDialog({ open, product, onClose }
   const [items, setItems] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/CommercialPresentationsDialog.jsx:error", { severity: "error", initialValue: '' });
+  const [notice, setNotice, feedbackFallback_notice] = useOperationMessage("components/CommercialPresentationsDialog.jsx:notice", { severity: "success", initialValue: '' });
 
   const load = useCallback(async () => {
     if (!open || !product?.cod_sku_pt) return;
@@ -51,7 +52,7 @@ export default function CommercialPresentationsDialog({ open, product, onClose }
     } finally {
       setBusy(false);
     }
-  }, [open, product?.cod_sku_pt]);
+  }, [open, product?.cod_sku_pt, setError]);
 
   useEffect(() => {
     if (open) {
@@ -59,7 +60,7 @@ export default function CommercialPresentationsDialog({ open, product, onClose }
       setNotice('');
       load();
     }
-  }, [load, open]);
+  }, [load, open, setNotice]);
 
   const edit = (item) => setForm({
     id: item.id,
@@ -134,8 +135,8 @@ export default function CommercialPresentationsDialog({ open, product, onClose }
             Cada presentación convierte demanda comercial a unidades del PT. No modifica
             la BOM ni la capacidad de una manga.
           </Alert>
-          {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-          {notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}
+          {error && <>{feedbackFallback_error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}</>}
+          {notice && <>{feedbackFallback_notice && <Alert severity="success" onClose={() => setNotice('')}>{notice}</Alert>}</>}
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
             <TextField
               label="Nombre de presentación"
@@ -143,16 +144,16 @@ export default function CommercialPresentationsDialog({ open, product, onClose }
               value={form.nombre}
               onChange={(event) => setForm({ ...form, nombre: event.target.value })}
               fullWidth
-            />
+             error={Boolean((error === 'Indica un nombre y una cantidad entera positiva de unidades.' && !form.nombre.trim()))} helperText={(error === 'Indica un nombre y una cantidad entera positiva de unidades.' && !form.nombre.trim()) ? "Indica un nombre." : (undefined)} />
             <TextField
               label="Unidades del PT"
               type="number"
               value={form.unidades_base}
               onChange={(event) => setForm({ ...form, unidades_base: event.target.value })}
               inputProps={{ min: 1, step: 1 }}
-              helperText="1 pack equivale a esta cantidad de UN"
+              helperText={(error === 'Indica un nombre y una cantidad entera positiva de unidades.' && (!Number.isInteger(Number(form.unidades_base)) || Number(form.unidades_base) <= 0)) ? "Indica una cantidad entera positiva de unidades." : ("1 pack equivale a esta cantidad de UN")}
               fullWidth
-            />
+             error={Boolean((error === 'Indica un nombre y una cantidad entera positiva de unidades.' && (!Number.isInteger(Number(form.unidades_base)) || Number(form.unidades_base) <= 0)))} />
             <TextField
               label="Código de barras (opcional)"
               value={form.codigo_barra}

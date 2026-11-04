@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../../utils/operationFeedbackState";
 import {
   useEffect, useMemo, useRef, useState,
 } from 'react';
@@ -122,7 +123,7 @@ export default function ProductRoutePackagingStep({
     articles: [], centers: [], structures: [], routes: [], profiles: [], containers: [], rules: [],
   });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/productOnboarding/ProductRoutePackagingStep.jsx:error", { severity: "error", initialValue: '' });
   const loadedStructureArticles = useRef(new Set());
   const targetArticle = targetProductArticle(catalogs.articles, productRef);
   const profileVersionsById = useMemo(
@@ -203,7 +204,7 @@ export default function ProductRoutePackagingStep({
       })
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [productRef]);
+  }, [productRef, setError]);
 
   useEffect(() => {
     let active = true;
@@ -288,7 +289,7 @@ export default function ProductRoutePackagingStep({
           La salida terminal permanece fijada al PT y cada salida conserva su propio empaque.
         </Typography>
       </Stack>
-      {error && <Alert severity="error">{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error">{error}</Alert>}</>}
       {capabilityErrors.length > 0 && (
         <Alert severity="info">
           {capabilityErrors.join(' ')} Solicita el handoff al actor autorizado antes de aplicar.

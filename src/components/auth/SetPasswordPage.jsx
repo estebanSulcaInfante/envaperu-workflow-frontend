@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Box,
@@ -11,12 +11,18 @@ import {
 } from '@mui/material';
 import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
 import { useAuth } from '../../context/AuthContext';
+import { useOperationFeedback } from '../../context/FeedbackContext';
 
 export default function SetPasswordPage() {
   const { error, updatePassword } = useAuth();
+  const { notify, clear, isFallback } = useOperationFeedback('auth-password');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    if (error && !isFallback) notify(error, { severity: 'error', operation: 'password-update', key: 'auth-password:error' });
+    else clear('auth-password:error');
+  }, [clear, error, isFallback, notify]);
   const mismatch = Boolean(confirmation) && password !== confirmation;
   const valid = password.length >= 10 && password === confirmation;
 
@@ -42,7 +48,7 @@ export default function SetPasswordPage() {
           <Typography variant="body2" color="text.secondary">
             Crea una contraseña personal de al menos 10 caracteres. No la compartas con otras personas.
           </Typography>
-          {error && <Alert severity="error">{error}</Alert>}
+          {isFallback && error && <Alert severity="error">{error}</Alert>}
           <TextField
             label="Nueva contraseña"
             type="password"

@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -266,9 +267,9 @@ export default function ProductionHistoryScm() {
   const [summary, setSummary] = useState(null);
   const [visibility, setVisibility] = useState(null);
   const [state, setState] = useState("idle");
-  const [error, setError] = useState("");
-  const [filterError, setFilterError] = useState("");
-  const [exportError, setExportError] = useState("");
+  const [error, setError] = useOperationMessage("components/ProductionHistoryScm.jsx:error", { severity: "error", initialValue: "" });
+  const [filterError, setFilterError, feedbackFallback_filterError] = useOperationMessage("components/ProductionHistoryScm.jsx:filterError", { severity: "error", initialValue: "" });
+  const [exportError, setExportError] = useOperationMessage("components/ProductionHistoryScm.jsx:exportError", { severity: "error", initialValue: "" });
   const [exportState, setExportState] = useState("idle");
   const [measureError, setMeasureError] = useState("");
   const [hasAppliedResult, setHasAppliedResult] = useState(false);
@@ -724,9 +725,9 @@ export default function ProductionHistoryScm() {
         </Alert>
       )}
       {filterError && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <>{feedbackFallback_filterError && <Alert severity="error" sx={{ mb: 2 }}>
           {filterError}
-        </Alert>
+        </Alert>}</>
       )}
       {exportError && (
         <Alert

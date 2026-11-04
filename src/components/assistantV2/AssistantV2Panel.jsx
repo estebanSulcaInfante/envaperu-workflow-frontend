@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../../utils/operationFeedbackState";
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, Divider, IconButton, Stack, Tab, Tabs, TextField, Typography } from '@mui/material';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
@@ -27,7 +28,7 @@ export default function AssistantV2Panel({ onClose, onMinimize, canReview = fals
   const [suggestions, setSuggestions] = useState(DEFAULT_SUGGESTIONS);
   const [loading, setLoading] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/assistantV2/AssistantV2Panel.jsx:error", { severity: "error", initialValue: '' });
   const [serverCanReview, setServerCanReview] = useState(false);
 
   useEffect(() => {
@@ -80,7 +81,7 @@ export default function AssistantV2Panel({ onClose, onMinimize, canReview = fals
           {!recent.length && <Stack spacing={1.25}><Typography variant="body2" sx={{ color: '#d6dee8' }}>Pregunta por datos SCM disponibles para tu rol. La respuesta mostrará fuente y corte cuando el servicio los entregue.</Typography><Typography variant="caption" sx={{ color: '#9daaba' }}>{catalogLoading ? 'Cargando preguntas recomendadas…' : 'Preguntas recomendadas'}</Typography><Stack spacing={0.7}>{suggestions.map((suggestion) => <Button key={`${suggestion.label}-${suggestion.query}`} variant="outlined" size="small" onClick={() => setQuery(suggestion.query)} sx={{ justifyContent: 'flex-start', textAlign: 'left', color: '#d6dee8', borderColor: '#53667a' }}>{suggestion.label}</Button>)}</Stack></Stack>}
           <Stack spacing={1.25}>{recent.map((message, index) => message.kind === 'question' ? <Box key={`${message.text}-${index}`} sx={{ alignSelf: 'flex-end', bgcolor: '#2b4053', borderRadius: 2, px: 1.25, py: 0.9, maxWidth: '92%' }}><Typography variant="body2">{message.text}</Typography></Box> : <Box key={`answer-${index}`} sx={{ borderLeft: '2px solid #f5c84c', pl: 1 }}>{message.response?.status === 'unsupported' && <Typography variant="caption" sx={{ color: '#f5c84c' }}>Consulta fuera del alcance disponible.</Typography>} {message.response?.status === 'needs_clarification' && <Alert severity="info" sx={{ mb: 1 }}>{message.response?.clarification?.question || 'Falta un dato para completar la consulta.'}</Alert>}<AssistantV2Results response={message.response} /></Box>)}</Stack>
           {loading && <Stack direction="row" spacing={1} alignItems="center" role="status" sx={{ mt: 1.25 }}><CircularProgress size={16} sx={{ color: '#f5c84c' }} /><Typography variant="caption" sx={{ color: '#b6c1cc' }}>Consultando datos SCM…</Typography></Stack>}
-          {error && <Alert severity="error" sx={{ mt: 1.25 }}>{error}</Alert>}
+          {error && <>{feedbackFallback_error && <Alert severity="error" sx={{ mt: 1.25 }}>{error}</Alert>}</>}
         </Box>
         <Divider sx={{ borderColor: '#344454' }} />
         <Box component="form" onSubmit={send} sx={{ p: 1.25 }}><Stack direction="row" spacing={0.75} alignItems="flex-end"><TextField fullWidth multiline maxRows={3} size="small" label="Pregunta" value={query} onChange={(event) => setQuery(event.target.value)} disabled={loading} InputLabelProps={{ sx: { color: '#9daaba' } }} sx={{ '& .MuiInputBase-root': { color: '#f5f7fa', bgcolor: '#18212b' }, '& .MuiOutlinedInput-notchedOutline': { borderColor: '#53667a' } }} /><IconButton type="submit" aria-label="Enviar pregunta" disabled={loading || !query.trim()} sx={{ color: '#f5c84c' }}><SendRoundedIcon /></IconButton></Stack></Box>

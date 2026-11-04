@@ -1,3 +1,4 @@
+import { useOperationMessage } from "../utils/operationFeedbackState";
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -74,7 +75,7 @@ function MoldeDetalle() {
   const [loading, setLoading] = useState(true);
   const [savingMolde, setSavingMolde] = useState(false);
   const [savingAssociation, setSavingAssociation] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError, feedbackFallback_error] = useOperationMessage("components/MoldeDetalle.jsx:error", { severity: "error", initialValue: null });
   const [editMoldeData, setEditMoldeData] = useState({});
 
   const [openFormaDialog, setOpenFormaDialog] = useState(false);
@@ -114,6 +115,7 @@ function MoldeDetalle() {
   useEffect(() => {
     let mounted = true;
     const load = async () => {
+    setError('');
       try {
         setLoading(true);
         await Promise.all([fetchMolde(), fetchReferenceData()]);
@@ -125,7 +127,7 @@ function MoldeDetalle() {
     };
     load();
     return () => { mounted = false; };
-  }, [fetchMolde, fetchReferenceData]);
+  }, [fetchMolde, fetchReferenceData, setError]);
 
   useEffect(() => {
     let active = true;
@@ -355,7 +357,7 @@ function MoldeDetalle() {
         </Box>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+      {error && <>{feedbackFallback_error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}</>}
 
       <Paper sx={{ p: 3, mb: 4 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
