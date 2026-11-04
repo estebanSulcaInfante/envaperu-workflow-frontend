@@ -70,6 +70,9 @@ export default function SearchableCatalogAutocomplete({
     ? 'Cargar más resultados'
     : getTitleLabel?.(option) || [getPrimary(option), getSecondary(option)].filter(Boolean).join(' · ');
   const selectedLabel = selectedValue ? optionLabel(selectedValue) : '';
+  const restoreSelectedInput = () => {
+    setInputValue(selectedLabel);
+  };
 
   useEffect(() => {
     if (previousValueKeyRef.current === valueKey) return;
@@ -111,7 +114,19 @@ export default function SearchableCatalogAutocomplete({
       }}
       inputValue={inputValue}
       onInputChange={(event, next, reason) => {
-        if (reason === 'input' || reason === 'clear') setInputValue(next);
+        if (reason === 'input' || reason === 'clear') {
+          setInputValue(next);
+          return;
+        }
+        // Ignore MUI's internal reset: explicit Escape/blur is handled by
+        // onClose/onKeyDown, while a refreshed page with the same identity
+        // must not erase an active query.
+      }}
+      onClose={(_, reason) => {
+        if (reason === 'escape' || reason === 'blur') restoreSelectedInput();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && selectedValue) restoreSelectedInput();
       }}
       onChange={(event, next, reason) => {
         if (isLoadMore(next)) {

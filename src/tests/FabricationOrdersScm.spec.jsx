@@ -48,6 +48,7 @@ vi.mock('../services/scmEngineeringApi', () => ({
   listarArticulosScm: vi.fn().mockResolvedValue([]),
   listarArticulosPaginaScm: vi.fn().mockResolvedValue({ items: [], total: 0, has_more: false }),
   listarCentrosTrabajoScm: vi.fn().mockResolvedValue([]),
+  obtenerRutaScm: vi.fn().mockResolvedValue({}),
   listarEstructurasScm: vi.fn().mockResolvedValue([]),
   hidratarEstructurasScm: vi.fn().mockResolvedValue({ approved: [], referenced: [] }),
   listarOperacionesRutaPorSalidaScm: auth.outputRoutes,
@@ -937,11 +938,14 @@ describe('Órdenes de fabricación', () => {
       }],
     };
     listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
-    listarRutasArticuloScm.mockResolvedValue([{
-      id: 1, numero_revision: 1, estado: 'APROBADA', content_hash: 'hash', operaciones: [{
-        id: 88, executor_kind: 'OP_OT', tipo: 'INYECCION', nombre: 'Inyectar pieza', articulo_salida: { id: 5, codigo: 'PC-5' },
-      }],
-    }]);
+    auth.outputRoutes.mockResolvedValue({
+      items: [{
+        operation_id: 88, route_revision_id: 1, route_revision_number: 1, route_content_hash: 'hash', route_state: 'APROBADA',
+        operation: { id: 88, executor_kind: 'OP_OT', tipo: 'INYECCION', nombre: 'Inyectar pieza' },
+        output_article: { id: 5, codigo: 'PC-5', clase: 'PIEZA_COLOR' },
+        owner_route_target_article: { id: 5, codigo: 'PC-5', clase: 'PIEZA_COLOR' },
+      }], total: 1, has_more: false, next_cursor: null,
+    });
     obtenerMoldes.mockResolvedValue([{ codigo: 'M-DERIVE', nombre: 'Molde derive', activo: true, formas: [{ pieza_id: 5, activo: true }] }]);
     configurarOrdenFabricacionScm.mockResolvedValue(order);
     renderDetail(order);
@@ -982,11 +986,14 @@ describe('Órdenes de fabricación', () => {
         salidas: [{ id: 'out-change', articulo: { id: 5, pieza_id: 5, nombre: 'Pieza 5', codigo: 'PC-5' } }] }],
     };
     listarOrdenesFabricacionScm.mockResolvedValue({ items: [order] });
-    listarRutasArticuloScm.mockResolvedValue([{
-      id: 2, numero_revision: 2, estado: 'APROBADA', content_hash: 'hash-2', operaciones: [{
-        id: 88, executor_kind: 'OP_OT', tipo: 'INYECCION', nombre: 'Inyectar nueva', articulo_salida: { id: 5, codigo: 'PC-5' },
-      }],
-    }]);
+    auth.outputRoutes.mockResolvedValue({
+      items: [{
+        operation_id: 88, route_revision_id: 2, route_revision_number: 2, route_content_hash: 'hash-2', route_state: 'APROBADA',
+        operation: { id: 88, executor_kind: 'OP_OT', tipo: 'INYECCION', nombre: 'Inyectar nueva' },
+        output_article: { id: 5, codigo: 'PC-5', clase: 'PIEZA_COLOR' },
+        owner_route_target_article: { id: 5, codigo: 'PC-5', clase: 'PIEZA_COLOR' },
+      }], total: 1, has_more: false, next_cursor: null,
+    });
     obtenerMoldes.mockResolvedValue([{ codigo: 'M-CHANGE', nombre: 'Molde change', activo: true, formas: [{ pieza_id: 5, activo: true }] }]);
     configurarOrdenFabricacionScm.mockResolvedValue(order);
     renderDetail(order);
@@ -1166,12 +1173,11 @@ describe('Órdenes de fabricación', () => {
     const actionsButton = await screen.findByRole('button', { name: 'Acciones de ruta para C01' });
     await user.click(actionsButton);
     await user.click(screen.getByRole('menuitem', { name: 'Administrar' }));
-    expect(await screen.findByRole('region', { name: 'Ingeniería de ruta C01' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: /Ruta · PC-5 · OF-ROUTE-EMBEDDED/ })).toBeVisible();
+    expect(await screen.findByRole('dialog', { name: 'Administrar ruta contextual' })).toBeVisible();
     expect(screen.queryByRole('link', { name: 'Administrar' })).not.toBeInTheDocument();
     expect(window.location.href).toBe(initialUrl);
     await user.click(screen.getByRole('button', { name: 'Volver a OF' }));
-    await waitFor(() => expect(screen.queryByRole('region', { name: 'Ingeniería de ruta C01' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Administrar ruta contextual' })).not.toBeInTheDocument());
     expect(window.location.href).toBe(initialUrl);
     expect(actionsButton).toHaveFocus();
   });
@@ -1198,10 +1204,10 @@ describe('Órdenes de fabricación', () => {
     await user.click(await screen.findByRole('button', { name: 'Nueva ruta' }));
     await user.type(screen.getByRole('textbox', { name: 'Nombre de la operación' }), 'Borrador protegido');
     await user.keyboard('{Escape}');
-    expect(await screen.findByText(/Hay cambios del borrador de ingeniería/)).toBeVisible();
-    expect(screen.getByRole('region', { name: 'Ingeniería de ruta C01' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Descartar y volver' }));
-    await waitFor(() => expect(screen.queryByRole('region', { name: 'Ingeniería de ruta C01' })).not.toBeInTheDocument());
+    expect(await screen.findByText(/Hay un borrador de ruta sin guardar/)).toBeVisible();
+    expect(screen.getByRole('dialog', { name: 'Administrar ruta contextual' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Descartar niveles no guardados' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Administrar ruta contextual' })).not.toBeInTheDocument());
   });
 
   it('mantiene acciones de ruta autorizadas cuando OF_EDITAR_BORRADOR está ausente', async () => {
@@ -1309,10 +1315,12 @@ describe('Órdenes de fabricación', () => {
     await user.tab();
     const routeInput = screen.getByRole('combobox', { name: 'Operación de ruta (opcional)' });
     expect(routeInput).toHaveValue('Ruta congelada · Inyección');
-    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith('5', 1));
+    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledWith(
+      '5', 1, expect.objectContaining({ limite: 100 }), expect.any(AbortSignal),
+    ));
     await user.click(screen.getByRole('button', { name: 'Acciones de ruta para C01' }));
     await user.click(screen.getByRole('menuitem', { name: 'Actualizar' }));
-    await waitFor(() => expect(listarRutasArticuloScm).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(auth.outputRoutes.mock.calls.filter(([, , options]) => !options?.q).length).toBeGreaterThanOrEqual(2));
     expect(target).toHaveValue(5.13);
     await user.click(target);
     expect(target).toHaveValue(5.125);

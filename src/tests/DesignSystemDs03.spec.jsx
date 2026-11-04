@@ -1,5 +1,5 @@
 import { ThemeProvider, createTheme } from '@mui/material/styles';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import SearchableCatalogAutocomplete from '../components/ui/SearchableCatalogAutocomplete';
@@ -64,6 +64,31 @@ describe('DS03 controles de campos', () => {
     await user.tab();
     expect(onChange).not.toHaveBeenCalled();
     expect(input).toHaveValue('Molde de prueba');
+  });
+
+  it('conserva una consulta enfocada cuando el catálogo reemplaza la misma identidad', async () => {
+    const user = userEvent.setup();
+    const selected = { id: 1, nombre: 'Molde de prueba', codigo: 'ML-1' };
+    const onSearch = vi.fn();
+    const view = renderWithTheme(
+      <SearchableCatalogAutocomplete label="Molde" options={[selected]} value={selected} onSearch={onSearch} />,
+    );
+    const input = screen.getByRole('combobox', { name: 'Molde' });
+    await user.click(input);
+    await user.clear(input);
+    await user.type(input, 'buscar');
+    await waitFor(() => expect(onSearch).toHaveBeenCalledWith('buscar'));
+    view.rerender(
+      <ThemeProvider theme={createTheme()}>
+        <SearchableCatalogAutocomplete
+          label="Molde"
+          options={[{ ...selected, nombre: 'Molde actualizado' }]}
+          value={{ ...selected, nombre: 'Molde actualizado' }}
+          onSearch={onSearch}
+        />
+      </ThemeProvider>,
+    );
+    expect(input).toHaveValue('buscar');
   });
 
   it('un peso pequeño sigue visible y numérico; no se convierte en vacío o cero', () => {
