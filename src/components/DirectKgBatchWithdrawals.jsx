@@ -41,15 +41,38 @@ const asWorkerName = (worker) => worker.nombre_corto || worker.nombre || [worker
 const unitState = (unit) => unit?.estado_logistico || unit?.estado || '';
 const unitKg = (unit) => unit?.kg_verificados ?? unit?.kg ?? unit?.peso_kg ?? null;
 const unitVersion = (unit) => Number(unit?.version);
+const isRawQrPayload = (value) => {
+  const text = String(value || '').trim();
+  if (!text.startsWith('{') && !text.startsWith('[')) return false;
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+};
+const isUuid = (value) => /^[\da-f]{8}-[\da-f]{4}-[1-5][\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i.test(String(value || '').trim());
+const scanLabel = (value) => {
+  const text = String(value || '').trim();
+  return text && !isRawQrPayload(text) && !isUuid(text) ? text : 'Manga escaneada';
+};
+const unitHumanLabel = (unit, fallback) => {
+  const identity = String(unit?.identidad?.m || '').trim();
+  return identity || scanLabel(unit?.codigo || fallback);
+};
 const outgoingEligibilityError = (unit, label) => {
-  if (!unit?.id) return `${label} no tiene una identidad KG válida.`;
-  if (!Number.isInteger(unitVersion(unit)) || unitVersion(unit) <= 0) return `${label} no tiene una versión válida.`;
-  if (!String(unit?.identidad?.m || '').trim()) return `${label} no tiene una identidad humana OF-OT-M.`;
-  if (!ELIGIBLE_STATES.has(unitState(unit))) return `${label} ya no está disponible para salida.`;
-  if (unit.estado && unit.estado !== 'ACTIVA') return `${label} no está activa para salida.`;
+  const humanLabel = unitHumanLabel(unit, label);
+  if (!unit?.id) return `${humanLabel} no tiene una identidad KG válida.`;
+  const state = unitState(unit);
+  if (!ELIGIBLE_STATES.has(state)) return state === 'RETIRADA_ARMADO'
+    ? `${humanLabel} ya fue retirada para Armado.`
+    : `${humanLabel} ya no está disponible para salida.`;
+  if (!Number.isInteger(unitVersion(unit)) || unitVersion(unit) <= 0) return `${humanLabel} no tiene una versión válida.`;
+  if (!String(unit?.identidad?.m || '').trim()) return `${humanLabel} no tiene una identidad humana OF-OT-M.`;
+  if (unit.estado && unit.estado !== 'ACTIVA') return `${humanLabel} no está activa para salida.`;
   const kg = Number(unitKg(unit));
-  if (!Number.isFinite(kg) || kg <= 0) return `${label} no tiene KG verificados disponibles.`;
-  if (unit.estado_calidad && !ELIGIBLE_QUALITY.has(unit.estado_calidad)) return `${label} no está liberada para salida.`;
+  if (!Number.isFinite(kg) || kg <= 0) return `${humanLabel} no tiene KG verificados disponibles.`;
+  if (unit.estado_calidad && !ELIGIBLE_QUALITY.has(unit.estado_calidad)) return `${humanLabel} no está liberada para salida.`;
   return '';
 };
 const isDefinitive4xx = (error) => {
@@ -104,7 +127,17 @@ function storageRemove(key) {
 const normalizeWorkers = (payload) => (payload?.items || payload || [])
   .filter((worker) => worker?.activo !== false && worker?.id != null);
 
-const candidateLabel = (candidate) => candidate.unit?.codigo || candidate.code;
+const candidateLabel = (candidate) => unitHumanLabel(candidate.unit, candidate.code);
+const publicScanError = (rawCode, message, unit = null) => {
+  const raw = String(rawCode || '').trim();
+  const detail = String(message || 'No se pudo validar la manga.');
+  const label = unitHumanLabel(unit, rawCode);
+  const safeDetail = isRawQrPayload(detail) || detail === raw
+    ? 'No se pudo validar la manga escaneada.'
+    : detail.includes(raw) ? detail.split(raw).join(label) : detail;
+  if (safeDetail.startsWith(`${label} `) || safeDetail.startsWith(`${label}:`)) return safeDetail;
+  return `${label}: ${safeDetail}`;
+};
 const validColorHex = (value) => typeof value === 'string' && /^#[\da-f]{6}$/i.test(value.trim());
 const normalizeColorName = (value) => String(value || '').trim().replace(/\s+/g, ' ');
 const isTransparentColor = (value) => /^transparente(?:\s+transparente)*$/i.test(normalizeColorName(value));
@@ -353,7 +386,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       if (eligibilityError) throw new Error(eligibilityError);
       const duplicateRead = scanReadsRef.current.find((read) => read.status === 'accepted' && String(read.unit?.id) === String(unit.id));
       if (duplicateRead) {
-        setNotice(`${unit.codigo || value} ya está aceptada.`);
+        setNotice(`${unitHumanLabel(unit, value)} ya está aceptada.`);
         setError('');
         safePlayFeedback('duplicate');
         removeScanRead(readId);
@@ -361,7 +394,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       }
       const duplicateCandidate = candidatesRef.current.some((candidate) => String(candidate.unit?.id) === String(unit.id));
       if (duplicateCandidate) {
-        setNotice(`${unit.codigo || value} ya está aceptada.`);
+        setNotice(`${unitHumanLabel(unit, value)} ya está aceptada.`);
         setError('');
         safePlayFeedback('duplicate');
         removeScanRead(readId);
@@ -388,12 +421,14 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     } catch (requestError) {
       if (activeActorRef.current !== requestedActor || sessionGenerationRef.current !== requestedGeneration) return;
       const message = mensajeErrorScm(requestError, `No se pudo validar ${value}.`);
-      setError(`${value}: ${message}`);
+      const publicMessage = publicScanError(value, message, resolvedUnit);
+      setError(publicMessage);
       safePlayFeedback('rejected');
-      patchScanRead(readId, { status: 'conflict', error: message, unit: resolvedUnit });
+      const persistedMessage = isRawQrPayload(value) ? publicMessage : message;
+      patchScanRead(readId, { status: 'conflict', error: persistedMessage, unit: resolvedUnit });
       setCandidates((current) => {
         if (current.some((candidate) => candidate.code === value && candidate.status === 'conflict')) return current;
-        const next = [...current, { code: value, scanId: readId, status: 'conflict', error: message, unit: resolvedUnit }];
+        const next = [...current, { code: value, scanId: readId, status: 'conflict', error: persistedMessage, unit: resolvedUnit }];
         persistDraft(draft, next);
         return next;
       });
@@ -428,13 +463,13 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     if (duplicateRead) {
       const existingRead = scanReadsRef.current.find((read) => read.code === value);
       if (existingRead?.status === 'conflict') {
-        setError(`${value} ya tiene un error pendiente. Usa Reintentar o Retirar.`);
+        setError(`${scanLabel(value)} ya tiene un error pendiente. Usa Reintentar o Retirar.`);
         setNotice('');
       } else if (existingRead?.status === 'accepted') {
-        setNotice(`${value} ya está aceptada.`);
+        setNotice(`${scanLabel(value)} ya está aceptada.`);
         setError('');
       } else {
-        setNotice(`${value} está pendiente de validación.`, { severity: 'info', persistent: true });
+        setNotice(`${scanLabel(value)} está pendiente de validación.`, { severity: 'info', persistent: true });
         setError('');
       }
       safePlayFeedback('duplicate');
@@ -443,7 +478,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     }
     const pendingReads = scanReadsRef.current.filter((read) => read.status === 'waiting' || read.status === 'validating').length;
     if (scanPendingCodesRef.current.has(value)) {
-      setNotice(`${value} está pendiente de validación.`, { severity: 'info', persistent: true });
+      setNotice(`${scanLabel(value)} está pendiente de validación.`, { severity: 'info', persistent: true });
       setError('');
       safePlayFeedback('duplicate');
       setCode('');
@@ -529,7 +564,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
         if (candidate.scanId) patchScanRead(candidate.scanId, { status: 'accepted', unit: currentUnit, error: '' });
       } catch (candidateError) {
         if (activeActorRef.current !== requestedActor || sessionGenerationRef.current !== requestedGeneration) throw candidateError;
-        const failed = { ...candidate, status: 'conflict', error: candidateError.message || 'No se pudo revalidar.' };
+        const failed = { ...candidate, status: 'conflict', error: publicScanError(candidate.code, candidateError.message || 'No se pudo revalidar.', candidate.unit) };
         checked.push(failed);
         safePlayFeedback('rejected');
         if (candidate.scanId) patchScanRead(candidate.scanId, { status: 'conflict', unit: candidate.unit, error: failed.error });
@@ -584,7 +619,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
           setCandidates([]);
           clearScanReads();
           storageRemove(draftKey);
-          setNotice('Salida recuperada correctamente.');
+          setNotice('');
           return;
         } catch (recoveryError) {
           if (recoveryError?.response?.status !== 404) throw recoveryError;
@@ -604,7 +639,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       setCandidates([]);
       clearScanReads();
       storageRemove(draftKey);
-      setNotice('Salida confirmada.');
+      setNotice('');
     } catch (requestError) {
       if (activeActorRef.current !== requestedActor || sessionGenerationRef.current !== requestedGeneration) return;
       const operationId = requestError?.response?.data?.operation_id;
@@ -731,13 +766,13 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       )}
       {error && <>{feedbackFallback_error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}</>}
       {notice && <>{feedbackFallback_notice && <Alert severity={noticeSeverity} onClose={() => setNotice('')}>{notice}</Alert>}</>}
-      {audioStatus === 'suspended' && <Alert severity="warning" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => activateAudio()}>Activar y probar sonido</Button>}>El sonido de lectura está suspendido. Puedes activarlo para recibir feedback.</Alert>}
-      {audioStatus === 'unavailable' && <Alert severity="info">Sonido no disponible; puedes continuar con feedback visual.</Alert>}
-      {audioStatus === 'error' && <Alert severity="error" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => activateAudio()}>Activar y probar sonido</Button>}>{audioError || 'No se pudo reproducir el feedback sonoro.'}</Alert>}
+      {complete && <Alert severity="success" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={startNew} disabled={readOnly}>Nueva salida</Button>}>Salida <strong>{complete.operation_id}</strong> confirmada: {complete.cantidad_unidades ?? complete.retiros?.length ?? 0} unidad(es), {complete.total_kg ?? '-'} KG.</Alert>}
       {pending && <Alert severity="warning" action={<Button sx={{ minWidth: 44, minHeight: 44 }} startIcon={<RestoreIcon />} onClick={() => sendPending(pending, true)} disabled={busy}>Recuperar</Button>}>
         Hay una solicitud sin resultado confirmado. Puedes reintentar la misma salida desde aquí.
       </Alert>}
-      {complete && <Alert severity="success" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={startNew} disabled={readOnly}>Nueva salida</Button>}>Salida <strong>{complete.operation_id}</strong> confirmada: {complete.cantidad_unidades ?? complete.retiros?.length ?? 0} unidad(es), {complete.total_kg ?? '-'} KG.</Alert>}
+      {audioStatus === 'suspended' && <Alert severity="warning" role="status" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => activateAudio()}>Activar y probar sonido</Button>}>El sonido de lectura está suspendido. Puedes activarlo para recibir feedback.</Alert>}
+      {audioStatus === 'unavailable' && <Alert severity="info" role="status">Sonido no disponible; puedes continuar con feedback visual.</Alert>}
+      {audioStatus === 'error' && <Alert severity="warning" role="status" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => activateAudio()}>Activar y probar sonido</Button>}>{audioError || 'No se pudo reproducir el feedback sonoro.'}</Alert>}
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
         <FormControl fullWidth>
@@ -790,8 +825,8 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
 
       {scanReads.length > 0 && <Stack component="ul" role="list" aria-label="Lecturas pendientes" spacing={1} sx={{ p: 0, m: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: '1fr', '@media (min-width:600px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
         {scanReads.map((read) => <Paper component="li" role="listitem" key={read.id} variant="outlined" sx={{ p: 1.25, minWidth: 0 }}>
-          {read.status === 'waiting' && <Stack direction="row" justifyContent="space-between" flexWrap="wrap" sx={{ minWidth: 0 }}><Typography sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{read.code}</Typography><Chip size="small" label="En espera" /></Stack>}
-          {read.status === 'validating' && <Stack direction="row" justifyContent="space-between" flexWrap="wrap" sx={{ minWidth: 0 }}><Typography sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{read.code}</Typography><Chip size="small" label="Validando" color="info" /></Stack>}
+          {read.status === 'waiting' && <Stack direction="row" justifyContent="space-between" flexWrap="wrap" sx={{ minWidth: 0 }}><Typography sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{scanLabel(read.code)}</Typography><Chip size="small" label="En espera" /></Stack>}
+          {read.status === 'validating' && <Stack direction="row" justifyContent="space-between" flexWrap="wrap" sx={{ minWidth: 0 }}><Typography sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{scanLabel(read.code)}</Typography><Chip size="small" label="Validando" color="info" /></Stack>}
           {read.status === 'accepted' && (() => {
             const identity = colorPresentation(read.unit);
             const label = identity.m || 'Identidad incompleta';
@@ -806,12 +841,12 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
                 </Stack>
                 <Typography variant="caption" color="text.secondary" display="block">{unitKg(read.unit) ?? '-'} KG verificados</Typography>
               </Box>
-              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ minWidth: 0 }}><Chip size="small" label="Aceptada" color="success" /><Button size="small" color="error" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${identity.m || read.code}`}>Retirar</Button></Stack>
+              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ minWidth: 0 }}><Chip size="small" label="Aceptada" color="success" /><Button size="small" color="error" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${identity.m || scanLabel(read.code)}`}>Retirar</Button></Stack>
             </Stack>;
           })()}
           {read.status === 'conflict' && <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
-            <Box sx={{ minWidth: 0, flex: '1 1 0', overflowWrap: 'anywhere' }}><Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{read.code}</Typography><Typography variant="body2" color="error" sx={{ overflowWrap: 'anywhere' }}>{read.error || 'No se pudo validar.'}</Typography></Box>
-            <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ minWidth: 0 }}><Button size="small" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => retryScanRead(read)} aria-label={`Reintentar ${read.code}`}>Reintentar</Button><Button size="small" color="error" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${read.code}`}>Retirar</Button></Stack>
+            <Box sx={{ minWidth: 0, flex: '1 1 0', overflowWrap: 'anywhere' }}><Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{unitHumanLabel(read.unit, read.code)}</Typography><Typography variant="body2" color="error" sx={{ overflowWrap: 'anywhere' }}>{read.error || 'No se pudo validar.'}</Typography></Box>
+            <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ minWidth: 0 }}><Button size="small" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => retryScanRead(read)} aria-label={`Reintentar ${unitHumanLabel(read.unit, read.code)}`}>Reintentar</Button><Button size="small" color="error" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${unitHumanLabel(read.unit, read.code)}`}>Retirar</Button></Stack>
           </Stack>}
         </Paper>)}
       </Stack>}

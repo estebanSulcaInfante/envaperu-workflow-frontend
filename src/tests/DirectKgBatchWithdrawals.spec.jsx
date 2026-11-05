@@ -111,7 +111,7 @@ describe('salida directa KG a Armado', () => {
     api.resolve.mockResolvedValueOnce({ unit: { ...unit('A', 'A'), estado_calidad: 'BLOQUEADA' } });
     render(<DirectKgBatchWithdrawals />);
     sendScan('A');
-    fireEvent.click(await screen.findByRole('button', { name: 'Reintentar A', exact: true }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reintentar OF-A-OT-A-M-A', exact: true }));
     await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0]?.status).toBe('ready'));
     expect(audio.play.mock.calls.map(([kind]) => kind)).toEqual(['rejected', 'accepted']);
     expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(1);
@@ -261,6 +261,80 @@ describe('salida directa KG a Armado', () => {
     expect(within(list).getByRole('button', { name: 'Reintentar QR-CONFLICTO' })).toBeVisible();
   });
 
+  it('informa una manga JSON ya retirada sin exponer el payload ni enviar POST', async () => {
+    const rawQr = JSON.stringify({ v: 'LABEL_REF_V1', label_id: 'retirada-label', codigo: 'OF-RETIRADA-OT-001-M-001' });
+    api.resolve.mockResolvedValue({ unit: {
+      ...unit('retirada-1', rawQr),
+      codigo: rawQr,
+      estado_logistico: 'RETIRADA_ARMADO',
+      identidad: { pieza: { nombre: 'Manga retirada' }, color: { nombre: 'Azul' } },
+    } });
+    render(<DirectKgBatchWithdrawals />);
+
+    sendScan(rawQr);
+
+    const list = await screen.findByRole('list', { name: 'Lecturas pendientes' });
+    await waitFor(() => expect(within(list).getByText(/ya fue retirada/i)).toBeVisible());
+    expect(within(list).getByText(/ya fue retirada/i)).toHaveTextContent(/^Manga escaneada ya fue retirada/);
+    expect(document.body.textContent).not.toContain(rawQr);
+    expect(within(list).getByRole('button', { name: 'Reintentar Manga escaneada' })).toBeVisible();
+    expect(within(list).getByRole('button', { name: 'Retirar Manga escaneada' })).toBeVisible();
+    expect(api.resolve).toHaveBeenCalledWith(rawQr);
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('deduplica un QR JSON mientras se valida sin exponerlo en aviso ni accesibilidad', async () => {
+    const rawQr = JSON.stringify({ v: 'LABEL_REF_V1', label_id: 'pendiente-label', codigo: 'OF-PENDIENTE-OT-001-M-001' });
+    const resolution = deferred();
+    api.resolve.mockReturnValue(resolution.promise);
+    render(<DirectKgBatchWithdrawals />);
+
+    sendScan(rawQr);
+    sendScan(rawQr);
+
+    expect(api.resolve).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).not.toContain(rawQr);
+    expect(screen.queryByRole('button', { name: 'Reintentar Manga escaneada' })).not.toBeInTheDocument();
+    await act(async () => resolution.resolve({ unit: {
+      ...unit('pendiente-1', rawQr),
+      codigo: rawQr,
+      identidad: { m: 'OF-PENDIENTE-OT-001-M-001', pieza: { nombre: 'Manga pendiente' }, color: { nombre: 'Azul' } },
+    } }));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(1));
+    expect(document.body.textContent).not.toContain(rawQr);
+  });
+
+  it('mantiene el comprobante de confirmación antes del aviso de audio fallido', async () => {
+    render(<DirectKgBatchWithdrawals />);
+    await chooseContext();
+    await scan('A');
+    audio.play.mockReturnValue(false);
+
+    fireEvent.click(confirmButton());
+
+    const success = await screen.findByText((_, element) => element?.classList.contains('MuiAlert-message') && /Salida .* confirmada/i.test(element.textContent));
+    const audioNotice = await screen.findByText(/no se pudo reproducir el feedback sonoro/i);
+    expect(success.compareDocumentPosition(audioNotice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(audioNotice.closest('[role]')).toHaveAttribute('role', 'status');
+    expect(screen.getAllByText((_, element) => element?.classList.contains('MuiAlert-message') && /Salida .* confirmada/i.test(element.textContent))).toHaveLength(1);
+  });
+
+  it('mantiene el comprobante recuperado antes del aviso de audio fallido', async () => {
+    const intent = pendingFixture();
+    api.recover.mockResolvedValue({ operation_id: intent.key, cantidad_unidades: 1, total_kg: '12.500', retiros: [] });
+    audio.play.mockReturnValue(false);
+    render(<DirectKgBatchWithdrawals />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Recuperar' }));
+
+    const success = await screen.findByText((_, element) => element?.classList.contains('MuiAlert-message') && /Salida .* confirmada/i.test(element.textContent));
+    const audioNotice = await screen.findByText(/no se pudo reproducir el feedback sonoro/i);
+    expect(success.compareDocumentPosition(audioNotice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(audioNotice.closest('[role]')).toHaveAttribute('role', 'status');
+    expect(screen.getAllByText((_, element) => element?.classList.contains('MuiAlert-message') && /Salida .* confirmada/i.test(element.textContent))).toHaveLength(1);
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
   it('normaliza solo transparente exacto y conserva nombres parecidos con HEX neutral', async () => {
     api.resolve.mockImplementation(async (code) => ({ unit: {
       ...unit(code, code), identidad: {
@@ -331,7 +405,7 @@ describe('salida directa KG a Armado', () => {
     await scan('QR-1');
     api.resolve.mockResolvedValueOnce({ unit: { ...unit('QR-1', 'QR-1'), estado_logistico: 'RETIRADA_ARMADO' } });
     fireEvent.click(screen.getByRole('button', { name: /revisar y confirmar salida/i }));
-    await screen.findAllByText(/ya no está disponible para salida/i);
+    await screen.findAllByText(/ya fue retirada para Armado/i);
     expect(api.create).not.toHaveBeenCalled();
   });
 
