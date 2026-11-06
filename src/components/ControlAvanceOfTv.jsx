@@ -34,7 +34,7 @@ const TV_NARROW_HEADER_WRAP = 24;
 const TV_PIECE_HEIGHT = 24;
 const TV_ROW_GAP = 8;
 const TV_TITLE_LINE_HEIGHT = 34;
-const ACTIVE = new Set(['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION', 'ABIERTA', 'EN_COBERTURA']);
+const ACTIVE = new Set(['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION', 'PAUSADA', 'ABIERTA', 'EN_COBERTURA']);
 const statusLabels = {
   EN_AVANCE: 'En avance',
   COMPLETADA: 'Completa',
@@ -48,6 +48,7 @@ const statusLabels = {
 const orderStatusLabels = {
   EN_EJECUCION: 'En ejecución',
   EN_COBERTURA: 'En cobertura',
+  PAUSADA: 'Pausada',
   PROGRAMADA: 'Programada',
   LIBERADA: 'Liberada',
   ABIERTA: 'Abierta',
@@ -1103,7 +1104,7 @@ export default function ControlAvanceOfTv() {
                         <CardContent sx={{ p: { xs: 1, md: 1.25 }, '&:last-child': { pb: { xs: 1, md: 1.25 } } }}>
                           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5, flexWrap: 'wrap' }}>
                             <Typography variant="h4" fontWeight={900} sx={{ fontSize: { xs: 25, md: 32 }, lineHeight: 1.05 }}>{part.of.of}</Typography>
-                            <Chip size="small" label={part.of.estado} sx={{ height: 22, fontSize: 11 }} />
+                            <Chip size="small" label={orderStatusLabels[part.of.estado] || part.of.estado} sx={{ height: 22, fontSize: 11 }} />
                             <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto !important', fontSize: { xs: 11, md: 12 }, whiteSpace: 'nowrap' }}>
                               Parte {part.part} de {part.partCount}{part.part < part.partCount ? ' · Continúa' : ''}
                             </Typography>
@@ -1132,7 +1133,7 @@ export default function ControlAvanceOfTv() {
                   <CardContent sx={{ p: { xs: 1.5, md: 2 } }}>
                     <Stack direction="row" alignItems="baseline" spacing={1} sx={{ mb: 1 }}>
                       <Typography variant="h5" fontWeight={900}>{of.of}</Typography>
-                      <Chip size="small" label={of.estado} />
+                      <Chip size="small" label={orderStatusLabels[of.estado] || of.estado} />
                     </Stack>
                     <PieceGroups rows={outputs} />
                   </CardContent>

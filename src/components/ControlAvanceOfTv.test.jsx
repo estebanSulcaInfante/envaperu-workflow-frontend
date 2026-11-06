@@ -71,6 +71,33 @@ describe('ControlAvanceOfTv', () => {
     expect(row).toHaveTextContent('36.68%');
   });
 
+  it('incluye OF pausada en activas y conserva pesos en vista normal y TV', async () => {
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: [{
+        ...response.items[0],
+        estado: 'PAUSADA',
+        salidas: [{
+          ...outputs[0], unidad: 'KG', meta: 100, avance: 45, pendiente: 55,
+          porcentaje: 45, finalizados_kg: 40, en_proceso_kg: 5,
+          avance_medido_kg: 45, estado_avance: 'EN_AVANCE',
+        }],
+      }],
+    });
+
+    render(<ControlAvanceOfTv />);
+
+    const card = await screen.findByTestId('of-progress-card');
+    expect(card).toHaveTextContent('Pausada');
+    expect(card).toHaveTextContent('Avance45.00 KG');
+    expect(card).toHaveTextContent('Finalizados: 40.00 kg · En proceso: 5.00 kg');
+    fireEvent.click(screen.getByRole('button', { name: 'Modo TV' }));
+    const tvCard = await screen.findByTestId('of-progress-card');
+    expect(tvCard).toHaveTextContent('Pausada');
+    expect(tvCard).toHaveTextContent('45.00 / 100.00 KG');
+    expect(tvCard).toHaveTextContent('Finalizados: 40.00 kg · En proceso: 5.00 kg');
+  });
+
   it('muestra el aviso de historial incompleto en TV sin ocultar el avance', async () => {
     listarAvanceOfTvScm.mockResolvedValueOnce({
       ...response,

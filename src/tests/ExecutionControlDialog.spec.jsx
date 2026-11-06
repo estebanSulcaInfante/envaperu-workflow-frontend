@@ -44,7 +44,7 @@ describe('control de ejecución de OF', () => {
     renderDialog(onCompleted);
     await user.click(screen.getByRole('button', { name: 'Pausar ejecución' }));
     expect((await screen.findByRole('alert')).textContent).toContain('2 trabajos afectados');
-    expect(screen.getByText(/La OF conserva producido e histórico/)).not.toHaveTextContent(/cancela pendientes propios|libera el compromiso residual/);
+    expect(screen.getByText(/La OF se suspenderá y conservará producido e histórico/)).toBeVisible();
     await user.type(screen.getByRole('textbox', { name: 'Motivo' }), 'Parada segura');
     await user.click(screen.getAllByRole('button', { name: 'Pausar ejecución', exact: true }).at(-1));
     await waitFor(() => expect(api.execute).toHaveBeenCalledTimes(1));
@@ -56,6 +56,27 @@ describe('control de ejecución de OF', () => {
     const firstKey = api.execute.mock.calls[0][3];
     expect(firstKey).toMatch(/[0-9a-f-]{36}/);
     expect(onCompleted).toHaveBeenCalledWith({ idempotent_replay: false });
+  });
+
+  it('permite pausar con cero trabajos afectados y conserva conteos para retomar o conciliar', async () => {
+    const user = userEvent.setup();
+    api.impact.mockResolvedValueOnce({
+      action: 'PAUSAR', can_execute: true, version: 7, impact_hash: 'p'.repeat(64),
+      trabajos: { afectados: 0 }, mangas_abiertas: 2, reservas_activas: 3,
+      wip_pendiente: 4, material_preparado_pendiente: 5,
+      requerimientos_material_preparado_pendientes: 6, lotes_premezcla_pendientes: 7,
+      blockers: [],
+    });
+    renderDialog();
+    await user.click(screen.getByRole('button', { name: 'Pausar ejecución' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('0 trabajos afectados');
+    expect(screen.getByText(/La OF se suspenderá y conservará producido e histórico/)).toBeVisible();
+    expect(screen.getByTestId('execution-impact-counts')).toHaveTextContent(
+      '2 mangas abiertas · 4 WIP pendiente · 5 material preparado pendiente · 6 requerimientos preparados pendientes · 7 lotes de premezcla pendientes · 3 reservas activas',
+    );
+    await user.type(screen.getByRole('textbox', { name: 'Motivo' }), 'Parada sin trabajos ejecutables');
+    await user.click(screen.getAllByRole('button', { name: 'Pausar ejecución', exact: true }).at(-1));
+    await waitFor(() => expect(api.execute).toHaveBeenCalledTimes(1));
   });
 
   it.each(['LIBERADA', 'PROGRAMADA', 'EN_EJECUCION', 'PAUSADA'])(
