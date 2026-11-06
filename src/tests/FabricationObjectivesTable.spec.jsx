@@ -367,4 +367,25 @@ describe('tabla de objetivos de OF', () => {
     expect(screen.getByText(/Meta aún no guardada/)).toBeVisible();
     expect(screen.queryByText(/0\.00 kg guardados/)).not.toBeInTheDocument();
   });
+
+  it('muestra el historial de tramo incompleto sin ocultar el porcentaje de OF', () => {
+    renderTable({
+      state: 'incomplete',
+      label: 'Avance parcial',
+      rows: [{
+        run: { id: 'r1', objetivo_neto_kg: '100' },
+        progress: {
+          corrida_id: 'r1', objetivo_neto_kg: '100', kg_medidos_efectivos: 45,
+          kg_finalizados_efectivos: 40, kg_medidos_en_abiertas: 5,
+          motivos_atribucion: ['TRAMO_INICIO_NO_REGISTRADO'],
+          coverage: { estado: 'COMPLETA', motivos: [] },
+          mangas: { total: 2, conocidas: 2 },
+        },
+      }],
+    });
+
+    expect(screen.getByText(/45\.00% · meta guardada/)).toBeVisible();
+    expect(screen.getByTestId('attribution-warning')).toHaveTextContent('Historial del tramo incompleto: peso incluido; inicio del tramo sin registrar.');
+    expect(screen.queryByText('TRAMO_INICIO_NO_REGISTRADO')).not.toBeInTheDocument();
+  });
 });

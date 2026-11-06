@@ -71,6 +71,29 @@ describe('ControlAvanceOfTv', () => {
     expect(row).toHaveTextContent('36.68%');
   });
 
+  it('muestra el aviso de historial incompleto en TV sin ocultar el avance', async () => {
+    listarAvanceOfTvScm.mockResolvedValueOnce({
+      ...response,
+      items: [{
+        ...response.items[0],
+        salidas: [{
+          ...outputs[0], unidad: 'KG', meta: 100, avance: 45, pendiente: 55,
+          porcentaje: 45, finalizados_kg: 40, en_proceso_kg: 5,
+          avance_medido_kg: 45, motivos_atribucion: ['TRAMO_INICIO_NO_REGISTRADO'],
+          estado_avance: 'EN_AVANCE',
+        }],
+      }],
+    });
+
+    render(<ControlAvanceOfTv />);
+
+    const row = await screen.findByTestId('output-progress-row');
+    expect(row).toHaveTextContent('Historial del tramo incompleto: peso incluido; inicio del tramo sin registrar.');
+    expect(row).toHaveTextContent('Avance45.00 KG');
+    expect(row).toHaveTextContent('45.00%');
+    expect(row).not.toHaveTextContent('TRAMO_INICIO_NO_REGISTRADO');
+  });
+
   it('advierte la diferencia entre físico y avance atribuible en salida y matriz canónica', async () => {
     const attributedOutput = {
       ...outputs[0],

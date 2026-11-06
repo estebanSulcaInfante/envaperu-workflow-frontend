@@ -11,12 +11,21 @@ const coverageState = (item) => (
 );
 
 const ATTRIBUTION_REASONS = new Set(['ATRIBUCION_INCOMPLETA', 'KG_SIN_TRAMOS_UN']);
+const AUXILIARY_REASONS = new Set(['TRAMO_INICIO_NO_REGISTRADO']);
+
+const reasonValues = (item) => [
+  ...(Array.isArray(item?.motivos_atribucion) ? item.motivos_atribucion : []),
+  ...(Array.isArray(item?.coverage?.motivos) ? item.coverage.motivos : []),
+];
 
 const attributionReasons = (item) => {
-  const reasons = Array.isArray(item?.motivos_atribucion)
-    ? item.motivos_atribucion
-    : Array.isArray(item?.coverage?.motivos) ? item.coverage.motivos : [];
-  return reasons.filter((reason) => ATTRIBUTION_REASONS.has(reason));
+  const reasons = new Set(reasonValues(item));
+  return [...reasons].filter((reason) => ATTRIBUTION_REASONS.has(reason));
+};
+
+const auxiliaryReasons = (item) => {
+  const reasons = new Set(reasonValues(item));
+  return [...reasons].filter((reason) => AUXILIARY_REASONS.has(reason));
 };
 
 export const getAttributionNotice = (item, measuredOverride, { comparePhysical = true } = {}) => {
@@ -25,17 +34,33 @@ export const getAttributionNotice = (item, measuredOverride, { comparePhysical =
     ? finiteNumber(item?.kg_medidos_efectivos ?? item?.avance_medido_kg ?? item?.avance)
     : finiteNumber(measuredOverride);
   const reasons = attributionReasons(item);
+  const auxiliary = auxiliaryReasons(item);
   const differs = comparePhysical && physical !== null && (measured === null || Math.abs(physical - measured) > 0.0005);
-  if (!reasons.length && !differs) return null;
-  const neutralDifference = !reasons.length && differs;
-  const text = neutralDifference
+  if (!reasons.length && !auxiliary.length && !differs) return null;
+  const neutralDifference = !reasons.length && !auxiliary.length && differs;
+  const primaryText = neutralDifference
     ? 'Diferencia informativa: físico observado y avance atribuible corresponden a alcances distintos.'
     : item?.pendientes_sin_cantidad_un > 0
       ? 'Cantidad UN pendiente; el peso KG observado no se convirtió a unidades.'
       : reasons.includes('KG_SIN_TRAMOS_UN')
         ? 'Peso KG observado sin tramos de unidades; no se convirtió a UN.'
         : 'Atribución incompleta: el peso físico observado queda separado del avance atribuible.';
-  return { physical, measured, reasons, differs, neutral: neutralDifference, text };
+  const auxiliaryText = auxiliary.length
+    ? 'Historial del tramo incompleto: peso incluido; inicio del tramo sin registrar.'
+    : '';
+  const text = reasons.length && auxiliaryText
+    ? `${primaryText} ${auxiliaryText}`
+    : auxiliaryText || primaryText;
+  return {
+    physical,
+    measured,
+    reasons,
+    auxiliaryReasons: auxiliary,
+    differs,
+    neutral: neutralDifference,
+    kind: reasons.length ? 'ATTRIBUTION' : auxiliary.length ? 'AUXILIARY' : 'INFORMATIONAL',
+    text,
+  };
 };
 
 export const formatKg = (value) => {
