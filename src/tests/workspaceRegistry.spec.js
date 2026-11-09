@@ -39,10 +39,11 @@ describe('US-010N1: registro único del workspace', () => {
       'Disponibilidad por PT',
       'Recibir desde Producción',
       'Salidas y retornos de Armado',
+      'Despacho MN-31',
       'Transferencias entre ubicaciones',
     ]);
     expect(warehouse?.features.map((item) => item.sectionHeading)).toEqual([
-      'EXISTENCIAS', 'EXISTENCIAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS',
+      'EXISTENCIAS', 'EXISTENCIAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS',
     ]);
     expect(getWorkspaceFeature('/almacen/operaciones')?.key).toBe('warehouse.operations');
     expect(getWorkspaceFeature('/almacen/reservas-staging')?.key).toBe('materials.internalSupply');

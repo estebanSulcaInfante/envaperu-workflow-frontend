@@ -55,6 +55,7 @@ import RolesCapabilitiesAdmin from './components/RolesCapabilitiesAdmin';
 import ProductOnboardingPage from './components/productOnboarding/ProductOnboardingPage';
 import WarehouseOperationsScm from './components/WarehouseOperationsScm';
 import WarehouseKgCustodyScm from './components/WarehouseKgCustodyScm';
+import Mn31DespachoScm from './components/Mn31DespachoScm';
 import WarehouseSetupScm from './components/WarehouseSetupScm';
 import PreparedMaterialMachineScanner from './components/PreparedMaterialMachineScanner';
 import ControlAvanceOfTv from './components/ControlAvanceOfTv';
@@ -217,6 +218,7 @@ function App() {
                 <Route path="/almacen/kardex/disponibilidad" element={workspace('warehouse.availability', <KgPtAvailabilityScm />)} />
                 <Route path="/almacen/operaciones" element={<Navigate to="/almacen/salidas-retornos" replace />} />
                 <Route path="/almacen/salidas-retornos" element={workspace('warehouse.operations', <WarehouseKgCustodyScm />)} />
+                <Route path="/almacen/despacho-mn31" element={workspace('warehouse.mn31Dispatch', <Mn31DespachoScm />)} />
                 <Route path="/almacen/transferencias" element={workspace('warehouse.transfers', <WarehouseOperationsScm transfersOnly />)} />
                 <Route path="/produccion/recepcion-mangas" element={workspace('warehouse.receiving', <WarehouseReceivingScm />)} />
                 <Route path="/produccion/reproceso" element={workspace('materials.reprocessing', <ReprocessingScm />)} />
