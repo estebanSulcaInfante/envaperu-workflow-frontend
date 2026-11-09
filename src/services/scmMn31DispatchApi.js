@@ -12,9 +12,9 @@ export const listarClientesDespachoMn31Scm = () => body(() => api.get(
   '/scm/v1/despachos-mn31/clientes', { headers: headers() },
 ));
 
-export const resolverMangaDespachoMn31Scm = (codigo, clienteId) => body(() => api.get(
+export const resolverMangaDespachoMn31Scm = (codigo, clienteId, options = {}) => body(() => api.get(
   `/scm/v1/despachos-mn31/resolver/${encodeURIComponent(codigo)}`,
-  { params: { cliente_id: clienteId }, headers: headers() },
+  { params: { cliente_id: clienteId, lote_codigo: options.loteCodigo, hubo_cambio_productivo: options.huboCambioProductivo ? 'true' : undefined }, headers: headers() },
 ));
 
 export const confirmarDespachoMn31Scm = (payload, operationId) => body(() => api.post(
@@ -24,4 +24,9 @@ export const confirmarDespachoMn31Scm = (payload, operationId) => body(() => api
 export const obtenerOperacionDespachoMn31Scm = (operationId) => body(() => api.get(
   `/scm/v1/despachos-mn31/operaciones/${encodeURIComponent(operationId)}`,
   { headers: headers() },
+));
+
+export const revertirDespachoMn31Scm = (dispatchOperationId, payload, operationId) => body(() => api.post(
+  `/scm/v1/despachos-mn31/operaciones/${encodeURIComponent(dispatchOperationId)}/revertir`,
+  payload, { headers: headers(operationId) },
 ));

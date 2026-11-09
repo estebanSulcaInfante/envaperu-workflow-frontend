@@ -3,11 +3,13 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
+  FormControlLabel,
   LinearProgress,
   Paper,
   Stack,
@@ -25,6 +27,7 @@ import {
   confirmarDespachoMn31Scm,
   listarClientesDespachoMn31Scm,
   obtenerOperacionDespachoMn31Scm,
+  revertirDespachoMn31Scm,
   resolverMangaDespachoMn31Scm,
 } from '../services/scmMn31DispatchApi';
 
@@ -55,6 +58,7 @@ const normalizeItem = (value, selectedClient) => {
   const manga = value.manga || {};
   const ot = manga.ot || value.ot || {};
   const unidad = value.unidad || {};
+  const versionToken = first(value.version_token, manga.version_token);
   const scanCode = String(first(value.codigo, manga.codigo, value.code, value.manga_codigo, ''));
   const humanId = String(first(
     value.human_id,
@@ -71,8 +75,10 @@ const normalizeItem = (value, selectedClient) => {
   return {
     id: String(first(value.id, value.item_id, value.manga_id, value.existencia_id, unidad.id, humanId)),
     scanCode,
-    unitId: String(first(value.unit_id, unidad.id, value.unidad_id, '')),
-    version: first(value.version, unidad.version, 0),
+    unitId: first(value.unit_id, unidad.id, value.unidad_id) ? String(first(value.unit_id, unidad.id, value.unidad_id)) : '',
+    version: first(value.version, unidad.version, manga.version, versionToken?.manga, 0),
+    versionToken: versionToken && typeof versionToken === 'object' ? versionToken : null,
+    requiresIngresoKg004: Boolean(first(value.requiere_ingreso_kg004, manga.requiere_ingreso_kg004, false)),
     humanId,
     of: String(first(value.of, identity.of, value.orden_fabricacion, value.numero_of, manga.of, ot.of, humanParts?.[1], '—')),
     ot: String(first(identity.ot, value.orden_trabajo, value.numero_ot, manga.ot?.codigo, ot.codigo, humanParts?.[2], '—')),
@@ -88,13 +94,19 @@ const normalizeItem = (value, selectedClient) => {
       value.estado_abierta_con_avance,
       manga.efecto_confirmacion,
       manga.confirmation_effect,
-      'Se revalidará al confirmar',
+      first(value.requiere_ingreso_kg004, manga.requiere_ingreso_kg004, false)
+        ? 'Registra ingreso KG004, concilia el delta y registra salida'
+        : 'Se revalidará al confirmar',
     )),
     lot: String(first(value.lote?.codigo, manga.lote?.codigo, value.lote_codigo, '—')),
+    lotCode: String(first(value.lote?.codigo, manga.lote?.codigo, value.lote_codigo, '')),
+    productiveChange: Boolean(value.hubo_cambio_productivo || manga.hubo_cambio_productivo),
   };
 };
 
 const responseError = (error, fallback) => mensajeErrorScm(error, fallback);
+const errorData = (error) => error?.response?.data?.error || error?.response?.data || {};
+const lotSelectionError = (error) => ['MN31_LOT_SELECTION_REQUIRED', 'MN31_LOT_SELECTION_INVALID'].includes(errorData(error).code);
 const uncertain = (error) => {
   const status = error?.response?.status;
   const code = error?.response?.data?.error?.code || error?.response?.data?.code;
@@ -170,9 +182,9 @@ function MangaCard({ item, disabled, onRemove }) {
   );
 }
 
-function ReviewRow({ item }) {
+function ReviewRow({ item, onChangeProductive, disabled }) {
   return (
-    <Paper component="li" variant="outlined" sx={{ listStyle: 'none', p: 1.25 }}>
+    <Paper component="li" variant="outlined" sx={{ listStyle: 'none', p: { xs: 1, md: 1.25 } }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr) auto', md: 'minmax(180px, 1.5fr) 110px 90px 150px minmax(220px, 2fr) 90px' }, gap: 1, alignItems: 'center' }}>
         <Box sx={{ gridColumn: { xs: '1 / -1', md: 'auto' }, minWidth: 0 }}><Typography variant="caption" color="text.secondary">ID humano</Typography><Typography fontWeight={800} sx={{ overflowWrap: 'anywhere' }}>{item.humanId}</Typography></Box>
         <Box><Typography variant="caption" color="text.secondary">Fecha OT</Typography><Typography variant="body2">{dateText(item.otDate)}</Typography></Box>
@@ -180,6 +192,7 @@ function ReviewRow({ item }) {
         <Box><Typography variant="caption" color="text.secondary">Lote</Typography><Typography variant="body2" fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{item.lot}</Typography></Box>
         <Box sx={{ gridColumn: { xs: '1 / -1', md: 'auto' } }}><Typography variant="caption" color="text.secondary">Efecto al confirmar</Typography><Typography variant="body2">{item.confirmationEffect}</Typography></Box>
         <Box sx={{ textAlign: { xs: 'right', md: 'right' } }}><Typography variant="caption" color="text.secondary">Neto kg</Typography><Typography variant="body2" fontWeight={850}>{kgText(item.netKg)}</Typography></Box>
+        <FormControlLabel sx={{ gridColumn: '1 / -1', m: 0 }} control={<Checkbox size="small" checked={item.productiveChange} onChange={(event) => onChangeProductive(item.id, event.target.checked)} disabled={disabled} />} label="Hubo cambio productivo" />
       </Box>
     </Paper>
   );
@@ -198,11 +211,26 @@ export default function Mn31DespachoScm() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [documento, setDocumento] = useState('');
   const [changeClientOpen, setChangeClientOpen] = useState(false);
+  const [lotDialog, setLotDialog] = useState(null);
+  const [lotChoice, setLotChoice] = useState('');
+  const [lotProductiveChange, setLotProductiveChange] = useState(false);
   const [success, setSuccess] = useState(null);
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [reverseOpen, setReverseOpen] = useState(false);
+  const [reverseReason, setReverseReason] = useState('');
+  const [reverseResult, setReverseResult] = useState(null);
+  const [reverseBusy, setReverseBusy] = useState(false);
   const [pending, setPending] = useState(null);
+  const [pendingReverse, setPendingReverse] = useState(null);
+  const [lastOperationId, setLastOperationId] = useState('');
+  const [lookupId, setLookupId] = useState('');
+  const [lookupBusy, setLookupBusy] = useState(false);
   const scanRef = useRef(null);
   const operationRef = useRef(false);
+  const restoredLastOperationRef = useRef('');
   const draftKey = `scm-mn31-dispatch:${actorId}:pending`;
+  const reverseKey = `scm-mn31-dispatch:${actorId}:reverse-pending`;
+  const lastOperationKey = `scm-mn31-dispatch:${actorId}:last-operation`;
 
   const loadClients = useCallback(async () => {
     setLoading(true);
@@ -218,18 +246,51 @@ export default function Mn31DespachoScm() {
   useEffect(() => {
     loadClients();
     try { setPending(JSON.parse(sessionStorage.getItem(draftKey) || 'null')); } catch { setPending(null); }
-  }, [draftKey, loadClients]);
+    try { setPendingReverse(JSON.parse(sessionStorage.getItem(reverseKey) || 'null')); } catch { setPendingReverse(null); }
+    try {
+      const storedOperationId = JSON.parse(sessionStorage.getItem(lastOperationKey) || 'null')?.operationId || '';
+      setLastOperationId(storedOperationId);
+      setLookupId(storedOperationId);
+    } catch { setLastOperationId(''); setLookupId(''); }
+  }, [draftKey, lastOperationKey, loadClients, reverseKey]);
 
   const clearPending = useCallback(() => { sessionStorage.removeItem(draftKey); setPending(null); }, [draftKey]);
+  const clearPendingReverse = useCallback(() => { sessionStorage.removeItem(reverseKey); setPendingReverse(null); }, [reverseKey]);
   useEffect(() => {
     if (!pending?.operationId) return;
     obtenerOperacionDespachoMn31Scm(pending.operationId)
-      .then((payload) => { clearPending(); setSuccess(payload); setNotice({ severity: 'success', message: 'Operación recuperada desde Central sin repetir el despacho.' }); })
+      .then((payload) => { if (!payload?.operation_id && !payload?.id && !payload?.estado) return; clearPending(); setSuccess(payload); setNotice({ severity: 'success', message: 'Operación recuperada desde Central sin repetir el despacho.' }); })
       .catch(() => {});
   }, [pending?.operationId, clearPending]);
 
+  useEffect(() => {
+    if (!lastOperationId || pending?.operationId || success || restoredLastOperationRef.current === lastOperationId) return;
+    restoredLastOperationRef.current = lastOperationId;
+    obtenerOperacionDespachoMn31Scm(lastOperationId)
+      .then((payload) => setSuccess(payload))
+      .catch(() => setLastOperationId(''));
+  }, [lastOperationId, pending?.operationId, success]);
+
+  const consultReceipt = async (requestedId = lookupId) => {
+    const operationId = String(requestedId || '').trim();
+    if (!operationId || lookupBusy || busy) return;
+    setLookupBusy(true); setNotice({ severity: 'info', message: 'Consultando comprobante…' });
+    try {
+      const payload = await obtenerOperacionDespachoMn31Scm(operationId);
+      if (!payload?.operation_id && !payload?.id && !payload?.estado) throw new Error('El comprobante no está disponible todavía.');
+      sessionStorage.setItem(lastOperationKey, JSON.stringify({ operationId }));
+      setLastOperationId(operationId); setLookupId(operationId); setSuccess(payload); setNotice({ severity: 'success', message: 'Comprobante consultado; puedes revisar o revertir con tu permiso.' });
+    } catch (error) {
+      setNotice({ severity: 'error', message: responseError(error, 'No se encontró un comprobante MN-31 con ese ID.') });
+    } finally { setLookupBusy(false); }
+  };
+
   const resetDraft = () => {
-    clearPending(); setClient(null); setItems([]); setScan(''); setDocumento(''); setNotice(null); setSuccess(null); setReviewOpen(false);
+    if (pendingReverse) {
+      setNotice({ severity: 'warning', message: 'Recupera la reversa pendiente antes de iniciar otro despacho.' });
+      return;
+    }
+    clearPending(); sessionStorage.removeItem(reverseKey); setPendingReverse(null); setClient(null); setItems([]); setScan(''); setDocumento(''); setNotice(null); setSuccess(null); setReverseResult(null); setReceiptOpen(false); setReverseOpen(false); setLookupId(lastOperationId);
     setTimeout(() => scanRef.current?.focus(), 0);
   };
   const selectClient = async (nextClient) => {
@@ -242,22 +303,66 @@ export default function Mn31DespachoScm() {
     setChangeClientOpen(false); setClient(null); setItems([]); setSuccess(null); setNotice({ severity: 'info', message: 'Selección retirada. Elige el nuevo cliente y vuelve a escanear.' });
   };
 
+  const appendResolved = (payload, scannedCode, options = {}) => {
+    const normalized = normalizeItem(payload, client);
+    const resolved = {
+      ...normalized,
+      scanCode: scannedCode,
+      lotCode: options.loteCodigo || normalized.lotCode,
+      productiveChange: Boolean(options.huboCambioProductivo),
+    };
+    if (items.some((item) => item.unitId && item.unitId === resolved.unitId) || items.some((item) => item.humanId === resolved.humanId)) {
+      setNotice({ severity: 'warning', message: 'La manga ya está en la revisión; no se duplicó.' });
+      return;
+    }
+    setItems((current) => [...current, resolved]); setNotice({ severity: 'success', message: 'Manga elegible agregada a la revisión.' });
+  };
+
+  const replaceResolved = (itemId, payload, scannedCode, options = {}) => {
+    const normalized = normalizeItem(payload, client);
+    const resolved = {
+      ...normalized,
+      id: itemId,
+      scanCode: scannedCode,
+      lotCode: options.loteCodigo || normalized.lotCode,
+      productiveChange: Boolean(options.huboCambioProductivo),
+    };
+    setItems((current) => current.map((item) => (item.id === itemId ? resolved : item)));
+    setNotice({ severity: 'success', message: 'Manga revalidada con el cambio productivo declarado.' });
+  };
+
+  const resolveLotSelection = async () => {
+    if (!lotDialog?.scanCode || !lotChoice || busy || !client) return;
+    setBusy(true); setNotice({ severity: 'info', message: 'Revalidando manga con el lote elegido…' });
+    try {
+      const payload = await resolverMangaDespachoMn31Scm(lotDialog.scanCode, client.id, { loteCodigo: lotChoice, huboCambioProductivo: lotProductiveChange });
+      if (lotDialog.itemId) replaceResolved(lotDialog.itemId, payload, lotDialog.scanCode, { loteCodigo: lotChoice, huboCambioProductivo: lotProductiveChange });
+      else appendResolved(payload, lotDialog.scanCode, { loteCodigo: lotChoice, huboCambioProductivo: lotProductiveChange });
+      setLotDialog(null); setLotChoice(''); setLotProductiveChange(false); setScan('');
+      setTimeout(() => scanRef.current?.focus(), 0);
+    } catch (error) {
+      setNotice({ severity: 'warning', message: responseError(error, 'El lote elegido ya no es válido. Selecciona otro candidato.') });
+    } finally { setBusy(false); }
+  };
+
   const scanManga = async () => {
     const code = scan.trim();
     if (!code || busy || !client || !can('DESPACHO_MN31_CONFIRMAR') || operationRef.current) return;
     operationRef.current = true; setBusy(true); setNotice({ severity: 'info', message: 'Validando manga…' });
     try {
       const payload = await resolverMangaDespachoMn31Scm(code, client.id);
-      const resolved = normalizeItem(payload, client);
-      if (items.some((item) => item.unitId && item.unitId === resolved.unitId) || items.some((item) => item.humanId === resolved.humanId)) {
-        setNotice({ severity: 'warning', message: 'La manga ya está en la revisión; no se duplicó.' });
-      } else {
-        setItems((current) => [...current, resolved]); setNotice({ severity: 'success', message: 'Manga elegible agregada a la revisión.' });
-      }
+      appendResolved(payload, code);
       setScan('');
       setTimeout(() => scanRef.current?.focus(), 0);
     } catch (error) {
-      setNotice({ severity: error?.response?.status === 409 ? 'warning' : 'error', message: responseError(error, 'La manga no pudo agregarse. Revisa peso, anulación o alcance y reintenta.') });
+      if (lotSelectionError(error)) {
+        const details = errorData(error).details || errorData(error);
+        const candidates = Array.isArray(details.candidatos) ? details.candidatos : [];
+        const suggested = details.candidato_sugerido || '';
+        setLotDialog({ scanCode: code, candidates, suggested });
+        setLotChoice(''); setLotProductiveChange(false);
+        setNotice({ severity: 'warning', message: 'La manga requiere elegir explícitamente un lote candidato.' });
+      } else setNotice({ severity: error?.response?.status === 409 ? 'warning' : 'error', message: responseError(error, 'La manga no pudo agregarse. Revisa peso, anulación o alcance y reintenta.') });
     } finally { operationRef.current = false; setBusy(false); }
   };
 
@@ -267,16 +372,50 @@ export default function Mn31DespachoScm() {
     setNotice({ severity: 'info', message: 'Manga retirada de la revisión; no se movió Kardex.' });
   };
 
+  const setProductiveChange = async (itemId, value) => {
+    const item = items.find((candidate) => candidate.id === itemId);
+    if (!item || busy || !value) {
+      if (item && !value) setItems((current) => current.map((candidate) => (candidate.id === itemId ? { ...candidate, productiveChange: false } : candidate)));
+      return;
+    }
+    setBusy(true); setNotice({ severity: 'info', message: 'Revalidando cambio productivo y lote…' });
+    try {
+      const payload = await resolverMangaDespachoMn31Scm(item.scanCode, client.id, { loteCodigo: item.lotCode, huboCambioProductivo: true });
+      replaceResolved(item.id, payload, item.scanCode, { loteCodigo: item.lotCode, huboCambioProductivo: true });
+    } catch (error) {
+      if (lotSelectionError(error)) {
+        const details = errorData(error).details || errorData(error);
+        const candidates = Array.isArray(details.candidatos) ? details.candidatos : [];
+        const suggested = details.candidato_sugerido || '';
+        setLotDialog({ scanCode: item.scanCode, itemId: item.id, candidates, suggested });
+        setLotChoice(''); setLotProductiveChange(true);
+        setNotice({ severity: 'warning', message: 'El cambio productivo requiere elegir el nuevo lote candidato.' });
+      } else setNotice({ severity: 'warning', message: responseError(error, 'No se pudo revalidar el cambio productivo; la manga conserva su selección.') });
+    } finally { setBusy(false); }
+  };
+
   const confirmDispatch = async () => {
     if (!items.length || !client || busy) return;
     const operationId = pending?.operationId || keyFor();
-    const payload = { cliente_id: Number(client.id), documento: documento.trim() || undefined, motivo: MN31_DISPATCH_MOTIVE, items: items.map((item) => ({ codigo: item.scanCode || item.humanId, unit_id: item.unitId || undefined, version: item.version })) };
+    const payload = {
+      cliente_id: Number(client.id),
+      documento: documento.trim() || undefined,
+      motivo: MN31_DISPATCH_MOTIVE,
+      items: items.map((item) => ({
+        codigo: item.scanCode || item.humanId,
+        unit_id: item.unitId || undefined,
+        version: item.version,
+        lote_codigo: item.lotCode || undefined,
+        hubo_cambio_productivo: Boolean(item.productiveChange),
+        ...(item.versionToken ? { version_token: item.versionToken } : {}),
+      })),
+    };
     const intent = { operationId, payload };
     setBusy(true); setNotice({ severity: 'info', message: 'Confirmando despacho…' });
     try {
       sessionStorage.setItem(draftKey, JSON.stringify(intent)); setPending(intent);
       const result = await confirmarDespachoMn31Scm(payload, operationId);
-      clearPending(); setReviewOpen(false); setSuccess(result); setNotice({ severity: 'success', message: 'Despacho confirmado y registrado por la sesión SCM.' });
+      clearPending(); sessionStorage.setItem(lastOperationKey, JSON.stringify({ operationId: result.operation_id || result.id })); setLastOperationId(result.operation_id || result.id || ''); setReviewOpen(false); setSuccess(result); setNotice({ severity: 'success', message: 'Despacho confirmado y registrado por la sesión SCM.' });
     } catch (error) {
       if (!uncertain(error)) { clearPending(); setReviewOpen(false); setItems([]); setNotice({ severity: 'error', message: responseError(error, 'La identidad cambió. Vuelve a escanear las mangas para revalidar antes de confirmar.') }); }
       else { setReviewOpen(false); setNotice({ severity: 'warning', message: 'Respuesta incierta: conserva la selección y recupera la misma operación.' }); }
@@ -287,9 +426,31 @@ export default function Mn31DespachoScm() {
     setBusy(true); setNotice({ severity: 'info', message: 'Recuperando la misma operación…' });
     try {
       const result = await confirmarDespachoMn31Scm(pending.payload, pending.operationId);
-      clearPending(); setSuccess(result); setReviewOpen(false); setNotice({ severity: 'success', message: 'Operación recuperada sin enviar un segundo despacho.' });
+      clearPending(); sessionStorage.setItem(lastOperationKey, JSON.stringify({ operationId: result.operation_id || result.id })); setLastOperationId(result.operation_id || result.id || ''); setSuccess(result); setReviewOpen(false); setNotice({ severity: 'success', message: 'Operación recuperada sin enviar un segundo despacho.' });
     } catch (error) { setNotice({ severity: 'warning', message: responseError(error, 'No se pudo recuperar todavía. Conserva la selección y vuelve a intentarlo.') }); }
     finally { setBusy(false); }
+  };
+
+  const submitReverse = async (intent = null) => {
+    const dispatchOperationId = intent?.dispatchOperationId || success?.operation_id || success?.id;
+    const operationId = intent?.operationId || keyFor();
+    const payload = intent?.payload || { motivo: reverseReason.trim() };
+    if (!dispatchOperationId || !payload.motivo || reverseBusy) return;
+    const nextIntent = { dispatchOperationId, operationId, payload, receipt: success };
+    setReverseBusy(true); setNotice({ severity: 'info', message: 'Registrando reversa compensatoria…' });
+    try {
+      sessionStorage.setItem(reverseKey, JSON.stringify(nextIntent)); setPendingReverse(nextIntent);
+      const result = await revertirDespachoMn31Scm(dispatchOperationId, payload, operationId);
+      clearPendingReverse(); setReverseResult(result); setReverseOpen(false); setReceiptOpen(false); setNotice({ severity: 'success', message: 'Reversa registrada con compensación de Kardex.' });
+    } catch (error) {
+      if (uncertain(error)) { setReverseOpen(false); setReceiptOpen(false); setNotice({ severity: 'warning', message: 'Respuesta incierta: conserva la reversa y recupérala con la misma operación.' }); }
+      else { clearPendingReverse(); setNotice({ severity: 'error', message: responseError(error, 'La reversa fue rechazada; el despacho original permanece vigente.') }); }
+    } finally { setReverseBusy(false); }
+  };
+
+  const recoverReverse = async () => {
+    if (!pendingReverse || reverseBusy) return;
+    await submitReverse(pendingReverse);
   };
 
   const totalKg = items.reduce((total, item) => total + (Number.isFinite(item.netKg) ? item.netKg : 0), 0);
@@ -312,7 +473,18 @@ export default function Mn31DespachoScm() {
         {loading && <LinearProgress aria-label="Cargando clientes" />}
         <Snackbar open={Boolean(notice)} autoHideDuration={7000} onClose={() => setNotice(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}><Alert onClose={() => setNotice(null)} severity={notice?.severity || 'info'} role="alert" variant="filled" sx={{ width: '100%' }}>{notice?.message}</Alert></Snackbar>
         {pending && <Alert severity="warning" action={<Button color="inherit" size="small" onClick={recoverDispatch} disabled={busy}>Recuperar</Button>}>Respuesta incierta: la operación quedó guardada. Recupera la misma operación antes de continuar.</Alert>}
-        {success && <Paper variant="outlined" sx={{ p: 2, borderColor: 'success.main', bgcolor: 'success.50' }} role="status"><Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} justifyContent="space-between"><Box><Typography variant="h6" fontWeight={800}><CheckCircleOutlineOutlinedIcon color="success" sx={{ mr: 0.75, verticalAlign: 'middle' }} />Despacho confirmado</Typography><Typography variant="body2" color="text.secondary">Operación {success.operation_id || success.id || 'registrada'} · Cliente {confirmedClient} · {confirmedCount ?? '—'} mangas · {confirmedTotalKg == null ? '—' : kgText(confirmedTotalKg)} kg</Typography></Box><Button variant="outlined" onClick={resetDraft}>Nuevo despacho</Button></Stack></Paper>}
+        {pendingReverse && <Alert severity="warning" action={<Button color="inherit" size="small" onClick={recoverReverse} disabled={reverseBusy}>Recuperar reversa</Button>}>La reversa quedó pendiente. Recupera la misma operación antes de iniciar otra.</Alert>}
+        {!client && !success && <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 } }}>
+          <Stack spacing={1.25}>
+            <Box><Typography variant="h6" fontWeight={800}>Consultar comprobante</Typography><Typography variant="body2" color="text.secondary">Recupera un despacho MN-31 confirmado en este u otro dispositivo para revisar su trazabilidad o solicitar una reversa.</Typography></Box>
+            <Stack component="form" direction={{ xs: 'column', sm: 'row' }} spacing={1} onSubmit={(event) => { event.preventDefault(); consultReceipt(); }}>
+              <TextField label="ID del comprobante" value={lookupId} onChange={(event) => setLookupId(event.target.value)} placeholder="UUID de operación" fullWidth size="small" disabled={lookupBusy || Boolean(pending)} />
+              <Button type="submit" variant="outlined" disabled={!lookupId.trim() || lookupBusy || Boolean(pending)} sx={{ minWidth: { sm: 190 } }}>{lookupBusy ? 'Consultando…' : 'Consultar comprobante'}</Button>
+            </Stack>
+            {lastOperationId && <Button variant="text" size="small" onClick={() => consultReceipt(lastOperationId)} disabled={lookupBusy || Boolean(pending)} sx={{ alignSelf: 'flex-start' }}>Consultar último comprobante local</Button>}
+          </Stack>
+        </Paper>}
+        {success && <Paper variant="outlined" sx={{ p: 2, borderColor: reverseResult ? 'warning.main' : 'success.main', bgcolor: reverseResult ? 'warning.50' : 'success.50' }} role="status"><Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} justifyContent="space-between"><Box><Typography variant="h6" fontWeight={800}><CheckCircleOutlineOutlinedIcon color={reverseResult ? 'warning' : 'success'} sx={{ mr: 0.75, verticalAlign: 'middle' }} />{reverseResult ? 'Despacho revertido' : 'Despacho confirmado'}</Typography><Typography variant="body2" color="text.secondary">Operación {success.operation_id || success.id || 'registrada'} · Cliente {confirmedClient} · {confirmedCount ?? '—'} mangas · {confirmedTotalKg == null ? '—' : kgText(confirmedTotalKg)} kg</Typography></Box><Stack direction="row" spacing={1}><Button variant="outlined" onClick={() => setReceiptOpen(true)}>Ver comprobante</Button><Button variant="outlined" onClick={resetDraft} disabled={Boolean(pendingReverse)}>Nuevo despacho</Button></Stack></Stack></Paper>}
         {!client && <ClientPicker clients={clients} selected={client} disabled={busy || Boolean(success)} query={query} onQuery={setQuery} onSelect={selectClient} />}
         {client && !success && <>
           <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper' }}>
@@ -347,16 +519,47 @@ export default function Mn31DespachoScm() {
         </>}
       </Stack>
       <Dialog open={reviewOpen} onClose={() => !busy && setReviewOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle>Revisión de despacho MN-31</DialogTitle>
+        <DialogTitle sx={{ py: { xs: 1, sm: 2 }, fontSize: { xs: '1.15rem', sm: '1.25rem' } }}>Revisión de despacho MN-31</DialogTitle>
         <DialogContent dividers>
-          <Stack spacing={1.5}>
-            <Alert severity="info">Cliente: <strong>{client?.name}</strong>. Verifica la selección antes de registrar la salida. Las mangas abiertas con avance se cierran y registran delta, ingreso y salida en la misma operación.</Alert>
-            <TextField label="Referencia comercial (opcional)" value={documento} onChange={(event) => setDocumento(event.target.value)} fullWidth helperText="Guía u orden del cliente; el comprobante SCM será la causa del despacho." />
-            <Stack component="ul" spacing={1} aria-label="Revisión de mangas MN-31" sx={{ p: 0, m: 0 }}>{items.map((item) => <ReviewRow key={item.id} item={item} />)}</Stack>
+          <Stack spacing={{ xs: 1, sm: 1.5 }}>
+            <Alert severity="info" sx={{ py: { xs: 0.25, sm: 1 }, px: { xs: 1, sm: 2 }, '& .MuiAlert-message': { py: { xs: 0.35, sm: 0.5 }, fontSize: { xs: '0.78rem', sm: '0.875rem' } } }}>Cliente: <strong>{client?.name}</strong>. Verifica la selección antes de registrar la salida. Las mangas abiertas con avance se cierran y registran delta, ingreso y salida en la misma operación.</Alert>
+            <TextField label="Referencia comercial (opcional)" value={documento} onChange={(event) => setDocumento(event.target.value)} fullWidth size="small" helperText="Guía u orden del cliente; el comprobante SCM será la causa del despacho." sx={{ '& .MuiFormHelperText-root': { display: { xs: 'none', sm: 'block' } } }} />
+            <Stack component="ul" spacing={1} aria-label="Revisión de mangas MN-31" sx={{ p: 0, m: 0 }}>{items.map((item) => <ReviewRow key={item.id} item={item} onChangeProductive={setProductiveChange} disabled={busy} />)}</Stack>
             <Typography variant="h6" align="right">Total: {kgText(totalKg)} kg</Typography>
           </Stack>
         </DialogContent>
         <DialogActions><Button onClick={() => setReviewOpen(false)} disabled={busy}>Seguir revisando</Button><Button variant="contained" onClick={confirmDispatch} disabled={!canConfirm}>Confirmar despacho</Button></DialogActions>
+      </Dialog>
+      <Dialog open={Boolean(lotDialog)} onClose={() => !busy && setLotDialog(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Selecciona lote para esta manga</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.5}>
+            <Alert severity="warning">La manga no puede continuar sin una elección explícita: hay cambio productivo o más de un lote candidato.</Alert>
+            <Typography variant="body2" color="text.secondary">Código leído: <strong>{lotDialog?.scanCode}</strong></Typography>
+            <Stack spacing={0.75} role="radiogroup" aria-label="Lotes candidatos">
+              {[...new Set([...(lotDialog?.candidates || []), ...(lotDialog?.suggested ? [lotDialog.suggested] : [])])].map((candidate) => <Button key={candidate} variant={lotChoice === candidate ? 'contained' : 'outlined'} onClick={() => setLotChoice(candidate)} role="radio" aria-checked={lotChoice === candidate} fullWidth sx={{ justifyContent: 'flex-start' }}>{candidate}{candidate === lotDialog?.suggested ? ' · sugerido' : ''}</Button>)}
+            </Stack>
+            {!lotDialog?.candidates?.length && !lotDialog?.suggested && <Alert severity="error">Central no entregó candidatos; reintenta la lectura o solicita revisión del lote.</Alert>}
+            <FormControlLabel control={<Checkbox checked={lotProductiveChange} onChange={(event) => setLotProductiveChange(event.target.checked)} />} label="Hubo cambio productivo desde la lectura" />
+          </Stack>
+        </DialogContent>
+        <DialogActions><Button onClick={() => setLotDialog(null)} disabled={busy}>Cancelar</Button><Button variant="contained" onClick={resolveLotSelection} disabled={!lotChoice || busy}>Revalidar manga</Button></DialogActions>
+      </Dialog>
+      <Dialog open={receiptOpen} onClose={() => !reverseBusy && setReceiptOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Comprobante de despacho MN-31</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.25}>
+            {reverseResult ? <Alert severity="success">Reversa confirmada: {reverseResult.operation_id}. Kardex fue compensado sin reabrir el pesaje.</Alert> : <Alert severity="info">Operación {success?.operation_id || success?.id}. Cliente {confirmedClient}. El comprobante conserva mangas, lotes y kilos autoritativos.</Alert>}
+            <Typography variant="body2">Mangas: {confirmedCount ?? '—'} · Total neto: {confirmedTotalKg == null ? '—' : kgText(confirmedTotalKg)} kg</Typography>
+            {!reverseResult && <Button color="warning" variant="outlined" onClick={() => { setReverseReason(''); setReverseOpen(true); }} disabled={Boolean(pendingReverse) || reverseBusy}>Revertir despacho</Button>}
+          </Stack>
+        </DialogContent>
+        <DialogActions><Button onClick={() => setReceiptOpen(false)}>Cerrar</Button></DialogActions>
+      </Dialog>
+      <Dialog open={reverseOpen} onClose={() => !reverseBusy && setReverseOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Revertir despacho por cliente equivocado</DialogTitle>
+        <DialogContent dividers><Stack spacing={1.25}><Alert severity="warning">Se registrará una compensación de Kardex y quedará trazabilidad append-only. No se reabre el pesaje.</Alert><TextField label="Motivo de reversa" value={reverseReason} onChange={(event) => setReverseReason(event.target.value)} required fullWidth helperText="Explica por qué el comprobante debe revertirse." /></Stack></DialogContent>
+        <DialogActions><Button onClick={() => setReverseOpen(false)} disabled={reverseBusy}>Cancelar</Button><Button color="warning" variant="contained" onClick={() => submitReverse()} disabled={!reverseReason.trim() || reverseBusy}>Confirmar reversa</Button></DialogActions>
       </Dialog>
       <Dialog open={changeClientOpen} onClose={() => !busy && setChangeClientOpen(false)}>
         <DialogTitle>Cambiar cliente</DialogTitle>
