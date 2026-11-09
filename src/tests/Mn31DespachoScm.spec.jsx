@@ -163,6 +163,35 @@ describe('despacho MN-31 integrado', () => {
     expect(sessionStorage.getItem('scm-mn31-dispatch:7:pending')).toBeNull();
   });
 
+  it('conserva todas las mangas ante conflicto y revalida las afectadas en revisión', async () => {
+    const user = userEvent.setup();
+    api.resolve.mockResolvedValueOnce({
+      sku: 'PC-000468', unidad: { id: 'unit-2', version: 2 }, manga: {
+        id: 'manga-2', codigo: 'MANGA-002', id_humano: 'OF-000138-OT-352-M-002', version: 2,
+        ot: { codigo: item.ot, fecha: item.fecha_ot, turno: item.turno }, lote: { codigo: 'MN31-20261109-D-01' },
+        peso_autoritativo_kg: '16.700', cliente: { nombre: client.nombre },
+      },
+    });
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: 'Elegir' }));
+    const input = await screen.findByLabelText('Escanear código de manga');
+    await user.type(input, 'MANGA-001{enter}');
+    await user.type(input, 'MANGA-002{enter}');
+    api.confirm.mockRejectedValueOnce({ response: { status: 409, data: { error: { code: 'VERSION_CONFLICT' } } } });
+    api.resolve.mockRejectedValueOnce({ response: { status: 409 }, message: 'La manga cambió desde la lectura.' });
+    await user.click(await screen.findByRole('button', { name: 'Revisar y confirmar' }));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Confirmar despacho' }));
+    await waitFor(() => expect(api.resolve).toHaveBeenCalledWith('MANGA-001', '1', { loteCodigo: 'MN31-20261109-D-01', huboCambioProductivo: false }));
+    expect(screen.getAllByTestId('mn31-manga-card')).toHaveLength(2);
+    const review = screen.getByRole('dialog');
+    await waitFor(() => expect(within(review).getByText(/La manga cambió desde la lectura/)).toBeVisible());
+    expect(within(review).getByRole('button', { name: 'Revalidar manga' })).toBeEnabled();
+    expect(within(review).getByRole('button', { name: 'Confirmar despacho' })).toBeDisabled();
+    await user.click(within(review).getByRole('button', { name: 'Revalidar manga' }));
+    await waitFor(() => expect(within(review).queryByText(/La manga cambió desde la lectura/)).not.toBeInTheDocument());
+    expect(within(review).getByRole('button', { name: 'Confirmar despacho' })).toBeEnabled();
+  });
+
   it('al recargar muestra la operación confirmada y limpia la alerta pendiente', async () => {
     sessionStorage.setItem('scm-mn31-dispatch:7:pending', JSON.stringify({ operationId: 'op-reload', payload: { cliente_id: 1, motivo: 'Despacho directo de mangas MN-31 a cliente', items: [] } }));
     api.get.mockResolvedValueOnce({ operation_id: 'op-reload', estado: 'CONFIRMADO', cliente: { nombre: 'Cliente Norte' }, cantidad_mangas: 2, total_kg: '33.600' });

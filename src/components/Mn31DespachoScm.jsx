@@ -107,6 +107,7 @@ const normalizeItem = (value, selectedClient) => {
 const responseError = (error, fallback) => mensajeErrorScm(error, fallback);
 const errorData = (error) => error?.response?.data?.error || error?.response?.data || {};
 const lotSelectionError = (error) => ['MN31_LOT_SELECTION_REQUIRED', 'MN31_LOT_SELECTION_INVALID'].includes(errorData(error).code);
+const conflictError = (error) => error?.response?.status === 409 || ['VERSION_CONFLICT', 'INVENTORY_CONFLICT', 'MN31_STOCK_NOT_AVAILABLE'].includes(errorData(error).code);
 const uncertain = (error) => {
   const status = error?.response?.status;
   const code = error?.response?.data?.error?.code || error?.response?.data?.code;
@@ -182,7 +183,7 @@ function MangaCard({ item, disabled, onRemove }) {
   );
 }
 
-function ReviewRow({ item, onChangeProductive, disabled }) {
+function ReviewRow({ item, issue, onChangeProductive, onRevalidate, disabled }) {
   return (
     <Paper component="li" variant="outlined" sx={{ listStyle: 'none', p: { xs: 1, md: 1.25 } }}>
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr) auto', md: 'minmax(180px, 1.5fr) 110px 90px 150px minmax(220px, 2fr) 90px' }, gap: 1, alignItems: 'center' }}>
@@ -193,6 +194,7 @@ function ReviewRow({ item, onChangeProductive, disabled }) {
         <Box sx={{ gridColumn: { xs: '1 / -1', md: 'auto' } }}><Typography variant="caption" color="text.secondary">Efecto al confirmar</Typography><Typography variant="body2">{item.confirmationEffect}</Typography></Box>
         <Box sx={{ textAlign: { xs: 'right', md: 'right' } }}><Typography variant="caption" color="text.secondary">Neto kg</Typography><Typography variant="body2" fontWeight={850}>{kgText(item.netKg)}</Typography></Box>
         <FormControlLabel sx={{ gridColumn: '1 / -1', m: 0 }} control={<Checkbox size="small" checked={item.productiveChange} onChange={(event) => onChangeProductive(item.id, event.target.checked)} disabled={disabled} />} label="Hubo cambio productivo" />
+        {issue && <Alert severity="warning" sx={{ gridColumn: '1 / -1', py: 0.25 }} action={<Button color="inherit" size="small" onClick={() => onRevalidate(item)} disabled={disabled}>Revalidar manga</Button>}>{issue.message}</Alert>}
       </Box>
     </Paper>
   );
@@ -204,6 +206,7 @@ export default function Mn31DespachoScm() {
   const [client, setClient] = useState(null);
   const [query, setQuery] = useState('');
   const [items, setItems] = useState([]);
+  const [itemIssues, setItemIssues] = useState({});
   const [scan, setScan] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -290,7 +293,7 @@ export default function Mn31DespachoScm() {
       setNotice({ severity: 'warning', message: 'Recupera la reversa pendiente antes de iniciar otro despacho.' });
       return;
     }
-    clearPending(); sessionStorage.removeItem(reverseKey); setPendingReverse(null); setClient(null); setItems([]); setScan(''); setDocumento(''); setNotice(null); setSuccess(null); setReverseResult(null); setReceiptOpen(false); setReverseOpen(false); setLookupId(lastOperationId);
+    clearPending(); sessionStorage.removeItem(reverseKey); setPendingReverse(null); setClient(null); setItems([]); setItemIssues({}); setScan(''); setDocumento(''); setNotice(null); setSuccess(null); setReverseResult(null); setReceiptOpen(false); setReverseOpen(false); setLookupId(lastOperationId);
     setTimeout(() => scanRef.current?.focus(), 0);
   };
   const selectClient = async (nextClient) => {
@@ -300,7 +303,7 @@ export default function Mn31DespachoScm() {
     setTimeout(() => scanRef.current?.focus(), 0);
   };
   const confirmClientChange = async () => {
-    setChangeClientOpen(false); setClient(null); setItems([]); setSuccess(null); setNotice({ severity: 'info', message: 'Selección retirada. Elige el nuevo cliente y vuelve a escanear.' });
+    setChangeClientOpen(false); setClient(null); setItems([]); setItemIssues({}); setSuccess(null); setNotice({ severity: 'info', message: 'Selección retirada. Elige el nuevo cliente y vuelve a escanear.' });
   };
 
   const appendResolved = (payload, scannedCode, options = {}) => {
@@ -328,6 +331,7 @@ export default function Mn31DespachoScm() {
       productiveChange: Boolean(options.huboCambioProductivo),
     };
     setItems((current) => current.map((item) => (item.id === itemId ? resolved : item)));
+    setItemIssues((current) => { const next = { ...current }; delete next[itemId]; return next; });
     setNotice({ severity: 'success', message: 'Manga revalidada con el cambio productivo declarado.' });
   };
 
@@ -369,7 +373,41 @@ export default function Mn31DespachoScm() {
   const removeManga = async (item) => {
     if (busy) return;
     setItems((current) => current.filter((candidate) => candidate.id !== item.id));
+    setItemIssues((current) => { const next = { ...current }; delete next[item.id]; return next; });
     setNotice({ severity: 'info', message: 'Manga retirada de la revisión; no se movió Kardex.' });
+  };
+
+  const revalidateItem = async (item) => {
+    if (!item || busy || !client) return;
+    setBusy(true); setNotice({ severity: 'info', message: `Revalidando ${item.humanId}…` });
+    try {
+      const payload = await resolverMangaDespachoMn31Scm(item.scanCode, client.id, { loteCodigo: item.lotCode, huboCambioProductivo: item.productiveChange });
+      replaceResolved(item.id, payload, item.scanCode, { loteCodigo: item.lotCode, huboCambioProductivo: item.productiveChange });
+      setItemIssues((current) => { const next = { ...current }; delete next[item.id]; return next; });
+    } catch (error) {
+      if (lotSelectionError(error)) {
+        const details = errorData(error).details || errorData(error);
+        setLotDialog({ scanCode: item.scanCode, itemId: item.id, candidates: Array.isArray(details.candidatos) ? details.candidatos : [], suggested: details.candidato_sugerido || '' });
+        setLotChoice(''); setLotProductiveChange(Boolean(item.productiveChange));
+      }
+      setItemIssues((current) => ({ ...current, [item.id]: { message: responseError(error, 'La manga no pudo revalidarse; corrige el lote o retírala antes de confirmar.') } }));
+      setNotice({ severity: 'warning', message: 'La manga afectada quedó visible en la revisión para corregirla o retirarla.' });
+    } finally { setBusy(false); }
+  };
+
+  const revalidateItems = async (sourceItems) => {
+    const issues = {};
+    for (const item of sourceItems) {
+      try {
+        const payload = await resolverMangaDespachoMn31Scm(item.scanCode, client.id, { loteCodigo: item.lotCode, huboCambioProductivo: item.productiveChange });
+        replaceResolved(item.id, payload, item.scanCode, { loteCodigo: item.lotCode, huboCambioProductivo: item.productiveChange });
+      } catch (error) {
+        issues[item.id] = { message: responseError(error, 'La manga no pudo revalidarse; corrige el lote o retírala antes de confirmar.') };
+      }
+    }
+    setItemIssues(issues);
+    const affected = Object.keys(issues).length;
+    setNotice({ severity: affected ? 'warning' : 'info', message: affected ? `${affected} manga(s) afectada(s) quedó(aron) visible(s) para corregir o retirar.` : 'Las mangas fueron revalidadas; revisa y confirma nuevamente.' });
   };
 
   const setProductiveChange = async (itemId, value) => {
@@ -382,6 +420,7 @@ export default function Mn31DespachoScm() {
     try {
       const payload = await resolverMangaDespachoMn31Scm(item.scanCode, client.id, { loteCodigo: item.lotCode, huboCambioProductivo: true });
       replaceResolved(item.id, payload, item.scanCode, { loteCodigo: item.lotCode, huboCambioProductivo: true });
+      setItemIssues((current) => { const next = { ...current }; delete next[item.id]; return next; });
     } catch (error) {
       if (lotSelectionError(error)) {
         const details = errorData(error).details || errorData(error);
@@ -417,7 +456,13 @@ export default function Mn31DespachoScm() {
       const result = await confirmarDespachoMn31Scm(payload, operationId);
       clearPending(); sessionStorage.setItem(lastOperationKey, JSON.stringify({ operationId: result.operation_id || result.id })); setLastOperationId(result.operation_id || result.id || ''); setReviewOpen(false); setSuccess(result); setNotice({ severity: 'success', message: 'Despacho confirmado y registrado por la sesión SCM.' });
     } catch (error) {
-      if (!uncertain(error)) { clearPending(); setReviewOpen(false); setItems([]); setNotice({ severity: 'error', message: responseError(error, 'La identidad cambió. Vuelve a escanear las mangas para revalidar antes de confirmar.') }); }
+      if (!uncertain(error)) {
+        clearPending();
+        if (conflictError(error)) {
+          setNotice({ severity: 'warning', message: 'La identidad o el saldo cambió. Revalidando las mangas sin perder la selección…' });
+          await revalidateItems(items);
+        } else setNotice({ severity: 'error', message: responseError(error, 'La confirmación fue rechazada; conserva la selección y corrige o reintenta.') });
+      }
       else { setReviewOpen(false); setNotice({ severity: 'warning', message: 'Respuesta incierta: conserva la selección y recupera la misma operación.' }); }
     } finally { setBusy(false); }
   };
@@ -454,7 +499,7 @@ export default function Mn31DespachoScm() {
   };
 
   const totalKg = items.reduce((total, item) => total + (Number.isFinite(item.netKg) ? item.netKg : 0), 0);
-  const canConfirm = can('DESPACHO_MN31_CONFIRMAR') && items.length > 0 && !busy && !pending;
+  const canConfirm = can('DESPACHO_MN31_CONFIRMAR') && items.length > 0 && !busy && !pending && !Object.keys(itemIssues).length;
   const confirmed = success?.resultado || success?.result || success;
   const confirmedTotalKg = first(confirmed?.total_kg, confirmed?.peso_total_kg, confirmed?.resumen?.total_kg);
   const confirmedCount = first(confirmed?.cantidad_mangas, confirmed?.mangas_count, confirmed?.resumen?.cantidad_mangas);
@@ -524,7 +569,7 @@ export default function Mn31DespachoScm() {
           <Stack spacing={{ xs: 1, sm: 1.5 }}>
             <Alert severity="info" sx={{ py: { xs: 0.25, sm: 1 }, px: { xs: 1, sm: 2 }, '& .MuiAlert-message': { py: { xs: 0.35, sm: 0.5 }, fontSize: { xs: '0.78rem', sm: '0.875rem' } } }}>Cliente: <strong>{client?.name}</strong>. Verifica la selección antes de registrar la salida. Las mangas abiertas con avance se cierran y registran delta, ingreso y salida en la misma operación.</Alert>
             <TextField label="Referencia comercial (opcional)" value={documento} onChange={(event) => setDocumento(event.target.value)} fullWidth size="small" helperText="Guía u orden del cliente; el comprobante SCM será la causa del despacho." sx={{ '& .MuiFormHelperText-root': { display: { xs: 'none', sm: 'block' } } }} />
-            <Stack component="ul" spacing={1} aria-label="Revisión de mangas MN-31" sx={{ p: 0, m: 0 }}>{items.map((item) => <ReviewRow key={item.id} item={item} onChangeProductive={setProductiveChange} disabled={busy} />)}</Stack>
+            <Stack component="ul" spacing={1} aria-label="Revisión de mangas MN-31" sx={{ p: 0, m: 0 }}>{items.map((item) => <ReviewRow key={item.id} item={item} issue={itemIssues[item.id]} onChangeProductive={setProductiveChange} onRevalidate={revalidateItem} disabled={busy} />)}</Stack>
             <Typography variant="h6" align="right">Total: {kgText(totalKg)} kg</Typography>
           </Stack>
         </DialogContent>
