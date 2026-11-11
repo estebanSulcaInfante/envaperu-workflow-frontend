@@ -227,8 +227,22 @@ export default function Mn31DespachoScm() {
   const [pendingReverse, setPendingReverse] = useState(null);
   const [lastOperationId, setLastOperationId] = useState('');
   const [lookupId, setLookupId] = useState('');
+  const [lookupError, setLookupError] = useState('');
   const [lookupBusy, setLookupBusy] = useState(false);
   const scanRef = useRef(null);
+  const [scanAttempt, setScanAttempt] = useState(0);
+  useEffect(() => {
+    if (!client || busy || pending || success || lotDialog || reviewOpen || changeClientOpen || receiptOpen || reverseOpen) return;
+    scanRef.current?.focus();
+    scanRef.current?.select();
+  }, [client, busy, pending, success, lotDialog, reviewOpen, changeClientOpen, receiptOpen, reverseOpen, scanAttempt]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = setTimeout(() => setNotice(null), 5000);
+    return () => clearTimeout(timeout);
+  }, [notice]);
+
   const operationRef = useRef(false);
   const restoredLastOperationRef = useRef('');
   const draftKey = `scm-mn31-dispatch:${actorId}:pending`;
@@ -277,6 +291,11 @@ export default function Mn31DespachoScm() {
   const consultReceipt = async (requestedId = lookupId) => {
     const operationId = String(requestedId || '').trim();
     if (!operationId || lookupBusy || busy) return;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(operationId)) {
+      setLookupError('Pega el ID completo del comprobante. Para buscar por nombre o RUC, usa «Buscar cliente».');
+      return;
+    }
+    setLookupError('');
     setLookupBusy(true); setNotice({ severity: 'info', message: 'Consultando comprobante…' });
     try {
       const payload = await obtenerOperacionDespachoMn31Scm(operationId);
@@ -294,13 +313,11 @@ export default function Mn31DespachoScm() {
       return;
     }
     clearPending(); sessionStorage.removeItem(reverseKey); setPendingReverse(null); setClient(null); setItems([]); setItemIssues({}); setScan(''); setDocumento(''); setNotice(null); setSuccess(null); setReverseResult(null); setReceiptOpen(false); setReverseOpen(false); setLookupId(lastOperationId);
-    setTimeout(() => scanRef.current?.focus(), 0);
   };
   const selectClient = async (nextClient) => {
     if (client?.id === nextClient.id) return;
     if (items.length) { setChangeClientOpen(true); return; }
     setClient(nextClient); setSuccess(null); setNotice({ severity: 'success', message: `${nextClient.name} seleccionado. Escanea una manga MN-31.` });
-    setTimeout(() => scanRef.current?.focus(), 0);
   };
   const confirmClientChange = async () => {
     setChangeClientOpen(false); setClient(null); setItems([]); setItemIssues({}); setSuccess(null); setNotice({ severity: 'info', message: 'Selección retirada. Elige el nuevo cliente y vuelve a escanear.' });
@@ -343,7 +360,6 @@ export default function Mn31DespachoScm() {
       if (lotDialog.itemId) replaceResolved(lotDialog.itemId, payload, lotDialog.scanCode, { loteCodigo: lotChoice, huboCambioProductivo: lotProductiveChange });
       else appendResolved(payload, lotDialog.scanCode, { loteCodigo: lotChoice, huboCambioProductivo: lotProductiveChange });
       setLotDialog(null); setLotChoice(''); setLotProductiveChange(false); setScan('');
-      setTimeout(() => scanRef.current?.focus(), 0);
     } catch (error) {
       setNotice({ severity: 'warning', message: responseError(error, 'El lote elegido ya no es válido. Selecciona otro candidato.') });
     } finally { setBusy(false); }
@@ -357,7 +373,6 @@ export default function Mn31DespachoScm() {
       const payload = await resolverMangaDespachoMn31Scm(code, client.id);
       appendResolved(payload, code);
       setScan('');
-      setTimeout(() => scanRef.current?.focus(), 0);
     } catch (error) {
       if (lotSelectionError(error)) {
         const details = errorData(error).details || errorData(error);
@@ -367,7 +382,7 @@ export default function Mn31DespachoScm() {
         setLotChoice(''); setLotProductiveChange(false);
         setNotice({ severity: 'warning', message: 'La manga requiere elegir explícitamente un lote candidato.' });
       } else setNotice({ severity: error?.response?.status === 409 ? 'warning' : 'error', message: responseError(error, 'La manga no pudo agregarse. Revisa peso, anulación o alcance y reintenta.') });
-    } finally { operationRef.current = false; setBusy(false); }
+    } finally { operationRef.current = false; setBusy(false); setScanAttempt(n => n + 1); }
   };
 
   const removeManga = async (item) => {
@@ -516,14 +531,14 @@ export default function Mn31DespachoScm() {
           <Button variant="outlined" startIcon={<RefreshOutlinedIcon />} onClick={loadClients} disabled={busy}>Actualizar clientes</Button>
         </Stack>
         {loading && <LinearProgress aria-label="Cargando clientes" />}
-        <Snackbar open={Boolean(notice)} autoHideDuration={7000} onClose={() => setNotice(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}><Alert onClose={() => setNotice(null)} severity={notice?.severity || 'info'} role="alert" variant="filled" sx={{ width: '100%' }}>{notice?.message}</Alert></Snackbar>
+        <Snackbar open={Boolean(notice)} onClose={() => setNotice(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}><Alert onClose={() => setNotice(null)} severity={notice?.severity || 'info'} role="alert" variant="filled" sx={{ width: '100%' }}>{notice?.message}</Alert></Snackbar>
         {pending && <Alert severity="warning" action={<Button color="inherit" size="small" onClick={recoverDispatch} disabled={busy}>Recuperar</Button>}>Respuesta incierta: la operación quedó guardada. Recupera la misma operación antes de continuar.</Alert>}
         {pendingReverse && <Alert severity="warning" action={<Button color="inherit" size="small" onClick={recoverReverse} disabled={reverseBusy}>Recuperar reversa</Button>}>La reversa quedó pendiente. Recupera la misma operación antes de iniciar otra.</Alert>}
         {!client && !success && <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 } }}>
           <Stack spacing={1.25}>
             <Box><Typography variant="h6" fontWeight={800}>Consultar comprobante</Typography><Typography variant="body2" color="text.secondary">Recupera un despacho MN-31 confirmado en este u otro dispositivo para revisar su trazabilidad o solicitar una reversa.</Typography></Box>
             <Stack component="form" direction={{ xs: 'column', sm: 'row' }} spacing={1} onSubmit={(event) => { event.preventDefault(); consultReceipt(); }}>
-              <TextField label="ID del comprobante" value={lookupId} onChange={(event) => setLookupId(event.target.value)} placeholder="UUID de operación" fullWidth size="small" disabled={lookupBusy || Boolean(pending)} />
+              <TextField label="ID del comprobante" value={lookupId} onChange={(event) => { setLookupId(event.target.value); setLookupError(''); }} error={Boolean(lookupError)} helperText={lookupError || undefined} placeholder="ID completo de la operación" fullWidth size="small" disabled={lookupBusy || Boolean(pending)} />
               <Button type="submit" variant="outlined" disabled={!lookupId.trim() || lookupBusy || Boolean(pending)} sx={{ minWidth: { sm: 190 } }}>{lookupBusy ? 'Consultando…' : 'Consultar comprobante'}</Button>
             </Stack>
             {lastOperationId && <Button variant="text" size="small" onClick={() => consultReceipt(lastOperationId)} disabled={lookupBusy || Boolean(pending)} sx={{ alignSelf: 'flex-start' }}>Consultar último comprobante local</Button>}

@@ -46,12 +46,16 @@ describe('despacho MN-31 integrado', () => {
 
   it('consulta un comprobante por ID desde la bandeja inicial', async () => {
     const user = userEvent.setup();
-    api.get.mockResolvedValueOnce({ operation_id: 'op-other-device', estado: 'CONFIRMADO', cliente: { nombre: 'Cliente Norte' }, cantidad_mangas: 2, total_kg: '33.600' });
+    api.get.mockResolvedValueOnce({ operation_id: 'ab123456-0000-4000-8000-123456789abc', estado: 'CONFIRMADO', cliente: { nombre: 'Cliente Norte' }, cantidad_mangas: 2, total_kg: '33.600' });
     renderPage();
     const input = await screen.findByRole('textbox', { name: 'ID del comprobante' });
-    await user.type(input, 'op-other-device');
+    await user.type(input, 'J{enter}');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(api.get).not.toHaveBeenCalled();
+    await user.clear(input);
+    await user.type(input, 'ab123456-0000-4000-8000-123456789abc');
     await user.click(screen.getByRole('button', { name: 'Consultar comprobante', exact: true }));
-    expect(await screen.findByRole('status')).toHaveTextContent(/op-other-device/);
+    expect(await screen.findByRole('status')).toHaveTextContent(/ab123456-0000-4000-8000-123456789abc/);
     expect(screen.getByRole('button', { name: 'Ver comprobante' })).toBeVisible();
   });
 
@@ -79,7 +83,13 @@ describe('despacho MN-31 integrado', () => {
     await user.type(input, 'MANGA-ANULADA{enter}');
     expect((await screen.findAllByRole('alert')).some((alert) => alert.textContent.includes('La manga anulada no tiene peso elegible.'))).toBe(true);
     expect(screen.queryByTestId('mn31-manga-card')).not.toBeInTheDocument();
-    expect(input).toBeEnabled();
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
+    await user.keyboard('MANGA-001{enter}');
+    await screen.findByTestId('mn31-manga-card');
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue('');
   });
 
   it('retira antes de confirmar y expone el efecto de una manga abierta con avance en revisión', async () => {
