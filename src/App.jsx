@@ -116,6 +116,17 @@ const envaTheme = createTheme({
     fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
   },
   components: {
+    MuiChip: {
+      styleOverrides: {
+        root: {
+          '&.MuiChip-filled.MuiChip-colorWarning': {
+            color: '#fff',
+            backgroundColor: '#AD4A00',
+            '&.MuiChip-clickable:hover, &.Mui-focusVisible': { backgroundColor: '#893B00' },
+          },
+        },
+      },
+    },
     MuiPaper: {
       styleOverrides: {
         root: {
