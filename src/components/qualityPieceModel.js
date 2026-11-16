@@ -223,6 +223,8 @@ export const ensureWorkQuality = (pieceQuality) => ({
   visits: Array.isArray(pieceQuality?.visits) ? pieceQuality.visits : [],
   incidents: Array.isArray(pieceQuality?.incidents) ? pieceQuality.incidents : [],
   periodicQuotaByOt: pieceQuality?.periodicQuotaByOt || {},
+  centralPeriodicQuotaByOt: pieceQuality?.centralPeriodicQuotaByOt || {},
+  centralPeriodicQuotaVersionByOt: pieceQuality?.centralPeriodicQuotaVersionByOt || {},
   workRecords: pieceQuality?.workRecords || {},
   workVisits: Array.isArray(pieceQuality?.workVisits) ? pieceQuality.workVisits : [],
 });
@@ -264,6 +266,8 @@ export const emptyPieceQualityState = () => ({
   visits: [],
   incidents: [],
   periodicQuotaByOt: {},
+  centralPeriodicQuotaByOt: {},
+  centralPeriodicQuotaVersionByOt: {},
 });
 
 export const ensurePieceQuality = (localState) => {
@@ -283,6 +287,8 @@ export const ensurePieceQuality = (localState) => {
     visits: confirmedLegacy.length ? [...confirmedLegacy, ...visits] : visits,
     incidents: Array.isArray(pieceQuality.incidents) ? pieceQuality.incidents : [],
     periodicQuotaByOt: { ...legacyQuotas, ...pieceQuality.periodicQuotaByOt },
+    centralPeriodicQuotaByOt: { ...pieceQuality.centralPeriodicQuotaByOt },
+    centralPeriodicQuotaVersionByOt: { ...pieceQuality.centralPeriodicQuotaVersionByOt },
   };
 };
 

@@ -23,4 +23,34 @@ describe('Historial compartido de Calidad en el tablero y en la OT', () => {
     expect(summary.periodicVisits.map(v => [v.number, v.id])).toEqual([[2, 'v2'], [3, 'otra']]);
     expect(summary.works.map(work => work.inspectionCount)).toEqual([1, 1]);
   });
+  it('usa la meta real de la OT, incluido cero, sin bloquear visitas sobre la meta', () => {
+    const overTarget = buildQualityOtInspectionSummary({
+      ot: { ...ot, calidad_visitas_periodicas_previstas: 1, visitas_calidad: [
+        { id: 'v2', trabajo_id: 'lila', tipo: 'PERIODICA', numero: 2, estado: 'CONFIRMED' },
+        { id: 'v3', trabajo_id: 'azure', tipo: 'PERIODICA', numero: 3, estado: 'CONFIRMED' },
+      ] },
+    });
+    expect(overTarget.header.periodicTarget).toBe(1);
+    expect(overTarget.header.periodicConfirmed).toBe(2);
+    const zero = buildQualityOtInspectionSummary({
+      ot: { ...ot, calidad_visitas_periodicas_previstas: 0 },
+    });
+    expect(zero.header.periodicTarget).toBe(0);
+    expect(zero.header.periodicConfirmed).toBe(0);
+    const corrected = buildQualityOtInspectionSummary({
+      ot: { ...ot, calidad_visitas_periodicas_previstas: null },
+      localState: { pieceQuality: { periodicQuotaByOt: { [ot.id]: 9 } } },
+    });
+    expect(corrected.header.periodicTarget).toBeNull();
+    const updated = buildQualityOtInspectionSummary({
+      ot: { ...ot, version: 4, calidad_visitas_periodicas_previstas: 3 },
+      localState: { pieceQuality: { centralPeriodicQuotaByOt: { [ot.id]: 2 }, centralPeriodicQuotaVersionByOt: { [ot.id]: 4 } } },
+    });
+    expect(updated.header.periodicTarget).toBe(2);
+    const refreshed = buildQualityOtInspectionSummary({
+      ot: { ...ot, version: 5, calidad_visitas_periodicas_previstas: 3 },
+      localState: { pieceQuality: { centralPeriodicQuotaByOt: { [ot.id]: 2 }, centralPeriodicQuotaVersionByOt: { [ot.id]: 4 } } },
+    });
+    expect(refreshed.header.periodicTarget).toBe(3);
+  });
 });

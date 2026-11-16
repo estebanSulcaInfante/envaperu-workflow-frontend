@@ -91,7 +91,17 @@ const stateInput = (quality, localState) => {
 };
 
 export const periodicTarget = (ot, state, otId) => {
-  const value = first(
+  // The central field is authoritative even when it is explicitly null or 0;
+  // an old browser-local pilot value must not shadow a correction from API.
+  const centralOverrides = state?.pieceQuality?.centralPeriodicQuotaByOt || state?.centralPeriodicQuotaByOt || {};
+  const centralVersions = state?.pieceQuality?.centralPeriodicQuotaVersionByOt || state?.centralPeriodicQuotaVersionByOt || {};
+  const hasCentralOverride = Object.prototype.hasOwnProperty.call(centralOverrides, otId);
+  const localOverrideVersion = centralVersions[otId];
+  const remoteVersion = ot?.version;
+  const overrideIsCurrent = hasCentralOverride && (remoteVersion == null || localOverrideVersion == null
+    || Number(localOverrideVersion) >= Number(remoteVersion));
+  const hasCentralQuota = Object.prototype.hasOwnProperty.call(ot || {}, 'calidad_visitas_periodicas_previstas');
+  const value = overrideIsCurrent ? centralOverrides[otId] : hasCentralQuota ? ot.calidad_visitas_periodicas_previstas : first(
     state?.pieceQuality?.periodicQuotaByOt?.[otId],
     state?.periodicQuotaByOt?.[otId],
     state?.periodic?.[otId]?.quota,

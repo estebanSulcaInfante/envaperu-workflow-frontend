@@ -577,7 +577,12 @@ function OtQualitySettings({ quality, otId, saveQuality, expanded = false, readO
         const nextVersion = response?.ot?.version ?? configVersion;
         setConfigVersion(nextVersion);
         setQuotaDraft(nextQuota == null ? '' : String(nextQuota));
-        saveQuality((current) => ({ ...current, periodicQuotaByOt: { ...current.periodicQuotaByOt, [otId]: nextQuota ?? '' } }));
+        saveQuality((current) => ({
+          ...current,
+          periodicQuotaByOt: { ...current.periodicQuotaByOt, [otId]: nextQuota ?? '' },
+          centralPeriodicQuotaByOt: { ...current.centralPeriodicQuotaByOt, [otId]: nextQuota },
+          centralPeriodicQuotaVersionByOt: { ...current.centralPeriodicQuotaVersionByOt, [otId]: nextVersion },
+        }));
         setSaved(true);
       } catch (error) {
         setSaved(false);
@@ -607,7 +612,7 @@ function OtQualitySettings({ quality, otId, saveQuality, expanded = false, readO
       <Stack spacing={1}>
         <Box>
           <Typography variant="subtitle1" fontWeight={800}>Configuración de la OT</Typography>
-          <Typography variant="body2" color="text.secondary">{readOnly ? 'Tu perfil puede consultar la cuota, pero no editar la configuración central.' : centralQuality ? 'La cuota se guarda en la API central y se valida contra las visitas confirmadas.' : 'Define aquí la meta de visitas periódicas. Las visitas solo actualizan el avance confirmado; no cambian esta meta.'}</Typography>
+          <Typography variant="body2" color="text.secondary">{readOnly ? 'Tu perfil puede consultar la meta, pero no editar la configuración central.' : centralQuality ? 'La cuota se guarda en la API central como meta; las visitas actualizan el avance confirmado y pueden continuar.' : 'Define aquí la meta de visitas periódicas. Las visitas solo actualizan el avance confirmado; no cambian esta meta.'}</Typography>
         </Box>
         {readOnly && <Alert severity="info">Solicita a un supervisor o planificador la actualización de la cuota de esta OT.</Alert>}
         {!readOnly && <>

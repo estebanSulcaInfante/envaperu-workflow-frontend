@@ -60,7 +60,6 @@ import WorkKgAllocation from './WorkKgAllocation';
 import { buildKgAssignment } from '../utils/workKgAssignment';
 import { useScmActor } from '../context/ScmActorContext';
 import { useFeedback } from '../context/FeedbackContext';
-import { checkMachineShiftOff, useMachineShiftAvailability } from '../hooks/useMachineShiftAvailability';
 import { todayInLima } from '../utils/limaDate';
 import {
   buildScmPrelabelPreviewUrl,
@@ -69,6 +68,9 @@ import {
 } from '../utils/scmPrintPreview';
 
 const today = todayInLima;
+// The central API exposes machine/catalog state but no turn-level scheduling
+// decision. Never infer “No trabajará” from a catalog until that contract exists.
+const noTurnAvailability = () => false;
 const journeyContextFromSearch = (searchParams) => {
   const requestedDate = searchParams.get('fecha') || '';
   const requestedShift = String(searchParams.get('turno') || '').toUpperCase();
@@ -1157,10 +1159,7 @@ export default function OtMangasScm({ view = 'all' }) {
     maquina_id: '', turno: initialJourneyContext.turno,
     maquinista_predeterminado_id: '',
   });
-  const { isOff: isHeaderMachineOff } = useMachineShiftAvailability(
-    headerForm.fecha_operativa,
-    headerForm.turno,
-  );
+  const isHeaderMachineOff = noTurnAvailability;
   const [workForm, setWorkForm] = useState({
     orderId: '', runId: '', quantities: {}, kgEdits: {},
   });
@@ -1497,7 +1496,9 @@ export default function OtMangasScm({ view = 'all' }) {
     )),
     [boardMachines, catalogs.orders, catalogs.workers, ots, selectedOtId],
   );
-  const { isOff: isBoardMachineOff, setOff: setBoardMachineOff, canEdit: canEditMachineAvailability } = useMachineShiftAvailability(listFilters.fecha_operativa, listFilters.turno);
+  const isBoardMachineOff = noTurnAvailability;
+  const setBoardMachineOff = undefined;
+  const canEditMachineAvailability = false;
   const boardStatusCounts = useMemo(() => ({
     all: boardCards.length,
     withOt: boardCards.filter((card) => Boolean(card.ot)).length,
@@ -2518,16 +2519,6 @@ export default function OtMangasScm({ view = 'all' }) {
           maquinista_predeterminado_id: Number(reviewedForm.maquinista_predeterminado_id),
         } : {}),
       };
-      if (import.meta.env.DEV && !import.meta.env.TEST) {
-        try {
-          if (await checkMachineShiftOff(payload.fecha_operativa, payload.turno, payload.maquina_id)) {
-            throw new Error('La máquina está marcada como «No trabajará». Reactívala para preparar la OT.');
-          }
-        } catch (error) {
-          error.beforeSubmission = true;
-          throw error;
-        }
-      }
       const result = await crearOtFabricacionScm(payload, operationId);
       const successMessage = `${result.ot.codigo_ot} creada como jornada de máquina, todavía sin color.`;
       setNotice(successMessage);
