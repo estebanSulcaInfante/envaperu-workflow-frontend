@@ -1,4 +1,7 @@
-import { BrowserRouter, Navigate, Routes, Route, useLocation } from 'react-router-dom';
+import CalidadProcesoScm from './components/CalidadProcesoScm';
+import { QualityOtContextRedirect } from './components/quality/QualityOtContextRedirect';
+import { todayInLima } from './utils/limaDate';
+import { BrowserRouter, Navigate, Routes, Route, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { 
   ThemeProvider, 
   createTheme, 
@@ -179,6 +182,66 @@ function MangaExplorerLegacyRedirect() {
   return <Navigate to={{ pathname: '/control/mangas', search: location.search }} replace />;
 }
 
+function CalidadPilotoRoute({ station = false }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const q = new URLSearchParams(location.search);
+  const fecha = q.get('fecha') || todayInLima();
+  const turno = ['DIA', 'NOCHE', 'EXTRA'].includes(q.get('turno')) ? q.get('turno') : 'DIA';
+  const machine = q.get('maquina') || 'TODAS';
+  const position = Number(q.get('pos') || 0);
+  const updateFilters = ({ date, shift, machine: nextMachine }) => {
+    const next = new URLSearchParams();
+    if (date) next.set('fecha', date);
+    if (shift) next.set('turno', shift);
+    if (nextMachine && nextMachine !== 'TODAS') next.set('maquina', nextMachine);
+    navigate({ pathname: station ? '/calidad/estacion' : '/calidad/reporte', search: `?${next.toString()}` }, { replace: true });
+  };
+  const openOt = (otId, state) => {
+    const next = new URLSearchParams();
+    if (state?.date) next.set('fecha', state.date);
+    if (state?.shift) next.set('turno', state.shift);
+    if (state?.machine && state.machine !== 'TODAS') next.set('maquina', state.machine);
+    if (Number.isFinite(state?.position)) next.set('pos', String(Math.round(state.position)));
+    navigate({ pathname: station ? '/calidad/estacion' : '/calidad/reporte', search: `?${next.toString()}` }, { replace: true });
+    navigate({ pathname: `/calidad/reporte/ots/${encodeURIComponent(otId)}`, search: `?${next.toString()}` });
+  };
+  const openStation = (otId) => navigate({ pathname: `/calidad/estacion/ots/${encodeURIComponent(otId)}`, search: location.search });
+  const openReport = (otId, state) => {
+    const next = new URLSearchParams();
+    if (state?.date) next.set('fecha', state.date);
+    if (state?.shift) next.set('turno', state.shift);
+    if (state?.machine && state.machine !== 'TODAS') next.set('maquina', state.machine);
+    navigate({ pathname: `/calidad/reporte/ots/${encodeURIComponent(otId)}`, search: `?${next.toString()}` });
+  };
+  return <CalidadProcesoScm key={[fecha, turno, station ? 'station' : 'report'].join('/')} view={station ? 'station-board' : 'board'} initialDate={fecha} initialShift={turno} initialMachine={machine} restorePosition={position} onOpenOt={station ? openReport : openOt} onOpenStation={openStation} onFiltersChange={updateFilters} centralQuality />;
+}
+
+function CalidadOtSheetRoute({ station = false }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { otId } = useParams();
+  const q = new URLSearchParams(location.search);
+  if (!q.get('fecha') || !q.get('turno')) {
+    return <QualityOtContextRedirect key={otId} otId={otId} location={location} />;
+  }
+  const fecha = q.get('fecha');
+  const turno = ['DIA', 'NOCHE', 'EXTRA'].includes(q.get('turno')) ? q.get('turno') : 'DIA';
+  const machine = q.get('maquina') || 'TODAS';
+  const backToBoard = (state) => {
+    const next = new URLSearchParams();
+    if (state?.date || fecha) next.set('fecha', state?.date || fecha);
+    if (state?.shift || turno) next.set('turno', state?.shift || turno);
+    const nextMachine = state?.machine || machine;
+    if (nextMachine && nextMachine !== 'TODAS') next.set('maquina', nextMachine);
+    const position = Number(q.get('pos'));
+    if (Number.isFinite(position) && position > 0) next.set('pos', String(Math.round(position)));
+    navigate({ pathname: station ? '/calidad/estacion' : '/calidad/reporte', search: `?${next.toString()}` }, { replace: true });
+  };
+  const openStation = (nextOtId) => navigate({ pathname: `/calidad/estacion/ots/${encodeURIComponent(nextOtId || otId)}`, search: location.search });
+  return <CalidadProcesoScm key={`${otId}/${fecha}/${turno}/${station ? 'station' : 'report'}`} view={station ? 'station' : 'sheet'} otId={otId} initialDate={fecha} initialShift={turno} initialMachine={machine} initialOt={location.state?.qualityOtContext} onBack={backToBoard} onOpenStation={openStation} centralQuality />;
+}
+
 function App() {
   return (
     <ThemeProvider theme={envaTheme}>
@@ -202,6 +265,13 @@ function App() {
                 <Route path="/produccion/ordenes/nueva-excepcional" element={workspace('planning.exceptionalOp', <OrdenForm />)} />
                 <Route path="/produccion/registros" element={workspace('control.dailyRecords', <RegistrosLista />)} />
                 <Route path="/produccion/talonarios" element={workspace('control.talonarios', <TalonariosAdmin />)} />
+                <Route path="/calidad" element={<Navigate to="/calidad/reporte" replace />} />
+                <Route path="/calidad/tablero" element={<Navigate to="/calidad/reporte" replace />} />
+                <Route path="/calidad/reporte" element={workspace('quality.report', <CalidadPilotoRoute />)} />
+                <Route path="/calidad/reporte/ots/:otId" element={workspace('quality.report', <CalidadOtSheetRoute />)} />
+                <Route path="/calidad/ots/:otId" element={workspace('quality.report', <CalidadOtSheetRoute />)} />
+                <Route path="/calidad/estacion" element={workspace('quality.station', <CalidadPilotoRoute station />)} />
+                <Route path="/calidad/estacion/ots/:otId/*" element={workspace('quality.station', <CalidadOtSheetRoute station />)} />
                 <Route path="/control" element={<WorkspaceAreaRedirect areaKey="control" />} />
                 <Route path="/control/supervision-produccion" element={workspace('control.productionSupervision', <ProductionSupervisionScm />)} />
                 <Route path="/control/avance-of-tv" element={workspace('control.productionProgressTv', <ControlAvanceOfTv />)} />

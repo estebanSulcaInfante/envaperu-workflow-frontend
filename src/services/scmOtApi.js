@@ -97,7 +97,11 @@ export const listarOtScm = (ofId, tipoOt, filters = {}) => body(() => api.get('/
 }));
 export const obtenerOtScm = (id, options = {}) => body(() => api.get(
   `/scm/v1/ots/${encodeURIComponent(id)}`,
-  { headers: headers(), ...(options.signal ? { signal: options.signal } : {}) },
+  {
+    headers: headers(),
+    ...(options.vista ? { params: { vista: options.vista } } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+  },
 ));
 export const listarJornadasPlantaScm = (filters = {}) => body(() => api.get(
   '/scm/v1/jornadas-planta',

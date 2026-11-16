@@ -269,6 +269,18 @@ describe('tablero diario por máquina y selección humana de color', () => {
     );
   });
 
+  it('no ofrece acciones de disponibilidad sin contrato central de escritura', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    renderSubject();
+    const board = await screen.findByTestId('daily-machine-board');
+    const card = within(board).getAllByTestId('machine-day-card')[0];
+    expect(within(card).getByText('Sin OT')).toBeVisible();
+    expect(within(card).queryByRole('button', { name: 'No trabajará hoy' })).not.toBeInTheDocument();
+    expect(within(card).queryByRole('button', { name: 'Reactivar máquina' })).not.toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
   it('habilita Crear OT en global después de cargar catálogos esenciales', async () => {
     const user = userEvent.setup();
     render(
@@ -600,16 +612,16 @@ describe('tablero diario por máquina y selección humana de color', () => {
     scmMocks.obtenerOtScm.mockResolvedValue({ ot: makeOt() });
     scmMocks.listarOrdenesFabricacionScm.mockImplementation(() => oldOrders);
     const { rerender } = render(
-      <MemoryRouter initialEntries={['/produccion/ots-planta?fecha=2026-08-10&turno=DIA']}>
-        <OtMangasScm />
+      <MemoryRouter initialEntries={['/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&ot=ot-1']}>
+        <OtMangasScm view="detail" />
       </MemoryRouter>,
     );
     await user.click(await screen.findByRole('button', { name: 'Agregar trabajo', exact: true }));
     await waitFor(() => expect(scmMocks.listarOrdenesFabricacionScm).toHaveBeenCalled());
     actorMocks.actorId = 2;
     rerender(
-      <MemoryRouter initialEntries={['/produccion/ots-planta?fecha=2026-08-10&turno=DIA']}>
-        <OtMangasScm />
+      <MemoryRouter initialEntries={['/produccion/ots-planta/trabajo?fecha=2026-08-10&turno=DIA&ot=ot-1']}>
+        <OtMangasScm view="detail" />
       </MemoryRouter>,
     );
     await act(async () => resolveOldOrders({ items: [{ id: 'of-old', codigo: 'OF-ACTOR-1', estado: 'LIBERADA' }] }));
@@ -899,11 +911,10 @@ describe('tablero diario por máquina y selección humana de color', () => {
     const user = userEvent.setup();
     const firstOt = { ...makeOt({ machineId: 1, id: 'ot-1' }), fecha_operativa: '2026-10-02' };
     const nextOt = { ...makeOt({ machineId: 2, id: 'ot-2' }), fecha_operativa: '2026-10-07' };
-    scmMocks.listarOtScm
-      .mockResolvedValueOnce({ items: [firstOt] })
-      .mockResolvedValueOnce({ items: [] })
-      .mockResolvedValueOnce({ items: [nextOt] })
-      .mockResolvedValueOnce({ items: [] });
+    scmMocks.listarOtScm.mockReset().mockImplementation(async (_selected, kind, filters) => {
+      if (kind !== 'FABRICACION') return { items: [] };
+      return { items: filters.fecha_operativa === firstOt.fecha_operativa ? [firstOt] : [nextOt] };
+    });
     render(
       <MemoryRouter initialEntries={[
         '/produccion/ots-planta?fecha=2026-10-02&turno=DIA&modo=fabricacion',

@@ -73,9 +73,23 @@ function AppShell({ children }) {
           minHeight: '100vh',
         }}
       >
-        <ActorWorkspaceBar />
         <Box key={actorId}>
-          <WorkspaceBreadcrumbs location={location} />
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 2,
+              mb: 1,
+            }}
+          >
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <WorkspaceBreadcrumbs location={location} />
+            </Box>
+            <Box sx={{ display: { xs: 'none', md: 'block' }, flexShrink: 0 }}>
+              <ActorWorkspaceBar />
+            </Box>
+          </Box>
           {children}
         </Box>
       </Box>

@@ -100,6 +100,8 @@ export function buildActorWorkspace({
     && (!(item.requiredAny || []).length
       || (item.requiredAny || []).some((code) => capabilities.has(code)))
     && (item.requiredAll || []).every((code) => capabilities.has(code))
+    && (!(item.requiredCapabilityGroups || []).length
+      || item.requiredCapabilityGroups.some((group) => group.every((code) => capabilities.has(code))))
   );
 
   const eligibleByKey = new Map();

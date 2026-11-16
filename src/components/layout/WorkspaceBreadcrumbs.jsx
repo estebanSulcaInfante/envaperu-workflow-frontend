@@ -11,6 +11,7 @@ function WorkspaceBreadcrumbs({ location }) {
   const area = workspace.areas.find((item) => item.key === feature?.areaKey) || null;
 
   if (!area || area.key === 'home') return null;
+  if (feature?.key === 'quality.station') return null;
 
   const areaHasSections = area.childMode !== 'hub' && area.features?.length > 1;
 

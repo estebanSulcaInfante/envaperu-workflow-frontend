@@ -1,3 +1,4 @@
+import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import { useEffect, useState } from 'react';
 import {
   AppBar,
@@ -38,6 +39,7 @@ import {
 } from '../config/workspaceRegistry';
 import { useActorWorkspace } from '../context/ScmActorContext';
 import { activateScanAudio } from '../services/scmScanAudio';
+import ActorWorkspaceBar from './layout/ActorWorkspaceBar';
 
 const expandedWidth = 248;
 const collapsedWidth = 76;
@@ -68,6 +70,7 @@ const icons = {
   production: FactoryOutlinedIcon,
   materials: Inventory2OutlinedIcon,
   warehouse: WarehouseOutlinedIcon,
+  quality: FactCheckOutlinedIcon,
   control: MonitorHeartOutlinedIcon,
   catalog: CategoryOutlinedIcon,
   settings: SettingsOutlinedIcon,
@@ -370,6 +373,9 @@ function Sidebar() {
             </IconButton>
             <FactoryOutlinedIcon sx={{ ml: 1.5, mr: 1, fontSize: 24 }} />
             <Typography component="div" variant="subtitle1" sx={{ fontWeight: 750 }}>EnvaPerú SCM</Typography>
+            <Box sx={{ ml: 'auto' }}>
+              <ActorWorkspaceBar mobile />
+            </Box>
           </Toolbar>
         </AppBar>
       )}

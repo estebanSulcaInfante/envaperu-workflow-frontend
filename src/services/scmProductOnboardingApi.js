@@ -1,7 +1,7 @@
 import api from './api';
 import { obtenerActorScm } from './scmEngineeringApi';
 
-const createUuid = () => {
+export const createUuid = () => {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return globalThis.crypto.randomUUID();
   }

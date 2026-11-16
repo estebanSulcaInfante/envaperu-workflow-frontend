@@ -9,13 +9,14 @@ import {
 } from '../config/navigation';
 
 describe('US-010N1: navegación SCM por áreas', () => {
-  it('expone las seis áreas de trabajo aprobadas', () => {
+  it('expone las áreas de trabajo aprobadas, incluida Calidad', () => {
     expect(primaryNavigation.map((item) => item.id)).toEqual([
       'home',
       'planning',
       'production',
       'materials',
       'warehouse',
+      'quality',
       'control',
     ]);
   });
@@ -101,5 +102,29 @@ describe('US-010N1: navegación SCM por áreas', () => {
     expect(visibleMasterTabs.map((item) => item.label))
       .not.toContain('Configuración técnica de molde y piezas');
     expect(visibleMasterTabs.map((item) => item.label)).not.toContain('Trabajadores');
+  });
+
+  it('aplica el grupo específico de Calidad o la lectura OT+OF en pestañas', () => {
+    const quality = workspaceNavigation.find((item) => item.id === 'quality');
+    const withOtOnly = visibleByCapabilities(
+      quality.tabs,
+      () => true,
+      (required) => required.every((capability) => capability === 'OT_VER'),
+    );
+    expect(withOtOnly).toEqual([]);
+
+    const withOtAndOf = visibleByCapabilities(
+      quality.tabs,
+      () => true,
+      (required) => required.every((capability) => ['OT_VER', 'OF_VER'].includes(capability)),
+    );
+    expect(withOtAndOf.map((item) => item.key)).toEqual(['quality.report', 'quality.station']);
+
+    const withQuality = visibleByCapabilities(
+      quality.tabs,
+      () => true,
+      (required) => required.every((capability) => capability === 'CALIDAD_CONTROL_REGISTRAR'),
+    );
+    expect(withQuality.map((item) => item.key)).toEqual(['quality.report', 'quality.station']);
   });
 });

@@ -45,8 +45,10 @@ const icons = {
 };
 
 function ModuleTabs({ workspace, pathname, isActive }) {
-  const { canAny } = useScmActor();
-  const tabs = visibleByCapabilities(workspace.tabs, canAny);
+  const { can, canAny } = useScmActor();
+  const tabs = visibleByCapabilities(workspace.tabs, canAny, (required = []) => (
+    !required.length || required.every((capability) => can(capability))
+  ));
   const activeTab = tabs.find((tab) => isActive(pathname, tab));
 
   if (!tabs.length) return null;

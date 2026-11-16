@@ -7,7 +7,7 @@ import { anularOtScm } from '../services/scmOtApi';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
 import { useFeedback } from '../context/FeedbackContext';
 
-export function OtCreationReview({ form, machine, worker, disabled, onConfirm, onRefresh }) {
+export function OtCreationReview({ form, machine, worker, disabled, machineOff = false, onConfirm, onRefresh }) {
   const { notify } = useFeedback();
   const [review, setReview] = useState(null);
   const [sending, setSending] = useState(false);
@@ -23,8 +23,8 @@ export function OtCreationReview({ form, machine, worker, disabled, onConfirm, o
       await onConfirm(review.form, review.operationId);
       setReview(null);
     } catch (failure) {
-      setUncertain(!failure.response || failure.response.status >= 500);
-      const message = mensajeErrorScm(failure, 'No se confirmó la creación. Reintenta sin cambiar los datos; se conserva la misma operación.');
+      setUncertain(!failure.beforeSubmission && (!failure.response || failure.response.status >= 500));
+      const message = failure.beforeSubmission ? failure.message : mensajeErrorScm(failure, 'No se confirmó la creación. Reintenta sin cambiar los datos; se conserva la misma operación.');
       setError(message);
       notify({ message, severity: 'error', key: 'ot-creation-review' });
     } finally {
@@ -48,6 +48,7 @@ export function OtCreationReview({ form, machine, worker, disabled, onConfirm, o
         <Typography><strong>Fecha:</strong> {review?.form.fecha_operativa} · <strong>Turno:</strong> {review?.form.turno}</Typography>
         <Typography><strong>Maquinista predeterminado:</strong> {review?.worker || 'Sin asignar'}</Typography>
         <Typography variant="body2">Los trabajos de color se agregan después. Este maquinista es una propuesta, no una asignación para toda la jornada.</Typography>
+        {machineOff && <Alert severity="warning">La máquina está marcada como «No trabajará» para este turno.</Alert>}
         {error && <Alert severity="error">{error}</Alert>}
       </Stack></DialogContent>
       <DialogActions>
@@ -60,7 +61,7 @@ export function OtCreationReview({ form, machine, worker, disabled, onConfirm, o
             notify({ message, severity: 'error', key: 'ot-creation-refresh' });
           }
         }}>Consultar jornadas</Button>}
-        <Button variant="contained" disabled={sending || !review?.form.maquina_id || !review?.form.fecha_operativa || !review?.form.turno} onClick={confirm}>
+        <Button variant="contained" disabled={sending || machineOff || !review?.form.maquina_id || !review?.form.fecha_operativa || !review?.form.turno} onClick={confirm}>
           {sending ? 'Creando…' : 'Confirmar creación'}
         </Button>
       </DialogActions>

@@ -86,6 +86,42 @@ describe('US-010N1: registro único del workspace', () => {
     expect(new Set(workspaceFeatures.map((item) => item.path)).size).toBe(workspaceFeatures.length);
   });
 
+  it('separa Reporte de Calidad y Estación de Calidad con enlaces profundos', () => {
+    expect(getFeatureByKey('quality.report')).toMatchObject({
+      path: '/calidad/reporte', requiredAny: [], requiredAll: [],
+      requiredCapabilityGroups: [['CALIDAD_CONTROL_REGISTRAR'], ['OT_VER', 'OF_VER']],
+    });
+    expect(getFeatureByKey('quality.station')).toMatchObject({
+      path: '/calidad/estacion', requiredAny: [], requiredAll: [],
+      requiredCapabilityGroups: [['CALIDAD_CONTROL_REGISTRAR'], ['OT_VER', 'OF_VER']],
+    });
+    expect(getWorkspaceFeature('/calidad/reporte/ots/OT-000167')?.key).toBe('quality.report');
+    expect(getWorkspaceFeature('/calidad/estacion/ots/OT-000167/pieza/x')?.key).toBe('quality.station');
+  });
+
+  it('permite Calidad específica o la lectura habitual OT_VER+OF_VER', () => {
+    const visibleWithOtOnly = visibleWorkspaceFeatures({
+      canAny: () => true,
+      canAll: (required) => required.every((capability) => capability === 'OT_VER'),
+    }).map((item) => item.key);
+    expect(visibleWithOtOnly).not.toContain('quality.report');
+    expect(visibleWithOtOnly).not.toContain('quality.station');
+
+    const visibleWithBoth = visibleWorkspaceFeatures({
+      canAny: () => true,
+      canAll: (required) => required.every((capability) => ['OT_VER', 'OF_VER'].includes(capability)),
+    }).map((item) => item.key);
+    expect(visibleWithBoth).toContain('quality.report');
+    expect(visibleWithBoth).toContain('quality.station');
+
+    const visibleWithQuality = visibleWorkspaceFeatures({
+      canAny: () => true,
+      canAll: (required) => required.every((capability) => capability === 'CALIDAD_CONTROL_REGISTRAR'),
+    }).map((item) => item.key);
+    expect(visibleWithQuality).toContain('quality.report');
+    expect(visibleWithQuality).toContain('quality.station');
+  });
+
   it('reserva OTs de planta para quien puede consultar OT', () => {
     expect(getFeatureByKey('production.machineWork')?.requiredAny).toEqual(['OT_VER']);
   });
@@ -181,7 +217,7 @@ describe('US-010N1: registro único del workspace', () => {
     });
 
     expect(areas.filter((item) => !item.support).map((item) => item.key)).toEqual([
-      'home', 'planning', 'production', 'materials', 'warehouse', 'control',
+      'home', 'planning', 'production', 'materials', 'warehouse', 'quality', 'control',
     ]);
   });
 

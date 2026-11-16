@@ -365,6 +365,7 @@ export default function PlantJourneysOverview({
               ['CON_OT', 'Con OT', boardStatusCounts.withOt],
               ['EN_EJECUCION', 'En ejecución', boardStatusCounts.running],
               ['SIN_OT', 'Sin OT', boardStatusCounts.withoutOt],
+              ['NO_TRABAJARA', 'No trabajará', boardStatusCounts.off || 0],
             ].map(([value, text, count]) => {
               const selected = boardStateFilter === value;
               return (

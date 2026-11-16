@@ -125,6 +125,17 @@ describe('contratos OT de máquina y Trabajo de color', () => {
     });
   });
 
+  it('solicita el enriquecimiento de Calidad sin cambiar el contrato general de OT', async () => {
+    const signal = { aborted: false };
+    await obtenerOtScm('ot/calidad', { signal, vista: 'calidad' });
+
+    expect(getMock).toHaveBeenCalledWith('/scm/v1/ots/ot%2Fcalidad', {
+      headers: { 'X-Actor-Id': '42' },
+      params: { vista: 'calidad' },
+      signal,
+    });
+  });
+
   it('envía búsqueda y página del resumen OF sin caer al catálogo legacy', async () => {
     await listarOrdenesFabricacionScm({
       vista: 'resumen', q: 'uuid-of-2', estado: 'ELEGIBLES', orden: 'reciente', pagina: 2, tamano: 25,

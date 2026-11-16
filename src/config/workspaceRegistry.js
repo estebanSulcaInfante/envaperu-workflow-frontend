@@ -10,16 +10,18 @@ const patternToRegExp = (pattern) => {
   const pathname = pathnameOf(pattern);
   const expression = pathname
     .split('/')
-    .map((segment) => (segment.startsWith(':')
-      ? '[^/]+'
-      : segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    .map((segment) => (segment === '*'
+      ? '.*'
+      : segment.startsWith(':')
+        ? '[^/]+'
+        : segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
     .join('/');
   return new RegExp(`^${expression}$`);
 };
 
 const matchScore = (pattern) => pathnameOf(pattern)
   .split('/')
-  .reduce((score, segment) => score + (segment.startsWith(':') ? 1 : 10), 0);
+  .reduce((score, segment) => score + (segment === '*' ? 0 : segment.startsWith(':') ? 1 : 10), 0);
 
 const feature = ({
   key,
@@ -32,6 +34,7 @@ const feature = ({
   aliases = [],
   requiredAny = [],
   requiredAll = [],
+  requiredCapabilityGroups = [],
   maturity = 'PILOTO',
   placeholder = null,
   task = false,
@@ -54,6 +57,7 @@ const feature = ({
   aliases,
   requiredAny,
   requiredAll,
+  requiredCapabilityGroups,
   maturity,
   placeholder,
   task,
@@ -73,6 +77,7 @@ export const workspaceAreas = [
   { key: 'production', label: 'Producción', order: 20, icon: 'production', path: '/produccion/ordenes-fabricacion' },
   { key: 'materials', label: 'Materiales', order: 30, icon: 'materials', path: '/materiales/preparaciones' },
   { key: 'warehouse', label: 'Almacén e inventario', order: 40, icon: 'warehouse', path: '/almacen/kardex' },
+  { key: 'quality', label: 'Calidad', order: 45, icon: 'quality', path: '/calidad/reporte' },
   { key: 'control', label: 'Control', order: 50, icon: 'control', path: '/control/supervision-produccion' },
   { key: 'masters', label: 'Datos maestros', order: 100, icon: 'catalog', path: '/datos-maestros', support: true, childMode: 'hub' },
   { key: 'admin', label: 'Administración', order: 110, icon: 'settings', path: '/configuracion', support: true },
@@ -80,6 +85,8 @@ export const workspaceAreas = [
 ];
 
 export const workspaceFeatures = [
+  feature({ key: 'quality.report', areaKey: 'quality', sectionKey: 'quality-report', label: 'Reporte de Calidad', description: 'Consulta el turno, las OT y los controles anteriores.', path: '/calidad/reporte', matches: ['/calidad/reporte/ots/:otId', '/calidad/tablero', '/calidad/ots/:otId'], requiredCapabilityGroups: [['CALIDAD_CONTROL_REGISTRAR'], ['OT_VER', 'OF_VER']], icon: 'quality', defaultPriority: 60, task: true }),
+  feature({ key: 'quality.station', areaKey: 'quality', sectionKey: 'quality-station', label: 'Estación de Calidad', description: 'Selecciona máquina y OT para capturar controles del puesto.', path: '/calidad/estacion', matches: ['/calidad/estacion/ots/:otId/*'], requiredCapabilityGroups: [['CALIDAD_CONTROL_REGISTRAR'], ['OT_VER', 'OF_VER']], icon: 'quality', defaultPriority: 65, task: true }),
   feature({ key: 'home.workspace', areaKey: 'home', sectionKey: 'home', label: 'Inicio', description: 'Trabajo disponible para el perfil.', path: '/', icon: 'dashboard', defaultPriority: 0, exact: true }),
 
   feature({ key: 'planning.demand', areaKey: 'planning', sectionKey: 'demand', label: 'Demanda, OP y plan', description: 'Demanda, cobertura, metas y OF/OA generadas.', path: '/planificacion', matches: ['/planificacion/:solicitudId'], requiredAny: ['OP_VER', 'OP_CREAR', 'OP_APROBAR', 'PLANIFICACION_CALCULAR'], icon: 'planning', defaultPriority: 10, task: true }),
@@ -171,10 +178,9 @@ export const workspaceFeatures = [
 
 export const defaultWorkspaceRuntimeFlags = {
   showLegacy: String(import.meta.env.VITE_SCM_SHOW_LEGACY || '').toLowerCase() === 'true',
-  allowPrototype: import.meta.env.DEV
-    && String(import.meta.env.VITE_SCM_ENABLE_PROTOTYPES || 'true').toLowerCase() !== 'false',
-  allowOutOfPilot: import.meta.env.DEV
-    && String(import.meta.env.VITE_SCM_ENABLE_OUT_OF_PILOT || '').toLowerCase() === 'true',
+  // Production must opt in explicitly; this does not depend on Vite's DEV flag.
+  allowPrototype: String(import.meta.env.VITE_SCM_ENABLE_PROTOTYPES || '').toLowerCase() === 'true',
+  allowOutOfPilot: String(import.meta.env.VITE_SCM_ENABLE_OUT_OF_PILOT || '').toLowerCase() === 'true',
 };
 
 export const featureIsPlaceholder = (item) => Boolean(item?.placeholder);
@@ -228,6 +234,9 @@ export const visibleWorkspaceFeatures = ({
   && featureIsDiscoverable(item, runtimeFlags)
   && (!canAny || canAny(item.requiredAny || []))
   && (!canAll || canAll(item.requiredAll || []))
+  && (!item.requiredCapabilityGroups?.length || item.requiredCapabilityGroups.some((group) => (
+    canAll ? canAll(group) : group.every((capability) => canAny?.([capability]))
+  )))
 ));
 
 export const buildAreaNavigation = ({

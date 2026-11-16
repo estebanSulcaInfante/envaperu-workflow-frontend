@@ -60,6 +60,7 @@ import WorkKgAllocation from './WorkKgAllocation';
 import { buildKgAssignment } from '../utils/workKgAssignment';
 import { useScmActor } from '../context/ScmActorContext';
 import { useFeedback } from '../context/FeedbackContext';
+import { checkMachineShiftOff, useMachineShiftAvailability } from '../hooks/useMachineShiftAvailability';
 import { todayInLima } from '../utils/limaDate';
 import {
   buildScmPrelabelPreviewUrl,
@@ -83,7 +84,7 @@ const journeyContextFromSearch = (searchParams) => {
   };
 };
 const stateLabel = (value) => String(value || '').replaceAll('_', ' ');
-const DAILY_BOARD_FILTERS = new Set(['TODOS', 'CON_OT', 'EN_EJECUCION', 'SIN_OT']);
+const DAILY_BOARD_FILTERS = new Set(['TODOS', 'CON_OT', 'EN_EJECUCION', 'SIN_OT', 'NO_TRABAJARA']);
 const normalizeDailyBoardFilter = (value) => (
   DAILY_BOARD_FILTERS.has(value) ? value : 'TODOS'
 );
@@ -432,7 +433,7 @@ const machineBoardModel = (machine, allOts, workers, orders, selectedOtId) => {
 
 function DailyMachineBoard({
   machines, ots, workers, orders, selectedOtId, canCreateOt, onOpen, machineFilter = '',
-  stateFilter = 'TODOS', onResetFilters, hideSummary = false,
+  stateFilter = 'TODOS', onResetFilters, hideSummary = false, isOff, setOff, canEdit = false,
 }) {
   const cards = machines.map(
     (machine) => machineBoardModel(machine, ots, workers, orders, selectedOtId),
@@ -446,7 +447,8 @@ function DailyMachineBoard({
     const stateMatches = stateFilter === 'TODOS'
       || (stateFilter === 'CON_OT' && Boolean(card.ot))
       || (stateFilter === 'EN_EJECUCION' && card.machineRunning)
-      || (stateFilter === 'SIN_OT' && !card.ot);
+      || (stateFilter === 'SIN_OT' && !card.ot && !isOff(card.machine.id))
+      || (stateFilter === 'NO_TRABAJARA' && !card.ot && isOff(card.machine.id));
     return machineMatches && stateMatches;
   });
   return (
@@ -515,10 +517,13 @@ function DailyMachineBoard({
       >
       {visibleCards.map((card) => {
         const selected = card.otIds.includes(selectedOtId);
+        const machineOff = !card.ot && isOff(card.machine.id);
         const running = card.activeWork?.estado === 'EN_EJECUCION';
-        const actionable = Boolean(card.ot || canCreateOt);
+        const actionable = Boolean(card.ot || (canCreateOt && !machineOff));
         const CardSurface = actionable ? CardActionArea : Box;
-        const operationalState = !card.ot
+        const operationalState = machineOff
+          ? { label: 'No trabajará', color: 'default' }
+          : !card.ot
           ? { label: 'Sin OT', color: 'default' }
           : (running
             ? { label: 'Produciendo', color: 'success' }
@@ -536,7 +541,9 @@ function DailyMachineBoard({
               minHeight: 190,
               borderColor: selected ? 'primary.main' : (running ? 'success.main' : 'divider'),
               borderWidth: selected ? 2 : 1,
-              bgcolor: card.machine.boardUnavailable
+              bgcolor: machineOff
+                ? 'action.disabledBackground'
+                : card.machine.boardUnavailable
                 ? 'rgba(237, 108, 2, 0.06)'
                 : (card.ot ? 'background.paper' : 'grey.50'),
             }}
@@ -548,7 +555,7 @@ function DailyMachineBoard({
                 : `${card.machine.codigo} sin OT`}
               aria-current={selected ? 'true' : undefined}
               onClick={actionable ? () => onOpen(card) : undefined}
-              sx={{ p: 2, height: '100%', alignItems: 'stretch' }}
+              sx={{ p: 2, alignItems: 'stretch' }}
             >
               <Stack spacing={0.75} sx={{ height: '100%' }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1} useFlexGap flexWrap="wrap">
@@ -576,15 +583,9 @@ function DailyMachineBoard({
 
                 {!card.ot ? (
                   <Box sx={{ flex: 1, display: 'grid', alignContent: 'center' }}>
-                    <Typography variant="body2" fontWeight={800}>Sin jornada para este turno</Typography>
-                    {canCreateOt ? (
-                        <Typography variant="caption" color="primary.main" fontWeight={900} sx={{ mt: 0.5 }}>
-                        Preparar OT →
-                      </Typography>
-                    ) : (
-                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                        No hay jornada registrada para este turno.
-                      </Typography>
+                    <Typography variant="body2" fontWeight={800}>{machineOff ? 'Máquina inhabilitada para este turno' : canCreateOt ? 'Sin jornada para este turno' : 'No hay jornada registrada para este turno.'}</Typography>
+                    {canCreateOt && !machineOff && (
+                      <Typography variant="caption" color="primary.main" fontWeight={900}>Preparar OT →</Typography>
                     )}
                     {!canCreateOt && (
                       <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25 }}>
@@ -690,6 +691,11 @@ function DailyMachineBoard({
                 )}
               </Stack>
             </CardSurface>
+            {!card.ot && canCreateOt && canEdit && (
+              <Button size="small" sx={{ mx: 2, mb: 1 }} onClick={() => setOff(card.machine.id, !machineOff)}>
+                {machineOff ? 'Reactivar máquina' : 'No trabajará hoy'}
+              </Button>
+            )}
           </Card>
         );
       })}
@@ -1151,6 +1157,10 @@ export default function OtMangasScm({ view = 'all' }) {
     maquina_id: '', turno: initialJourneyContext.turno,
     maquinista_predeterminado_id: '',
   });
+  const { isOff: isHeaderMachineOff } = useMachineShiftAvailability(
+    headerForm.fecha_operativa,
+    headerForm.turno,
+  );
   const [workForm, setWorkForm] = useState({
     orderId: '', runId: '', quantities: {}, kgEdits: {},
   });
@@ -1487,12 +1497,14 @@ export default function OtMangasScm({ view = 'all' }) {
     )),
     [boardMachines, catalogs.orders, catalogs.workers, ots, selectedOtId],
   );
+  const { isOff: isBoardMachineOff, setOff: setBoardMachineOff, canEdit: canEditMachineAvailability } = useMachineShiftAvailability(listFilters.fecha_operativa, listFilters.turno);
   const boardStatusCounts = useMemo(() => ({
     all: boardCards.length,
     withOt: boardCards.filter((card) => Boolean(card.ot)).length,
     running: boardCards.filter((card) => card.machineRunning).length,
-    withoutOt: boardCards.filter((card) => !card.ot).length,
-  }), [boardCards]);
+    withoutOt: boardCards.filter((card) => !card.ot && !isBoardMachineOff(card.machine.id)).length,
+    off: boardCards.filter((card) => !card.ot && isBoardMachineOff(card.machine.id)).length,
+  }), [boardCards, isBoardMachineOff]);
   const selectedRun = useMemo(
     () => selectedOrder?.corridas?.find((item) => item.id === workForm.runId) || null,
     [selectedOrder, workForm.runId],
@@ -2506,6 +2518,16 @@ export default function OtMangasScm({ view = 'all' }) {
           maquinista_predeterminado_id: Number(reviewedForm.maquinista_predeterminado_id),
         } : {}),
       };
+      if (import.meta.env.DEV && !import.meta.env.TEST) {
+        try {
+          if (await checkMachineShiftOff(payload.fecha_operativa, payload.turno, payload.maquina_id)) {
+            throw new Error('La máquina está marcada como «No trabajará». Reactívala para preparar la OT.');
+          }
+        } catch (error) {
+          error.beforeSubmission = true;
+          throw error;
+        }
+      }
       const result = await crearOtFabricacionScm(payload, operationId);
       const successMessage = `${result.ot.codigo_ot} creada como jornada de máquina, todavía sin color.`;
       setNotice(successMessage);
@@ -3660,10 +3682,11 @@ export default function OtMangasScm({ view = 'all' }) {
                   >
                     <MenuItem value=""><em>Seleccionar máquina</em></MenuItem>
                     {catalogs.machines.map((item) => (
-                      <MenuItem key={item.id} value={item.id}>
+                      <MenuItem key={item.id} value={item.id} disabled={isHeaderMachineOff(item.id)}>
                         <Box component="span" sx={{ display: 'grid', lineHeight: 1.15 }}>
                           <Typography component="span" variant="body2">{item.nombre || item.codigo || item.id}</Typography>
                           {item.codigo && item.codigo !== item.nombre && <Typography component="span" variant="caption" color="text.secondary">{item.codigo}</Typography>}
+                          {isHeaderMachineOff(item.id) && <Typography component="span" variant="caption" color="text.secondary">No trabajará en este turno</Typography>}
                         </Box>
                       </MenuItem>
                     ))}
@@ -3718,7 +3741,8 @@ export default function OtMangasScm({ view = 'all' }) {
             </Button>
             <OtCreationReview
               form={headerForm}
-              disabled={busy || (isGlobalView && globalCatalogState !== 'ready')}
+              machineOff={isHeaderMachineOff(headerForm.maquina_id)}
+              disabled={busy || isHeaderMachineOff(headerForm.maquina_id) || (isGlobalView && globalCatalogState !== 'ready')}
               onConfirm={createHeader}
               onRefresh={() => loadOts(selectedOtId)}
               machine={catalogs.machines.find((item) => String(item.id) === String(headerForm.maquina_id))?.codigo}
@@ -3832,6 +3856,9 @@ export default function OtMangasScm({ view = 'all' }) {
             onOpen={openMachineCard}
              machineFilter={listFilters.maquina_id}
              stateFilter={dailyBoardFilter}
+            isOff={isBoardMachineOff}
+            setOff={setBoardMachineOff}
+            canEdit={canEditMachineAvailability}
              hideSummary
              onResetFilters={resetDailyBoardFilters}
           />
@@ -3893,6 +3920,13 @@ export default function OtMangasScm({ view = 'all' }) {
               </Box>
             )}
             {selectedOt && <Chip label={stateLabel(selectedOt.estado)} />}
+            {import.meta.env.DEV && selectedOt?.public_id && selectedOt.turno !== 'NOCHE' && (
+              <Button component={RouterLink} variant="outlined"
+                to={{ pathname: `/calidad/estacion/ots/${encodeURIComponent(selectedOt.public_id)}`,
+                  search: new URLSearchParams({ fecha: selectedOt.fecha_operativa, turno: selectedOt.turno, config: 'visitas' }).toString() }}>
+                Configurar visitas de Calidad
+              </Button>
+            )}
             {selectedOt && canCloseWork && ['EN_EJECUCION', 'PAUSADA'].includes(selectedOt.estado)
               && (selectedOt.unidad_inventario === 'KG' || selectedOt.mangas?.some((manga) => manga.unidad_inventario === 'KG')) && (
               <Button disabled={busy} variant="outlined" color="success" onClick={closeKgOt}>Cerrar OT por kg medidos</Button>

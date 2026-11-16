@@ -16,7 +16,7 @@ function WorkspaceFeatureRoute({
 
   return (
     <FeatureAvailabilityRoute featureKey={featureKey} runtimeFlags={runtimeFlags}>
-      <CapabilityRoute any={feature?.requiredAny || []} all={feature?.requiredAll || []}>
+      <CapabilityRoute any={feature?.requiredAny || []} all={feature?.requiredAll || []} groups={feature?.requiredCapabilityGroups || []}>
         {children}
       </CapabilityRoute>
     </FeatureAvailabilityRoute>

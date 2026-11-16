@@ -15,6 +15,24 @@ const areaRequiredAny = (areaKey) => [...new Set(
     .flatMap((item) => item.requiredAny || []),
 )];
 
+const areaRequiredAll = (areaKey) => {
+  const requirements = workspaceFeatures
+    .filter((item) => item.areaKey === areaKey && featureIsAvailable(item))
+    .map((item) => item.requiredAll || []);
+  if (!requirements.length) return [];
+  return requirements.slice(1).reduce(
+    (common, current) => common.filter((capability) => current.includes(capability)),
+    [...requirements[0]],
+  );
+};
+
+const areaRequiredCapabilityGroups = (areaKey) => [...new Map(
+  workspaceFeatures
+    .filter((item) => item.areaKey === areaKey && featureIsAvailable(item))
+    .flatMap((item) => item.requiredCapabilityGroups || [])
+    .map((group) => [group.join('|'), group]),
+).values()];
+
 const areaToNavigationItem = (area) => ({
   id: area.key,
   key: area.key,
@@ -24,6 +42,8 @@ const areaToNavigationItem = (area) => ({
   exact: area.exact,
   support: area.support,
   requiredAny: areaRequiredAny(area.key),
+  requiredAll: areaRequiredAll(area.key),
+  requiredCapabilityGroups: areaRequiredCapabilityGroups(area.key),
 });
 
 export const primaryNavigation = workspaceAreas
@@ -63,10 +83,13 @@ export const workspaceTabIsActive = (value, tab) => (
 export const visibleByCapabilities = (
   items,
   canAny,
+  canAll = (required = []) => !canAny || required.every((capability) => canAny([capability])),
   runtimeFlags = defaultWorkspaceRuntimeFlags,
 ) => items.filter((item) => (
   featureIsAvailable(item, runtimeFlags)
   && canAny(item.requiredAny || [])
+  && canAll(item.requiredAll || [])
+  && (!item.requiredCapabilityGroups?.length || item.requiredCapabilityGroups.some((group) => canAll(group)))
 ));
 
 export const buildVisibleWorkspaceNavigation = ({ canAny, canAll, runtimeFlags } = {}) => (
