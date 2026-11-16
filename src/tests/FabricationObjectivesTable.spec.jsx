@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({ getRoute: vi.fn() }));
 vi.mock('../services/scmEngineeringApi', () => ({
   obtenerActorScm: () => 7,
   obtenerRutaScm: api.getRoute,
+  listarArticulosPaginaScm: vi.fn().mockResolvedValue({ items: [], has_more: false, next_cursor: null }),
   mensajeErrorScm: (error, fallback) => error?.message || fallback,
 }));
 
