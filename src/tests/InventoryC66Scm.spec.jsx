@@ -1,0 +1,102 @@
+import { createTheme, ThemeProvider } from '@mui/material';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import InventoryC66Scm from '../components/InventoryC66Scm';
+
+const mocks = vi.hoisted(() => ({
+  getState: vi.fn(), open: vi.fn(), read: vi.fn(), remove: vi.fn(), close: vi.fn(),
+}));
+
+vi.mock('../services/scmInventoryC66Api', () => ({
+  obtenerEstadoInventarioC66: mocks.getState,
+  abrirSesionInventarioC66: mocks.open,
+  registrarLecturaInventarioC66: mocks.read,
+  retirarLecturaInventarioC66: mocks.remove,
+  cerrarSesionInventarioC66: mocks.close,
+}));
+vi.mock('../services/scmEngineeringApi', () => ({ mensajeErrorScm: (_error, fallback) => fallback }));
+
+const state = {
+  conteo_por_pieza: true,
+  zonas: [{ id: 'Z1', nombre: 'C66' }],
+  articulos: [{ id: 'A1', nombre: 'Tapa', color: 'Azul' }, { id: 'A2', nombre: 'Cuerpo', color: 'Rojo' }],
+  sesiones: [],
+};
+
+const renderPage = () => render(<ThemeProvider theme={createTheme()}><InventoryC66Scm /></ThemeProvider>);
+
+describe('Conteo C66 web', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getState.mockResolvedValue(state);
+    mocks.open.mockResolvedValue({ id: 'S-C66-1' });
+    mocks.read.mockResolvedValue({ mensaje: 'Lectura registrada' });
+    mocks.close.mockResolvedValue({ cantidad: 1 });
+  });
+
+  it('declara la información primaria, crea el conteo y conserva clave de operación', async () => {
+    renderPage();
+    expect(await screen.findByRole('heading', { name: 'Nuevo conteo' })).toBeVisible();
+    expect(screen.getByText(/No hay sesiones para retomar/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText('Nombre del conteo'), { target: { value: 'Turno mañana' } });
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Zona' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'C66' }));
+    fireEvent.focus(screen.getByPlaceholderText('Buscar pieza'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Tapa' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar conteo' }));
+    await waitFor(() => expect(mocks.open).toHaveBeenCalledWith(
+      { zona: 'Z1', nombre: 'Turno mañana', piezas: ['Tapa'] },
+      expect.stringMatching(/^[0-9a-f-]{36}$/i),
+    ));
+  });
+
+  it('conserva el QR opaco, permite cambiar zona y usa details.zona_anterior en la recuperación', async () => {
+    const activeState = {
+      ...state,
+      zonas: [{ id: 'Z1', nombre: 'C66' }, { id: 'Z2', nombre: 'Bodega' }],
+      sesiones: [{ id: 'S-C66-1', estado: 'ABIERTA', zona: 'Z1', nombre: 'Turno mañana', piezas: ['Tapa'], lecturas: [] }],
+    };
+    mocks.getState.mockResolvedValue(activeState);
+    mocks.read.mockRejectedValueOnce({ response: {
+      status: 409,
+      data: { error: { code: 'ZONE_CONFLICT', message: 'La zona del QR no coincide.', details: { zona_anterior: 'Z1' } } },
+    } }).mockResolvedValueOnce({ mensaje: 'Lectura registrada' });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Turno mañana/ }));
+    expect(await screen.findByRole('heading', { name: 'Turno mañana' })).toBeVisible();
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Zona' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Bodega' }));
+    const scan = screen.getByLabelText('Escanear QR de manga');
+    const opaqueCode = 'L1|label, {"codigo":"C66-001"}';
+    fireEvent.change(scan, { target: { value: opaqueCode } });
+    fireEvent.submit(scan.closest('form'));
+    await waitFor(() => expect(mocks.read).toHaveBeenCalledWith(
+      'S-C66-1', { codigo: opaqueCode, zona: 'Z2' }, expect.stringMatching(/^[0-9a-f-]{36}$/i),
+    ));
+    expect(mocks.getState).toHaveBeenLastCalledWith('S-C66-1');
+    expect(await screen.findByText(/La zona del QR no coincide/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Aceptar zona' }));
+    await waitFor(() => expect(mocks.read).toHaveBeenCalledWith(
+      'S-C66-1', { codigo: opaqueCode, zona: 'Z2', confirmar_zona: true, zona_anterior: 'Z1' }, expect.stringMatching(/^[0-9a-f-]{36}$/i),
+    ));
+    expect(mocks.read.mock.calls[0][2]).not.toBe(mocks.read.mock.calls[1][2]);
+  });
+
+  it('consulta una sesión cerrada con lecturas enriquecidas y mangas no habidas', async () => {
+    mocks.getState.mockResolvedValue({
+      ...state,
+      sesiones: [{
+        id: 'S-C66-HIST', estado: 'CERRADA', zona: 'Z1', nombre: 'Inventario histórico',
+        piezas: ['Tapa'], lecturas: [{ codigo: 'L1|label', articulo_id: 'A1', articulo: 'SKU-TAPA-AZUL', zona: 'Z1' }], pendientes_conteo: ['C66-010'], no_habidas: ['C66-009'],
+      }],
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Inventario histórico/ }));
+    expect(await screen.findByText('L1|label')).toBeVisible();
+    expect(screen.getByText('Tapa · Azul · C66')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Pendientes al cerrar' })).toBeVisible();
+    expect(screen.getByText('C66-010')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Mangas no habidas' })).toBeVisible();
+    expect(screen.getByText('C66-009')).toBeVisible();
+  });
+});

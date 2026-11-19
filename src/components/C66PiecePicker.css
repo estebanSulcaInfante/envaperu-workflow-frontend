@@ -1,0 +1,23 @@
+.c66-piece-picker { min-width: 0; margin: 0; padding: 0; border: 0; color: #162536; font-size: .8rem; font-weight: 800; }
+.c66-piece-picker__label { margin-bottom: .35rem; }
+.c66-piece-picker__shell { position: relative; }
+.c66-piece-picker__selected { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; min-height: 44px; padding: .3rem .45rem; border: 2px solid #a7b9c9; border-radius: 5px; background: #fff; }
+.c66-piece-picker__selected:focus-within { border-color: #1e3a5f; box-shadow: 0 0 0 3px rgba(30,58,95,.15); }
+.c66-piece-picker__chip { display: inline-flex; align-items: center; gap: .25rem; max-width: 100%; min-height: 1.8rem; padding: .2rem .25rem .2rem .55rem; border: 1px solid #a7b9c9; border-radius: 999px; background: #eef4f8; color: #102a45; font-size: .76rem; }
+.c66-piece-picker__chip > span { min-width: 0; overflow-wrap: anywhere; }
+.c66-piece-picker__remove { display: grid; place-items: center; width: 1.3rem; height: 1.3rem; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #1e3a5f; cursor: pointer; }
+.c66-piece-picker__remove:hover { background: #d8e5ee; }
+.c66-piece-picker__remove svg { width: .8rem; height: .8rem; fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 1.8; }
+.c66-piece-picker__input { flex: 1 1 8rem; min-width: 8rem; min-height: 2rem; padding: .3rem .25rem; border: 0; outline: 0; background: transparent; color: #162536; font: inherit; font-size: .9rem; font-weight: 500; }
+.c66-piece-picker__input::placeholder { color: #526677; opacity: 1; }
+.c66-piece-picker__popover { position: absolute; z-index: 20; top: calc(100% + .3rem); right: 0; left: 0; overflow: hidden; border: 1px solid #a7b9c9; border-radius: 5px; background: #fff; box-shadow: 0 6px 18px rgba(15,35,58,.18); }
+.c66-piece-picker__options { max-height: min(15rem, 42vh); overflow-y: auto; padding: .25rem; }
+.c66-piece-picker__option { display: flex; align-items: center; gap: .55rem; min-height: 2.5rem; padding: .45rem .55rem; border-radius: 4px; color: #162536; cursor: pointer; font-size: .84rem; font-weight: 700; overflow-wrap: anywhere; }
+.c66-piece-picker__option:hover, .c66-piece-picker__option.is-active { background: #f0f5f8; }
+.c66-piece-picker__option.is-selected { background: #eaf6ee; color: #174d2a; }
+.c66-piece-picker__indicator { flex: 0 0 auto; width: 1rem; height: 1rem; border: 2px solid #8fa5b7; border-radius: 3px; background: #fff; }
+.c66-piece-picker__option.is-selected .c66-piece-picker__indicator { border-color: #216e3a; background: #216e3a; box-shadow: inset 0 0 0 3px #eaf6ee; }
+.c66-piece-picker__empty, .c66-piece-picker__count { margin: 0; padding: .55rem .65rem; color: #526677; font-size: .74rem; font-weight: 700; line-height: 1.4; }
+.c66-piece-picker__count { border-top: 1px solid #e0e8ee; background: #f7fafc; }
+.c66-piece-picker__remove:focus-visible, .c66-piece-picker__input:focus-visible, .c66-piece-picker__option:focus-visible { outline: 3px solid #e19b2f; outline-offset: 2px; }
+@media (max-width: 560px) { .c66-piece-picker__option { min-height: 44px; } .c66-piece-picker__remove { width: 44px; height: 44px; } }

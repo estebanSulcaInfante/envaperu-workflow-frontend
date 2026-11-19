@@ -127,4 +127,18 @@ describe('US-010N1: navegación SCM por áreas', () => {
     );
     expect(withQuality.map((item) => item.key)).toEqual(['quality.report', 'quality.station']);
   });
+
+  it('protege Conteo C66 con el permiso exacto del piloto', () => {
+    const warehouse = workspaceNavigation.find((item) => item.id === 'warehouse');
+    const c66 = warehouse.tabs.find((item) => item.key === 'warehouse.inventoryC66');
+
+    expect(c66).toMatchObject({
+      path: '/almacen/inventario-c66',
+      requiredAny: ['INVENTARIO_CONTEO_C66'],
+    });
+    expect(visibleByCapabilities(warehouse.tabs, (required) => required.includes('INVENTARIO_CONTEO_C66')))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ key: 'warehouse.inventoryC66' })]));
+    expect(visibleByCapabilities(warehouse.tabs, (required) => required.includes('INVENTARIO_VER')))
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ key: 'warehouse.inventoryC66' })]));
+  });
 });
