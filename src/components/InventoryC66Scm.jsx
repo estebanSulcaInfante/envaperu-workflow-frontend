@@ -115,8 +115,10 @@ export default function InventoryC66Scm() {
             : [...current.sesiones, incoming],
         }));
       }
+      return result;
     } catch (error) {
       setLoadError(errorMessage(error, 'No pudimos cargar el estado del conteo C66.'));
+      return null;
     } finally {
       setLoading(false);
     }
@@ -159,15 +161,25 @@ export default function InventoryC66Scm() {
     }
   };
 
-  const resumeSession = (session) => {
-    setSessionId(session.id);
-    setSessionName(session.nombre || '');
-    setSelectedPieces(Array.isArray(session.piezas) ? session.piezas : []);
-    setZone(session.zona || '');
+  const resumeSession = async (session) => {
+    if (busy) return;
+    setBusy('session');
     setFeedback(null);
+    const result = await loadState(session.id);
+    const detailedSession = result?.sesiones?.find((item) => String(item.id) === String(session.id));
+    if (!detailedSession || detailedSession.resumen === true) {
+      setFeedback({ severity: 'error', text: 'No pudimos cargar el detalle de esta sesión. Reintenta desde su botón.' });
+      setBusy('');
+      return;
+    }
+    setSessionId(detailedSession.id);
+    setSessionName(detailedSession.nombre || '');
+    setSelectedPieces(Array.isArray(detailedSession.piezas) ? detailedSession.piezas : []);
+    setZone(detailedSession.zona || '');
     setCloseReviewOpen(false);
     setDiscrepancy(null);
     setHistoryLimit(50);
+    setBusy('');
     focusScanner();
   };
 
@@ -280,9 +292,9 @@ export default function InventoryC66Scm() {
       <PageHeader
         title="Conteo C66"
         description="Recorre una zona, registra cada QR de manga y cierra el conteo conservando las diferencias para revisión."
-        actions={<Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={loadState} disabled={loading}>Actualizar estado</Button>}
+        actions={<Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={() => loadState(sessionId || undefined)} disabled={loading || Boolean(busy)}>Actualizar estado</Button>}
       />
-      {loadError && <Alert severity="error" action={<Button color="inherit" size="small" onClick={loadState}>Reintentar</Button>}>{loadError}</Alert>}
+      {loadError && <Alert severity="error" action={<Button color="inherit" size="small" onClick={() => loadState(sessionId || undefined)}>Reintentar</Button>}>{loadError}</Alert>}
       {feedback && <Alert severity={feedback.severity} onClose={() => setFeedback(null)}>{feedback.text}</Alert>}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1.5fr) minmax(280px, .8fr)' }, gap: 2 }}>
         <Paper component="section" aria-labelledby="c66-task-title" variant="outlined" sx={{ p: { xs: 2, md: 3 } }}>
@@ -334,8 +346,8 @@ export default function InventoryC66Scm() {
           <Paper component="section" aria-labelledby="c66-sessions-title" variant="outlined" sx={{ p: { xs: 2, md: 2.5 } }}>
             <Typography id="c66-sessions-title" component="h2" variant="subtitle1" fontWeight={850}>Sesiones C66</Typography>
             {!openSessions.length && !closedSessions.length && <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>No hay sesiones para retomar.</Typography>}
-            {openSessions.length > 0 && <><Typography variant="overline" color="text.secondary" display="block" sx={{ mt: 1 }}>En curso</Typography><Stack component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>{openSessions.map((session) => <Box component="li" key={session.id}><Button fullWidth sx={{ justifyContent: 'space-between', textAlign: 'left', px: 0 }} onClick={() => resumeSession(session)}><span>{sessionLabel(session, state.zonas)}</span><span>Reanudar</span></Button></Box>)}</Stack></>}
-            {closedSessions.length > 0 && <><Typography variant="overline" color="text.secondary" display="block" sx={{ mt: 1 }}>Cerradas</Typography><TextField size="small" label="Buscar sesión cerrada" value={sessionQuery} onChange={(event) => setSessionQuery(event.target.value)} placeholder="Nombre o zona" fullWidth sx={{ mt: .5, mb: .5 }} /><Box sx={{ maxHeight: 280, overflowY: 'auto' }}><Stack component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>{filteredClosedSessions.map((session) => <Box component="li" key={session.id}><Button fullWidth sx={{ justifyContent: 'space-between', textAlign: 'left', px: 0 }} onClick={() => resumeSession(session)}><span>{sessionLabel(session, state.zonas)}</span><span>Consultar</span></Button></Box>)}</Stack>{!filteredClosedSessions.length && <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>No hay sesiones con ese nombre o zona.</Typography>}</Box></>}
+            {openSessions.length > 0 && <><Typography variant="overline" color="text.secondary" display="block" sx={{ mt: 1 }}>En curso</Typography><Stack component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>{openSessions.map((session) => <Box component="li" key={session.id}><Button fullWidth sx={{ justifyContent: 'space-between', textAlign: 'left', px: 0 }} onClick={() => resumeSession(session)} disabled={Boolean(busy)}><span>{sessionLabel(session, state.zonas)}</span><span>{busy === 'session' ? 'Cargando…' : 'Reanudar'}</span></Button></Box>)}</Stack></>}
+            {closedSessions.length > 0 && <><Typography variant="overline" color="text.secondary" display="block" sx={{ mt: 1 }}>Cerradas</Typography><TextField size="small" label="Buscar sesión cerrada" value={sessionQuery} onChange={(event) => setSessionQuery(event.target.value)} placeholder="Nombre o zona" fullWidth sx={{ mt: .5, mb: .5 }} /><Box sx={{ maxHeight: 280, overflowY: 'auto' }}><Stack component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>{filteredClosedSessions.map((session) => <Box component="li" key={session.id}><Button fullWidth sx={{ justifyContent: 'space-between', textAlign: 'left', px: 0 }} onClick={() => resumeSession(session)} disabled={Boolean(busy)}><span>{sessionLabel(session, state.zonas)}</span><span>{busy === 'session' ? 'Cargando…' : 'Consultar'}</span></Button></Box>)}</Stack>{!filteredClosedSessions.length && <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>No hay sesiones con ese nombre o zona.</Typography>}</Box></>}
           </Paper>
           <Alert icon={<CheckCircleOutlineRoundedIcon />} severity="info">El conteo C66 registra presencia física por QR. No mueve kilos ni altera el Kardex.</Alert>
         </Stack>

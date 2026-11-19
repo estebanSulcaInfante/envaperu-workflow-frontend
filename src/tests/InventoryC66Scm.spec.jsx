@@ -50,6 +50,25 @@ describe('Conteo C66 web', () => {
     ));
   });
 
+  it('hidrata el resumen al reanudar y deja reintentar si falla el detalle', async () => {
+    const summary = { id: 'S-C66-RESUMEN', estado: 'ABIERTA', zona: 'Z1', nombre: 'Turno resumido', piezas: ['Tapa'], resumen: true };
+    const detail = { ...summary, resumen: false, lecturas: [] };
+    let scopedAttempts = 0;
+    mocks.getState.mockImplementation((requestedSessionId) => {
+      if (!requestedSessionId) return Promise.resolve({ ...state, sesiones: [summary] });
+      scopedAttempts += 1;
+      return scopedAttempts === 1 ? Promise.reject(new Error('offline')) : Promise.resolve({ ...state, sesiones: [detail] });
+    });
+    renderPage();
+    const sessionButton = await screen.findByRole('button', { name: /Turno resumido/ });
+    fireEvent.click(sessionButton);
+    expect(await screen.findByText(/No pudimos cargar el detalle/)).toBeVisible();
+    expect(screen.queryByLabelText('Escanear QR de manga')).not.toBeInTheDocument();
+    fireEvent.click(sessionButton);
+    expect(await screen.findByLabelText('Escanear QR de manga')).toBeVisible();
+    expect(scopedAttempts).toBe(2);
+  });
+
   it('conserva el QR opaco, permite cambiar zona y usa details.zona_anterior en la recuperación', async () => {
     const activeState = {
       ...state,
@@ -64,6 +83,8 @@ describe('Conteo C66 web', () => {
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: /Turno mañana/ }));
     expect(await screen.findByRole('heading', { name: 'Turno mañana' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Actualizar estado' }));
+    await waitFor(() => expect(mocks.getState).toHaveBeenLastCalledWith('S-C66-1'));
     fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Zona' }));
     fireEvent.click(await screen.findByRole('option', { name: 'Bodega' }));
     const scan = screen.getByLabelText('Escanear QR de manga');
