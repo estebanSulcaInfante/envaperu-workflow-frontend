@@ -39,13 +39,14 @@ describe('US-010N1: registro único del workspace', () => {
       'Disponibilidad por PT',
       'Conteo C66',
       'Revisión de faltantes',
+      'Ficha de manga',
       'Recibir desde Producción',
       'Salidas y retornos de Armado',
       'Despacho MN-31',
       'Transferencias entre ubicaciones',
     ]);
     expect(warehouse?.features.map((item) => item.sectionHeading)).toEqual([
-      'EXISTENCIAS', 'EXISTENCIAS', 'EXISTENCIAS', 'EXISTENCIAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS',
+      'EXISTENCIAS', 'EXISTENCIAS', 'EXISTENCIAS', 'EXISTENCIAS', 'EXISTENCIAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS',
     ]);
     expect(getWorkspaceFeature('/almacen/operaciones')?.key).toBe('warehouse.operations');
     expect(getWorkspaceFeature('/almacen/reservas-staging')?.key).toBe('materials.internalSupply');
@@ -68,7 +69,7 @@ describe('US-010N1: registro único del workspace', () => {
     }).find((item) => item.key === 'warehouse');
 
     expect(warehouse?.features.map((item) => item.label)).toEqual([
-      'Kardex y existencias', 'Disponibilidad por PT', 'Revisión de faltantes', 'Transferencias entre ubicaciones',
+      'Kardex y existencias', 'Disponibilidad por PT', 'Revisión de faltantes', 'Ficha de manga', 'Transferencias entre ubicaciones',
     ]);
     expect([...new Set(warehouse?.features.map((item) => item.sectionHeading))]).toEqual([
       'EXISTENCIAS', 'OPERACIONES FÍSICAS',

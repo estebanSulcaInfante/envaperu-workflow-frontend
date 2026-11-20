@@ -62,6 +62,7 @@ import Mn31DespachoScm from './components/Mn31DespachoScm';
 import WarehouseSetupScm from './components/WarehouseSetupScm';
 import InventoryC66Scm from './components/InventoryC66Scm';
 import InventoryMissingReviewScm from './components/InventoryMissingReviewScm';
+import MangaFichaScm from './components/MangaFichaScm';
 import PreparedMaterialMachineScanner from './components/PreparedMaterialMachineScanner';
 import ControlAvanceOfTv from './components/ControlAvanceOfTv';
 import PersonalAgentAccess from './components/assistantAgent/PersonalAgentAccess';
@@ -301,6 +302,7 @@ function App() {
                 <Route path="/almacen/kardex/disponibilidad" element={workspace('warehouse.availability', <KgPtAvailabilityScm />)} />
                 <Route path="/almacen/inventario-c66" element={workspace('warehouse.inventoryC66', <InventoryC66Scm />)} />
                 <Route path="/almacen/revision-faltantes" element={workspace('warehouse.missingReview', <InventoryMissingReviewScm />)} />
+                <Route path="/almacen/ficha-manga" element={workspace('warehouse.mangaFicha', <MangaFichaScm />)} />
                 <Route path="/almacen/operaciones" element={<Navigate to="/almacen/salidas-retornos" replace />} />
                 <Route path="/almacen/salidas-retornos" element={workspace('warehouse.operations', <WarehouseKgCustodyScm />)} />
                 <Route path="/almacen/despacho-mn31" element={workspace('warehouse.mn31Dispatch', <Mn31DespachoScm />)} />

@@ -219,6 +219,14 @@ export const obtenerPesajeMangaScm = (mangaId) => body(() => api.get(
   `/scm/v1/mangas/${mangaId}/pesaje`,
   { headers: headers() },
 ));
+export const resolverFichaMangaScm = (entrada, options = {}) => body(() => api.get(
+  '/scm/v1/mangas/ficha',
+  {
+    headers: headers(),
+    params: { entrada },
+    ...(options.signal ? { signal: options.signal } : {}),
+  },
+));
 export const previsualizarCorreccionAsignacionMangaScm = (
   mangaId, destinoTrabajoId, destinoAsignacionId,
 ) => body(() => api.get(
@@ -249,9 +257,9 @@ export const anularPesajeScm = (weighingId, payload) => body(() => api.post(
   `/scm/v1/pesajes/${weighingId}/anular`, payload,
   { headers: headers(true) },
 ));
-export const reabrirMangaScm = (mangaId, payload) => body(() => api.post(
+export const reabrirMangaScm = (mangaId, payload, operationId) => body(() => api.post(
   `/scm/v1/mangas/${mangaId}/reabrir`, payload,
-  { headers: headers(true) },
+  { headers: headers(true, operationId) },
 ));
 
 export const aprobarCorreccionPesajeScm = (
