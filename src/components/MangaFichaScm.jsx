@@ -140,6 +140,17 @@ export default function MangaFichaScm() {
   const scanRef = useRef(null);
   const flight = useRef(false);
 
+  useEffect(() => {
+    // El shell enfoca el contenido al navegar. El lector debe recibir el primer escaneo.
+    const frame = window.requestAnimationFrame(() => {
+      const focused = document.activeElement;
+      if (focused === document.body || focused?.id === 'workspace-main') {
+        scanRef.current?.focus({ preventScroll: true });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
   const mangaId = clean(weighing?.manga_id || detail?.manga?.id || detail?.manga?.public_id || detail?.id || detail?.secciones?.identidad?.item?.public_id);
   const identity = detail?.manga || detail?.secciones?.identidad?.item || {};
   const article = identity.articulo || { nombre: identity.articulo_nombre, codigo: identity.articulo_codigo || identity.pieza_color_sku };
