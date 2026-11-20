@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, Chip, CircularProgress, Divider, FormControl,
-  InputLabel, MenuItem, Paper, Select, Skeleton, Stack, TextField,
+  Alert, Box, Button, Checkbox, Chip, CircularProgress, Divider, FormControl,
+  FormControlLabel, InputLabel, MenuItem, Paper, Select, Skeleton, Stack, TextField,
   Typography,
 } from '@mui/material';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
@@ -53,6 +53,7 @@ export default function InventoryC66Scm() {
   const [feedback, setFeedback] = useState(null);
   const [closeReviewOpen, setCloseReviewOpen] = useState(false);
   const [roomCovered, setRoomCovered] = useState(false);
+  const [pieceCoverageReviewed, setPieceCoverageReviewed] = useState(false);
   const [discrepancy, setDiscrepancy] = useState(null);
   const [historyLimit, setHistoryLimit] = useState(50);
   const [sessionQuery, setSessionQuery] = useState('');
@@ -134,6 +135,7 @@ export default function InventoryC66Scm() {
     setScanner('');
     setCloseReviewOpen(false);
     setRoomCovered(false);
+    setPieceCoverageReviewed(false);
     setDiscrepancy(null);
     setHistoryLimit(50);
     setSessionQuery('');
@@ -261,12 +263,14 @@ export default function InventoryC66Scm() {
 
   const closeSession = async (markMissing = false) => {
     if (!sessionId || busy || sessionClosed) return;
-    const keyName = `close:${sessionId}:${markMissing ? pendingCodes.join('|') : 'counted'}`;
+    const keyName = `close:${sessionId}:${markMissing ? pendingCodes.join('|') : 'counted'}:${pieceCountEnabled ? (pieceCoverageReviewed ? 'complete' : 'partial') : (roomCovered ? 'complete' : 'partial')}`;
     setBusy('close');
     try {
       const result = await cerrarSesionInventarioC66(sessionId, markMissing
-        ? { marcar_no_habidas: true, no_habidas: pendingCodes }
-        : (pieceCountEnabled ? {} : (roomCovered ? { cobertura: true } : {})), keyFor(keyName));
+        ? { marcar_no_habidas: true, no_habidas: pendingCodes, ...(pieceCoverageReviewed ? { cobertura: true } : {}) }
+        : (pieceCountEnabled
+          ? (pieceCoverageReviewed ? { cobertura: true } : {})
+          : (roomCovered ? { cobertura: true } : {})), keyFor(keyName));
       clearKey(keyName);
       setFeedback({ severity: 'success', text: `Recorrido cerrado · ${selectedZoneName} · ${result?.cantidad ?? activeSession?.lecturas?.length ?? 0} mangas. ${pieceCountEnabled ? 'No mueve kilos ni altera el Kardex.' : ''}` });
       resetSession();
@@ -332,6 +336,8 @@ export default function InventoryC66Scm() {
               <Typography component="h3" variant="subtitle1" fontWeight={800}>Mangas pendientes de localizar</Typography>
               {pendingCodes.length ? <Stack direction="row" flexWrap="wrap" gap={.75} sx={{ mt: 1 }}>{pendingCodes.slice(0, historyLimit).map((code) => <Chip key={code} label={code} size="small" color="warning" variant="outlined" />)}{pendingCodes.length > historyLimit && <Button size="small" onClick={() => setHistoryLimit((current) => current + 50)}>Mostrar siguientes 50 ({pendingCodes.length - historyLimit} restantes)</Button>}</Stack> : <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>No quedan mangas pendientes; el cierre conservará solo lo contado.</Typography>}
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>Cerrar no mueve kilos ni altera el Kardex.</Typography>
+              <FormControlLabel control={<Checkbox checked={pieceCoverageReviewed} onChange={(event) => setPieceCoverageReviewed(event.target.checked)} />} label="Recorrí toda la zona para las piezas seleccionadas" />
+              <Typography variant="caption" color="text.secondary" display="block">Sin marcar la casilla, el cierre conserva las no habidas como pendientes de cobertura.</Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} sx={{ mt: 2 }}><Button variant="outlined" onClick={() => closeSession(false)} disabled={Boolean(busy)}>Cerrar solo lo contado</Button><Button variant="contained" onClick={() => closeSession(true)} disabled={Boolean(busy) || !pendingCodes.length}>Cerrar y marcar {pendingCodes.length} no habida{pendingCodes.length === 1 ? '' : 's'}</Button></Stack>
             </Paper>}
           </Stack>

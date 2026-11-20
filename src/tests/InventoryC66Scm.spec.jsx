@@ -120,4 +120,36 @@ describe('Conteo C66 web', () => {
     expect(screen.getByRole('heading', { name: 'Mangas no habidas' })).toBeVisible();
     expect(screen.getByText('C66-009')).toBeVisible();
   });
+
+  it('cierra un conteo por piezas sin cobertura cuando la casilla queda sin marcar', async () => {
+    const activeState = {
+      ...state,
+      sesiones: [{ id: 'S-C66-CLOSE', estado: 'ABIERTA', zona: 'Z1', nombre: 'Conteo parcial', piezas: ['Tapa'], lecturas: [], pendientes_conteo: ['C66-010'] }],
+    };
+    mocks.getState.mockResolvedValue(activeState);
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Conteo parcial/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cerrar sesión' }));
+    expect(await screen.findByText('Mangas pendientes de localizar')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar solo lo contado' }));
+    await waitFor(() => expect(mocks.close).toHaveBeenCalledWith(
+      'S-C66-CLOSE', {}, expect.stringMatching(/^[0-9a-f-]{36}$/i),
+    ));
+  });
+
+  it('envía cobertura solo al cerrar con la confirmación explícita de zona completa', async () => {
+    const activeState = {
+      ...state,
+      sesiones: [{ id: 'S-C66-COVER', estado: 'ABIERTA', zona: 'Z1', nombre: 'Conteo completo', piezas: ['Tapa'], lecturas: [], pendientes_conteo: ['C66-010'] }],
+    };
+    mocks.getState.mockResolvedValue(activeState);
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Conteo completo/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cerrar sesión' }));
+    fireEvent.click(screen.getByLabelText('Recorrí toda la zona para las piezas seleccionadas'));
+    fireEvent.click(screen.getByRole('button', { name: /Cerrar y marcar 1 no habida/ }));
+    await waitFor(() => expect(mocks.close).toHaveBeenCalledWith(
+      'S-C66-COVER', { marcar_no_habidas: true, no_habidas: ['C66-010'], cobertura: true }, expect.stringMatching(/^[0-9a-f-]{36}$/i),
+    ));
+  });
 });

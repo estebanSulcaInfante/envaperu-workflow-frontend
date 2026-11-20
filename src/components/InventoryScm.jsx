@@ -292,7 +292,7 @@ function InventoryWorkspace() {
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [warehouseScope, setWarehouseScope] = useState(null);
-  const [activeLedger, setActiveLedger] = useState('materials');
+  const [activeLedger, setActiveLedger] = useState(() => searchParams.get('tab') === 'movements' ? 'movements' : 'materials');
   const [locationFilter, setLocationFilter] = useState('TODAS');
   const [stockFilter, setStockFilter] = useState('TODOS');
   const [sortBy, setSortBy] = useState('CODIGO');

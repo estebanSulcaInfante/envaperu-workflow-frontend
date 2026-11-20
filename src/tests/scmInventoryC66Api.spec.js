@@ -41,4 +41,26 @@ describe('API de conteo C66', () => {
       { headers: { 'X-Actor-Id': '42', 'Idempotency-Key': 'key-remove' } },
     );
   });
+
+  it('expone la cola de revisión y separa revisión de ajuste', async () => {
+    api.get.mockResolvedValue({ data: { revision: { candidatas: [] } } });
+    api.post.mockResolvedValue({ data: { token: 'REV-1' } });
+    const {
+      obtenerRevisionFaltantes,
+      registrarRevisionFaltante,
+      confirmarFaltanteInventario,
+    } = await import('../services/scmInventoryC66Api');
+
+    await obtenerRevisionFaltantes();
+    await registrarRevisionFaltante({ codigo: 'C66-001' }, 'key-review');
+    await confirmarFaltanteInventario({ codigo: 'C66-001', token: 'REV-1', motivo: 'No encontrado' }, 'key-missing');
+
+    expect(api.get).toHaveBeenCalledWith(
+      '/scm/v1/inventario-c66/revision', { headers: { 'X-Actor-Id': '42' } },
+    );
+    expect(api.post.mock.calls.slice(-2)).toEqual([
+      ['/scm/v1/inventario-c66/revision', { codigo: 'C66-001' }, { headers: { 'X-Actor-Id': '42', 'Idempotency-Key': 'key-review' } }],
+      ['/scm/v1/inventario-c66/faltantes', { codigo: 'C66-001', token: 'REV-1', motivo: 'No encontrado' }, { headers: { 'X-Actor-Id': '42', 'Idempotency-Key': 'key-missing' } }],
+    ]);
+  });
 });

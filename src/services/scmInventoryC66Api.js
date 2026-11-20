@@ -34,3 +34,19 @@ export const cerrarSesionInventarioC66 = (sessionId, payload, idempotencyKey) =>
   payload,
   { headers: headers(idempotencyKey) },
 ));
+
+export const obtenerRevisionFaltantes = () => data(() => api.get(
+  `${BASE}/revision`, { headers: headers() },
+));
+
+export const registrarRevisionFaltante = (payload, idempotencyKey) => data(() => api.post(
+  `${BASE}/revision`,
+  payload,
+  { headers: headers(idempotencyKey) },
+));
+
+export const confirmarFaltanteInventario = (payload, idempotencyKey) => data(() => api.post(
+  `${BASE}/faltantes`,
+  payload,
+  { headers: headers(idempotencyKey) },
+));

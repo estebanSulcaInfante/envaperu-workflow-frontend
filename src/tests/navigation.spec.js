@@ -141,4 +141,14 @@ describe('US-010N1: navegación SCM por áreas', () => {
     expect(visibleByCapabilities(warehouse.tabs, (required) => required.includes('INVENTARIO_VER')))
       .not.toEqual(expect.arrayContaining([expect.objectContaining({ key: 'warehouse.inventoryC66' })]));
   });
+
+  it('separa la revisión de faltantes del permiso de conteo', () => {
+    const warehouse = workspaceNavigation.find((item) => item.id === 'warehouse');
+    const canCount = visibleByCapabilities(warehouse.tabs, (required) => required.includes('INVENTARIO_CONTEO_C66'));
+    const canAdjust = visibleByCapabilities(warehouse.tabs, (required) => required.includes('INVENTARIO_VER'));
+
+    expect(canCount.map((item) => item.key)).toContain('warehouse.inventoryC66');
+    expect(canCount.map((item) => item.key)).not.toContain('warehouse.missingReview');
+    expect(canAdjust.map((item) => item.key)).toContain('warehouse.missingReview');
+  });
 });

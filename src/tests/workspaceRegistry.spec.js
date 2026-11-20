@@ -37,18 +37,22 @@ describe('US-010N1: registro único del workspace', () => {
     expect(warehouse?.features.map((item) => item.label)).toEqual([
       'Kardex y existencias',
       'Disponibilidad por PT',
+      'Conteo C66',
+      'Revisión de faltantes',
       'Recibir desde Producción',
       'Salidas y retornos de Armado',
       'Despacho MN-31',
       'Transferencias entre ubicaciones',
     ]);
     expect(warehouse?.features.map((item) => item.sectionHeading)).toEqual([
-      'EXISTENCIAS', 'EXISTENCIAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS',
+      'EXISTENCIAS', 'EXISTENCIAS', 'EXISTENCIAS', 'EXISTENCIAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS',
     ]);
     expect(getWorkspaceFeature('/almacen/operaciones')?.key).toBe('warehouse.operations');
     expect(getWorkspaceFeature('/almacen/reservas-staging')?.key).toBe('materials.internalSupply');
     expect(getWorkspaceFeature('/almacen/transferencias')?.key).toBe('warehouse.transfers');
     expect(getFeatureByKey('warehouse.operations')?.requiredAny).toEqual(['ABASTECIMIENTO_VER', 'PICKING_PREPARAR', 'PICKING_DESPACHAR']);
+    expect(getWorkspaceFeature('/almacen/revision-faltantes')?.key).toBe('warehouse.missingReview');
+    expect(getFeatureByKey('warehouse.missingReview')?.requiredAny).toEqual(['INVENTARIO_VER']);
   });
 
   it('permite descubrir salida con picking sin exigir lectura de abastecimiento', () => {
@@ -64,7 +68,7 @@ describe('US-010N1: registro único del workspace', () => {
     }).find((item) => item.key === 'warehouse');
 
     expect(warehouse?.features.map((item) => item.label)).toEqual([
-      'Kardex y existencias', 'Disponibilidad por PT', 'Transferencias entre ubicaciones',
+      'Kardex y existencias', 'Disponibilidad por PT', 'Revisión de faltantes', 'Transferencias entre ubicaciones',
     ]);
     expect([...new Set(warehouse?.features.map((item) => item.sectionHeading))]).toEqual([
       'EXISTENCIAS', 'OPERACIONES FÍSICAS',
