@@ -140,13 +140,17 @@ describe('Conteo C66 web', () => {
   it('envía cobertura solo al cerrar con la confirmación explícita de zona completa', async () => {
     const activeState = {
       ...state,
+      zonas: [{ id: 'Z1', nombre: 'Almacén de piezas general' }, { id: 'Z2', nombre: 'Almacén de armado 3er piso' }],
       sesiones: [{ id: 'S-C66-COVER', estado: 'ABIERTA', zona: 'Z1', nombre: 'Conteo completo', piezas: ['Tapa'], lecturas: [], pendientes_conteo: ['C66-010'] }],
     };
     mocks.getState.mockResolvedValue(activeState);
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: /Conteo completo/ }));
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Zona' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Almacén de armado 3er piso' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Cerrar sesión' }));
-    fireEvent.click(screen.getByLabelText('Recorrí toda la zona para las piezas seleccionadas'));
+    expect(screen.getByLabelText('Recorrí por completo Almacén de piezas general para las piezas seleccionadas')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Recorrí por completo Almacén de piezas general para las piezas seleccionadas'));
     fireEvent.click(screen.getByRole('button', { name: /Cerrar y marcar 1 no habida/ }));
     await waitFor(() => expect(mocks.close).toHaveBeenCalledWith(
       'S-C66-COVER', { marcar_no_habidas: true, no_habidas: ['C66-010'], cobertura: true }, expect.stringMatching(/^[0-9a-f-]{36}$/i),

@@ -79,6 +79,7 @@ export default function InventoryC66Scm() {
   }, [closedSessions, sessionQuery, state.zonas]);
   const pieceNames = useMemo(() => [...new Set(state.articulos.map((item) => item.nombre).filter(Boolean))], [state.articulos]);
   const selectedZoneName = state.zonas.find((item) => String(item.id) === String(zone))?.nombre || zone || 'Sin zona';
+  const activeSessionZoneName = state.zonas.find((item) => String(item.id) === String(activeSession?.zona))?.nombre || activeSession?.zona || 'Sin zona';
   const articleForReading = (reading) => {
     const articleId = reading.articulo_id ?? reading.articulo ?? state.mangas?.find((item) => cleanCode(item.codigo) === cleanCode(reading.codigo))?.articulo;
     const article = state.articulos.find((item) => String(item.id) === String(articleId));
@@ -336,7 +337,7 @@ export default function InventoryC66Scm() {
               <Typography component="h3" variant="subtitle1" fontWeight={800}>Mangas pendientes de localizar</Typography>
               {pendingCodes.length ? <Stack direction="row" flexWrap="wrap" gap={.75} sx={{ mt: 1 }}>{pendingCodes.slice(0, historyLimit).map((code) => <Chip key={code} label={code} size="small" color="warning" variant="outlined" />)}{pendingCodes.length > historyLimit && <Button size="small" onClick={() => setHistoryLimit((current) => current + 50)}>Mostrar siguientes 50 ({pendingCodes.length - historyLimit} restantes)</Button>}</Stack> : <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>No quedan mangas pendientes; el cierre conservará solo lo contado.</Typography>}
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>Cerrar no mueve kilos ni altera el Kardex.</Typography>
-              <FormControlLabel control={<Checkbox checked={pieceCoverageReviewed} onChange={(event) => setPieceCoverageReviewed(event.target.checked)} />} label="Recorrí toda la zona para las piezas seleccionadas" />
+              <FormControlLabel control={<Checkbox checked={pieceCoverageReviewed} onChange={(event) => setPieceCoverageReviewed(event.target.checked)} />} label={`Recorrí por completo ${activeSessionZoneName} para las piezas seleccionadas`} />
               <Typography variant="caption" color="text.secondary" display="block">Sin marcar la casilla, el cierre conserva las no habidas como pendientes de cobertura.</Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} sx={{ mt: 2 }}><Button variant="outlined" onClick={() => closeSession(false)} disabled={Boolean(busy)}>Cerrar solo lo contado</Button><Button variant="contained" onClick={() => closeSession(true)} disabled={Boolean(busy) || !pendingCodes.length}>Cerrar y marcar {pendingCodes.length} no habida{pendingCodes.length === 1 ? '' : 's'}</Button></Stack>
             </Paper>}
