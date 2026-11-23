@@ -1,12 +1,14 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Box, Button, Checkbox, Chip, CircularProgress, Divider, FormControlLabel,
-  Paper, Skeleton, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, useMediaQuery,
+  Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider,
+  FormControlLabel, IconButton, Paper, Skeleton, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField,
+  Typography, useMediaQuery,
 } from '@mui/material';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded';
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import PageHeader from './ui/PageHeader';
 import { mensajeErrorScm } from '../services/scmEngineeringApi';
 import { createUuid } from '../services/scmProductOnboardingApi';
@@ -18,6 +20,10 @@ import {
 import * as inventoryC66Api from '../services/scmInventoryC66Api';
 
 const EMPTY_STATE = { revision: { candidatas: [], activas: {} }, movimientos: [] };
+
+function normalizeLegacyState(result) {
+  return { ...EMPTY_STATE, ...result, revision: { ...EMPTY_STATE.revision, ...(result?.revision || {}) } };
+}
 
 const clean = (value) => String(value ?? '').trim();
 
@@ -46,9 +52,9 @@ function physicalZoneName(session) {
   return session?.zona_nombre || PHYSICAL_ZONES[session?.zona] || session?.zona || 'Zona no informada';
 }
 
-function LegacyInventoryMissingReviewScm() {
-  const [state, setState] = useState(EMPTY_STATE);
-  const [loading, setLoading] = useState(true);
+function LegacyInventoryMissingReviewScm({ initialResult = null }) {
+  const [state, setState] = useState(() => initialResult ? normalizeLegacyState(initialResult) : EMPTY_STATE);
+  const [loading, setLoading] = useState(!initialResult);
   const [loadError, setLoadError] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [query, setQuery] = useState('');
@@ -60,6 +66,16 @@ function LegacyInventoryMissingReviewScm() {
   const codeInputRef = useRef(null);
   const operationKeys = useRef(new Map());
   const historicalCode = useMemo(() => new URLSearchParams(window.location.search).get('codigo') || '', []);
+  const initialHistoricalCandidate = useMemo(
+    () => legacyCandidates(initialResult).find((item) => clean(item.codigo) === clean(historicalCode)),
+    [historicalCode, initialResult],
+  );
+
+  useEffect(() => {
+    if (!initialHistoricalCandidate) return;
+    setSelectedCode(clean(initialHistoricalCandidate.codigo));
+    setReview(initialHistoricalCandidate.revision || null);
+  }, [initialHistoricalCandidate]);
 
   const candidates = useMemo(() => (Array.isArray(state.revision?.candidatas) ? state.revision.candidatas : []), [state.revision?.candidatas]);
   const movements = useMemo(() => (Array.isArray(state.movimientos) ? state.movimientos : []), [state.movimientos]);
@@ -120,8 +136,8 @@ function LegacyInventoryMissingReviewScm() {
     setLoadError('');
     try {
       const result = await obtenerRevisionFaltantes();
-      setState({ ...EMPTY_STATE, ...result, revision: { ...EMPTY_STATE.revision, ...(result?.revision || {}) } });
-      const historicalCandidate = (result?.revision?.candidatas || []).find((item) => clean(item.codigo) === clean(historicalCode));
+      setState(normalizeLegacyState(result));
+      const historicalCandidate = legacyCandidates(result).find((item) => clean(item.codigo) === clean(historicalCode));
       if (historicalCandidate) {
         setSelectedCode(clean(historicalCandidate.codigo));
         setReview(historicalCandidate.revision || null);
@@ -135,7 +151,9 @@ function LegacyInventoryMissingReviewScm() {
     }
   }, [historicalCode]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!initialResult) load();
+  }, [initialResult, load]);
 
   const chooseCandidate = (candidate) => {
     const code = clean(candidate.codigo);
@@ -346,6 +364,10 @@ function kg(value) {
   return value === null || value === undefined || value === '' ? '—' : `${value} kg`;
 }
 
+function grossKg(value) {
+  return value === null || value === undefined || value === '' ? 'Sin registro' : kg(value);
+}
+
 function localDateTime(value) {
   if (!value) return 'No informado';
   const parsed = new Date(value);
@@ -376,22 +398,35 @@ function mangaExplanation(manga) {
   }
 }
 
-function RevisionSessionsInbox() {
-  const [sessions, setSessions] = useState(SESSION_EMPTY.sesiones);
-  const [selectedId, setSelectedId] = useState('');
+function MangaWeights({ manga, table = false }) {
+  return <Stack direction={table ? 'column' : 'row'} spacing={table ? .25 : 2} alignItems={table ? 'flex-end' : 'flex-start'}>
+    <Box>
+      <Typography variant="caption" color="text.secondary" display="block">Neto</Typography>
+      <Typography variant={table ? 'body1' : 'h6'} fontWeight={900} sx={{ lineHeight: 1.15, whiteSpace: 'nowrap' }}>{kg(manga.neto_kg)}</Typography>
+    </Box>
+    <Box>
+      <Typography variant="caption" color="text.secondary" display="block">Bruto</Typography>
+      <Typography variant="body2" fontWeight={700} sx={{ whiteSpace: 'nowrap' }}>{grossKg(manga.bruto_kg)}</Typography>
+    </Box>
+  </Stack>;
+}
+
+function RevisionSessionsInbox({ initialSessions = null, initialSessionId = '' }) {
+  const [sessions, setSessions] = useState(() => initialSessions || SESSION_EMPTY.sesiones);
+  const [selectedId, setSelectedId] = useState(initialSessionId ? String(initialSessionId) : '');
   const [detail, setDetail] = useState(null);
   const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialSessions);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [detailError, setDetailError] = useState('');
   const [reason, setReason] = useState('');
-  const [checks, setChecks] = useState({ cobertura: false, movimientos_revisados: false, busqueda: false });
   const [busy, setBusy] = useState('');
   const [approvalReceipts, setApprovalReceipts] = useState({});
   const operationKeys = useRef(new Map());
   const detailRequestRef = useRef(0);
+  const initialOpenRef = useRef(false);
   const mobile = useMediaQuery('(max-width:899px)');
 
   const keyFor = (name) => {
@@ -412,21 +447,22 @@ function RevisionSessionsInbox() {
     }
   }, []);
 
-  useEffect(() => { loadSessions(); }, [loadSessions]);
+  useEffect(() => {
+    if (!initialSessions) loadSessions();
+  }, [initialSessions, loadSessions]);
 
   const filteredSessions = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
     return sessions.filter((session) => !normalized || sessionSearchText(session).includes(normalized));
   }, [query, sessions]);
 
-  const openSession = async (session) => {
+  const openSession = useCallback(async (session) => {
     const requestId = detailRequestRef.current + 1;
     detailRequestRef.current = requestId;
     setSelectedId(String(session.id));
     setDetail(null);
     setDetailError('');
     setReason('');
-    setChecks({ cobertura: false, movimientos_revisados: false, busqueda: false });
     setFeedback(null);
     setDetailLoading(true);
     try {
@@ -441,7 +477,26 @@ function RevisionSessionsInbox() {
     } finally {
       if (requestId === detailRequestRef.current) setDetailLoading(false);
     }
+  }, []);
+
+  const closeDetail = () => {
+    if (busy === 'approve') return;
+    detailRequestRef.current += 1;
+    setSelectedId('');
+    setDetail(null);
+    setDetailError('');
+    setDetailLoading(false);
+    setReason('');
+    setFeedback(null);
   };
+
+  useEffect(() => {
+    if (initialOpenRef.current || !initialSessionId || !sessions.length) return;
+    const session = sessions.find((item) => String(item.id) === String(initialSessionId));
+    if (!session) return;
+    initialOpenRef.current = true;
+    openSession(session);
+  }, [initialSessionId, sessions, openSession]);
 
   const mangas = useMemo(() => (Array.isArray(detail?.mangas) ? detail.mangas : []), [detail?.mangas]);
   const selectedSession = detail?.sesion || sessions.find((session) => String(session.id) === selectedId);
@@ -454,11 +509,9 @@ function RevisionSessionsInbox() {
   const proposedDiscount = mangas
     .filter((manga) => String(manga.estado || '').toUpperCase() === 'NO_HABIDA')
     .reduce((total, manga) => total + (Number(manga.neto_kg) || 0), 0);
-  const checksComplete = Object.values(checks).every(Boolean);
   const canApprove = detail?.puede_aprobar === true
-    && reason.trim()
     && (hasCurrentNoHabidas
-      ? detail?.movimientos_habilitados === true && blockedMangas.length === 0 && checksComplete
+      ? detail?.movimientos_habilitados === true && blockedMangas.length === 0
       : blockedMangas.length === 0);
   const groupedMangas = useMemo(() => mangas.reduce((groups, manga) => {
     const piece = manga.pieza || 'Pieza no informada';
@@ -491,16 +544,12 @@ function RevisionSessionsInbox() {
         .filter((manga) => String(manga.estado || '').toUpperCase() === 'NO_HABIDA')
         .map((manga) => manga.codigo),
       motivo: reason.trim(),
-      cobertura: checks.cobertura,
-      movimientos_revisados: checks.movimientos_revisados,
-      busqueda: checks.busqueda,
     };
     try {
       const result = await inventoryC66Api.aprobarRevisionSesion(approvingSessionId, payload, keyFor(`approve:${approvingSessionId}:${JSON.stringify(payload)}`));
       if (String(selectedId) !== String(approvingSessionId)) return;
       setApprovalReceipts((current) => ({ ...current, [String(approvingSessionId)]: result }));
       setReason('');
-      setChecks({ cobertura: false, movimientos_revisados: false, busqueda: false });
       setFeedback({ severity: 'success', text: `Aprobación registrada: ${result?.comprobante || 'comprobante disponible'}.` });
       try {
         const refreshed = await inventoryC66Api.obtenerDetalleRevisionSesion(approvingSessionId);
@@ -553,8 +602,8 @@ function RevisionSessionsInbox() {
         }} disabled={loading || detailLoading || Boolean(busy)}>Actualizar estado</Button>}
       />
       {error && <Alert severity="error" action={<Button color="inherit" size="small" onClick={loadSessions}>Reintentar</Button>}>{error}</Alert>}
-      {feedback && <Alert severity={feedback.severity} onClose={() => setFeedback(null)}>{feedback.text}</Alert>}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', lg: 'minmax(280px, .7fr) minmax(0, 1.5fr)' }, gap: 2, minWidth: 0, width: '100%' }}>
+      {feedback && !selectedId && <Alert severity={feedback.severity} onClose={() => setFeedback(null)}>{feedback.text}</Alert>}
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0, width: '100%' }}>
         <Paper component="section" aria-labelledby="revision-sessions-title" variant="outlined" sx={{ p: { xs: 2, md: 2.5 }, alignSelf: 'start', minWidth: 0 }}>
           <Stack spacing={1.5}>
             <Box>
@@ -578,12 +627,33 @@ function RevisionSessionsInbox() {
           </Stack>
         </Paper>
 
-        <Paper component="section" aria-labelledby="revision-session-detail-title" variant="outlined" sx={{ p: { xs: 2, md: 2.5 }, minWidth: 0, overflow: 'hidden' }}>
+        <Dialog
+          open={Boolean(selectedId)}
+          onClose={closeDetail}
+          fullWidth
+          maxWidth="lg"
+          fullScreen={mobile}
+          scroll="paper"
+          aria-labelledby="revision-session-detail-title"
+        >
+          <DialogTitle id="revision-session-detail-title" sx={{ pb: 1 }}>
+            <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography component="span" variant="h6" fontWeight={850}>Detalle de la solicitud</Typography>
+                {selectedSession && <Typography variant="body2" color="text.secondary" sx={{ mt: .5, overflowWrap: 'anywhere' }}>{selectedSession.nombre || selectedSession.id} · {physicalZoneName(selectedSession)}</Typography>}
+              </Box>
+              <IconButton aria-label="Cerrar detalle de sesión" onClick={closeDetail} disabled={busy === 'approve'} edge="end" size="small">
+                <CloseRoundedIcon />
+              </IconButton>
+            </Stack>
+          </DialogTitle>
+          <DialogContent dividers sx={{ minWidth: 0 }}>
+          {feedback && selectedId && <Alert severity={feedback.severity} onClose={() => setFeedback(null)} sx={{ mb: 2 }}>{feedback.text}</Alert>}
           {detailLoading && <Stack spacing={2}><Skeleton variant="rounded" height={100} /><Skeleton variant="rounded" height={240} /></Stack>}
           {!detailLoading && !detail && (detailError ? <Alert severity="error" action={<Button color="inherit" size="small" onClick={() => selectedSession && openSession(selectedSession)}>Reintentar detalle</Button>}>{detailError}</Alert> : <Alert severity="info">Selecciona una sesión para consultar su corte y estado vigente.</Alert>)}
           {!detailLoading && detail && <Stack spacing={2}>
             <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'flex-start' }} justifyContent="space-between" gap={1}>
-              <Box><Typography id="revision-session-detail-title" component="h2" variant="h6" fontWeight={850}>Detalle de la solicitud</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: .5 }}>{selectedSession?.nombre || selectedSession?.id} · {physicalZoneName(selectedSession)}</Typography></Box>
+              <Box><Typography variant="body2" color="text.secondary">Consulta el corte y confirma el estado vigente de cada manga.</Typography></Box>
               <Chip label={sessionStatus(selectedSession).label} color={sessionStatus(selectedSession).color} />
             </Stack>
             <Stack direction="row" flexWrap="wrap" gap={1} aria-label="Resumen de sesión">
@@ -596,12 +666,12 @@ function RevisionSessionsInbox() {
             <Box>
               <Typography component="h3" variant="subtitle1" fontWeight={850}>Mangas por pieza y color</Typography>
               {mobile && <Stack spacing={1} sx={{ mt: 1 }}>
-                {groupedMangas.map((group) => <Box key={group.pieza}><Typography variant="subtitle2" fontWeight={850} sx={{ mb: .75 }}>{group.pieza}</Typography><Stack spacing={1}>{group.mangas.map((manga) => { const status = sessionStatus(manga); return <Paper key={manga.codigo} variant="outlined" sx={{ p: 1.25 }}><Stack spacing={.5}><Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1}><Typography variant="body2" fontWeight={850} sx={{ overflowWrap: 'anywhere' }}>{manga.codigo}</Typography><Chip size="small" label={revisionStateLabel(manga)} color={status.color} /></Stack><Typography variant="body2">{manga.color || 'Color no informado'}</Typography><Typography variant="caption" color="text.secondary">Neto: {kg(manga.neto_kg)}</Typography><Typography variant="caption" color="text.secondary">{mangaExplanation(manga)}</Typography><Button component="a" href={`/almacen/revision-faltantes?codigo=${encodeURIComponent(manga.codigo)}`} size="small" sx={{ alignSelf: 'flex-start' }}>Abrir revisión individual</Button></Stack></Paper>; })}</Stack></Box>)}
+                {groupedMangas.map((group) => <Box key={group.pieza}><Typography variant="subtitle2" fontWeight={850} sx={{ mb: .75 }}>{group.pieza}</Typography><Stack spacing={1}>{group.mangas.map((manga) => { const status = sessionStatus(manga); return <Paper key={manga.codigo} variant="outlined" sx={{ p: 1.25 }}><Stack spacing={.75}><Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1}><Typography variant="body2" fontWeight={850} sx={{ overflowWrap: 'anywhere' }}>{manga.codigo}</Typography><Chip size="small" label={revisionStateLabel(manga)} color={status.color} /></Stack><Typography variant="body2">{manga.color || 'Color no informado'}</Typography><MangaWeights manga={manga} /><Typography variant="caption" color="text.secondary">{mangaExplanation(manga)}</Typography><Button component="a" href={`/almacen/revision-faltantes?codigo=${encodeURIComponent(manga.codigo)}&historico=1`} size="small" sx={{ alignSelf: 'flex-start' }}>Abrir revisión individual</Button></Stack></Paper>; })}</Stack></Box>)}
                 {!groupedMangas.length && <Typography color="text.secondary">No hay mangas para esta sesión.</Typography>}
               </Stack>}
               {!mobile && <Box sx={{ overflowX: 'auto', maxWidth: '100%', minWidth: 0, mt: 1 }}>
-                <Table size="small" aria-label="Mangas de la sesión" sx={{ minWidth: 600 }}><TableHead><TableRow><TableCell>Código</TableCell><TableCell>Pieza / color</TableCell><TableCell>Estado vigente</TableCell><TableCell align="right">Neto</TableCell></TableRow></TableHead><TableBody>
-                  {groupedMangas.map((group) => <Fragment key={group.pieza}><TableRow><TableCell colSpan={4} sx={{ bgcolor: 'background.default', fontWeight: 850 }}>{group.pieza}</TableCell></TableRow>{group.mangas.map((manga) => { const status = sessionStatus(manga); return <TableRow key={manga.codigo}><TableCell sx={{ fontWeight: 800 }}><Button component="a" href={`/almacen/revision-faltantes?codigo=${encodeURIComponent(manga.codigo)}`} size="small" sx={{ p: 0, minWidth: 0, justifyContent: 'flex-start', textAlign: 'left', fontWeight: 800 }}>{manga.codigo}</Button></TableCell><TableCell>{manga.color || 'Color no informado'}</TableCell><TableCell><Stack spacing={.25} alignItems="flex-start"><Chip size="small" label={revisionStateLabel(manga)} color={status.color} /><Typography variant="caption" color="text.secondary">{mangaExplanation(manga)}</Typography></Stack></TableCell><TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{kg(manga.neto_kg)}</TableCell></TableRow>; })}</Fragment>)}
+                <Table size="small" aria-label="Mangas de la sesión" sx={{ minWidth: 680 }}><TableHead><TableRow><TableCell>Código</TableCell><TableCell>Pieza / color</TableCell><TableCell>Estado vigente</TableCell><TableCell align="right">Pesos</TableCell></TableRow></TableHead><TableBody>
+                  {groupedMangas.map((group) => <Fragment key={group.pieza}><TableRow><TableCell colSpan={4} sx={{ bgcolor: 'background.default', fontWeight: 850 }}>{group.pieza}</TableCell></TableRow>{group.mangas.map((manga) => { const status = sessionStatus(manga); return <TableRow key={manga.codigo}><TableCell sx={{ fontWeight: 800 }}><Button component="a" href={`/almacen/revision-faltantes?codigo=${encodeURIComponent(manga.codigo)}&historico=1`} size="small" sx={{ p: 0, minWidth: 0, justifyContent: 'flex-start', textAlign: 'left', fontWeight: 800 }}>{manga.codigo}</Button></TableCell><TableCell>{manga.color || 'Color no informado'}</TableCell><TableCell><Stack spacing={.25} alignItems="flex-start"><Chip size="small" label={revisionStateLabel(manga)} color={status.color} /><Typography variant="caption" color="text.secondary">{mangaExplanation(manga)}</Typography></Stack></TableCell><TableCell align="right"><MangaWeights manga={manga} table /></TableCell></TableRow>; })}</Fragment>)}
                   {!groupedMangas.length && <TableRow><TableCell colSpan={4}><Typography color="text.secondary">No hay mangas para esta sesión.</Typography></TableCell></TableRow>}
                 </TableBody></Table>
               </Box>}
@@ -621,27 +691,79 @@ function RevisionSessionsInbox() {
                 {detail.puede_aprobar !== true && <Alert severity="warning" sx={{ mt: 1 }}>Permiso: no puedes aprobar esta solicitud{detail.motivo_bloqueo ? ` · ${detail.motivo_bloqueo}` : ''}.</Alert>}
                 {hasCurrentNoHabidas && detail.movimientos_habilitados !== true && <Alert severity="warning" sx={{ mt: 1 }}>Los movimientos están deshabilitados en este entorno; la aprobación permanece bloqueada.</Alert>}
                 {detail.puede_aprobar === true && <Stack spacing={1.25} sx={{ mt: 1 }}>
-                  <TextField label="Motivo de aprobación" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ej. Cobertura validada y búsqueda completada" multiline minRows={2} fullWidth />
-                  {hasCurrentNoHabidas && <>
-                    <FormControlLabel control={<Checkbox checked={checks.cobertura} onChange={(event) => setChecks((current) => ({ ...current, cobertura: event.target.checked }))} />} label="Cobertura revisada" />
-                    <FormControlLabel control={<Checkbox checked={checks.movimientos_revisados} onChange={(event) => setChecks((current) => ({ ...current, movimientos_revisados: event.target.checked }))} />} label="Movimientos revisados" />
-                    <FormControlLabel control={<Checkbox checked={checks.busqueda} onChange={(event) => setChecks((current) => ({ ...current, busqueda: event.target.checked }))} />} label="Búsqueda y evidencias revisadas" />
-                  </>}
+                  <TextField label="Motivo de aprobación" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Nota" slotProps={{ inputLabel: { shrink: true } }} multiline minRows={2} fullWidth />
                 </Stack>}
-                <Button variant="contained" onClick={approve} disabled={!canApprove || Boolean(busy)} sx={{ mt: 1 }}>{busy === 'approve' ? 'Aprobando…' : 'Aprobar sesión completa'}</Button>
               </>}
             </Box>
-            <Alert severity="info">La revisión individual conserva el detalle histórico por manga; la aprobación aquí es una confirmación de la sesión completa, no una selección parcial.</Alert>
+            <Alert severity="info">Los enlaces históricos abren la revisión individual de la manga; esta ventana confirma la sesión completa.</Alert>
           </Stack>}
-        </Paper>
+          </DialogContent>
+          <DialogActions sx={{ justifyContent: 'space-between', px: { xs: 2, sm: 3 }, py: 1.5 }}>
+            <Stack direction="row" spacing={1}>
+              <Button onClick={() => selectedSession && openSession(selectedSession)} disabled={!selectedSession || detailLoading || Boolean(busy)}>Actualizar detalle</Button>
+              <Button onClick={closeDetail} disabled={busy === 'approve'}>Cerrar detalle</Button>
+            </Stack>
+            {detail && !isApproved && <Button variant="contained" onClick={approve} disabled={!canApprove || Boolean(busy)}>{busy === 'approve' ? 'Aprobando…' : 'Aprobar sesión completa'}</Button>}
+          </DialogActions>
+        </Dialog>
       </Box>
     </Stack>
   );
 }
 
 export { LegacyInventoryMissingReviewScm };
+
+function linkedSessionIds(candidate) {
+  return [
+    candidate?.conteo?.id,
+    ...(Array.isArray(candidate?.conteos) ? candidate.conteos.map((item) => item?.id || item) : []),
+  ].filter(Boolean).map(String);
+}
+
+function legacyCandidates(result) {
+  const current = Array.isArray(result?.revision?.candidatas) ? result.revision.candidatas : [];
+  const history = Array.isArray(result?.revision?.historial)
+    ? result.revision.historial
+    : (result?.revision?.historial && typeof result.revision.historial === 'object' ? Object.values(result.revision.historial) : []);
+  return [...current, ...history];
+}
+
+function RevisionSessionsDeepLink({ code }) {
+  const [resolution, setResolution] = useState(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([inventoryC66Api.obtenerSesionesRevision(), obtenerRevisionFaltantes()])
+      .then(([sessionResult, legacyResult]) => {
+        if (!active) return;
+        const sessions = Array.isArray(sessionResult?.sesiones) ? sessionResult.sesiones : [];
+        const candidate = legacyCandidates(legacyResult).find((item) => clean(item.codigo) === clean(code));
+        const linkedIds = linkedSessionIds(candidate);
+        const linkedSession = sessions.find((item) => linkedIds.includes(String(item.id)));
+        const readSession = (legacyResult?.sesiones || []).find((item) => Array.isArray(item.lecturas)
+          && item.lecturas.some((reading) => clean(reading.codigo) === clean(code)));
+        const session = linkedSession || sessions.find((item) => readSession && String(item.id) === String(readSession.id));
+        setResolution(session
+          ? { sessions, sessionId: session.id }
+          : { legacy: true, legacyResult });
+      })
+      .catch(() => {
+        if (active) setResolution({ error: 'No pudimos resolver la manga vinculada. Reintenta o abre la revisión histórica explícita.' });
+      });
+    return () => { active = false; };
+  }, [attempt, code]);
+
+  if (!resolution) return <Stack spacing={2}><PageHeader title="Solicitudes de revisión" description="Cargando la sesión vinculada." /><Skeleton variant="rounded" height={220} /></Stack>;
+  if (resolution.error) return <Stack spacing={2}><PageHeader title="Solicitudes de revisión" description="No se pudo resolver la entrada solicitada." /><Alert severity="error" action={<Button color="inherit" size="small" onClick={() => { setResolution(null); setAttempt((current) => current + 1); }}>Reintentar</Button>}>{resolution.error}</Alert></Stack>;
+  if (resolution.legacy) return <LegacyInventoryMissingReviewScm initialResult={resolution.legacyResult} />;
+  return <RevisionSessionsInbox initialSessions={resolution.sessions} initialSessionId={resolution.sessionId} />;
+}
+
 export default function InventoryMissingReviewScm() {
-  const historicalCode = new URLSearchParams(window.location.search).get('codigo');
-  if (historicalCode) return <LegacyInventoryMissingReviewScm />;
+  const params = new URLSearchParams(window.location.search);
+  const historicalCode = params.get('codigo');
+  if (historicalCode && params.get('historico') === '1') return <LegacyInventoryMissingReviewScm />;
+  if (historicalCode) return <RevisionSessionsDeepLink code={historicalCode} />;
   return <RevisionSessionsInbox />;
 }
