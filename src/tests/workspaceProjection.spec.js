@@ -283,10 +283,12 @@ describe('TS-010N2: proyección única del workspace', () => {
     const warehouse = workspace.areas.find((area) => area.key === 'warehouse');
 
     expect(warehouse.features.map((item) => item.key)).toEqual([
-      'warehouse.kardex', 'warehouse.availability', 'warehouse.transfers', 'warehouse.operations',
+      'warehouse.kardex', 'warehouse.availability', 'warehouse.missingReview',
+      'warehouse.mangaFicha', 'warehouse.transfers', 'warehouse.operations',
     ]);
     expect(warehouse.features.map((item) => item.sectionHeading)).toEqual([
-      'EXISTENCIAS', 'EXISTENCIAS', 'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS',
+      'EXISTENCIAS', 'EXISTENCIAS', 'EXISTENCIAS', 'EXISTENCIAS',
+      'OPERACIONES FÍSICAS', 'OPERACIONES FÍSICAS',
     ]);
   });
 
