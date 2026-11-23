@@ -131,8 +131,8 @@ describe('salida directa KG a Armado', () => {
   it('permite excluir una lectura válida equivocada antes de confirmar', async () => {
     render(<DirectKgBatchWithdrawals />);
     await scan('A');
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Retirar OF-A-OT-A-M-A', exact: true })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: 'Retirar OF-A-OT-A-M-A', exact: true }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Quitar del lote OF-A-OT-A-M-A', exact: true })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar del lote OF-A-OT-A-M-A', exact: true }));
     expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(0);
     expect(confirmButton()).toBeDisabled();
     expect(api.create).not.toHaveBeenCalled();
@@ -238,7 +238,7 @@ describe('salida directa KG a Armado', () => {
     expect(within(list).getByText('Verde')).toBeVisible();
     expect(within(list).getByLabelText('Color Verde')).toBeVisible();
     expect(within(list).getByText('12.500 KG')).toBeVisible();
-    expect(within(list).getByRole('button', { name: 'Retirar OF-009-OT-010-M-002' })).toBeVisible();
+    expect(within(list).getByRole('button', { name: 'Quitar del lote OF-009-OT-010-M-002' })).toBeVisible();
   });
 
   it('rechaza una unidad sin identidad.m y conserva el código leído en conflicto', async () => {
@@ -252,7 +252,7 @@ describe('salida directa KG a Armado', () => {
     const list = screen.getByRole('list', { name: 'Lecturas pendientes' });
     expect(within(list).getByText(/no tiene una identidad humana OF-OT-M/i)).toBeVisible();
     expect(within(list).getByRole('button', { name: 'Reintentar QR-LEIDO' })).toBeVisible();
-    expect(within(list).queryByText('Aceptada')).not.toBeInTheDocument();
+    expect(within(list).queryByText('Lista para enviar')).not.toBeInTheDocument();
     expect(within(list).queryByText(/OF-001.*OT-001/)).not.toBeInTheDocument();
 
     api.resolve.mockRejectedValueOnce(new Error('Identidad no encontrada'));
@@ -274,11 +274,11 @@ describe('salida directa KG a Armado', () => {
     sendScan(rawQr);
 
     const list = await screen.findByRole('list', { name: 'Lecturas pendientes' });
-    await waitFor(() => expect(within(list).getByText(/ya fue retirada/i)).toBeVisible());
-    expect(within(list).getByText(/ya fue retirada/i)).toHaveTextContent(/^Manga escaneada ya fue retirada/);
+    await waitFor(() => expect(within(list).getByText(/Ya salió a Armado/i)).toBeVisible());
+    expect(within(list).getByText(/Ya salió a Armado/i)).toHaveTextContent(/^Manga escaneada: Ya salió a Armado/);
     expect(document.body.textContent).not.toContain(rawQr);
     expect(within(list).getByRole('button', { name: 'Reintentar Manga escaneada' })).toBeVisible();
-    expect(within(list).getByRole('button', { name: 'Retirar Manga escaneada' })).toBeVisible();
+    expect(within(list).getByRole('button', { name: 'Quitar del lote Manga escaneada' })).toBeVisible();
     expect(api.resolve).toHaveBeenCalledWith(rawQr);
     expect(api.create).not.toHaveBeenCalled();
   });
@@ -405,7 +405,7 @@ describe('salida directa KG a Armado', () => {
     await scan('QR-1');
     api.resolve.mockResolvedValueOnce({ unit: { ...unit('QR-1', 'QR-1'), estado_logistico: 'RETIRADA_ARMADO' } });
     fireEvent.click(screen.getByRole('button', { name: /revisar y confirmar salida/i }));
-    await screen.findAllByText(/ya fue retirada para Armado/i);
+    await screen.findAllByText(/Ya salió a Armado/i);
     expect(api.create).not.toHaveBeenCalled();
   });
 
@@ -426,10 +426,30 @@ describe('salida directa KG a Armado', () => {
     localStorage.setItem(draftKey, JSON.stringify({ reason: 'Guardado', holderId: 9,
       candidates: [{ code: 'QR-1', unit: unit('QR-1', 'QR-1'), status: 'ready' }] }));
     render(<DirectKgBatchWithdrawals />);
-    await screen.findAllByText(/revalidar antes de confirmar/i);
+    await waitFor(() => expect(screen.getByText('Lista para enviar')).toBeVisible());
     fireEvent.click(confirmButton());
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
     expect(api.resolve).toHaveBeenCalledWith('QR-1');
+  });
+
+  it('normaliza un conflicto antiguo de retirada sin identidad como ya salió a Armado', async () => {
+    localStorage.setItem(draftKey, JSON.stringify({ reason: 'Guardado', holderId: 9,
+      candidates: [{ code: 'KG-OF000129-OT451-M006', unit: null, status: 'conflict', error: 'KG-OF000129-OT451-M006 ya fue retirada para Armado.' }] }));
+    render(<DirectKgBatchWithdrawals />);
+    expect(await screen.findByText('Ya salió a Armado')).toBeVisible();
+    expect(screen.getByText('KG-OF000129-OT451-M006')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Quitar del lote KG-OF000129-OT451-M006' })).toBeVisible();
+    expect(api.resolve).not.toHaveBeenCalled();
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('normaliza un conflicto de etiqueta legado sin identidad', async () => {
+    localStorage.setItem(draftKey, JSON.stringify({ context: 'ARMADO', reason: '', holderId: '', holderName: '', candidates: [{ code: 'KG-OF000129-OT451-M006', unit: null, status: 'conflict', error: 'HTTP 409 KG_LABEL_VERSION_CONFLICT' }] }));
+    render(<DirectKgBatchWithdrawals />);
+    expect(await screen.findByText('Etiqueta sin vigencia. Escanea la actual.')).toBeVisible();
+    expect(screen.getByText('KG-OF000129-OT451-M006')).toBeVisible();
+    expect(api.resolve).not.toHaveBeenCalled();
+    expect(api.create).not.toHaveBeenCalled();
   });
 
   it('no pierde la segunda lectura mientras se resuelve la primera', async () => {
@@ -502,6 +522,40 @@ describe('salida directa KG a Armado', () => {
     expect(audio.play.mock.calls.map(c => c[0])).toEqual(['rejected', 'accepted', 'accepted']);
   });
 
+  it('usa el mismo spinner accesible durante espera y validación, y marca éxito como lista para enviar', async () => {
+    const validation = deferred();
+    api.resolve.mockImplementation(() => validation.promise);
+    render(<DirectKgBatchWithdrawals />);
+    sendScan('QR-SPINNER');
+    expect(screen.getByText('Validando')).toBeVisible();
+    await act(async () => validation.resolve({ unit: unit('QR-SPINNER', 'QR-SPINNER') }));
+    await waitFor(() => expect(screen.getByText('Lista para enviar')).toBeVisible());
+    expect(screen.queryByText('Aceptada')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [401, 'La sesión venció'],
+    [403, 'No tienes permiso'],
+    [429, 'Servicio ocupado'],
+    [500, 'El servidor no pudo validar'],
+  ])('muestra feedback conciso para respuesta %s sin marcar éxito', async (status, message) => {
+    api.resolve.mockRejectedValueOnce({ message: 'HTTP 500 {"error":"raw"}', response: { status, data: { error: { code: 'SERVER_DETAIL' } } } });
+    render(<DirectKgBatchWithdrawals />);
+    sendScan(`QR-STATUS-${status}`);
+    await waitFor(() => expect(screen.getAllByText(new RegExp(message))[0]).toBeVisible());
+    expect(screen.queryByText('Lista para enviar')).not.toBeInTheDocument();
+    expect(screen.queryByText(/HTTP 500|SERVER_DETAIL|\{"error"/)).not.toBeInTheDocument();
+  });
+
+  it.each(['KG_LABEL_VERSION_CONFLICT', 'ETIQUETA_VERSION_CONFLICT', 'ETIQUETA_INVALIDADA', 'KG_LABEL_NOT_PRINTABLE'])('resume el conflicto de etiqueta %s sin mostrar payload técnico', async (code) => {
+    api.resolve.mockRejectedValueOnce({ message: 'HTTP 409 {"error":"raw"}', response: { status: 409, data: { error: { code } } } });
+    render(<DirectKgBatchWithdrawals />);
+    sendScan(`QR-LABEL-${code}`);
+    await waitFor(() => expect(screen.getAllByText('Etiqueta sin vigencia. Escanea la actual.')[0]).toBeVisible());
+    expect(screen.queryByText(/HTTP 409|raw|\{"error"/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Lista para enviar')).not.toBeInTheDocument();
+  });
+
   it('aplica límite visible de 32 pendientes sin perder el código que excede la cola', async () => {
     const first = deferred();
     api.resolve.mockImplementation(code => code === 'Q0' ? first.promise : Promise.resolve({ unit: unit(code, code) }));
@@ -552,7 +606,7 @@ describe('salida directa KG a Armado', () => {
     await waitFor(() => expect(confirmButton()).toBeEnabled()); fireEvent.click(confirmButton());
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
       expect(audio.play).not.toHaveBeenCalledWith('confirmed');
-      expect(screen.getByRole('button', { name: 'Retirar OF-A-OT-A-M-A', exact: true })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Quitar del lote OF-A-OT-A-M-A', exact: true })).toBeDisabled();
     await act(async () => response.resolve({ operation_id: 'op', cantidad_unidades: 1, total_kg: '12.500', retiros: [] }));
     await waitFor(() => expect(audio.play).toHaveBeenCalledWith('confirmed'));
   });
@@ -644,7 +698,7 @@ describe('salida directa KG a Armado', () => {
     await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0].error).toBe('Etiqueta inválida'));
     first.unmount();
     render(<DirectKgBatchWithdrawals />);
-    expect((await screen.findAllByRole('button', { name: 'Retirar MALA' })).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole('button', { name: 'Quitar del lote MALA' })).length).toBeGreaterThan(0);
     expect(confirmButton()).toBeDisabled();
     expect(api.create).not.toHaveBeenCalled();
   });
@@ -691,8 +745,8 @@ describe('salida directa KG a Armado', () => {
     expect(api.create).not.toHaveBeenCalled();
     view.unmount(); render(<DirectKgBatchWithdrawals />);
     expect(confirmButton()).toBeDisabled();
-    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Retirar OF-QR-2-OT-QR-2-M-QR-2' })[0]).toBeEnabled());
-    fireEvent.click(screen.getAllByRole('button', { name: 'Retirar OF-QR-2-OT-QR-2-M-QR-2' })[0]);
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Quitar del lote OF-QR-2-OT-QR-2-M-QR-2' })[0]).toBeEnabled());
+    fireEvent.click(screen.getAllByRole('button', { name: 'Quitar del lote OF-QR-2-OT-QR-2-M-QR-2' })[0]);
     await waitFor(() => expect(confirmButton()).toBeEnabled());
     fireEvent.click(confirmButton());
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
@@ -703,12 +757,11 @@ describe('salida directa KG a Armado', () => {
     localStorage.setItem(draftKey, JSON.stringify({ reason: 'Guardado', holderId: 9,
       candidates: [{ code: 'QR-1', unit: unit('QR-1', 'QR-1'), status: 'ready' }] }));
     render(<DirectKgBatchWithdrawals />);
-    expect(await screen.findByText('Revalidar antes de confirmar')).toBeVisible();
+    await waitFor(() => expect(screen.getByText('Lista para enviar')).toBeVisible());
     expect(api.create).not.toHaveBeenCalled();
 
     fireEvent(window, new Event('online'));
-    await waitFor(() => expect(api.resolve).toHaveBeenCalledWith('QR-1'));
-    await waitFor(() => expect(screen.getByText('Lista para revisar')).toBeVisible());
+    expect(api.resolve).toHaveBeenCalledWith('QR-1');
     expect(api.create).not.toHaveBeenCalled();
   });
 
@@ -723,7 +776,7 @@ describe('salida directa KG a Armado', () => {
     expect(api.create).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Reintentar validación' }));
-    await waitFor(() => expect(screen.getByText('Lista para revisar')).toBeVisible());
+    await waitFor(() => expect(screen.getByText('Lista para enviar')).toBeVisible());
     expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0].status).toBe('ready');
     expect(api.create).not.toHaveBeenCalled();
   });
@@ -799,13 +852,13 @@ describe('salida directa KG a Armado', () => {
     api.resolve.mockResolvedValueOnce({ unit: { ...unit('QR-1', 'QR-1'), estado_logistico: 'RETIRADA_ARMADO' } });
     render(<DirectKgBatchWithdrawals />);
     fireEvent.click(confirmButton());
-    await screen.findByText(/ya retirada.*Armado/i);
+    await screen.findAllByText(/ya salió.*Armado/i);
     expect(screen.getByText('1 ya retiradas')).toBeVisible();
     expect(screen.getByText('0 rechazadas nuevas')).toBeVisible();
     expect(api.create).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Retirar OF-QR-1-OT-QR-1-M-QR-1', exact: true }));
-    await waitFor(() => expect(screen.queryByText(/ya retirada.*Armado/i)).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar del lote OF-QR-1-OT-QR-1-M-QR-1', exact: true }));
+    await waitFor(() => expect(screen.queryByText(/ya salió.*Armado/i)).not.toBeInTheDocument());
     expect(api.create).not.toHaveBeenCalled();
   });
 

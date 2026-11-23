@@ -4,6 +4,7 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   Divider,
   FormControl,
   InputLabel,
@@ -66,7 +67,7 @@ const outgoingEligibilityError = (unit, label) => {
   if (!unit?.id) return `${humanLabel} no tiene una identidad KG válida.`;
   const state = unitState(unit);
   if (!ELIGIBLE_STATES.has(state)) return state === 'RETIRADA_ARMADO'
-    ? `${humanLabel} ya fue retirada para Armado.`
+    ? `Ya salió a Armado: ${humanLabel}.`
     : `${humanLabel} ya no está disponible para salida.`;
   if (!Number.isInteger(unitVersion(unit)) || unitVersion(unit) <= 0) return `${humanLabel} no tiene una versión válida.`;
   if (!String(unit?.identidad?.m || '').trim()) return `${humanLabel} no tiene una identidad humana OF-OT-M.`;
@@ -91,10 +92,50 @@ const isTransientNetworkError = (error) => {
     || message.includes('timeout') || message.includes('offline');
 };
 
+const isTransportFailure = (error) => {
+  const status = error?.response?.status;
+  const code = String(error?.code || error?.response?.data?.code || '').toUpperCase();
+  const message = String(error?.message || '').toLowerCase();
+  return status === 0 || status === 408
+    || code.includes('NETWORK') || code.includes('TIMEOUT')
+    || message.includes('network error') || message.includes('failed to fetch')
+    || message.includes('timeout') || message.includes('offline');
+};
+
+const conciseRequestError = (error, fallback = 'No se pudo validar la manga.') => {
+  if (isTransportFailure(error)) return 'Error de internet. Revisa la conexión y reintenta.';
+  const status = error?.response?.status;
+  if (status === 401) return 'La sesión venció. Vuelve a identificarte.';
+  if (status === 403) return 'No tienes permiso para validar esta manga.';
+  if (status === 429) return 'Servicio ocupado. Reintenta en unos segundos.';
+  if (status >= 500) return 'El servidor no pudo validar la manga. Reintenta.';
+  const payload = error?.response?.data || {};
+  const code = String(payload?.error?.code || payload?.code || '').toUpperCase();
+  if (['KG_LABEL_VERSION_CONFLICT', 'ETIQUETA_VERSION_CONFLICT', 'ETIQUETA_INVALIDADA', 'KG_LABEL_NOT_PRINTABLE'].some((labelCode) => code.includes(labelCode))) {
+    return 'Etiqueta sin vigencia. Escanea la actual.';
+  }
+  if (code.includes('NOT_FOUND') || code.includes('UNKNOWN')) return 'Manga no encontrada.';
+  if (code.includes('VERSION') || code.includes('STALE') || code.includes('CONFLICT')) return 'La manga cambió. Escanéala de nuevo.';
+  if (code.includes('QUALITY') || code.includes('BLOCKED')) return 'La manga no está liberada para salida.';
+  const message = String(error?.message || '').trim();
+  if (!error?.response && message && !message.startsWith('{') && !message.startsWith('[')) return message;
+  return fallback;
+};
+
+const conciseStoredError = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return 'No se pudo validar la manga.';
+  if (/network error|failed to fetch|timeout|offline/i.test(text)) return 'Error de internet. Revisa la conexión y reintenta.';
+  if (/KG_LABEL_VERSION_CONFLICT|ETIQUETA_VERSION_CONFLICT|ETIQUETA_INVALIDADA|KG_LABEL_NOT_PRINTABLE/i.test(text)) return 'Etiqueta sin vigencia. Escanea la actual.';
+  if (text.startsWith('{') || text.startsWith('[') || /^\d{3}\b/.test(text)) return 'No se pudo validar la manga.';
+  return text.length > 140 ? `${text.slice(0, 137)}…` : text;
+};
+
 const normalizeRestoredCandidateStatus = (candidate) => {
   if (candidate?.status === 'withdrawn') return 'withdrawn';
   if (candidate?.status === 'needs_revalidation') return 'needs_revalidation';
   if (candidate?.status === 'conflict') {
+    if (/ya fue retirada para armado|ya salió a armado/i.test(String(candidate.error || ''))) return 'withdrawn';
     return isTransientNetworkError(new Error(candidate.error || '')) ? 'needs_revalidation' : 'conflict';
   }
   return candidate?.unit?.id || isTransientNetworkError(new Error(candidate?.error || ''))
@@ -215,6 +256,17 @@ const ColorDot = ({ colorName, colorHex, transparent, hasHex }) => (
       bgcolor: transparent || !hasHex ? 'grey.300' : colorHex,
       ...(transparent ? { backgroundImage: 'repeating-linear-gradient(45deg, rgba(0,0,0,.25) 0 2px, transparent 2px 5px)' } : {}),
     }}
+  />
+);
+
+const ProgressChip = ({ label }) => (
+  <Chip
+    size="small"
+    color="info"
+    icon={<CircularProgress size={14} thickness={5} color="inherit" disableShrink aria-hidden="true" />}
+    label={label}
+    role="status"
+    aria-live="polite"
   />
 );
 
@@ -471,7 +523,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       setError('');
     } catch (requestError) {
       if (activeActorRef.current !== requestedActor || sessionGenerationRef.current !== requestedGeneration) return;
-      const message = mensajeErrorScm(requestError, `No se pudo validar ${value}.`);
+      const message = conciseRequestError(requestError, mensajeErrorScm(requestError, `No se pudo validar ${value}.`));
       const publicMessage = publicScanError(value, message, resolvedUnit);
       setError(publicMessage);
       safePlayFeedback('rejected');
@@ -638,11 +690,11 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
               ...candidate,
               unit: displayUnit,
               status,
-              error: publicScanError(candidate.code, candidateError.message || 'No se pudo revalidar.', displayUnit),
+              error: publicScanError(candidate.code, conciseRequestError(candidateError, 'No se pudo revalidar.'), displayUnit),
             };
             checked.push(failed);
             if (status !== 'needs_revalidation') safePlayFeedback('rejected');
-            if (candidate.scanId) patchScanRead(candidate.scanId, { status: status === 'needs_revalidation' ? 'accepted' : 'conflict', unit: displayUnit, error: failed.error });
+            if (candidate.scanId) patchScanRead(candidate.scanId, { status: 'conflict', unit: displayUnit, error: failed.error });
           }
         }
       }
@@ -879,7 +931,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
         {needsRevalidationCount} manga(s) necesitan revalidación. Las mangas siguen en la selección; se revisarán al recuperar la conexión. La salida permanece bloqueada y no se envía parcialmente.
       </Alert>}
       {hasWithdrawn && <Alert severity="error" role="alert">
-        {withdrawnCount} manga(s) ya retirada(s) para Armado. Retíralas de esta selección con la acción “Retirar”; esa acción no mueve stock.
+        {withdrawnCount === 1 ? '1 manga ya salió a Armado.' : `${withdrawnCount} mangas ya salieron a Armado.`} Usa “Quitar del lote” en las mangas que ya salieron; esa acción no mueve stock.
       </Alert>}
       {audioStatus === 'suspended' && <Alert severity="warning" role="status" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => activateAudio()}>Activar y probar sonido</Button>}>El sonido de lectura está suspendido. Puedes activarlo para recibir feedback.</Alert>}
       {audioStatus === 'unavailable' && <Alert severity="info" role="status">Sonido no disponible; puedes continuar con feedback visual.</Alert>}
@@ -936,8 +988,8 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
 
       {scanReads.length > 0 && <Stack component="ul" role="list" aria-label="Lecturas pendientes" spacing={1} sx={{ p: 0, m: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: '1fr', '@media (min-width:600px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
         {scanReads.map((read) => <Paper component="li" role="listitem" key={read.id} variant="outlined" sx={{ p: 1.25, minWidth: 0 }}>
-          {read.status === 'waiting' && <Stack direction="row" justifyContent="space-between" flexWrap="wrap" sx={{ minWidth: 0 }}><Typography sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{scanLabel(read.code)}</Typography><Chip size="small" label="En espera" /></Stack>}
-          {read.status === 'validating' && <Stack direction="row" justifyContent="space-between" flexWrap="wrap" sx={{ minWidth: 0 }}><Typography sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{scanLabel(read.code)}</Typography><Chip size="small" label="Validando" color="info" /></Stack>}
+          {read.status === 'waiting' && <Stack direction="row" justifyContent="space-between" flexWrap="wrap" sx={{ minWidth: 0 }}><Typography sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{scanLabel(read.code)}</Typography><ProgressChip label="En espera" /></Stack>}
+          {read.status === 'validating' && <Stack direction="row" justifyContent="space-between" flexWrap="wrap" sx={{ minWidth: 0 }}><Typography sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{scanLabel(read.code)}</Typography><ProgressChip label="Validando" /></Stack>}
           {read.status === 'accepted' && (() => {
             const identity = colorPresentation(read.unit);
             const label = identity.m || 'Identidad incompleta';
@@ -952,12 +1004,12 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
                 </Stack>
                 <Typography variant="caption" color="text.secondary" display="block">{unitKg(read.unit) ?? '-'} KG verificados</Typography>
               </Box>
-              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ minWidth: 0 }}><Chip size="small" label="Aceptada" color="success" /><Button size="small" color="error" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${identity.m || scanLabel(read.code)}`}>Retirar</Button></Stack>
+              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ minWidth: 0 }}><Chip size="small" label="Lista para enviar" color="success" role="status" aria-live="polite" /><Button size="small" color="error" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Quitar del lote ${identity.m || scanLabel(read.code)}`}>Quitar del lote</Button></Stack>
             </Stack>;
           })()}
           {read.status === 'conflict' && <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} sx={{ minWidth: 0, flexWrap: 'wrap' }}>
-            <Box sx={{ minWidth: 0, flex: '1 1 0', overflowWrap: 'anywhere' }}><Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{unitHumanLabel(read.unit, read.code)}</Typography><Typography variant="body2" color="error" sx={{ overflowWrap: 'anywhere' }}>{read.error || 'No se pudo validar.'}</Typography></Box>
-            <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ minWidth: 0 }}><Button size="small" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => retryScanRead(read)} aria-label={`Reintentar ${unitHumanLabel(read.unit, read.code)}`}>Reintentar</Button><Button size="small" color="error" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Retirar ${unitHumanLabel(read.unit, read.code)}`}>Retirar</Button></Stack>
+            <Box sx={{ minWidth: 0, flex: '1 1 0', overflowWrap: 'anywhere' }}><Typography fontWeight={750} sx={{ overflowWrap: 'anywhere' }}>{unitHumanLabel(read.unit, read.code)}</Typography><Typography variant="body2" color="error" sx={{ overflowWrap: 'anywhere' }}>{conciseStoredError(read.error || 'No se pudo validar.')}</Typography></Box>
+            <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ minWidth: 0 }}><Button size="small" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => retryScanRead(read)} aria-label={`Reintentar ${unitHumanLabel(read.unit, read.code)}`}>Reintentar</Button><Button size="small" color="error" sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || busy || confirming || !!pending || !!complete} onClick={() => removeReadCandidate(read)} aria-label={`Quitar del lote ${unitHumanLabel(read.unit, read.code)}`}>Quitar del lote</Button></Stack>
           </Stack>}
         </Paper>)}
       </Stack>}
@@ -975,7 +1027,9 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       {displayedCandidates.length > 0 && <Stack component="ul" role="list" aria-label="Mangas seleccionadas para salida directa" spacing={1} sx={{ p: 0, m: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: '1fr', '@media (min-width:600px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
         {displayedCandidates.map((candidate) => {
           const identity = colorPresentation(candidate.unit);
-          const label = identity.m || 'Identidad incompleta';
+          // A restored conflict may not have a resolver unit yet. Keep the
+          // original selector visible so the worker can identify the row.
+          const label = identity.m || candidateLabel(candidate);
           const pieceName = identity.pieceName || 'Pieza no informada';
           const actionLabel = identity.m || candidateLabel(candidate);
           return <Paper component="li" role="listitem" key={`${candidate.unit?.id || 'conflict'}-${candidate.code}`} variant="outlined" sx={{ p: 1.5, minWidth: 0 }}>
@@ -989,15 +1043,21 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
                 </Stack>
                 <Typography variant="body2">{unitKg(candidate.unit) == null ? 'KG no disponibles' : `${unitKg(candidate.unit)} KG`}</Typography>
               </Box>
-              <Button aria-label={`Retirar ${actionLabel}`} size="small" color="error" startIcon={<DeleteOutlineIcon />} sx={{ minWidth: 44, minHeight: 44, alignSelf: { xs: 'stretch', sm: 'auto' } }} onClick={() => removeCandidate(candidate)} disabled={readOnly || busy || !!pending || !!complete}>Retirar</Button>
+              <Button aria-label={`Quitar del lote ${actionLabel}`} size="small" color="error" startIcon={<DeleteOutlineIcon />} sx={{ minWidth: 44, minHeight: 44, alignSelf: { xs: 'stretch', sm: 'auto' } }} onClick={() => removeCandidate(candidate)} disabled={readOnly || busy || !!pending || !!complete}>Quitar del lote</Button>
             </Stack>
             <Box sx={{ mt: 1 }}>{candidate.status === 'ready'
-              ? <Chip size="small" label="Lista para revisar" color="success" />
+              ? <Chip size="small" label="Lista para enviar" color="success" role="status" aria-live="polite" />
               : candidate.status === 'needs_revalidation'
-                ? <Chip size="small" label="Revalidar antes de confirmar" color="warning" />
+                ? revalidating
+                  ? <ProgressChip label="Validando" />
+                  : candidate.error
+                    ? <Chip size="small" label={conciseStoredError(candidate.error)} color="error" />
+                    : pending
+                      ? <Chip size="small" label="Envío por verificar" color="info" />
+                      : <ProgressChip label="En espera" />
                 : candidate.status === 'withdrawn'
-                  ? <Chip size="small" label="Ya retirada · Retirar para apartar" color="error" />
-                  : <Chip size="small" label={candidate.error || 'Conflicto'} color="error" />}</Box>
+                  ? <Chip size="small" label="Ya salió a Armado" color="error" />
+                  : <Chip size="small" label={conciseStoredError(candidate.error || 'Conflicto')} color="error" />}</Box>
           </Paper>;
         })}
       </Stack>}
