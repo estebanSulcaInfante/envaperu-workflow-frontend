@@ -155,6 +155,18 @@ const chunkItems = (items, size) => {
   return chunks;
 };
 
+const reviewFingerprint = (draft, candidates) => JSON.stringify({
+  context: draft.context,
+  reason: draft.reason.trim(),
+  holderId: String(draft.holderId || ''),
+  documentType: draft.documentType.trim(),
+  documentId: draft.documentId.trim(),
+  items: candidates
+    .filter((candidate) => candidate.status === 'ready')
+    .map((candidate) => ({ id: String(candidate.unit?.id || ''), version: unitVersion(candidate.unit), kg: Number(unitKg(candidate.unit)), code: candidate.code }))
+    .sort((left, right) => left.id.localeCompare(right.id)),
+});
+
 const isUncertainOperationError = (error) => {
   const status = error?.response?.status;
   const payload = error?.response?.data || {};
@@ -289,6 +301,8 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
   const [pending, setPending] = useState(null);
   const [complete, setComplete] = useState(null);
   const [confirming, setConfirming] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewSnapshot, setReviewSnapshot] = useState(null);
   const [revalidating, setRevalidating] = useState(false);
   const [revalidationTrigger, setRevalidationTrigger] = useState(0);
   const [audioStatus, setAudioStatus] = useState('unavailable');
@@ -306,6 +320,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
   const scanWorkerRef = useRef(false);
   const codeRef = useRef(null);
   const revalidationInFlightRef = useRef(false);
+  const reviewSummaryRef = useRef(null);
 
   const namespace = useMemo(() => `scm-kg-direct-batch:${API_BASE_URL}:${String(actorId)}`, [actorId]);
   const draftKey = `${namespace}:draft`;
@@ -337,6 +352,8 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     confirmLockRef.current = false;
     setBusy(false);
     setConfirming(false);
+    setReviewing(false);
+    setReviewSnapshot(null);
     setStorageError('');
   }, [actorId, setStorageError]);
 
@@ -364,6 +381,8 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     setNotice('');
     setComplete(null);
     setPending(savedPending);
+    setReviewing(false);
+    setReviewSnapshot(null);
   }, [actorId, draftKey, pendingKey, setError, setNotice]);
 
   useEffect(() => {
@@ -380,6 +399,14 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
   useEffect(() => {
     candidatesRef.current = candidates;
   }, [candidates]);
+
+  useEffect(() => {
+    if (!reviewing) return;
+    requestAnimationFrame(() => {
+      reviewSummaryRef.current?.scrollIntoView?.({ behavior: 'auto', block: 'start' });
+      reviewSummaryRef.current?.focus?.();
+    });
+  }, [reviewing]);
 
   const persistDraft = useCallback((nextDraft, nextCandidates) => {
     const payload = {
@@ -618,6 +645,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     candidatesRef.current = next;
     setCandidates(next);
     persistDraft(draft, next);
+    requestAnimationFrame(() => codeRef.current?.focus());
   };
 
   const removeCandidate = (candidate) => {
@@ -626,6 +654,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     candidatesRef.current = next;
     setCandidates(next);
     persistDraft(draft, next);
+    requestAnimationFrame(() => codeRef.current?.focus());
   };
 
   const buildBody = (items) => ({
@@ -636,7 +665,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     ...(draft.documentId.trim() ? { documento_destino_id: draft.documentId.trim() } : {}),
   });
 
-  const revalidateCandidates = useCallback(async ({ automatic = false } = {}) => {
+  const revalidateCandidates = useCallback(async ({ automatic = false, onlyPending = false } = {}) => {
     if (revalidationInFlightRef.current) return null;
     revalidationInFlightRef.current = true;
     setRevalidating(true);
@@ -650,6 +679,10 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       for (const chunk of chunkItems(candidates, REVALIDATION_CHUNK_SIZE)) {
         for (const candidate of chunk) {
           if (candidate.status === 'conflict' || candidate.status === 'withdrawn') {
+            checked.push(candidate);
+            continue;
+          }
+          if (onlyPending && candidate.status === 'ready') {
             checked.push(candidate);
             continue;
           }
@@ -721,9 +754,9 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     void revalidateCandidates({ automatic: true }).catch(() => {});
   }, [candidates, revalidationTrigger, revalidating, revalidateCandidates]);
 
-  const ensureHolderIsCurrent = async () => {
+  const ensureHolderIsCurrent = async ({ refresh = false } = {}) => {
     const known = workers.find((worker) => String(worker.id) === String(draft.holderId));
-    if (known) return true;
+    if (known && !refresh) return true;
     const requestedActor = actorId;
     const requestedGeneration = sessionGenerationRef.current;
     const payload = await listarTrabajadoresWorkspace();
@@ -812,7 +845,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     const requestedActor = actorId;
     const requestedGeneration = sessionGenerationRef.current;
     try {
-    if (busy || pending || complete || scanReadsRef.current.some((read) => read.status === 'waiting' || read.status === 'validating')) return;
+    if ((!reviewing && busy) || pending || complete || scanReadsRef.current.some((read) => read.status === 'waiting' || read.status === 'validating')) return;
     if (!draft.reason.trim() || !draft.holderId) {
       setError('Completa motivo operativo y tenedor físico antes de revisar.');
       return;
@@ -834,13 +867,25 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       setError('Retira cada candidato en conflicto o ya retirado antes de confirmar.');
       return;
     }
-    const holderIsCurrent = await ensureHolderIsCurrent().catch(() => false);
-    if (activeActorRef.current !== requestedActor || sessionGenerationRef.current !== requestedGeneration) return;
-    if (!holderIsCurrent) {
-      setError('Selecciona un tenedor físico vigente para Armado.');
-      return;
+    if (reviewing) {
+      const holderIsCurrent = await ensureHolderIsCurrent({ refresh: true }).catch((requestError) => {
+        setError(mensajeErrorScm(requestError, 'No se pudo comprobar el tenedor. Revisa la conexión y reintenta.'));
+        return null;
+      });
+      if (activeActorRef.current !== requestedActor || sessionGenerationRef.current !== requestedGeneration) return;
+      if (holderIsCurrent === null) {
+        requestAnimationFrame(() => codeRef.current?.focus());
+        return;
+      }
+      if (!holderIsCurrent) {
+        setReviewing(false);
+        setReviewSnapshot(null);
+        setError('Selecciona un tenedor físico vigente para Armado.');
+        requestAnimationFrame(() => codeRef.current?.focus());
+        return;
+      }
     }
-    const checked = await revalidateCandidates().catch((requestError) => {
+    const checked = await revalidateCandidates({ onlyPending: !reviewing }).catch((requestError) => {
       if (activeActorRef.current !== requestedActor || sessionGenerationRef.current !== requestedGeneration) return null;
       setError(requestError.message || 'La selección cambió. Revisa la lista antes de confirmar.');
       setCandidates((current) => {
@@ -857,9 +902,38 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     if (activeActorRef.current !== requestedActor || sessionGenerationRef.current !== requestedGeneration) return;
     if (!checked?.length || checked.length !== candidates.length) return;
     if (checked.some((candidate) => candidate.status !== 'ready')) {
+      setReviewing(false);
+      setReviewSnapshot(null);
       setCandidates(checked);
       persistDraft(draft, checked);
       setError('Retira o resuelve los candidatos bloqueados antes de confirmar.');
+      requestAnimationFrame(() => codeRef.current?.focus());
+      return;
+    }
+    if (!reviewing) {
+      setReviewSnapshot({
+        actorId,
+        generation: requestedGeneration,
+        fingerprint: reviewFingerprint(draft, checked),
+        candidates: checked.map((candidate) => ({
+          code: candidate.code,
+          id: String(candidate.unit.id),
+          version: unitVersion(candidate.unit),
+          kg: Number(unitKg(candidate.unit)),
+          label: unitHumanLabel(candidate.unit, candidate.code),
+        })),
+      });
+      setReviewing(true);
+      return;
+    }
+    if (!reviewSnapshot
+      || reviewSnapshot.actorId !== actorId
+      || reviewSnapshot.generation !== requestedGeneration
+      || reviewSnapshot.fingerprint !== reviewFingerprint(draft, checked)) {
+      setReviewing(false);
+      setReviewSnapshot(null);
+      setError('La revisión quedó obsoleta. Revisa nuevamente la selección antes de confirmar.');
+      requestAnimationFrame(() => codeRef.current?.focus());
       return;
     }
     const body = buildBody(checked);
@@ -897,6 +971,8 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
   const startNew = () => {
     setComplete(null);
     setPending(null);
+    setReviewing(false);
+    setReviewSnapshot(null);
     setDraft(emptyDraft);
     setCandidates([]);
     clearScanReads();
@@ -927,6 +1003,22 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
         Hay una solicitud sin resultado confirmado. Puedes reintentar la misma salida desde aquí.
       </Alert>}
       {revalidating && <Alert severity="info" role="status">Revalidando selección en segundo plano. Es una tarea del sistema; no se enviará la salida hasta completar todos los GET.</Alert>}
+      {reviewing && reviewSnapshot && <Paper ref={reviewSummaryRef} tabIndex={-1} component="section" role="region" aria-label="Resumen de salida" variant="outlined" sx={{ p: 1.5 }}>
+        <Stack spacing={1.25}>
+          <Typography variant="h6">Revisa la salida</Typography>
+          <Typography variant="body1" fontWeight={750}>Total: {reviewSnapshot.candidates.reduce((sum, item) => sum + item.kg, 0).toLocaleString('es-PE', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} KG</Typography>
+          <Typography variant="body2"><strong>Destinatario:</strong> {draft.holderName || `Tenedor seleccionado #${draft.holderId}`}</Typography>
+          <Typography variant="body2"><strong>Motivo:</strong> {draft.reason}</Typography>
+          <Typography variant="subtitle2">Mangas ({reviewSnapshot.candidates.length})</Typography>
+          <Stack component="ul" role="list" aria-label="Mangas del resumen" tabIndex={0} spacing={0.5} sx={{ m: 0, pl: 2, maxHeight: 240, overflowY: 'auto', pr: 1 }}>
+            {reviewSnapshot.candidates.map((item) => <Typography component="li" key={`${item.id}-${item.version}`} variant="body2">{item.label} · {item.kg.toLocaleString('es-PE', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} KG</Typography>)}
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Button variant="outlined" onClick={() => { setReviewing(false); setReviewSnapshot(null); setNotice(''); requestAnimationFrame(() => codeRef.current?.focus()); }} disabled={busy || confirming}>Volver a editar</Button>
+            <Button variant="contained" color="success" onClick={() => void confirm()} disabled={readOnly || confirming || revalidating || !!pending || !!complete || !!storageError || !hasCapabilities}>Confirmar salida a Armado</Button>
+          </Stack>
+        </Stack>
+      </Paper>}
       {!revalidating && hasNeedsRevalidation && <Alert severity="warning" role="status" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => void revalidateCandidates()} disabled={busy || !!pending || !!complete}>Reintentar validación</Button>}>
         {needsRevalidationCount} manga(s) necesitan revalidación. Las mangas siguen en la selección; se revisarán al recuperar la conexión. La salida permanece bloqueada y no se envía parcialmente.
       </Alert>}
@@ -937,16 +1029,17 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       {audioStatus === 'unavailable' && <Alert severity="info" role="status">Sonido no disponible; puedes continuar con feedback visual.</Alert>}
       {audioStatus === 'error' && <Alert severity="warning" role="status" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => activateAudio()}>Activar y probar sonido</Button>}>{audioError || 'No se pudo reproducir el feedback sonoro.'}</Alert>}
 
+      <Box sx={{ display: reviewing ? 'none' : 'block' }}>
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
         <FormControl fullWidth>
           <InputLabel id="direct-kg-context-label">Destino operativo</InputLabel>
-          <Select labelId="direct-kg-context-label" label="Destino operativo" value={draft.context} disabled={readOnly || busy || !!pending || !!complete} onChange={(event) => updateDraft({ context: event.target.value })}>
+          <Select labelId="direct-kg-context-label" label="Destino operativo" value={draft.context} disabled={readOnly || busy || reviewing || !!pending || !!complete} onChange={(event) => updateDraft({ context: event.target.value })}>
             <MenuItem value="ARMADO">Armado</MenuItem>
           </Select>
         </FormControl>
         <FormControl fullWidth>
           <InputLabel id="direct-kg-holder-label">Quién recibe en Armado</InputLabel>
-          <Select labelId="direct-kg-holder-label" label="Quién recibe en Armado" value={draft.holderId} disabled={readOnly || busy || !!pending || !!complete || loadingWorkers} onOpen={loadWorkers} onChange={(event) => {
+          <Select labelId="direct-kg-holder-label" label="Quién recibe en Armado" value={draft.holderId} disabled={readOnly || busy || reviewing || !!pending || !!complete || loadingWorkers} onOpen={loadWorkers} onChange={(event) => {
             const worker = workers.find((item) => String(item.id) === String(event.target.value));
             updateDraft({ holderId: event.target.value, holderName: worker ? asWorkerName(worker) : draft.holderName });
           }}>
@@ -954,13 +1047,13 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
             {workers.map((worker) => <MenuItem key={worker.id} value={worker.id}>{asWorkerName(worker)}</MenuItem>)}
           </Select>
         </FormControl>
-        <TextField fullWidth label="Motivo operativo" value={draft.reason} disabled={readOnly || busy || !!pending || !!complete} onChange={(event) => updateDraft({ reason: event.target.value })} />
+        <TextField fullWidth label="Motivo operativo" value={draft.reason} disabled={readOnly || busy || reviewing || !!pending || !!complete} onChange={(event) => updateDraft({ reason: event.target.value })} />
       </Stack>
       <details>
         <summary>Agregar documento destino (opcional)</summary>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mt: 1.5 }}>
-          <TextField fullWidth label="Documento destino (tipo)" value={draft.documentType} disabled={readOnly || busy || !!pending || !!complete} onChange={(event) => updateDraft({ documentType: event.target.value })} />
-          <TextField fullWidth label="Documento destino (ID)" value={draft.documentId} disabled={readOnly || busy || !!pending || !!complete} onChange={(event) => updateDraft({ documentId: event.target.value })} />
+          <TextField fullWidth label="Documento destino (tipo)" value={draft.documentType} disabled={readOnly || busy || reviewing || !!pending || !!complete} onChange={(event) => updateDraft({ documentType: event.target.value })} />
+          <TextField fullWidth label="Documento destino (ID)" value={draft.documentId} disabled={readOnly || busy || reviewing || !!pending || !!complete} onChange={(event) => updateDraft({ documentId: event.target.value })} />
         </Stack>
       </details>
 
@@ -973,7 +1066,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
           label="Escanear QR de manga KG"
           helperText="Presiona Enter para agregar; el escaneo no cambia stock."
           value={code}
-          disabled={readOnly || confirming || revalidating || !!pending || !!complete}
+          disabled={readOnly || reviewing || confirming || revalidating || !!pending || !!complete}
           onChange={(event) => setCode(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -983,7 +1076,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
             }
           }}
         />
-        <Button type="submit" variant="outlined" startIcon={<QrCodeScannerIcon />} sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || confirming || revalidating || !!pending || !!complete || !code.trim()}>Agregar manga</Button>
+        <Button type="submit" variant="outlined" startIcon={<QrCodeScannerIcon />} sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || reviewing || confirming || revalidating || !!pending || !!complete || !code.trim()}>Agregar manga</Button>
       </Stack>
 
       {scanReads.length > 0 && <Stack component="ul" role="list" aria-label="Lecturas pendientes" spacing={1} sx={{ p: 0, m: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: '1fr', '@media (min-width:600px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
@@ -1061,9 +1154,10 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
           </Paper>;
         })}
       </Stack>}
-      <Button variant="contained" color="success" size="large" startIcon={<SendIcon />} sx={{ minWidth: 44, minHeight: 44 }} onClick={confirm} disabled={readOnly || busy || revalidating || pendingScanCount > 0 || !!pending || !!complete || !!storageError || !candidates.length || hasConflict || hasWithdrawn || !draft.reason.trim() || !draft.holderId || !hasCapabilities}>
-        {confirming ? 'Validando y confirmando…' : pendingScanCount > 0 ? 'Validando lecturas…' : hasNeedsRevalidation ? `Revalidar y confirmar salida (${candidates.filter((candidate) => candidate.status === 'ready').length})` : `Revisar y confirmar salida (${candidates.filter((candidate) => candidate.status === 'ready').length})`}
-      </Button>
+      {!reviewing && <Button variant="contained" color="success" size="large" startIcon={<SendIcon />} sx={{ minWidth: 44, minHeight: 44 }} onClick={confirm} disabled={readOnly || busy || revalidating || pendingScanCount > 0 || !!pending || !!complete || !!storageError || !candidates.length || hasConflict || hasWithdrawn || !draft.reason.trim() || !draft.holderId || !hasCapabilities}>
+        {confirming ? 'Validando lecturas…' : pendingScanCount > 0 ? 'Validando lecturas…' : `Revisar lote (${candidates.filter((candidate) => candidate.status === 'ready').length})`}
+      </Button>}
+      </Box>
       {!candidates.length && <Alert severity="info">Aún no hay mangas seleccionadas. Escanea la primera manga para comenzar.</Alert>}
     </Stack>
   </Paper>;

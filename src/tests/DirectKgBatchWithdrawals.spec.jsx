@@ -66,7 +66,11 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 const draftKey = 'scm-kg-direct-batch:/api:7:draft';
 const pendingKey = 'scm-kg-direct-batch:/api:7:pending';
-const confirmButton = () => screen.getByRole('button', { name: /revisar y confirmar salida|confirmar salida|validando y confirmando|validando lecturas/i });
+const confirmButton = () => screen.getByRole('button', { name: /revisar lote|confirmar salida|validando y confirmando|validando lecturas/i });
+const confirmExplicitly = async () => {
+  fireEvent.click(confirmButton());
+  fireEvent.click(await screen.findByRole('button', { name: 'Confirmar salida a Armado' }));
+};
 const deferred = () => {
   let resolve;
   let reject;
@@ -135,6 +139,7 @@ describe('salida directa KG a Armado', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Quitar del lote OF-A-OT-A-M-A', exact: true }));
     expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(0);
     expect(confirmButton()).toBeDisabled();
+    await waitFor(() => expect(screen.getByLabelText('Escanear QR de manga KG')).toHaveFocus());
     expect(api.create).not.toHaveBeenCalled();
   });
 
@@ -143,7 +148,7 @@ describe('salida directa KG a Armado', () => {
     await chooseContext();
     await scan('A');
     await waitFor(() => expect(confirmButton()).toBeEnabled());
-    fireEvent.click(confirmButton());
+    await confirmExplicitly();
     fireEvent.click(await screen.findByRole('button', { name: 'Nueva salida' }));
     expect(screen.queryByRole('list', { name: 'Lecturas pendientes' })).not.toBeInTheDocument();
     expect(screen.queryByText('A', { exact: true })).not.toBeInTheDocument();
@@ -310,7 +315,7 @@ describe('salida directa KG a Armado', () => {
     await scan('A');
     audio.play.mockReturnValue(false);
 
-    fireEvent.click(confirmButton());
+    await confirmExplicitly();
 
     const success = await screen.findByText((_, element) => element?.classList.contains('MuiAlert-message') && /Salida .* confirmada/i.test(element.textContent));
     const audioNotice = await screen.findByText(/no se pudo reproducir el feedback sonoro/i);
@@ -389,7 +394,7 @@ describe('salida directa KG a Armado', () => {
     render(<DirectKgBatchWithdrawals />);
     await chooseContext();
     await scan('QR-1');
-    fireEvent.click(screen.getByRole('button', { name: /revisar y confirmar salida/i }));
+    await confirmExplicitly();
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
     expect(api.create.mock.calls[0][0]).toEqual({
       items: [{ unit_id: 'QR-1', version: 3 }],
@@ -404,7 +409,7 @@ describe('salida directa KG a Armado', () => {
     await chooseContext();
     await scan('QR-1');
     api.resolve.mockResolvedValueOnce({ unit: { ...unit('QR-1', 'QR-1'), estado_logistico: 'RETIRADA_ARMADO' } });
-    fireEvent.click(screen.getByRole('button', { name: /revisar y confirmar salida/i }));
+    await confirmExplicitly();
     await screen.findAllByText(/Ya salió a Armado/i);
     expect(api.create).not.toHaveBeenCalled();
   });
@@ -427,7 +432,7 @@ describe('salida directa KG a Armado', () => {
       candidates: [{ code: 'QR-1', unit: unit('QR-1', 'QR-1'), status: 'ready' }] }));
     render(<DirectKgBatchWithdrawals />);
     await waitFor(() => expect(screen.getByText('Lista para enviar')).toBeVisible());
-    fireEvent.click(confirmButton());
+    await confirmExplicitly();
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
     expect(api.resolve).toHaveBeenCalledWith('QR-1');
   });
@@ -603,10 +608,10 @@ describe('salida directa KG a Armado', () => {
   it('emite confirmación distinta solo después del resultado del POST', async () => {
     const response = deferred(); api.create.mockReturnValue(response.promise);
     render(<DirectKgBatchWithdrawals />); await chooseContext(); await scan('A');
-    await waitFor(() => expect(confirmButton()).toBeEnabled()); fireEvent.click(confirmButton());
+    await waitFor(() => expect(confirmButton()).toBeEnabled()); await confirmExplicitly();
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
       expect(audio.play).not.toHaveBeenCalledWith('confirmed');
-      expect(screen.getByRole('button', { name: 'Quitar del lote OF-A-OT-A-M-A', exact: true })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Confirmar salida a Armado' })).toBeDisabled();
     await act(async () => response.resolve({ operation_id: 'op', cantidad_unidades: 1, total_kg: '12.500', retiros: [] }));
     await waitFor(() => expect(audio.play).toHaveBeenCalledWith('confirmed'));
   });
@@ -616,11 +621,44 @@ describe('salida directa KG a Armado', () => {
     await chooseContext(); await scan('QR-1');
     await waitFor(() => expect(confirmButton()).toBeEnabled());
     const validation = deferred();
+    fireEvent.click(confirmButton());
+    await screen.findByRole('button', { name: 'Volver a editar' });
     api.resolve.mockReturnValueOnce(validation.promise);
-    const confirmElement = confirmButton();
+    const confirmElement = screen.getByRole('button', { name: 'Confirmar salida a Armado' });
     fireEvent.click(confirmElement); fireEvent.click(confirmElement);
     await act(async () => validation.resolve({ unit: unit('QR-1', 'QR-1') }));
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
+  });
+
+  it('abre un resumen editable sin POST y permite cancelar la revisión', async () => {
+    render(<DirectKgBatchWithdrawals />);
+    await chooseContext(); await scan('QR-REVIEW');
+    await waitFor(() => expect(confirmButton()).toBeEnabled());
+    fireEvent.click(confirmButton());
+    expect(await screen.findByRole('region', { name: 'Resumen de salida' })).toBeVisible();
+    expect(screen.getByText(/Total:/)).toBeVisible();
+    expect(within(screen.getByRole('region', { name: 'Resumen de salida' })).getByText('Almacenera')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Confirmar salida a Armado' })).toBeVisible();
+    expect(api.create).not.toHaveBeenCalled();
+    expect(api.resolve).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Volver a editar' }));
+    expect(screen.queryByRole('region', { name: 'Resumen de salida' })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText('Escanear QR de manga KG')).toHaveFocus());
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('refresca el tenedor al confirmar y bloquea si fue desactivado', async () => {
+    render(<DirectKgBatchWithdrawals />);
+    await chooseContext(); await scan('A');
+    await waitFor(() => expect(confirmButton()).toBeEnabled());
+    fireEvent.click(confirmButton());
+    await screen.findByRole('region', { name: 'Resumen de salida' });
+    api.workers.mockResolvedValueOnce([{ id: 9, nombre_corto: 'Almacenera', activo: false }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar salida a Armado' }));
+    await waitFor(() => expect(api.workers).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('Selecciona un tenedor físico vigente para Armado.')).toBeVisible();
+    expect(screen.getByLabelText('Escanear QR de manga KG')).toHaveFocus();
+    expect(api.create).not.toHaveBeenCalled();
   });
 
   it('no envía ni confirma automáticamente sin red', async () => {
@@ -660,7 +698,8 @@ describe('salida directa KG a Armado', () => {
     render(<DirectKgBatchWithdrawals />);
     await chooseContext(); await scan('QR-1');
     await waitFor(() => expect(confirmButton()).toBeEnabled());
-    fireEvent.click(confirmButton());
+    await screen.findByText('Lista para enviar');
+    await confirmExplicitly();
     await screen.findByRole('button', { name: 'Recuperar' });
     await screen.findByText('Resultado incierto');
     const saved = JSON.parse(localStorage.getItem(pendingKey));
@@ -720,7 +759,7 @@ describe('salida directa KG a Armado', () => {
     await chooseContext(); await scan('QR-1');
     await waitFor(() => expect(confirmButton()).toBeEnabled());
     const old = deferred(); api.resolve.mockReturnValueOnce(old.promise);
-    fireEvent.click(confirmButton());
+    await confirmExplicitly();
     await waitFor(() => expect(api.resolve).toHaveBeenCalledTimes(2));
     actor.id = 8; view.rerender(<DirectKgBatchWithdrawals />);
     actor.id = 7; view.rerender(<DirectKgBatchWithdrawals />);
@@ -737,7 +776,7 @@ describe('salida directa KG a Armado', () => {
     await chooseContext(); await scan('QR-1'); await scan('QR-2');
     await waitFor(() => expect(confirmButton()).toBeEnabled());
     api.resolve.mockImplementation(async (code) => ({ unit: unit(code, code, code === 'QR-2' ? 4 : 3) }));
-    fireEvent.click(confirmButton());
+    await confirmExplicitly();
     await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates.some(c => c.status === 'conflict')).toBe(true));
     const saved = JSON.parse(localStorage.getItem(draftKey));
     expect(saved.candidates.find(c => c.code === 'QR-1').status).toBe('ready');
@@ -748,7 +787,7 @@ describe('salida directa KG a Armado', () => {
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Quitar del lote OF-QR-2-OT-QR-2-M-QR-2' })[0]).toBeEnabled());
     fireEvent.click(screen.getAllByRole('button', { name: 'Quitar del lote OF-QR-2-OT-QR-2-M-QR-2' })[0]);
     await waitFor(() => expect(confirmButton()).toBeEnabled());
-    fireEvent.click(confirmButton());
+    await confirmExplicitly();
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
     expect(api.create.mock.calls[0][0].items).toEqual([{ unit_id: 'QR-1', version: 3 }]);
   });
@@ -851,7 +890,6 @@ describe('salida directa KG a Armado', () => {
       candidates: [{ code: 'QR-1', unit: unit('QR-1', 'QR-1'), status: 'ready' }] }));
     api.resolve.mockResolvedValueOnce({ unit: { ...unit('QR-1', 'QR-1'), estado_logistico: 'RETIRADA_ARMADO' } });
     render(<DirectKgBatchWithdrawals />);
-    fireEvent.click(confirmButton());
     await screen.findAllByText(/ya salió.*Armado/i);
     expect(screen.getByText('1 ya retiradas')).toBeVisible();
     expect(screen.getByText('0 rechazadas nuevas')).toBeVisible();
@@ -873,7 +911,7 @@ describe('salida directa KG a Armado', () => {
     render(<DirectKgBatchWithdrawals />);
     await chooseContext(); await scan('QR-1');
     await waitFor(() => expect(confirmButton()).toBeEnabled());
-    fireEvent.click(confirmButton());
+    await confirmExplicitly();
     fireEvent.click(await screen.findByRole('button', { name: 'Nueva salida' }));
     expect(screen.queryByText(/salida confirmada/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText('Escanear QR de manga KG')).toBeEnabled();
