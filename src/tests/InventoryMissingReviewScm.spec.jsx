@@ -104,7 +104,7 @@ describe('Revisión de faltantes SCM', () => {
     mocks.get.mockResolvedValue({ revision: { ajuste_habilitado: true, movimientos_habilitados: true, candidatas: [{ ...candidate, revision: { token: 'REV-1', neto: '12.300', cobertura_confirmada: true } }] }, movimientos: [] });
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: /Seleccionar C66-001/ }));
-    expect(await screen.findByText(/API todavía no habilitó la confirmación/)).toBeVisible();
+    expect(await screen.findByText(/confirmación de faltantes aún no está disponible/)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Confirmar faltante' })).toBeDisabled();
   });
 

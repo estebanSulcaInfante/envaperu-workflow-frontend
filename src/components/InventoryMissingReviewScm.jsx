@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Divider, FormControlLabel,
   Paper, Skeleton, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, useMediaQuery,
@@ -34,6 +34,18 @@ function candidateLabel(candidate) {
   return [candidate.pieza, candidate.color].filter(Boolean).join(' · ') || 'Pieza sin detalle';
 }
 
+const PHYSICAL_ZONES = {
+  'ALM-PZ': 'Almacén de piezas general',
+  'Z-ALMACEN-PIEZAS': 'Almacén de piezas general',
+  'ALM-ARM-3': 'Almacén de armado – 3.er piso',
+  'ALM-LLANTAS-3': 'Almacén de llantas – 3.er piso',
+  'ALM-ARM-4': 'Almacén de armado – 4.º piso',
+};
+
+function physicalZoneName(session) {
+  return session?.zona_nombre || PHYSICAL_ZONES[session?.zona] || session?.zona || 'Zona no informada';
+}
+
 function LegacyInventoryMissingReviewScm() {
   const [state, setState] = useState(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
@@ -47,6 +59,7 @@ function LegacyInventoryMissingReviewScm() {
   const [busy, setBusy] = useState('');
   const codeInputRef = useRef(null);
   const operationKeys = useRef(new Map());
+  const historicalCode = useMemo(() => new URLSearchParams(window.location.search).get('codigo') || '', []);
 
   const candidates = useMemo(() => (Array.isArray(state.revision?.candidatas) ? state.revision.candidatas : []), [state.revision?.candidatas]);
   const movements = useMemo(() => (Array.isArray(state.movimientos) ? state.movimientos : []), [state.movimientos]);
@@ -108,6 +121,11 @@ function LegacyInventoryMissingReviewScm() {
     try {
       const result = await obtenerRevisionFaltantes();
       setState({ ...EMPTY_STATE, ...result, revision: { ...EMPTY_STATE.revision, ...(result?.revision || {}) } });
+      const historicalCandidate = (result?.revision?.candidatas || []).find((item) => clean(item.codigo) === clean(historicalCode));
+      if (historicalCandidate) {
+        setSelectedCode(clean(historicalCandidate.codigo));
+        setReview(historicalCandidate.revision || null);
+      }
       return result;
     } catch (error) {
       setLoadError(errorMessage(error, 'No pudimos cargar la revisión de faltantes.'));
@@ -115,7 +133,7 @@ function LegacyInventoryMissingReviewScm() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [historicalCode]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -275,7 +293,7 @@ function LegacyInventoryMissingReviewScm() {
                     ? 'La confirmación de faltantes está cerrada en este entorno.'
                     : state.revision?.ajuste_habilitado === false && !canAdjust
                       ? 'Tu perfil puede revisar la evidencia, pero no tiene permiso para ajustar el Kardex.'
-                      : 'La API todavía no habilitó la confirmación de faltantes para esta pantalla.'}
+                      : 'La confirmación de faltantes aún no está disponible para esta pantalla.'}
                 </Alert>}
                 <Button variant="contained" color="warning" startIcon={busy === 'missing' ? <CircularProgress size={18} color="inherit" /> : <CheckCircleOutlineRoundedIcon />} onClick={confirmMissing} disabled={!reason.trim() || selected?.vigente === false || Boolean(busy) || !adjustmentEnabled || !coverageConfirmed}>{busy === 'missing' ? 'Confirmando…' : 'Confirmar faltante'}</Button>
               </>}
@@ -336,13 +354,26 @@ function localDateTime(value) {
 }
 
 function sessionSearchText(session) {
-  return [session?.nombre, session?.zona, ...(Array.isArray(session?.piezas) ? session.piezas : [])]
+  return [session?.nombre, session?.zona, session?.zona_nombre, ...(Array.isArray(session?.piezas) ? session.piezas : [])]
     .filter(Boolean).join(' ').toLocaleLowerCase();
 }
 
 function revisionStateLabel(manga) {
   const state = STATUS_LABELS[String(manga?.estado || '').toUpperCase()];
   return state?.label || String(manga?.estado || 'PENDIENTE').toUpperCase();
+}
+
+function mangaExplanation(manga) {
+  if (manga?.motivo_bloqueo) return manga.motivo_bloqueo;
+  switch (String(manga?.estado || '').toUpperCase()) {
+    case 'ENCONTRADA': return 'Sin descuento: encontrada en el corte.';
+    case 'AJUSTADA': return 'Ajustada previamente; no se vuelve a descontar.';
+    case 'FUERA_DE_AJUSTE': return 'El estado cambió después del corte; no se descuenta.';
+    case 'NO_HABIDA': return manga?.bloquea_sesion === true || manga?.aprobable === true
+      ? 'Ausente con cobertura vigente; se incluye en el descuento de la sesión.'
+      : 'Ausente sin cobertura vigente; la sesión queda solicitada.';
+    default: return 'Pendiente de confirmar antes de aprobar.';
+  }
 }
 
 function RevisionSessionsInbox() {
@@ -358,7 +389,9 @@ function RevisionSessionsInbox() {
   const [reason, setReason] = useState('');
   const [checks, setChecks] = useState({ cobertura: false, movimientos_revisados: false, busqueda: false });
   const [busy, setBusy] = useState('');
+  const [approvalReceipts, setApprovalReceipts] = useState({});
   const operationKeys = useRef(new Map());
+  const detailRequestRef = useRef(0);
   const mobile = useMediaQuery('(max-width:899px)');
 
   const keyFor = (name) => {
@@ -387,6 +420,8 @@ function RevisionSessionsInbox() {
   }, [query, sessions]);
 
   const openSession = async (session) => {
+    const requestId = detailRequestRef.current + 1;
+    detailRequestRef.current = requestId;
     setSelectedId(String(session.id));
     setDetail(null);
     setDetailError('');
@@ -396,45 +431,108 @@ function RevisionSessionsInbox() {
     setDetailLoading(true);
     try {
       const result = await inventoryC66Api.obtenerDetalleRevisionSesion(session.id);
+      if (requestId !== detailRequestRef.current) return;
       setDetail(result);
     } catch (loadError) {
+      if (requestId !== detailRequestRef.current) return;
       setDetailError(loadError?.response?.status === 409
         ? 'La sesión cambió mientras la abrías. Vuelve a intentar para leer la versión vigente.'
         : errorMessage(loadError, 'No pudimos cargar el detalle de la sesión.'));
     } finally {
-      setDetailLoading(false);
+      if (requestId === detailRequestRef.current) setDetailLoading(false);
     }
   };
 
-  const mangas = Array.isArray(detail?.mangas) ? detail.mangas : [];
+  const mangas = useMemo(() => (Array.isArray(detail?.mangas) ? detail.mangas : []), [detail?.mangas]);
   const selectedSession = detail?.sesion || sessions.find((session) => String(session.id) === selectedId);
-  const blockedMangas = mangas.filter((manga) => String(manga.estado || '').toUpperCase() === 'NO_HABIDA' && manga.aprobable === false);
+  const approvalReceipt = approvalReceipts[selectedId] || null;
+  const isApproved = String(selectedSession?.estado || '').toUpperCase() === 'APROBADA'
+    || Boolean(approvalReceipt?.comprobante || detail?.comprobante || selectedSession?.comprobante);
+  const blockedMangas = mangas.filter((manga) => manga.bloquea_sesion === true
+    || (String(manga.estado || '').toUpperCase() === 'NO_HABIDA' && manga.bloquea_sesion == null && manga.aprobable === false));
+  const hasCurrentNoHabidas = mangas.some((manga) => String(manga.estado || '').toUpperCase() === 'NO_HABIDA');
   const proposedDiscount = mangas
     .filter((manga) => String(manga.estado || '').toUpperCase() === 'NO_HABIDA')
     .reduce((total, manga) => total + (Number(manga.neto_kg) || 0), 0);
   const checksComplete = Object.values(checks).every(Boolean);
-  const canApprove = detail?.puede_aprobar === true && detail?.movimientos_habilitados === true && blockedMangas.length === 0 && checksComplete && reason.trim();
+  const canApprove = detail?.puede_aprobar === true
+    && reason.trim()
+    && (hasCurrentNoHabidas
+      ? detail?.movimientos_habilitados === true && blockedMangas.length === 0 && checksComplete
+      : blockedMangas.length === 0);
+  const groupedMangas = useMemo(() => mangas.reduce((groups, manga) => {
+    const piece = manga.pieza || 'Pieza no informada';
+    const existing = groups.find((group) => group.pieza === piece);
+    if (existing) existing.mangas.push(manga);
+    else groups.push({ pieza: piece, mangas: [manga] });
+    return groups;
+  }, []), [mangas]);
+
+  const rawReceipt = approvalReceipt || detail?.comprobante || selectedSession?.comprobante;
+  const receipt = rawReceipt ? {
+    comprobante: typeof rawReceipt === 'string' ? rawReceipt : rawReceipt.comprobante,
+    aprobada_at: detail?.aprobada_at || selectedSession?.aprobada_at || approvalReceipt?.aprobada_at,
+    movimientos: approvalReceipt?.movimientos || detail?.movimientos || [],
+    kg_descontados: detail?.kg_descontados ?? approvalReceipt?.kg_descontados,
+  } : null;
+  const receiptMovements = Array.isArray(receipt?.movimientos) ? receipt.movimientos : [];
+  const adjustedKg = receipt?.kg_descontados != null
+    ? Math.abs(Number(receipt.kg_descontados) || 0)
+    : receiptMovements.reduce((total, movement) => total + Math.abs(Number(movement.delta_kg) || 0), 0);
 
   const approve = async () => {
     if (!detail?.sesion?.id || !canApprove || busy) return;
     setBusy('approve');
     setFeedback(null);
+    const approvingSessionId = detail.sesion.id;
+    const payload = {
+      version_revision: detail.version_revision,
+      codigos: mangas
+        .filter((manga) => String(manga.estado || '').toUpperCase() === 'NO_HABIDA')
+        .map((manga) => manga.codigo),
+      motivo: reason.trim(),
+      cobertura: checks.cobertura,
+      movimientos_revisados: checks.movimientos_revisados,
+      busqueda: checks.busqueda,
+    };
     try {
-      await inventoryC66Api.aprobarRevisionSesion(detail.sesion.id, {
-        version_revision: detail.version_revision,
-        codigos: mangas
-          .filter((manga) => String(manga.estado || '').toUpperCase() === 'NO_HABIDA')
-          .map((manga) => manga.codigo),
-        motivo: reason.trim(),
-        cobertura: true,
-        movimientos_revisados: true,
-        busqueda: true,
-      }, keyFor(`approve:${detail.sesion.id}:${detail.version_revision}`));
-      setFeedback({ severity: 'success', text: 'Aprobación registrada. La sesión conserva su comprobante y versión revisada.' });
+      const result = await inventoryC66Api.aprobarRevisionSesion(approvingSessionId, payload, keyFor(`approve:${approvingSessionId}:${JSON.stringify(payload)}`));
+      if (String(selectedId) !== String(approvingSessionId)) return;
+      setApprovalReceipts((current) => ({ ...current, [String(approvingSessionId)]: result }));
+      setReason('');
+      setChecks({ cobertura: false, movimientos_revisados: false, busqueda: false });
+      setFeedback({ severity: 'success', text: `Aprobación registrada: ${result?.comprobante || 'comprobante disponible'}.` });
+      try {
+        const refreshed = await inventoryC66Api.obtenerDetalleRevisionSesion(approvingSessionId);
+        if (String(selectedId) === String(approvingSessionId)) {
+          setDetail({
+            ...refreshed,
+            comprobante: refreshed?.comprobante || result?.comprobante,
+            movimientos: refreshed?.movimientos || result?.movimientos || [],
+            kg_descontados: refreshed?.kg_descontados ?? result?.movimientos?.reduce((total, movement) => total + Math.abs(Number(movement.delta_kg) || 0), 0),
+            aprobada_at: refreshed?.aprobada_at || result?.aprobada_at,
+            sesion: { ...refreshed?.sesion, estado: refreshed?.sesion?.estado || 'APROBADA', comprobante: refreshed?.sesion?.comprobante || result?.comprobante, aprobada_at: refreshed?.sesion?.aprobada_at || result?.aprobada_at },
+          });
+        }
+      } catch {
+        setDetail((current) => current && String(selectedId) === String(approvingSessionId) ? {
+          ...current,
+          comprobante: result?.comprobante,
+          movimientos: result?.movimientos || [],
+          kg_descontados: result?.movimientos?.reduce((total, movement) => total + Math.abs(Number(movement.delta_kg) || 0), 0),
+          aprobada_at: result?.aprobada_at,
+          sesion: { ...current.sesion, estado: 'APROBADA', comprobante: result?.comprobante, aprobada_at: result?.aprobada_at },
+        } : current);
+      }
       await loadSessions();
     } catch (approveError) {
-      setFeedback({ severity: 'error', text: errorMessage(approveError, 'No se pudo aprobar la sesión. Actualiza el detalle y reintenta.') });
-      if (approveError?.response?.status === 409) await openSession(selectedSession);
+      const message = errorMessage(approveError, 'No se pudo aprobar la sesión. Actualiza el detalle y reintenta.');
+      if (approveError?.response?.status === 409 && String(selectedId) === String(approvingSessionId)) {
+        await openSession(selectedSession);
+        setFeedback({ severity: 'error', text: message });
+      } else {
+        setFeedback({ severity: 'error', text: message });
+      }
     } finally {
       setBusy('');
     }
@@ -466,8 +564,8 @@ function RevisionSessionsInbox() {
                 const status = sessionStatus(session);
                 const isSelected = String(session.id) === selectedId;
                 return <Box component="li" key={session.id}>
-                  <Button fullWidth variant={isSelected ? 'contained' : 'outlined'} color={isSelected ? 'primary' : 'inherit'} onClick={() => openSession(session)} aria-label={`Abrir ${session.nombre || session.id}`} sx={{ justifyContent: 'space-between', textAlign: 'left', alignItems: 'flex-start', gap: 1, py: 1.25, minWidth: 0 }}>
-                    <Box sx={{ minWidth: 0, overflowWrap: 'anywhere' }}><Typography component="span" variant="body2" fontWeight={800} display="block" sx={{ overflowWrap: 'anywhere' }}>{session.nombre || session.id}</Typography><Typography component="span" variant="caption" color={isSelected ? 'inherit' : 'text.secondary'} display="block" sx={{ overflowWrap: 'anywhere' }}>{session.zona || 'Zona no informada'} · {session.piezas?.join(', ') || 'Piezas no informadas'}</Typography></Box>
+                  <Button fullWidth variant={isSelected ? 'contained' : 'outlined'} color={isSelected ? 'primary' : 'inherit'} onClick={() => openSession(session)} disabled={busy === 'approve'} aria-label={`Abrir ${session.nombre || session.id}`} sx={{ justifyContent: 'space-between', textAlign: 'left', alignItems: 'flex-start', gap: 1, py: 1.25, minWidth: 0 }}>
+                    <Box sx={{ minWidth: 0, overflowWrap: 'anywhere' }}><Typography component="span" variant="body2" fontWeight={800} display="block" sx={{ overflowWrap: 'anywhere' }}>{session.nombre || session.id}</Typography><Typography component="span" variant="caption" color={isSelected ? 'inherit' : 'text.secondary'} display="block" sx={{ overflowWrap: 'anywhere' }}>{physicalZoneName(session)} · {session.piezas?.join(', ') || 'Piezas no informadas'}</Typography><Typography component="span" variant="caption" color={isSelected ? 'inherit' : 'text.secondary'} display="block">Solicitada: {localDateTime(session.solicitada_at)}</Typography></Box>
                     <Chip size="small" label={status.label} color={status.color} sx={{ flexShrink: 0 }} />
                   </Button>
                 </Box>;
@@ -482,7 +580,7 @@ function RevisionSessionsInbox() {
           {!detailLoading && !detail && (detailError ? <Alert severity="error" action={<Button color="inherit" size="small" onClick={() => selectedSession && openSession(selectedSession)}>Reintentar detalle</Button>}>{detailError}</Alert> : <Alert severity="info">Selecciona una sesión para consultar su corte y estado vigente.</Alert>)}
           {!detailLoading && detail && <Stack spacing={2}>
             <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'flex-start' }} justifyContent="space-between" gap={1}>
-              <Box><Typography id="revision-session-detail-title" component="h2" variant="h6" fontWeight={850}>Detalle de la solicitud</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: .5 }}>{selectedSession?.nombre || selectedSession?.id} · {selectedSession?.zona || 'Zona no informada'}</Typography></Box>
+              <Box><Typography id="revision-session-detail-title" component="h2" variant="h6" fontWeight={850}>Detalle de la solicitud</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: .5 }}>{selectedSession?.nombre || selectedSession?.id} · {physicalZoneName(selectedSession)}</Typography></Box>
               <Chip label={sessionStatus(selectedSession).label} color={sessionStatus(selectedSession).color} />
             </Stack>
             <Stack direction="row" flexWrap="wrap" gap={1} aria-label="Resumen de sesión">
@@ -490,35 +588,45 @@ function RevisionSessionsInbox() {
               <Chip variant="outlined" label={`Encontradas: ${selectedSession?.encontradas ?? 0}`} />
               <Chip variant="outlined" label={`No habidas: ${selectedSession?.no_habidas ?? 0}`} />
               <Chip variant="outlined" label={`Corte: ${localDateTime(selectedSession?.corte_at || selectedSession?.solicitada_at)}`} />
-              <Chip variant="outlined" color={proposedDiscount > 0 ? 'warning' : 'default'} label={`Descuento propuesto · ${proposedDiscount.toFixed(3)} kg`} />
+              <Chip variant="outlined" color={isApproved ? 'success' : proposedDiscount > 0 ? 'warning' : 'default'} label={`${isApproved ? 'Ajuste aplicado' : 'Descuento propuesto'} · ${(isApproved ? adjustedKg : proposedDiscount).toFixed(3)} kg`} />
             </Stack>
             <Box>
               <Typography component="h3" variant="subtitle1" fontWeight={850}>Mangas por pieza y color</Typography>
               {mobile && <Stack spacing={1} sx={{ mt: 1 }}>
-                {mangas.map((manga) => { const status = sessionStatus(manga); return <Paper key={manga.codigo} variant="outlined" sx={{ p: 1.25 }}><Stack spacing={.5}><Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1}><Typography variant="body2" fontWeight={850} sx={{ overflowWrap: 'anywhere' }}>{manga.codigo}</Typography><Chip size="small" label={revisionStateLabel(manga)} color={status.color} /></Stack><Typography variant="body2">{manga.pieza || '—'}{manga.color ? ` · ${manga.color}` : ''}</Typography><Typography variant="caption" color="text.secondary">Neto: {kg(manga.neto_kg)}</Typography><Typography variant="caption" color="text.secondary">{manga.motivo_bloqueo || (manga.aprobable === false ? 'No aprobable con el estado vigente.' : 'Listo para revisión final.')}</Typography><Button component="a" href={`/almacen/revision-faltantes?codigo=${encodeURIComponent(manga.codigo)}`} size="small" sx={{ alignSelf: 'flex-start' }}>Abrir revisión individual</Button></Stack></Paper>; })}
-                {!mangas.length && <Typography color="text.secondary">La sesión no tiene mangas devueltas por la API.</Typography>}
+                {groupedMangas.map((group) => <Box key={group.pieza}><Typography variant="subtitle2" fontWeight={850} sx={{ mb: .75 }}>{group.pieza}</Typography><Stack spacing={1}>{group.mangas.map((manga) => { const status = sessionStatus(manga); return <Paper key={manga.codigo} variant="outlined" sx={{ p: 1.25 }}><Stack spacing={.5}><Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1}><Typography variant="body2" fontWeight={850} sx={{ overflowWrap: 'anywhere' }}>{manga.codigo}</Typography><Chip size="small" label={revisionStateLabel(manga)} color={status.color} /></Stack><Typography variant="body2">{manga.color || 'Color no informado'}</Typography><Typography variant="caption" color="text.secondary">Neto: {kg(manga.neto_kg)}</Typography><Typography variant="caption" color="text.secondary">{mangaExplanation(manga)}</Typography><Button component="a" href={`/almacen/revision-faltantes?codigo=${encodeURIComponent(manga.codigo)}`} size="small" sx={{ alignSelf: 'flex-start' }}>Abrir revisión individual</Button></Stack></Paper>; })}</Stack></Box>)}
+                {!groupedMangas.length && <Typography color="text.secondary">No hay mangas para esta sesión.</Typography>}
               </Stack>}
               {!mobile && <Box sx={{ overflowX: 'auto', maxWidth: '100%', minWidth: 0, mt: 1 }}>
-                <Table size="small" aria-label="Mangas de la sesión" sx={{ minWidth: 760 }}><TableHead><TableRow><TableCell>Código</TableCell><TableCell>Pieza / color</TableCell><TableCell>Estado vigente</TableCell><TableCell align="right">Neto</TableCell><TableCell>Explicación</TableCell><TableCell>Datos históricos</TableCell></TableRow></TableHead><TableBody>
-                  {mangas.map((manga) => { const status = sessionStatus(manga); return <TableRow key={manga.codigo}><TableCell sx={{ fontWeight: 800 }}>{manga.codigo}</TableCell><TableCell>{manga.pieza || '—'}{manga.color ? ` · ${manga.color}` : ''}</TableCell><TableCell><Chip size="small" label={revisionStateLabel(manga)} color={status.color} /></TableCell><TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{kg(manga.neto_kg)}</TableCell><TableCell sx={{ minWidth: 180 }}>{manga.motivo_bloqueo || (manga.aprobable === false ? 'No aprobable con el estado vigente.' : 'Listo para revisión final.')}</TableCell><TableCell><Button component="a" href={`/almacen/revision-faltantes?codigo=${encodeURIComponent(manga.codigo)}`} size="small">Abrir revisión individual</Button></TableCell></TableRow>; })}
-                  {!mangas.length && <TableRow><TableCell colSpan={6}><Typography color="text.secondary">La sesión no tiene mangas devueltas por la API.</Typography></TableCell></TableRow>}
+                <Table size="small" aria-label="Mangas de la sesión" sx={{ minWidth: 600 }}><TableHead><TableRow><TableCell>Código</TableCell><TableCell>Pieza / color</TableCell><TableCell>Estado vigente</TableCell><TableCell align="right">Neto</TableCell></TableRow></TableHead><TableBody>
+                  {groupedMangas.map((group) => <Fragment key={group.pieza}><TableRow><TableCell colSpan={4} sx={{ bgcolor: 'background.default', fontWeight: 850 }}>{group.pieza}</TableCell></TableRow>{group.mangas.map((manga) => { const status = sessionStatus(manga); return <TableRow key={manga.codigo}><TableCell sx={{ fontWeight: 800 }}><Button component="a" href={`/almacen/revision-faltantes?codigo=${encodeURIComponent(manga.codigo)}`} size="small" sx={{ p: 0, minWidth: 0, justifyContent: 'flex-start', textAlign: 'left', fontWeight: 800 }}>{manga.codigo}</Button></TableCell><TableCell>{manga.color || 'Color no informado'}</TableCell><TableCell><Stack spacing={.25} alignItems="flex-start"><Chip size="small" label={revisionStateLabel(manga)} color={status.color} /><Typography variant="caption" color="text.secondary">{mangaExplanation(manga)}</Typography></Stack></TableCell><TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{kg(manga.neto_kg)}</TableCell></TableRow>; })}</Fragment>)}
+                  {!groupedMangas.length && <TableRow><TableCell colSpan={4}><Typography color="text.secondary">No hay mangas para esta sesión.</Typography></TableCell></TableRow>}
                 </TableBody></Table>
               </Box>}
             </Box>
             <Divider />
             <Box>
               <Typography component="h3" variant="subtitle1" fontWeight={850}>Confirmación final</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: .5 }}>La aprobación cubre toda la sesión y usa la versión de revisión {detail.version_revision ?? '—'}.</Typography>
-              {blockedMangas.length > 0 && <Alert severity="warning" sx={{ mt: 1 }}>Hay {blockedMangas.length} manga(s) bloqueada(s). La sesión queda solicitada hasta resolver el estado vigente.</Alert>}
-              {detail.puede_aprobar !== true && <Alert severity="warning" sx={{ mt: 1 }}>Permiso: no puedes aprobar esta solicitud{detail.motivo_bloqueo ? ` · ${detail.motivo_bloqueo}` : ''}.</Alert>}
-              {detail.movimientos_habilitados !== true && <Alert severity="warning" sx={{ mt: 1 }}>Los movimientos están deshabilitados en este entorno; la aprobación permanece bloqueada.</Alert>}
-              {detail.puede_aprobar === true && <Stack spacing={1.25} sx={{ mt: 1 }}>
-                <TextField label="Motivo de aprobación" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ej. Cobertura validada y búsqueda completada" multiline minRows={2} fullWidth />
-                <FormControlLabel control={<Checkbox checked={checks.cobertura} onChange={(event) => setChecks((current) => ({ ...current, cobertura: event.target.checked }))} />} label="Cobertura revisada" />
-                <FormControlLabel control={<Checkbox checked={checks.movimientos_revisados} onChange={(event) => setChecks((current) => ({ ...current, movimientos_revisados: event.target.checked }))} />} label="Movimientos revisados" />
-                <FormControlLabel control={<Checkbox checked={checks.busqueda} onChange={(event) => setChecks((current) => ({ ...current, busqueda: event.target.checked }))} />} label="Búsqueda y evidencias revisadas" />
-              </Stack>}
-              <Button variant="contained" onClick={approve} disabled={!canApprove || Boolean(busy)} sx={{ mt: 1 }}>{busy === 'approve' ? 'Aprobando…' : 'Aprobar sesión completa'}</Button>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: .5 }}>La aprobación cubre toda la sesión. Las mangas no habidas vigentes se descuentan juntas; si no hay faltantes, el ajuste queda en 0 kg.</Typography>
+              <Stack spacing={.25} sx={{ mt: 1 }}>
+                <Typography variant="caption" color="text.secondary">Solicitada por: {selectedSession?.solicitante || selectedSession?.solicitante_id || 'no informado'} · {localDateTime(selectedSession?.solicitada_at)}</Typography>
+                {(isApproved || selectedSession?.aprobador_id || receipt?.aprobada_at) && <Typography variant="caption" color="text.secondary">Aprobada por: {selectedSession?.aprobador || selectedSession?.aprobador_id || 'esta cuenta'} · {localDateTime(receipt?.aprobada_at || selectedSession?.aprobada_at)}</Typography>}
+                {selectedSession?.motivo && <Typography variant="caption" color="text.secondary">Motivo registrado: {selectedSession.motivo}</Typography>}
+              </Stack>
+              {isApproved && <Alert severity="success" sx={{ mt: 1 }}>Aprobación confirmada · comprobante {receipt?.comprobante || 'no informado'} · kilos ajustados {adjustedKg.toFixed(3)} kg.</Alert>}
+              {!isApproved && <>
+                {blockedMangas.length > 0 && <Alert severity="warning" sx={{ mt: 1 }}>Hay {blockedMangas.length} manga(s) bloqueada(s). La sesión queda solicitada hasta resolver el estado vigente.</Alert>}
+                {detail.puede_aprobar !== true && <Alert severity="warning" sx={{ mt: 1 }}>Permiso: no puedes aprobar esta solicitud{detail.motivo_bloqueo ? ` · ${detail.motivo_bloqueo}` : ''}.</Alert>}
+                {hasCurrentNoHabidas && detail.movimientos_habilitados !== true && <Alert severity="warning" sx={{ mt: 1 }}>Los movimientos están deshabilitados en este entorno; la aprobación permanece bloqueada.</Alert>}
+                {detail.puede_aprobar === true && <Stack spacing={1.25} sx={{ mt: 1 }}>
+                  <TextField label="Motivo de aprobación" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ej. Cobertura validada y búsqueda completada" multiline minRows={2} fullWidth />
+                  {hasCurrentNoHabidas && <>
+                    <FormControlLabel control={<Checkbox checked={checks.cobertura} onChange={(event) => setChecks((current) => ({ ...current, cobertura: event.target.checked }))} />} label="Cobertura revisada" />
+                    <FormControlLabel control={<Checkbox checked={checks.movimientos_revisados} onChange={(event) => setChecks((current) => ({ ...current, movimientos_revisados: event.target.checked }))} />} label="Movimientos revisados" />
+                    <FormControlLabel control={<Checkbox checked={checks.busqueda} onChange={(event) => setChecks((current) => ({ ...current, busqueda: event.target.checked }))} />} label="Búsqueda y evidencias revisadas" />
+                  </>}
+                </Stack>}
+                <Button variant="contained" onClick={approve} disabled={!canApprove || Boolean(busy)} sx={{ mt: 1 }}>{busy === 'approve' ? 'Aprobando…' : 'Aprobar sesión completa'}</Button>
+              </>}
             </Box>
             <Alert severity="info">La revisión individual conserva el detalle histórico por manga; la aprobación aquí es una confirmación de la sesión completa, no una selección parcial.</Alert>
           </Stack>}
@@ -530,5 +638,7 @@ function RevisionSessionsInbox() {
 
 export { LegacyInventoryMissingReviewScm };
 export default function InventoryMissingReviewScm() {
+  const historicalCode = new URLSearchParams(window.location.search).get('codigo');
+  if (historicalCode) return <LegacyInventoryMissingReviewScm />;
   return <RevisionSessionsInbox />;
 }
