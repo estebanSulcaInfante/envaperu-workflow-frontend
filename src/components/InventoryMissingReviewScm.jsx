@@ -52,7 +52,7 @@ function physicalZoneName(session) {
   return session?.zona_nombre || PHYSICAL_ZONES[session?.zona] || session?.zona || 'Zona no informada';
 }
 
-function LegacyInventoryMissingReviewScm({ initialResult = null }) {
+function LegacyInventoryMissingReviewScm({ initialResult = null, requestSessionIds = [] }) {
   const [state, setState] = useState(() => initialResult ? normalizeLegacyState(initialResult) : EMPTY_STATE);
   const [loading, setLoading] = useState(!initialResult);
   const [loadError, setLoadError] = useState('');
@@ -79,6 +79,7 @@ function LegacyInventoryMissingReviewScm({ initialResult = null }) {
 
   const candidates = useMemo(() => (Array.isArray(state.revision?.candidatas) ? state.revision.candidatas : []), [state.revision?.candidatas]);
   const historicalCandidates = useMemo(() => legacyCandidates(state), [state]);
+  const requestSessionSet = useMemo(() => new Set(requestSessionIds.map((id) => String(id))), [requestSessionIds]);
   const movements = useMemo(() => (Array.isArray(state.movimientos) ? state.movimientos : []), [state.movimientos]);
   const selected = useMemo(
     () => candidates.find((item) => clean(item.codigo) === selectedCode)
@@ -87,6 +88,8 @@ function LegacyInventoryMissingReviewScm({ initialResult = null }) {
     [candidates, historicalCandidates, selectedCode],
   );
   const historicalSelected = Boolean(selected && !candidates.some((item) => clean(item.codigo) === clean(selected.codigo)));
+  const historicalEntryReadOnly = Boolean(historicalCode && selected
+    && linkedSessionIds(selected).some((id) => requestSessionSet.has(String(id))));
   const activeReview = review || selected?.revision || null;
   const filteredCandidates = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -101,9 +104,9 @@ function LegacyInventoryMissingReviewScm({ initialResult = null }) {
   const adjustmentEnabled = state.revision?.ajuste_habilitado === true
     && state.revision?.movimientos_habilitados === true
     && state.revision?.puede_ajustar === true;
-  const canAdjust = !historicalSelected && state.revision?.puede_ajustar === true;
+  const canAdjust = !historicalSelected && !historicalEntryReadOnly && state.revision?.puede_ajustar === true;
   const coverageConfirmed = selected?.cobertura_pieza?.completa === true;
-  const candidateCanReview = !historicalSelected && selected?.vigente !== false && coverageConfirmed;
+  const candidateCanReview = !historicalSelected && !historicalEntryReadOnly && selected?.vigente !== false && coverageConfirmed;
   const missingZones = Array.isArray(selected?.cobertura_pieza?.zonas_faltantes) ? selected.cobertura_pieza.zonas_faltantes : [];
   const staleReason = selected?.motivo_bloqueo || 'La evidencia ya no está vigente.';
   const selectedCountSessions = useMemo(() => {
@@ -201,7 +204,7 @@ function LegacyInventoryMissingReviewScm({ initialResult = null }) {
   };
 
   const confirmMissing = async () => {
-    if (!selectedCode || historicalSelected || selected?.vigente === false || !activeReview?.token || !reason.trim() || busy || !adjustmentEnabled) return;
+    if (!selectedCode || historicalSelected || historicalEntryReadOnly || selected?.vigente === false || !activeReview?.token || !reason.trim() || busy || !adjustmentEnabled) return;
     setBusy('missing');
     setFeedback(null);
     try {
@@ -295,8 +298,8 @@ function LegacyInventoryMissingReviewScm({ initialResult = null }) {
                 <Typography variant="caption" color="text.secondary" display="block">Zona registrada: {selected.zona || 'No informada'}</Typography>
                 <Typography variant="caption" color="text.secondary" display="block">Neto vigente: {selected.neto ? `${selected.neto} kg` : 'No informado'}</Typography>
               </Paper>
-              {historicalSelected && <Alert severity="info">Esta manga pertenece al historial. Consulta su evidencia, pero no registres un nuevo ajuste desde aquí.</Alert>}
-              {!activeReview && !historicalSelected && !candidateCanReview && <Alert severity="warning">{selected?.vigente === false ? `${staleReason} Actualiza el estado antes de revisar una nueva evidencia.` : `Falta completar la cobertura${missingZones.length ? ` de ${missingZones.join(', ')}` : ''} antes de registrar la revisión.`}</Alert>}
+              {(historicalSelected || historicalEntryReadOnly) && <Alert severity="info">Esta manga pertenece al historial de una solicitud; la consulta es solo de lectura.</Alert>}
+              {!activeReview && !historicalSelected && !historicalEntryReadOnly && !candidateCanReview && <Alert severity="warning">{selected?.vigente === false ? `${staleReason} Actualiza el estado antes de revisar una nueva evidencia.` : `Falta completar la cobertura${missingZones.length ? ` de ${missingZones.join(', ')}` : ''} antes de registrar la revisión.`}</Alert>}
               {!activeReview && candidateCanReview && <>
                 <Typography variant="subtitle2" fontWeight={800}>Antes de registrar la revisión</Typography>
                 <Stack>
@@ -308,17 +311,19 @@ function LegacyInventoryMissingReviewScm({ initialResult = null }) {
               </>}
               {activeReview && <>
                 <Alert severity="info">Revisión registrada. Neto a descontar: {activeReview.neto || selected.neto || '—'} kg.</Alert>
-                {!coverageConfirmed && <Alert severity="warning">Falta completar la cobertura{missingZones.length ? ` de ${missingZones.join(', ')}` : ''} antes de registrar la revisión.</Alert>}
-                <Divider />
-                <TextField label="Motivo del faltante" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ej. búsqueda física completada sin hallazgo" multiline minRows={3} required fullWidth helperText="El motivo queda en el movimiento de Kardex." />
-                {!adjustmentEnabled && <Alert severity="warning">
-                  {state.revision?.ajuste_habilitado === false && state.revision?.movimientos_habilitados !== true
-                    ? 'La confirmación de faltantes está cerrada en este entorno.'
-                    : state.revision?.ajuste_habilitado === false && !canAdjust
-                      ? 'Tu perfil puede revisar la evidencia, pero no tiene permiso para ajustar el Kardex.'
-                      : 'La confirmación de faltantes aún no está disponible para esta pantalla.'}
-                </Alert>}
-                <Button variant="contained" color="warning" startIcon={busy === 'missing' ? <CircularProgress size={18} color="inherit" /> : <CheckCircleOutlineRoundedIcon />} onClick={confirmMissing} disabled={!reason.trim() || historicalSelected || selected?.vigente === false || Boolean(busy) || !adjustmentEnabled || !coverageConfirmed}>{busy === 'missing' ? 'Confirmando…' : 'Confirmar faltante'}</Button>
+                {!historicalEntryReadOnly && <>
+                  {!coverageConfirmed && <Alert severity="warning">Falta completar la cobertura{missingZones.length ? ` de ${missingZones.join(', ')}` : ''} antes de registrar la revisión.</Alert>}
+                  <Divider />
+                  <TextField label="Motivo del faltante" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ej. búsqueda física completada sin hallazgo" multiline minRows={3} required fullWidth helperText="El motivo queda en el movimiento de Kardex." />
+                  {!adjustmentEnabled && <Alert severity="warning">
+                    {state.revision?.ajuste_habilitado === false && state.revision?.movimientos_habilitados !== true
+                      ? 'La confirmación de faltantes está cerrada en este entorno.'
+                      : state.revision?.ajuste_habilitado === false && !canAdjust
+                        ? 'Tu perfil puede revisar la evidencia, pero no tiene permiso para ajustar el Kardex.'
+                        : 'La confirmación de faltantes aún no está disponible para esta pantalla.'}
+                  </Alert>}
+                  <Button variant="contained" color="warning" startIcon={busy === 'missing' ? <CircularProgress size={18} color="inherit" /> : <CheckCircleOutlineRoundedIcon />} onClick={confirmMissing} disabled={!reason.trim() || historicalSelected || historicalEntryReadOnly || selected?.vigente === false || Boolean(busy) || !adjustmentEnabled || !coverageConfirmed}>{busy === 'missing' ? 'Confirmando…' : 'Confirmar faltante'}</Button>
+                </>}
               </>}
             </> : <Alert severity="info">La revisión requiere una manga seleccionada. Escribe su código visible o elígela en la lista.</Alert>}
             <Divider />
@@ -671,12 +676,12 @@ function RevisionSessionsInbox({ initialSessions = null, initialSessionId = '' }
             <Box>
               <Typography component="h3" variant="subtitle1" fontWeight={850}>Mangas por pieza y color</Typography>
               {mobile && <Stack spacing={1} sx={{ mt: 1 }}>
-                {groupedMangas.map((group) => <Box key={group.pieza}><Typography variant="subtitle2" fontWeight={850} sx={{ mb: .75 }}>{group.pieza}</Typography><Stack spacing={1}>{group.mangas.map((manga) => { const status = sessionStatus(manga); return <Paper key={manga.codigo} variant="outlined" sx={{ p: 1.25 }}><Stack spacing={.75}><Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1}><Typography variant="body2" fontWeight={850} sx={{ overflowWrap: 'anywhere' }}>{manga.codigo}</Typography><Chip size="small" label={revisionStateLabel(manga)} color={status.color} /></Stack><Typography variant="body2">{manga.color || 'Color no informado'}</Typography><MangaWeights manga={manga} /><Typography variant="caption" color="text.secondary">{mangaExplanation(manga)}</Typography><Button component="a" href={`/almacen/revision-faltantes?codigo=${encodeURIComponent(manga.codigo)}&historico=1`} size="small" sx={{ alignSelf: 'flex-start' }}>Abrir revisión individual</Button></Stack></Paper>; })}</Stack></Box>)}
+                {groupedMangas.map((group) => <Box key={group.pieza}><Typography variant="subtitle2" fontWeight={850} sx={{ mb: .75 }}>{group.pieza}</Typography><Stack spacing={1}>{group.mangas.map((manga) => { const status = sessionStatus(manga); return <Paper key={manga.codigo} variant="outlined" sx={{ p: 1.25 }}><Stack spacing={.75}><Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={1}><Typography variant="body2" fontWeight={850} sx={{ overflowWrap: 'anywhere', userSelect: 'text' }}>{manga.codigo}</Typography><Chip size="small" label={revisionStateLabel(manga)} color={status.color} /></Stack><Typography variant="body2">{manga.color || 'Color no informado'}</Typography><MangaWeights manga={manga} /><Typography variant="caption" color="text.secondary">{mangaExplanation(manga)}</Typography></Stack></Paper>; })}</Stack></Box>)}
                 {!groupedMangas.length && <Typography color="text.secondary">No hay mangas para esta sesión.</Typography>}
               </Stack>}
               {!mobile && <Box sx={{ overflowX: 'auto', maxWidth: '100%', minWidth: 0, mt: 1 }}>
                 <Table size="small" aria-label="Mangas de la sesión" sx={{ minWidth: 680 }}><TableHead><TableRow><TableCell>Código</TableCell><TableCell>Pieza / color</TableCell><TableCell>Estado vigente</TableCell><TableCell align="right">Pesos</TableCell></TableRow></TableHead><TableBody>
-                  {groupedMangas.map((group) => <Fragment key={group.pieza}><TableRow><TableCell colSpan={4} sx={{ bgcolor: 'background.default', fontWeight: 850 }}>{group.pieza}</TableCell></TableRow>{group.mangas.map((manga) => { const status = sessionStatus(manga); return <TableRow key={manga.codigo}><TableCell sx={{ fontWeight: 800 }}><Button component="a" href={`/almacen/revision-faltantes?codigo=${encodeURIComponent(manga.codigo)}&historico=1`} size="small" sx={{ p: 0, minWidth: 0, justifyContent: 'flex-start', textAlign: 'left', fontWeight: 800 }}>{manga.codigo}</Button></TableCell><TableCell>{manga.color || 'Color no informado'}</TableCell><TableCell><Stack spacing={.25} alignItems="flex-start"><Chip size="small" label={revisionStateLabel(manga)} color={status.color} /><Typography variant="caption" color="text.secondary">{mangaExplanation(manga)}</Typography></Stack></TableCell><TableCell align="right"><MangaWeights manga={manga} table /></TableCell></TableRow>; })}</Fragment>)}
+                  {groupedMangas.map((group) => <Fragment key={group.pieza}><TableRow><TableCell colSpan={4} sx={{ bgcolor: 'background.default', fontWeight: 850 }}>{group.pieza}</TableCell></TableRow>{group.mangas.map((manga) => { const status = sessionStatus(manga); return <TableRow key={manga.codigo}><TableCell sx={{ fontWeight: 800 }}><Typography component="span" variant="body2" fontWeight={800} sx={{ overflowWrap: 'anywhere', userSelect: 'text' }}>{manga.codigo}</Typography></TableCell><TableCell>{manga.color || 'Color no informado'}</TableCell><TableCell><Stack spacing={.25} alignItems="flex-start"><Chip size="small" label={revisionStateLabel(manga)} color={status.color} /><Typography variant="caption" color="text.secondary">{mangaExplanation(manga)}</Typography></Stack></TableCell><TableCell align="right"><MangaWeights manga={manga} table /></TableCell></TableRow>; })}</Fragment>)}
                   {!groupedMangas.length && <TableRow><TableCell colSpan={4}><Typography color="text.secondary">No hay mangas para esta sesión.</Typography></TableCell></TableRow>}
                 </TableBody></Table>
               </Box>}
@@ -700,7 +705,6 @@ function RevisionSessionsInbox({ initialSessions = null, initialSessionId = '' }
                 </Stack>}
               </>}
             </Box>
-            <Alert severity="info">Los enlaces históricos abren la revisión individual de la manga; esta ventana confirma la sesión completa.</Alert>
           </Stack>}
           </DialogContent>
           <DialogActions sx={{ justifyContent: 'space-between', px: { xs: 2, sm: 3 }, py: 1.5 }}>
@@ -765,10 +769,33 @@ function RevisionSessionsDeepLink({ code }) {
   return <RevisionSessionsInbox initialSessions={resolution.sessions} initialSessionId={resolution.sessionId} />;
 }
 
+function HistoricalRevisionDeepLink({ code }) {
+  const [resolution, setResolution] = useState(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([inventoryC66Api.obtenerSesionesRevision(), obtenerRevisionFaltantes()])
+      .then(([sessionResult, legacyResult]) => {
+        if (!active) return;
+        const sessions = Array.isArray(sessionResult?.sesiones) ? sessionResult.sesiones : [];
+        setResolution({ legacyResult, requestSessionIds: sessions.map((item) => item.id).filter(Boolean) });
+      })
+      .catch(() => {
+        if (active) setResolution({ error: 'No pudimos comprobar si la manga pertenece a una solicitud. Reintenta para mantener la consulta histórica protegida.' });
+      });
+    return () => { active = false; };
+  }, [attempt, code]);
+
+  if (!resolution) return <Stack spacing={2}><PageHeader title="Revisión de faltantes" description="Cargando el expediente histórico." /><Skeleton variant="rounded" height={220} /></Stack>;
+  if (resolution.error) return <Stack spacing={2}><PageHeader title="Revisión de faltantes" description="No se pudo comprobar el expediente histórico." /><Alert severity="error" action={<Button color="inherit" size="small" onClick={() => { setResolution(null); setAttempt((current) => current + 1); }}>Reintentar</Button>}>{resolution.error}</Alert></Stack>;
+  return <LegacyInventoryMissingReviewScm initialResult={resolution.legacyResult} requestSessionIds={resolution.requestSessionIds} />;
+}
+
 export default function InventoryMissingReviewScm() {
   const params = new URLSearchParams(window.location.search);
   const historicalCode = params.get('codigo');
-  if (historicalCode && params.get('historico') === '1') return <LegacyInventoryMissingReviewScm />;
+  if (historicalCode && params.get('historico') === '1') return <HistoricalRevisionDeepLink code={historicalCode} />;
   if (historicalCode) return <RevisionSessionsDeepLink code={historicalCode} />;
   return <RevisionSessionsInbox />;
 }

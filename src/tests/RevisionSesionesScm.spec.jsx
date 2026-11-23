@@ -56,7 +56,8 @@ describe('Bandeja de sesiones de revisión C66', () => {
     expect(screen.getAllByText(/4\.200 kg/)[0]).toBeVisible();
     expect(screen.getByText(/5\.100 kg/)).toBeVisible();
     expect(screen.getAllByText('Sin registro')[0]).toBeVisible();
-    expect(screen.getAllByRole('link', { name: 'M-001' })[0]).toHaveAttribute('href', expect.stringContaining('historico=1'));
+    expect(screen.queryByRole('link', { name: 'M-001' })).not.toBeInTheDocument();
+    expect(screen.getAllByText('M-001')[0]).toBeVisible();
     expect(screen.getByText('Tapa')).toBeVisible();
     expect(screen.getByText('Cuerpo')).toBeVisible();
   });
@@ -162,6 +163,25 @@ describe('Bandeja de sesiones de revisión C66', () => {
     renderPage();
     expect(await screen.findByRole('heading', { name: 'Revisión de faltantes' })).toBeVisible();
     expect((await screen.findAllByText('CENTRAL-TAPA-AZUL'))[0]).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Confirmar faltante' })).not.toBeInTheDocument();
+    window.history.pushState({}, '', '/almacen/revision-faltantes');
+  });
+
+  it('mantiene en solo lectura el expediente histórico de una manga vinculada a una solicitud', async () => {
+    window.history.pushState({}, '', '/almacen/revision-faltantes?codigo=CENTRAL-TAPA-AZUL&historico=1');
+    mocks.sessions.mockResolvedValue({ sesiones: [session] });
+    mocks.legacy.mockResolvedValue({
+      revision: {
+        ajuste_habilitado: true,
+        movimientos_habilitados: true,
+        puede_ajustar: true,
+        candidatas: [{ codigo: 'CENTRAL-TAPA-AZUL', pieza: 'Tapa', color: 'Azul', conteo: { id: session.id }, revision: { token: 'REV-OLD', neto: '1.000', cobertura_confirmada: true } }],
+      },
+      movimientos: [],
+    });
+    renderPage();
+    expect(await screen.findByText(/consulta es solo de lectura/)).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Registrar revisión' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Confirmar faltante' })).not.toBeInTheDocument();
     window.history.pushState({}, '', '/almacen/revision-faltantes');
   });
