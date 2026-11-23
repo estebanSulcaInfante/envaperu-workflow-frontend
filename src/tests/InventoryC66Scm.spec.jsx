@@ -137,6 +137,22 @@ describe('Conteo C66 web', () => {
     ));
   });
 
+  it('solicita revisión explícita y conserva el cierre parcial aun sin faltantes', async () => {
+    const activeState = {
+      ...state,
+      sesiones: [{ id: 'S-C66-REVIEW', estado: 'ABIERTA', zona: 'Z1', nombre: 'Conteo sin faltantes', piezas: ['Tapa'], lecturas: [{ codigo: 'C66-001' }], pendientes_conteo: [] }],
+    };
+    mocks.getState.mockResolvedValue(activeState);
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Conteo sin faltantes/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cerrar sesión' }));
+    expect(await screen.findByText(/No quedan mangas pendientes/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Solicitar revisión' }));
+    await waitFor(() => expect(mocks.close).toHaveBeenCalledWith(
+      'S-C66-REVIEW', { solicitar_revision: true }, expect.stringMatching(/^[0-9a-f-]{36}$/i),
+    ));
+  });
+
   it('envía cobertura solo al cerrar con la confirmación explícita de zona completa', async () => {
     const activeState = {
       ...state,

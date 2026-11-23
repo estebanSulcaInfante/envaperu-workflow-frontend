@@ -1,7 +1,7 @@
 import { createTheme, ThemeProvider } from '@mui/material';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import InventoryMissingReviewScm from '../components/InventoryMissingReviewScm';
+import { LegacyInventoryMissingReviewScm as InventoryMissingReviewScm } from '../components/InventoryMissingReviewScm';
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(), review: vi.fn(), missing: vi.fn(),
@@ -11,6 +11,9 @@ vi.mock('../services/scmInventoryC66Api', () => ({
   obtenerRevisionFaltantes: mocks.get,
   registrarRevisionFaltante: mocks.review,
   confirmarFaltanteInventario: mocks.missing,
+  obtenerSesionesRevision: undefined,
+  obtenerDetalleRevisionSesion: undefined,
+  aprobarRevisionSesion: undefined,
 }));
 vi.mock('../services/scmEngineeringApi', () => ({ mensajeErrorScm: (_error, fallback) => fallback }));
 
