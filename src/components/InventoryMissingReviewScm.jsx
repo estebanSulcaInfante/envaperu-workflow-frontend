@@ -78,11 +78,15 @@ function LegacyInventoryMissingReviewScm({ initialResult = null }) {
   }, [initialHistoricalCandidate]);
 
   const candidates = useMemo(() => (Array.isArray(state.revision?.candidatas) ? state.revision.candidatas : []), [state.revision?.candidatas]);
+  const historicalCandidates = useMemo(() => legacyCandidates(state), [state]);
   const movements = useMemo(() => (Array.isArray(state.movimientos) ? state.movimientos : []), [state.movimientos]);
   const selected = useMemo(
-    () => candidates.find((item) => clean(item.codigo) === selectedCode) || null,
-    [candidates, selectedCode],
+    () => candidates.find((item) => clean(item.codigo) === selectedCode)
+      || historicalCandidates.find((item) => clean(item.codigo) === selectedCode)
+      || null,
+    [candidates, historicalCandidates, selectedCode],
   );
+  const historicalSelected = Boolean(selected && !candidates.some((item) => clean(item.codigo) === clean(selected.codigo)));
   const activeReview = review || selected?.revision || null;
   const filteredCandidates = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -97,9 +101,9 @@ function LegacyInventoryMissingReviewScm({ initialResult = null }) {
   const adjustmentEnabled = state.revision?.ajuste_habilitado === true
     && state.revision?.movimientos_habilitados === true
     && state.revision?.puede_ajustar === true;
-  const canAdjust = state.revision?.puede_ajustar === true;
+  const canAdjust = !historicalSelected && state.revision?.puede_ajustar === true;
   const coverageConfirmed = selected?.cobertura_pieza?.completa === true;
-  const candidateCanReview = selected?.vigente !== false && coverageConfirmed;
+  const candidateCanReview = !historicalSelected && selected?.vigente !== false && coverageConfirmed;
   const missingZones = Array.isArray(selected?.cobertura_pieza?.zonas_faltantes) ? selected.cobertura_pieza.zonas_faltantes : [];
   const staleReason = selected?.motivo_bloqueo || 'La evidencia ya no está vigente.';
   const selectedCountSessions = useMemo(() => {
@@ -197,7 +201,7 @@ function LegacyInventoryMissingReviewScm({ initialResult = null }) {
   };
 
   const confirmMissing = async () => {
-    if (!selectedCode || selected?.vigente === false || !activeReview?.token || !reason.trim() || busy || !adjustmentEnabled) return;
+    if (!selectedCode || historicalSelected || selected?.vigente === false || !activeReview?.token || !reason.trim() || busy || !adjustmentEnabled) return;
     setBusy('missing');
     setFeedback(null);
     try {
@@ -291,7 +295,8 @@ function LegacyInventoryMissingReviewScm({ initialResult = null }) {
                 <Typography variant="caption" color="text.secondary" display="block">Zona registrada: {selected.zona || 'No informada'}</Typography>
                 <Typography variant="caption" color="text.secondary" display="block">Neto vigente: {selected.neto ? `${selected.neto} kg` : 'No informado'}</Typography>
               </Paper>
-              {!activeReview && !candidateCanReview && <Alert severity="warning">{selected?.vigente === false ? `${staleReason} Actualiza el estado antes de revisar una nueva evidencia.` : `Falta completar la cobertura${missingZones.length ? ` de ${missingZones.join(', ')}` : ''} antes de registrar la revisión.`}</Alert>}
+              {historicalSelected && <Alert severity="info">Esta manga pertenece al historial. Consulta su evidencia, pero no registres un nuevo ajuste desde aquí.</Alert>}
+              {!activeReview && !historicalSelected && !candidateCanReview && <Alert severity="warning">{selected?.vigente === false ? `${staleReason} Actualiza el estado antes de revisar una nueva evidencia.` : `Falta completar la cobertura${missingZones.length ? ` de ${missingZones.join(', ')}` : ''} antes de registrar la revisión.`}</Alert>}
               {!activeReview && candidateCanReview && <>
                 <Typography variant="subtitle2" fontWeight={800}>Antes de registrar la revisión</Typography>
                 <Stack>
@@ -313,7 +318,7 @@ function LegacyInventoryMissingReviewScm({ initialResult = null }) {
                       ? 'Tu perfil puede revisar la evidencia, pero no tiene permiso para ajustar el Kardex.'
                       : 'La confirmación de faltantes aún no está disponible para esta pantalla.'}
                 </Alert>}
-                <Button variant="contained" color="warning" startIcon={busy === 'missing' ? <CircularProgress size={18} color="inherit" /> : <CheckCircleOutlineRoundedIcon />} onClick={confirmMissing} disabled={!reason.trim() || selected?.vigente === false || Boolean(busy) || !adjustmentEnabled || !coverageConfirmed}>{busy === 'missing' ? 'Confirmando…' : 'Confirmar faltante'}</Button>
+                <Button variant="contained" color="warning" startIcon={busy === 'missing' ? <CircularProgress size={18} color="inherit" /> : <CheckCircleOutlineRoundedIcon />} onClick={confirmMissing} disabled={!reason.trim() || historicalSelected || selected?.vigente === false || Boolean(busy) || !adjustmentEnabled || !coverageConfirmed}>{busy === 'missing' ? 'Confirmando…' : 'Confirmar faltante'}</Button>
               </>}
             </> : <Alert severity="info">La revisión requiere una manga seleccionada. Escribe su código visible o elígela en la lista.</Alert>}
             <Divider />

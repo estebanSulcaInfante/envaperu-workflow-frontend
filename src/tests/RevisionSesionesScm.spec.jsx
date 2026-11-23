@@ -158,10 +158,11 @@ describe('Bandeja de sesiones de revisión C66', () => {
   it('entra a la revisión histórica explícita aunque la bandeja no tenga sesiones', async () => {
     window.history.pushState({}, '', '/almacen/revision-faltantes?codigo=CENTRAL-TAPA-AZUL');
     mocks.sessions.mockResolvedValue({ sesiones: [] });
-    mocks.legacy.mockResolvedValue({ revision: { ajuste_habilitado: false, movimientos_habilitados: false, candidatas: [{ codigo: 'CENTRAL-TAPA-AZUL', pieza: 'Tapa', color: 'Azul', zona: 'ALM-PZ', neto: '1.000', cobertura_pieza: { completa: true } }] }, movimientos: [] });
+    mocks.legacy.mockResolvedValue({ revision: { ajuste_habilitado: false, movimientos_habilitados: false, candidatas: [], historial: [{ codigo: 'CENTRAL-TAPA-AZUL', pieza: 'Tapa', color: 'Azul', zona: 'ALM-PZ', neto: '1.000', cobertura_pieza: { completa: true } }] }, movimientos: [] });
     renderPage();
     expect(await screen.findByRole('heading', { name: 'Revisión de faltantes' })).toBeVisible();
     expect((await screen.findAllByText('CENTRAL-TAPA-AZUL'))[0]).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Confirmar faltante' })).not.toBeInTheDocument();
     window.history.pushState({}, '', '/almacen/revision-faltantes');
   });
 
