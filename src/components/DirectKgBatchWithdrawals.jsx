@@ -35,6 +35,7 @@ const ELIGIBLE_STATES = new Set([
 ]);
 const ELIGIBLE_QUALITY = new Set(['LIBERADA', 'SIN_CONTROL']);
 const SCAN_QUEUE_LIMIT = 32;
+const REVALIDATION_CHUNK_SIZE = 8;
 
 const emptyDraft = { context: 'ARMADO', reason: '', holderId: '', holderName: '', documentType: '', documentId: '' };
 const asWorkerName = (worker) => worker.nombre_corto || worker.nombre || [worker.nombres, worker.apellidos].filter(Boolean).join(' ') || `Trabajador ${worker.id}`;
@@ -78,6 +79,39 @@ const outgoingEligibilityError = (unit, label) => {
 const isDefinitive4xx = (error) => {
   const status = error?.response?.status;
   return status >= 400 && status < 500 && status !== 408 && status !== 429;
+};
+
+const isTransientNetworkError = (error) => {
+  const status = error?.response?.status;
+  const code = String(error?.code || error?.response?.data?.code || '').toUpperCase();
+  const message = String(error?.message || '').toLowerCase();
+  return status === 0 || status === 408 || status === 429 || status >= 500
+    || code.includes('NETWORK') || code.includes('TIMEOUT')
+    || message.includes('network error') || message.includes('failed to fetch')
+    || message.includes('timeout') || message.includes('offline');
+};
+
+const normalizeRestoredCandidateStatus = (candidate) => {
+  if (candidate?.status === 'withdrawn') return 'withdrawn';
+  if (candidate?.status === 'needs_revalidation') return 'needs_revalidation';
+  if (candidate?.status === 'conflict') {
+    return isTransientNetworkError(new Error(candidate.error || '')) ? 'needs_revalidation' : 'conflict';
+  }
+  return candidate?.unit?.id || isTransientNetworkError(new Error(candidate?.error || ''))
+    ? 'needs_revalidation'
+    : 'conflict';
+};
+
+const isAlreadyWithdrawn = (unit, error) => {
+  const status = unitState(unit).toUpperCase();
+  const code = String(error?.response?.data?.error?.code || error?.response?.data?.code || '').toUpperCase();
+  return status === 'RETIRADA_ARMADO' || code.includes('ALREADY_WITHDRAWN') || code.includes('ALREADY_RETIRED');
+};
+
+const chunkItems = (items, size) => {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
 };
 
 const isUncertainOperationError = (error) => {
@@ -203,6 +237,8 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
   const [pending, setPending] = useState(null);
   const [complete, setComplete] = useState(null);
   const [confirming, setConfirming] = useState(false);
+  const [revalidating, setRevalidating] = useState(false);
+  const [revalidationTrigger, setRevalidationTrigger] = useState(0);
   const [audioStatus, setAudioStatus] = useState('unavailable');
   const [audioError, setAudioError] = useState('');
   const activeActorRef = useRef(actorId);
@@ -217,6 +253,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
   const scanReadSeqRef = useRef(0);
   const scanWorkerRef = useRef(false);
   const codeRef = useRef(null);
+  const revalidationInFlightRef = useRef(false);
 
   const namespace = useMemo(() => `scm-kg-direct-batch:${API_BASE_URL}:${String(actorId)}`, [actorId]);
   const draftKey = `${namespace}:draft`;
@@ -260,19 +297,33 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     scanPendingCodesRef.current = new Set();
     setScanReads([]);
     const savedDraft = parseStorage(draftKey);
-    setDraft({ ...emptyDraft, ...savedDraft });
-    setCandidates((savedDraft?.candidates || []).map((candidate) => ({
+    const savedPending = parseStorage(pendingKey);
+    const restoredCandidates = (savedDraft?.candidates || []).map((candidate) => ({
       ...candidate,
-      status: candidate.status === 'conflict' ? 'conflict' : candidate.unit?.id ? 'needs_revalidation' : 'conflict',
-    })));
+      status: normalizeRestoredCandidateStatus(candidate),
+    }));
+    setDraft({ ...emptyDraft, ...savedDraft });
+    setCandidates(restoredCandidates);
+    setRevalidationTrigger(!savedPending && restoredCandidates.some((candidate) => candidate.status === 'needs_revalidation') ? 1 : 0);
     setCode('');
     setWorkers([]);
     setLoadingWorkers(false);
     setError('');
     setNotice('');
     setComplete(null);
-    setPending(parseStorage(pendingKey));
+    setPending(savedPending);
   }, [actorId, draftKey, pendingKey, setError, setNotice]);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      if (candidatesRef.current.some((candidate) => candidate.status === 'needs_revalidation')) {
+        setRevalidationTrigger((value) => value + 1);
+        setNotice('Conexión recuperada. El sistema revalidará la selección antes de permitir confirmar.', { severity: 'info', persistent: true });
+      }
+    };
+    globalThis.addEventListener?.('online', handleOnline);
+    return () => globalThis.removeEventListener?.('online', handleOnline);
+  }, [setNotice]);
 
   useEffect(() => {
     candidatesRef.current = candidates;
@@ -425,10 +476,11 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       setError(publicMessage);
       safePlayFeedback('rejected');
       const persistedMessage = isRawQrPayload(value) ? publicMessage : message;
+      const transient = isTransientNetworkError(requestError);
       patchScanRead(readId, { status: 'conflict', error: persistedMessage, unit: resolvedUnit });
       setCandidates((current) => {
-        if (current.some((candidate) => candidate.code === value && candidate.status === 'conflict')) return current;
-        const next = [...current, { code: value, scanId: readId, status: 'conflict', error: persistedMessage, unit: resolvedUnit }];
+        if (current.some((candidate) => candidate.code === value && candidate.status === (transient ? 'needs_revalidation' : 'conflict'))) return current;
+        const next = [...current, { code: value, scanId: readId, status: transient ? 'needs_revalidation' : 'conflict', error: persistedMessage, unit: resolvedUnit }];
         persistDraft(draft, next);
         return next;
       });
@@ -532,46 +584,90 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     ...(draft.documentId.trim() ? { documento_destino_id: draft.documentId.trim() } : {}),
   });
 
-  const revalidateCandidates = async () => {
+  const revalidateCandidates = useCallback(async ({ automatic = false } = {}) => {
+    if (revalidationInFlightRef.current) return null;
+    revalidationInFlightRef.current = true;
+    setRevalidating(true);
+    setBusy(true);
     const requestedActor = actorId;
     const requestedGeneration = sessionGenerationRef.current;
     const checked = [];
-    for (const candidate of candidates) {
-      if (!candidate.unit || candidate.status === 'conflict') {
-        checked.push(candidate);
-        continue;
-      }
-      try {
-      const result = await kgApi.resolveKgOutgoingUnit(candidate.code);
-      if (activeActorRef.current !== requestedActor || sessionGenerationRef.current !== requestedGeneration) throw new Error('La identidad activa cambió.');
-      const currentUnit = result?.unit || result?.unidad || result;
-      if (String(currentUnit?.id) !== String(candidate.unit.id)
-        || unitVersion(currentUnit) !== unitVersion(candidate.unit)) {
-        throw new Error(`${candidateLabel(candidate)} cambió mientras se revisaba. Retíralo y escanéalo de nuevo.`);
-      }
-      const eligibilityError = outgoingEligibilityError(currentUnit, candidateLabel(candidate));
-      if (eligibilityError) throw new Error(eligibilityError);
-      if (!ELIGIBLE_STATES.has(unitState(currentUnit))) {
-        throw new Error(`${candidateLabel(candidate)} ya no está disponible para salida.`);
-      }
-        if (unitKg(currentUnit) == null) {
-          throw new Error(`${candidateLabel(candidate)} no tiene KG verificados.`);
+    try {
+      // Keep the network work bounded while retaining FIFO GETs. There is no
+      // bulk endpoint and, critically, this path never creates a withdrawal.
+      for (const chunk of chunkItems(candidates, REVALIDATION_CHUNK_SIZE)) {
+        for (const candidate of chunk) {
+          if (candidate.status === 'conflict' || candidate.status === 'withdrawn') {
+            checked.push(candidate);
+            continue;
+          }
+          let currentUnit = candidate.unit;
+          try {
+            const result = await kgApi.resolveKgOutgoingUnit(candidate.code);
+            if (activeActorRef.current !== requestedActor || sessionGenerationRef.current !== requestedGeneration) throw new Error('La identidad activa cambió.');
+            currentUnit = result?.unit || result?.unidad || result;
+            if (candidate.unit?.id && (String(currentUnit?.id) !== String(candidate.unit.id)
+              || unitVersion(currentUnit) !== unitVersion(candidate.unit))) {
+              throw new Error(`${candidateLabel(candidate)} cambió mientras se revisaba. Retíralo y escanéalo de nuevo.`);
+            }
+            const eligibilityError = outgoingEligibilityError(currentUnit, candidateLabel(candidate));
+            if (eligibilityError) throw new Error(eligibilityError);
+            if (!ELIGIBLE_STATES.has(unitState(currentUnit))) {
+              throw new Error(`${candidateLabel(candidate)} ya no está disponible para salida.`);
+            }
+            if (unitKg(currentUnit) == null) throw new Error(`${candidateLabel(candidate)} no tiene KG verificados.`);
+            if (currentUnit.estado_calidad && !ELIGIBLE_QUALITY.has(currentUnit.estado_calidad)) {
+              throw new Error(`${candidateLabel(candidate)} no está liberada para salida.`);
+            }
+            const canonicalDuplicate = checked.find((item) => (
+              item.status === 'ready' && String(item.unit?.id) === String(currentUnit.id)
+            ));
+            if (canonicalDuplicate) {
+              if (candidate.scanId) removeScanRead(candidate.scanId);
+              continue;
+            }
+            checked.push({ ...candidate, unit: currentUnit, status: 'ready', error: '' });
+            if (candidate.scanId) patchScanRead(candidate.scanId, { status: 'accepted', unit: currentUnit, error: '' });
+          } catch (candidateError) {
+            if (activeActorRef.current !== requestedActor || sessionGenerationRef.current !== requestedGeneration) throw candidateError;
+            const status = isAlreadyWithdrawn(currentUnit, candidateError)
+              ? 'withdrawn'
+              : isTransientNetworkError(candidateError) ? 'needs_revalidation' : 'conflict';
+            const displayUnit = status === 'withdrawn' ? (currentUnit || candidate.unit) : candidate.unit;
+            const failed = {
+              ...candidate,
+              unit: displayUnit,
+              status,
+              error: publicScanError(candidate.code, candidateError.message || 'No se pudo revalidar.', displayUnit),
+            };
+            checked.push(failed);
+            if (status !== 'needs_revalidation') safePlayFeedback('rejected');
+            if (candidate.scanId) patchScanRead(candidate.scanId, { status: status === 'needs_revalidation' ? 'accepted' : 'conflict', unit: displayUnit, error: failed.error });
+          }
         }
-        if (currentUnit.estado_calidad && !ELIGIBLE_QUALITY.has(currentUnit.estado_calidad)) {
-          throw new Error(`${candidateLabel(candidate)} no está liberada para salida.`);
-        }
-        checked.push({ ...candidate, unit: currentUnit, status: 'ready', error: '' });
-        if (candidate.scanId) patchScanRead(candidate.scanId, { status: 'accepted', unit: currentUnit, error: '' });
-      } catch (candidateError) {
-        if (activeActorRef.current !== requestedActor || sessionGenerationRef.current !== requestedGeneration) throw candidateError;
-        const failed = { ...candidate, status: 'conflict', error: publicScanError(candidate.code, candidateError.message || 'No se pudo revalidar.', candidate.unit) };
-        checked.push(failed);
-        safePlayFeedback('rejected');
-        if (candidate.scanId) patchScanRead(candidate.scanId, { status: 'conflict', unit: candidate.unit, error: failed.error });
       }
+      if (activeActorRef.current !== requestedActor || sessionGenerationRef.current !== requestedGeneration) return null;
+      candidatesRef.current = checked;
+      setCandidates(checked);
+      persistDraft(draft, checked);
+      if (checked.some((candidate) => candidate.status === 'needs_revalidation')) {
+        setNotice(automatic
+          ? 'No se pudo completar la revalidación por conectividad. Puedes reintentar; la salida sigue sin enviarse.'
+          : 'La revalidación sigue pendiente. Revisa la conexión y reintenta antes de confirmar.', { severity: 'warning', persistent: true });
+      }
+      return checked;
+    } finally {
+      revalidationInFlightRef.current = false;
+      setRevalidating(false);
+      if (!confirmLockRef.current) setBusy(false);
     }
-    return checked;
-  };
+  }, [actorId, candidates, draft, patchScanRead, persistDraft, removeScanRead, safePlayFeedback, setNotice]);
+
+  useEffect(() => {
+    if (!revalidationTrigger || revalidating || !candidates.some((candidate) => candidate.status === 'needs_revalidation')) return;
+    setRevalidationTrigger(0);
+    void revalidateCandidates({ automatic: true }).catch(() => {});
+  }, [candidates, revalidationTrigger, revalidating, revalidateCandidates]);
 
   const ensureHolderIsCurrent = async () => {
     const known = workers.find((worker) => String(worker.id) === String(draft.holderId));
@@ -682,8 +778,8 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       setError('Sin conexión. La selección queda en revisión; reconecta antes de confirmar.');
       return;
     }
-    if (candidates.length === 0 || candidates.some((candidate) => candidate.status === 'conflict')) {
-      setError('Resuelve o retira cada candidato con conflicto antes de confirmar.');
+    if (candidates.length === 0 || candidates.some((candidate) => candidate.status === 'conflict' || candidate.status === 'withdrawn')) {
+      setError('Retira cada candidato en conflicto o ya retirado antes de confirmar.');
       return;
     }
     const holderIsCurrent = await ensureHolderIsCurrent().catch(() => false);
@@ -698,7 +794,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       setCandidates((current) => {
         const next = current.map((candidate) => ({
           ...candidate,
-          status: candidate.unit ? 'conflict' : candidate.status,
+          status: candidate.unit ? (isAlreadyWithdrawn(candidate.unit, requestError) ? 'withdrawn' : 'conflict') : candidate.status,
           error: candidate.unit ? requestError.message : candidate.error,
         }));
         persistDraft(draft, next);
@@ -711,7 +807,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     if (checked.some((candidate) => candidate.status !== 'ready')) {
       setCandidates(checked);
       persistDraft(draft, checked);
-      setError('Retira o resuelve los candidatos en conflicto antes de confirmar.');
+      setError('Retira o resuelve los candidatos bloqueados antes de confirmar.');
       return;
     }
     const body = buildBody(checked);
@@ -732,11 +828,19 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
     }
   };
 
-  const selectedKg = candidates.reduce((sum, candidate) => sum + Number(unitKg(candidate.unit) || 0), 0);
+  const selectedKg = candidates
+    .filter((candidate) => candidate.status === 'ready')
+    .reduce((sum, candidate) => sum + Number(unitKg(candidate.unit) || 0), 0);
   const hasConflict = candidates.some((candidate) => candidate.status === 'conflict');
+  const hasWithdrawn = candidates.some((candidate) => candidate.status === 'withdrawn');
+  const hasNeedsRevalidation = candidates.some((candidate) => candidate.status === 'needs_revalidation');
   const pendingScanCount = scanReads.filter((read) => read.status === 'waiting' || read.status === 'validating').length;
   const acceptedScanCount = scanReads.filter((read) => read.status === 'accepted').length;
-  const rejectedScanCount = scanReads.filter((read) => read.status === 'conflict').length;
+  const rejectedScanCount = scanReads.filter((read) => read.status === 'conflict'
+    && !candidates.some((candidate) => candidate.scanId === read.id && candidate.status === 'needs_revalidation')).length;
+  const conflictCount = candidates.filter((candidate) => candidate.status === 'conflict').length;
+  const withdrawnCount = candidates.filter((candidate) => candidate.status === 'withdrawn').length;
+  const needsRevalidationCount = candidates.filter((candidate) => candidate.status === 'needs_revalidation').length;
   const displayedCandidates = candidates.filter((candidate) => !candidate.scanId);
   const startNew = () => {
     setComplete(null);
@@ -769,6 +873,13 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       {complete && <Alert severity="success" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={startNew} disabled={readOnly}>Nueva salida</Button>}>Salida <strong>{complete.operation_id}</strong> confirmada: {complete.cantidad_unidades ?? complete.retiros?.length ?? 0} unidad(es), {complete.total_kg ?? '-'} KG.</Alert>}
       {pending && <Alert severity="warning" action={<Button sx={{ minWidth: 44, minHeight: 44 }} startIcon={<RestoreIcon />} onClick={() => sendPending(pending, true)} disabled={busy}>Recuperar</Button>}>
         Hay una solicitud sin resultado confirmado. Puedes reintentar la misma salida desde aquí.
+      </Alert>}
+      {revalidating && <Alert severity="info" role="status">Revalidando selección en segundo plano. Es una tarea del sistema; no se enviará la salida hasta completar todos los GET.</Alert>}
+      {!revalidating && hasNeedsRevalidation && <Alert severity="warning" role="status" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => void revalidateCandidates()} disabled={busy || !!pending || !!complete}>Reintentar validación</Button>}>
+        {needsRevalidationCount} manga(s) necesitan revalidación. Las mangas siguen en la selección; se revisarán al recuperar la conexión. La salida permanece bloqueada y no se envía parcialmente.
+      </Alert>}
+      {hasWithdrawn && <Alert severity="error" role="alert">
+        {withdrawnCount} manga(s) ya retirada(s) para Armado. Retíralas de esta selección con la acción “Retirar”; esa acción no mueve stock.
       </Alert>}
       {audioStatus === 'suspended' && <Alert severity="warning" role="status" action={<Button sx={{ minWidth: 44, minHeight: 44 }} onClick={() => activateAudio()}>Activar y probar sonido</Button>}>El sonido de lectura está suspendido. Puedes activarlo para recibir feedback.</Alert>}
       {audioStatus === 'unavailable' && <Alert severity="info" role="status">Sonido no disponible; puedes continuar con feedback visual.</Alert>}
@@ -810,7 +921,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
           label="Escanear QR de manga KG"
           helperText="Presiona Enter para agregar; el escaneo no cambia stock."
           value={code}
-          disabled={readOnly || confirming || !!pending || !!complete}
+          disabled={readOnly || confirming || revalidating || !!pending || !!complete}
           onChange={(event) => setCode(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -820,7 +931,7 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
             }
           }}
         />
-        <Button type="submit" variant="outlined" startIcon={<QrCodeScannerIcon />} sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || confirming || !!pending || !!complete || !code.trim()}>Agregar manga</Button>
+        <Button type="submit" variant="outlined" startIcon={<QrCodeScannerIcon />} sx={{ minWidth: 44, minHeight: 44 }} disabled={readOnly || confirming || revalidating || !!pending || !!complete || !code.trim()}>Agregar manga</Button>
       </Stack>
 
       {scanReads.length > 0 && <Stack component="ul" role="list" aria-label="Lecturas pendientes" spacing={1} sx={{ p: 0, m: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: '1fr', '@media (min-width:600px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
@@ -854,9 +965,11 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Chip label={`${pendingScanCount} pendientes`} color="info" variant={pendingScanCount ? 'filled' : 'outlined'} />
         <Chip label={`${acceptedScanCount} aceptadas`} color="success" variant="outlined" />
-        <Chip label={`${rejectedScanCount} rechazadas`} color={rejectedScanCount ? 'error' : 'default'} variant="outlined" />
+        <Chip label={`${rejectedScanCount} rechazadas nuevas`} color={rejectedScanCount ? 'error' : 'default'} variant="outlined" />
         <Chip label={`${candidates.filter((candidate) => candidate.status === 'ready').length} válidas`} color="success" />
-        {hasConflict && <Chip label={`${candidates.filter((candidate) => candidate.status === 'conflict').length} en conflicto`} color="error" />}
+        {hasConflict && <Chip label={`${conflictCount} en conflicto`} color="error" />}
+        {hasNeedsRevalidation && <Chip label={`${needsRevalidationCount} por revalidar`} color="warning" />}
+        {hasWithdrawn && <Chip label={`${withdrawnCount} ya retiradas`} color="error" variant="outlined" />}
         <Chip label={`${selectedKg.toLocaleString('es-PE', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} KG`} variant="outlined" />
       </Stack>
       {displayedCandidates.length > 0 && <Stack component="ul" role="list" aria-label="Mangas seleccionadas para salida directa" spacing={1} sx={{ p: 0, m: 0, listStyle: 'none', display: 'grid', gridTemplateColumns: '1fr', '@media (min-width:600px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
@@ -878,12 +991,18 @@ export default function DirectKgBatchWithdrawals({ readOnly = false }) {
               </Box>
               <Button aria-label={`Retirar ${actionLabel}`} size="small" color="error" startIcon={<DeleteOutlineIcon />} sx={{ minWidth: 44, minHeight: 44, alignSelf: { xs: 'stretch', sm: 'auto' } }} onClick={() => removeCandidate(candidate)} disabled={readOnly || busy || !!pending || !!complete}>Retirar</Button>
             </Stack>
-            <Box sx={{ mt: 1 }}>{candidate.status === 'ready' ? <Chip size="small" label="Lista para revisar" color="success" /> : candidate.status === 'needs_revalidation' ? <Chip size="small" label="Revalidar antes de confirmar" color="warning" /> : <Chip size="small" label={candidate.error || 'Conflicto'} color="error" />}</Box>
+            <Box sx={{ mt: 1 }}>{candidate.status === 'ready'
+              ? <Chip size="small" label="Lista para revisar" color="success" />
+              : candidate.status === 'needs_revalidation'
+                ? <Chip size="small" label="Revalidar antes de confirmar" color="warning" />
+                : candidate.status === 'withdrawn'
+                  ? <Chip size="small" label="Ya retirada · Retirar para apartar" color="error" />
+                  : <Chip size="small" label={candidate.error || 'Conflicto'} color="error" />}</Box>
           </Paper>;
         })}
       </Stack>}
-      <Button variant="contained" color="success" size="large" startIcon={<SendIcon />} sx={{ minWidth: 44, minHeight: 44 }} onClick={confirm} disabled={readOnly || busy || pendingScanCount > 0 || !!pending || !!complete || !!storageError || !candidates.length || hasConflict || !draft.reason.trim() || !draft.holderId || !hasCapabilities}>
-        {confirming ? 'Validando y confirmando…' : pendingScanCount > 0 ? 'Validando lecturas…' : `Revisar y confirmar salida (${candidates.filter((candidate) => candidate.status === 'ready').length})`}
+      <Button variant="contained" color="success" size="large" startIcon={<SendIcon />} sx={{ minWidth: 44, minHeight: 44 }} onClick={confirm} disabled={readOnly || busy || revalidating || pendingScanCount > 0 || !!pending || !!complete || !!storageError || !candidates.length || hasConflict || hasWithdrawn || !draft.reason.trim() || !draft.holderId || !hasCapabilities}>
+        {confirming ? 'Validando y confirmando…' : pendingScanCount > 0 ? 'Validando lecturas…' : hasNeedsRevalidation ? `Revalidar y confirmar salida (${candidates.filter((candidate) => candidate.status === 'ready').length})` : `Revisar y confirmar salida (${candidates.filter((candidate) => candidate.status === 'ready').length})`}
       </Button>
       {!candidates.length && <Alert severity="info">Aún no hay mangas seleccionadas. Escanea la primera manga para comenzar.</Alert>}
     </Stack>

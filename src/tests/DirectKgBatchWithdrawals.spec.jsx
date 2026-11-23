@@ -691,11 +691,122 @@ describe('salida directa KG a Armado', () => {
     expect(api.create).not.toHaveBeenCalled();
     view.unmount(); render(<DirectKgBatchWithdrawals />);
     expect(confirmButton()).toBeDisabled();
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Retirar OF-QR-2-OT-QR-2-M-QR-2' })[0]).toBeEnabled());
     fireEvent.click(screen.getAllByRole('button', { name: 'Retirar OF-QR-2-OT-QR-2-M-QR-2' })[0]);
     await waitFor(() => expect(confirmButton()).toBeEnabled());
     fireEvent.click(confirmButton());
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1));
     expect(api.create.mock.calls[0][0].items).toEqual([{ unit_id: 'QR-1', version: 3 }]);
+  });
+
+  it('revalida el borrador al recuperar conectividad sin enviar la salida', async () => {
+    localStorage.setItem(draftKey, JSON.stringify({ reason: 'Guardado', holderId: 9,
+      candidates: [{ code: 'QR-1', unit: unit('QR-1', 'QR-1'), status: 'ready' }] }));
+    render(<DirectKgBatchWithdrawals />);
+    expect(await screen.findByText('Revalidar antes de confirmar')).toBeVisible();
+    expect(api.create).not.toHaveBeenCalled();
+
+    fireEvent(window, new Event('online'));
+    await waitFor(() => expect(api.resolve).toHaveBeenCalledWith('QR-1'));
+    await waitFor(() => expect(screen.getByText('Lista para revisar')).toBeVisible());
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('conserva un error de red como revalidable y permite reintentar después', async () => {
+    localStorage.setItem(draftKey, JSON.stringify({ reason: 'Guardado', holderId: 9,
+      candidates: [{ code: 'QR-1', unit: unit('QR-1', 'QR-1'), status: 'needs_revalidation', error: 'Network Error' }] }));
+    api.resolve.mockRejectedValueOnce(new Error('Network Error')).mockResolvedValueOnce({ unit: unit('QR-1', 'QR-1') });
+    render(<DirectKgBatchWithdrawals />);
+    await waitFor(() => expect(api.resolve).toHaveBeenCalledWith('QR-1'));
+    await screen.findByRole('button', { name: 'Reintentar validación' });
+    expect(screen.getByText('1 por revalidar')).toBeVisible();
+    expect(api.create).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar validación' }));
+    await waitFor(() => expect(screen.getByText('Lista para revisar')).toBeVisible());
+    expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0].status).toBe('ready');
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('recupera un fallo de red inicial sin identidad mediante el selector original', async () => {
+    api.resolve.mockRejectedValueOnce(new Error('Network Error')).mockResolvedValueOnce({ unit: unit('QR-NET', 'QR-NET') });
+    render(<DirectKgBatchWithdrawals />);
+    sendScan('QR-NET');
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0].status).toBe('needs_revalidation'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reintentar validación' }));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0].status).toBe('ready'));
+    expect(api.resolve).toHaveBeenNthCalledWith(2, 'QR-NET');
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('restaura needs_revalidation sin unit y lo revalida una sola vez por código', async () => {
+    localStorage.setItem(draftKey, JSON.stringify({ reason: 'Guardado', holderId: 9,
+      candidates: [{ code: 'QR-SIN-UNIT', unit: null, status: 'needs_revalidation', error: 'Network Error' }] }));
+    api.resolve.mockResolvedValueOnce({ unit: unit('canonical', 'QR-SIN-UNIT') });
+    render(<DirectKgBatchWithdrawals />);
+    await waitFor(() => expect(api.resolve).toHaveBeenCalledWith('QR-SIN-UNIT'));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0].status).toBe('ready'));
+    expect(api.resolve).toHaveBeenCalledTimes(1);
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('deduplica dos selectores de la misma identidad después de un fallo temporal', async () => {
+    api.resolve
+      .mockRejectedValueOnce(new Error('Network Error'))
+      .mockResolvedValue({ unit: unit('canonical', 'QR-CANONICAL') });
+    render(<DirectKgBatchWithdrawals />);
+    sendScan('QR-TEMPORAL');
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0].status).toBe('needs_revalidation'));
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar QR-TEMPORAL' }));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0].status).toBe('ready'));
+    sendScan('QR-ALIAS');
+    await waitFor(() => expect(audio.play).toHaveBeenCalledWith('duplicate'));
+    expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(1);
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('no revalida el borrador cuando existe una operación pendiente por recuperar', async () => {
+    localStorage.setItem(draftKey, JSON.stringify({ reason: 'Guardado', holderId: 9,
+      candidates: [{ code: 'QR-PENDIENTE', unit: unit('pending', 'QR-PENDIENTE'), status: 'ready' }] }));
+    pendingFixture();
+    render(<DirectKgBatchWithdrawals />);
+    await screen.findByText(/solicitud sin resultado confirmado/i);
+    expect(api.resolve).not.toHaveBeenCalled();
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('deduplica dos selectores offline que revalidan al mismo ID canónico', async () => {
+    localStorage.setItem(draftKey, JSON.stringify({ reason: 'Guardado', holderId: 9,
+      candidates: [
+        { code: 'QR-OFFLINE-A', unit: null, status: 'needs_revalidation', error: 'Network Error' },
+        { code: 'QR-OFFLINE-B', unit: null, status: 'needs_revalidation', error: 'Network Error' },
+      ] }));
+    const canonical = unit('canonical-offline', 'QR-CANONICAL');
+    api.resolve.mockResolvedValue({ unit: canonical });
+    render(<DirectKgBatchWithdrawals />);
+    await waitFor(() => expect(api.resolve).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(draftKey)).candidates).toHaveLength(1));
+    expect(JSON.parse(localStorage.getItem(draftKey)).candidates[0].unit.id).toBe('canonical-offline');
+    const selectionList = screen.getByRole('list', { name: 'Mangas seleccionadas para salida directa' });
+    expect(within(selectionList).getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getAllByText(/12\.500 KG/)).toHaveLength(2);
+    expect(api.create).not.toHaveBeenCalled();
+  });
+
+  it('separa una manga ya retirada y la aparta sin mutar stock', async () => {
+    localStorage.setItem(draftKey, JSON.stringify({ reason: 'Guardado', holderId: 9,
+      candidates: [{ code: 'QR-1', unit: unit('QR-1', 'QR-1'), status: 'ready' }] }));
+    api.resolve.mockResolvedValueOnce({ unit: { ...unit('QR-1', 'QR-1'), estado_logistico: 'RETIRADA_ARMADO' } });
+    render(<DirectKgBatchWithdrawals />);
+    fireEvent.click(confirmButton());
+    await screen.findByText(/ya retirada.*Armado/i);
+    expect(screen.getByText('1 ya retiradas')).toBeVisible();
+    expect(screen.getByText('0 rechazadas nuevas')).toBeVisible();
+    expect(api.create).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retirar OF-QR-1-OT-QR-1-M-QR-1', exact: true }));
+    await waitFor(() => expect(screen.queryByText(/ya retirada.*Armado/i)).not.toBeInTheDocument());
+    expect(api.create).not.toHaveBeenCalled();
   });
 
   it('no envía recuperación desde vista de solo lectura', async () => {
