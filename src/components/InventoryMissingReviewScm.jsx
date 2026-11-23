@@ -547,7 +547,10 @@ function RevisionSessionsInbox() {
       <PageHeader
         title="Solicitudes de revisión"
         description="Bandeja de sesiones C66: consulta el corte, todos los estados de manga y aprueba solo con evidencia completa."
-        actions={<Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={loadSessions} disabled={loading || Boolean(busy)}>Actualizar estado</Button>}
+        actions={<Button variant="outlined" startIcon={<RefreshRoundedIcon />} onClick={() => {
+          loadSessions();
+          if (selectedSession) openSession(selectedSession);
+        }} disabled={loading || detailLoading || Boolean(busy)}>Actualizar estado</Button>}
       />
       {error && <Alert severity="error" action={<Button color="inherit" size="small" onClick={loadSessions}>Reintentar</Button>}>{error}</Alert>}
       {feedback && <Alert severity={feedback.severity} onClose={() => setFeedback(null)}>{feedback.text}</Alert>}
