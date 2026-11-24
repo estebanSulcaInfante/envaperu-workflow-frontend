@@ -78,7 +78,7 @@ describe('visualización compartida de etiqueta POSTPESAJE', () => {
       preview_digest: 'digest-1',
       operation_id: expect.any(String),
     }), expect.any(String));
-    expect(await screen.findByText(/no confirma que el papel haya sido entregado/i)).toBeVisible();
+    expect(await screen.findByText(/la estación confirma el resultado al procesarlo/i)).toBeVisible();
   });
 
   it('cerrar antes de validar no crea preview ni confirmación', async () => {
@@ -98,18 +98,20 @@ describe('visualización compartida de etiqueta POSTPESAJE', () => {
       canReprint
       actorId={5}
     />);
-    await user.click(screen.getByRole('button', { name: 'Imprimir comprobante' }));
+    const reprint = screen.getByRole('button', { name: 'Reimprimir' });
+    expect(mocks.confirm).not.toHaveBeenCalled();
+    await user.dblClick(reprint);
+    await screen.findByText('Solicitud registrada: En cola');
     expect(mocks.stations).toHaveBeenCalledWith({ historical: true });
-    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Estación destino' })).not.toHaveAttribute('aria-disabled', 'true'));
-    await user.click(screen.getByRole('combobox', { name: 'Estación destino' }));
-    await user.click(screen.getByRole('option', { name: 'Balanza 1' }));
-    await user.type(screen.getByLabelText('Motivo obligatorio'), 'Archivar comprobante de pesaje');
-    await user.click(screen.getByRole('button', { name: 'Validar vista previa' }));
-    await user.click(await screen.findByRole('button', { name: 'Enviar a estación' }));
+    expect(mocks.confirm).toHaveBeenCalledTimes(1);
     expect(mocks.confirm).toHaveBeenCalledWith(expect.objectContaining({
       items: [{ manga_historica_id: publicId, copias: 2 }],
       station_id: 'station-1',
+      motivo: expect.stringContaining('Trabajo de color'),
     }), expect.any(String));
+    await user.click(screen.getByRole('button', { name: 'Cerrar' }));
+    await user.click(reprint);
+    expect(mocks.confirm).toHaveBeenCalledTimes(1);
   });
 
   it('timeout y remontaje recuperan exactamente la misma operación y cuerpo', async () => {

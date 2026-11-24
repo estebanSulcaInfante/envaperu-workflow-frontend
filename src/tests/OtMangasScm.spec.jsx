@@ -2021,7 +2021,7 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     const document = within(await screen.findByTestId('manga-weighing-document'));
     expect(document.getByText('8.500 kg netos')).toBeVisible();
     expect(document.getByText(/16\/11\/2026.*Entregada a Armado/)).toBeVisible();
-    expect(document.getByRole('button', { name: 'Imprimir comprobante' })).toBeEnabled();
+    expect(document.getByRole('button', { name: 'Reimprimir' })).toBeEnabled();
     expect(document.queryByText('Corregir OT / Trabajo de color')).not.toBeInTheDocument();
   });
 

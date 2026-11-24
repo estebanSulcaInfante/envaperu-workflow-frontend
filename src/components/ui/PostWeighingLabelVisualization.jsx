@@ -32,6 +32,8 @@ const requestStatusLabel = (value) => ({
   RESERVADO: 'Reservado',
   EMITIENDO: 'Enviando al spooler',
   ACEPTADO_SPOOLER: 'Aceptado por spooler',
+  ACK_ACCEPTED: 'Aceptado por spooler',
+  COMPLETED: 'Procesada',
   NO_EMITIDO: 'No emitido',
   EMISION_INCIERTA: 'Emisión incierta',
 }[String(value || '').toUpperCase()] || value || 'En cola');
@@ -89,7 +91,7 @@ function PostWeighingLabelContent({
   const { notify } = useFeedback();
   const isRegularized = Boolean(regularizedManga);
   const defaultCopies = regularizedManga ? '2' : '1';
-  const requestLabel = regularizedManga ? 'Imprimir comprobante' : 'Solicitar reimpresión';
+  const requestLabel = isRegularized ? 'Reimprimir' : 'Solicitar reimpresión';
   const [open, setOpen] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [copias, setCopias] = useState(defaultCopies);
@@ -108,6 +110,7 @@ function PostWeighingLabelContent({
   const sourceKeyRef = useRef('');
   const restoringRef = useRef(false);
   const confirmBusyRef = useRef(false);
+  const regularizedBusyRef = useRef(false);
   const reportError = useCallback((message, severity = 'error', key = 'post-reprint') => {
     setError(message);
     notify({ message, severity, key });
@@ -172,10 +175,10 @@ function PostWeighingLabelContent({
   }, [copias, destination, draftKey, frozenPayload, motivo, preview, requestId, result, sourceKey, state]);
 
   useEffect(() => {
-    if (!open || typeof listWeighingStations !== 'function') return undefined;
+    if (!open || isRegularized) return undefined;
     let active = true;
     setStationsState('loading');
-    listWeighingStations(isRegularized ? { historical: true } : undefined)
+    listWeighingStations()
       .then((response) => {
         if (!active) return;
         const next = stationList(response).filter((station) => stationValue(station));
@@ -221,6 +224,7 @@ function PostWeighingLabelContent({
     setCopias(defaultCopies);
     setError('');
     setState('idle');
+    if (isRegularized) setOpen(false);
   };
   const previewRequest = async () => {
     const copies = Number(copias);
@@ -251,21 +255,23 @@ function PostWeighingLabelContent({
       reportError(errorMessage(cause, 'No se pudo validar la vista previa. La selección puede haber cambiado.'), 'error', 'post-reprint-preview');
     }
   };
-  const confirmRequest = async () => {
-    if (!preview?.preview_digest || !frozenPayload || confirmBusyRef.current) return;
+  const confirmRequest = async (selectedPreview = preview, selectedPayload = frozenPayload, reason = motivo) => {
+    if (!selectedPreview?.preview_digest || !selectedPayload || confirmBusyRef.current) return;
     confirmBusyRef.current = true;
     const requestSourceKey = sourceKey;
     const operationId = operationIdRef.current || randomOperationId();
     operationIdRef.current = operationId;
     const payload = {
-      ...frozenPayload, operation_id: operationId, motivo: motivo.trim(),
-      preview_digest: preview.preview_digest,
+      ...selectedPayload, operation_id: operationId, motivo: reason.trim(),
+      preview_digest: selectedPreview.preview_digest,
     };
     if (!writeDraft(draftKey, {
-      motivo, copias, destination, preview, frozenPayload, result, requestId,
+      motivo: reason, copias, destination: selectedPayload.station_id,
+      preview: selectedPreview, frozenPayload: selectedPayload, result, requestId,
       operationId, state: 'confirming',
     })) {
       confirmBusyRef.current = false;
+      if (isRegularized) setState('idle');
       reportError('No se puede conservar esta operación en el navegador. No se envió la solicitud.', 'error', 'post-reprint-storage');
       return;
     }
@@ -291,12 +297,47 @@ function PostWeighingLabelContent({
         setPreview(null);
         setFrozenPayload(null);
       }
-      setState(uncertain ? 'uncertain' : (statusCode === 409 ? 'idle' : 'preview-ready'));
+      setState(uncertain ? 'uncertain' : ((statusCode === 409 || isRegularized) ? 'idle' : 'preview-ready'));
       reportError(uncertain
         ? `No sabemos si la operación ${operationId} llegó al servidor. Conservamos la misma operación; consulta el estado antes de repetir.`
         : errorMessage(cause, 'No se pudo confirmar la reimpresión. Revisa la selección y la vista previa.'), uncertain ? 'warning' : 'error', 'post-reprint-confirm');
     } finally {
       confirmBusyRef.current = false;
+    }
+  };
+  const reprintRegularized = async () => {
+    if (regularizedBusyRef.current || ['previewing', 'confirming', 'status'].includes(state)) return;
+    if (['queued', 'uncertain'].includes(state)) {
+      setOpen(true);
+      return;
+    }
+    const reason = 'Reimpresión de etiqueta de pesaje regularizado desde Trabajo de color';
+    regularizedBusyRef.current = true;
+    setOpen(true);
+    setState('previewing');
+    setError('');
+    try {
+      const response = await listWeighingStations({ historical: true });
+      const activeStations = stationList(response).filter((station) => stationValue(station));
+      const target = activeStations.find((station) => station.codigo === 'PESAJE-PLANTA-01')
+        || (activeStations.length === 1 ? activeStations[0] : null);
+      if (!target) throw new Error('Destino de reimpresión no disponible.');
+      const payload = { items: [item], station_id: stationValue(target) };
+      const checked = await previewPostWeighingReprint(payload);
+      if (!checked?.preview_digest) throw new Error('Vista previa incompleta.');
+      if (sourceKeyRef.current !== sourceKey) return;
+      setStations(activeStations);
+      setDestination(payload.station_id);
+      setMotivo(reason);
+      setFrozenPayload(payload);
+      setPreview(checked);
+      await confirmRequest(checked, payload, reason);
+    } catch (cause) {
+      if (sourceKeyRef.current !== sourceKey) return;
+      setState('idle');
+      reportError(errorMessage(cause, 'No se pudo enviar a Estación 1. Puedes volver a intentarlo.'), 'error', 'post-reprint-regularized');
+    } finally {
+      regularizedBusyRef.current = false;
     }
   };
   const queryStatus = async () => {
@@ -330,7 +371,9 @@ function PostWeighingLabelContent({
           </Box>
           {canReprint && (
             <Button size="small" variant="outlined" startIcon={<PrintOutlinedIcon />}
-              onClick={openDialog} disabled={!actionable} aria-label={requestLabel}>
+              onClick={isRegularized ? reprintRegularized : openDialog}
+              disabled={!actionable || (isRegularized && ['previewing', 'confirming', 'status'].includes(state))}
+              aria-label={requestLabel}>
               {requestLabel}
             </Button>
           )}
@@ -352,7 +395,10 @@ function PostWeighingLabelContent({
                 ? 'El comprobante conserva el peso y la fecha documentados de la manga entregada a Armado.'
                 : 'Se crea una copia nueva. El pesaje y la etiqueta original permanecen inmutables.'}
             </Alert>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            {isRegularized && ['previewing', 'confirming'].includes(state) && (
+              <Typography role="status">Enviando a Estación 1…</Typography>
+            )}
+            {!isRegularized && <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
               <TextField fullWidth type="number" label="Copias" value={copias} disabled={locked}
                 inputProps={{ min: 1, max: 50, step: 1 }}
                 onChange={(event) => { setCopias(event.target.value); invalidatePreview(); }} />
@@ -366,7 +412,7 @@ function PostWeighingLabelContent({
                   ))}
                 </Select>
               </FormControl>
-            </Stack>
+            </Stack>}
             {stationsState === 'loading' && <Typography variant="caption">Cargando estaciones autorizadas…</Typography>}
             {stationsState === 'ready' && !stations.length && (
               <Alert severity="warning">
@@ -375,8 +421,8 @@ function PostWeighingLabelContent({
                   : 'No hay estaciones disponibles para seleccionar.'}
               </Alert>
             )}
-            <TextField label="Motivo obligatorio" multiline minRows={2} value={motivo} disabled={locked}
-              onChange={(event) => { setMotivo(event.target.value); invalidatePreview(); }} />
+            {!isRegularized && <TextField label="Motivo obligatorio" multiline minRows={2} value={motivo} disabled={locked}
+              onChange={(event) => { setMotivo(event.target.value); invalidatePreview(); }} />}
             {error && <Alert severity={state === 'uncertain' ? 'warning' : 'error'}>{error}</Alert>}
             {preview && (
               <Paper variant="outlined" sx={{ p: 1.25 }} data-testid="post-reprint-preview">
@@ -408,7 +454,11 @@ function PostWeighingLabelContent({
               <Alert severity="success" data-testid="post-reprint-queued">
                 <Stack spacing={0.5}>
                   <Typography fontWeight={700}>Solicitud registrada: {requestStatusLabel(status)}</Typography>
-                  <Typography variant="body2">El trabajo está en cola; esto no confirma que el papel haya sido entregado.</Typography>
+                  <Typography variant="body2">
+                    {status === 'COMPLETED'
+                      ? 'Puedes consultar el resultado informado por la estación.'
+                      : 'El trabajo está en cola. La estación confirma el resultado al procesarlo.'}
+                  </Typography>
                   {result.request_id && <Typography variant="caption">Solicitud: {result.request_id}</Typography>}
                   {(result.jobs || []).map((job) => <Chip key={job.job_id || job.id || JSON.stringify(job)} size="small" label={`${job.job_id || job.id || 'Trabajo'} · ${requestStatusLabel(job.estado || job.status)}`} />)}
                 </Stack>
@@ -418,16 +468,17 @@ function PostWeighingLabelContent({
         </DialogContent>
         <DialogActions>
           <Button onClick={close} disabled={['confirming', 'previewing', 'status'].includes(state)}>Cerrar</Button>
-          {!preview && !locked && <Button onClick={previewRequest} variant="outlined" disabled={state === 'previewing' || stationsState !== 'ready' || !stations.length || !destination}>{state === 'previewing' ? <CircularProgress size={18} /> : 'Validar vista previa'}</Button>}
-          {preview && state !== 'queued' && state !== 'uncertain' && (
-            <Button onClick={confirmRequest} variant="contained" disabled={state === 'confirming' || state === 'status'}>
-              {state === 'confirming' ? <CircularProgress size={18} /> : regularizedManga ? 'Enviar a estación' : 'Confirmar reimpresión'}
+          {!isRegularized && !preview && !locked && <Button onClick={previewRequest} variant="outlined" disabled={state === 'previewing' || stationsState !== 'ready' || !stations.length || !destination}>{state === 'previewing' ? <CircularProgress size={18} /> : 'Validar vista previa'}</Button>}
+          {!isRegularized && preview && state !== 'queued' && state !== 'uncertain' && (
+            <Button onClick={() => confirmRequest()} variant="contained" disabled={state === 'confirming' || state === 'status'}>
+              {state === 'confirming' ? <CircularProgress size={18} /> : 'Confirmar reimpresión'}
             </Button>
           )}
+          {isRegularized && state === 'idle' && error && <Button onClick={reprintRegularized}>Reintentar</Button>}
           {(state === 'queued' || state === 'uncertain') && requestId && <Button onClick={queryStatus} disabled={state === 'status'}>Consultar estado</Button>}
           {state === 'queued' && requestId && <Button onClick={startNewRequest}>Nueva solicitud</Button>}
           {state === 'uncertain' && !requestId && preview && frozenPayload && (
-            <Button onClick={confirmRequest}>Recuperar solicitud</Button>
+            <Button onClick={() => confirmRequest()}>Recuperar solicitud</Button>
           )}
         </DialogActions>
       </Dialog>
