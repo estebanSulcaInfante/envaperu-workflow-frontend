@@ -31,6 +31,6 @@ export const getPostWeighingReprintRequest = (requestId, options = {}) => body((
 ));
 
 export const listWeighingStations = (options = {}) => body(() => api.get(
-  '/monitoring/v1/weighing-stations',
+  options.historical ? `${basePath}/estaciones-historicas` : '/monitoring/v1/weighing-stations',
   { headers: headers(), ...(options.signal ? { signal: options.signal } : {}) },
 ));

@@ -747,6 +747,11 @@ const normalizeOt = (ot) => ({
       || (ot.corrida_fabricacion_id ? [legacyWork(ot)] : []),
 });
 
+const workWeighingRows = (work) => [
+  ...(work?.mangas || []),
+  ...(work?.mangas_regularizadas || []),
+];
+
 function ColorWorkQueue({ works, selectedWorkId, onSelect, compact = false }) {
   if (!works.length) {
     return (
@@ -832,7 +837,7 @@ function ColorWorkQueue({ works, selectedWorkId, onSelect, compact = false }) {
                     color={running ? 'success' : (work.estado === 'PAUSADO' ? 'warning' : 'default')}
                   />
                   {!compact && <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
-                    {work.mangas?.some((manga) => manga.unidad_inventario === 'KG')
+                    {workWeighingRows(work).some((manga) => manga.regularizado || manga.unidad_inventario === 'KG')
                       ? `Plan: ${compactQuantity(work.cantidad_objetivo_un)} un de referencia`
                       : `${compactQuantity(work.cantidad_confirmada_un)} / ${compactQuantity(work.cantidad_objetivo_un)} un`}
                   </Typography>}
@@ -843,6 +848,19 @@ function ColorWorkQueue({ works, selectedWorkId, onSelect, compact = false }) {
         );
       })}
     </Stack>
+  );
+}
+
+function RegularizedWeighingAction({ manga, weighingBusy, onWeighing }) {
+  return (
+    <Button
+      size="small"
+      aria-label={`Ver pesaje de ${manga.codigo}`}
+      disabled={weighingBusy}
+      onClick={(event) => onWeighing(manga, event.currentTarget)}
+    >
+      Ver pesaje
+    </Button>
   );
 }
 
@@ -862,7 +880,7 @@ function MangaTable({
   onWeighing,
   weighingBusy,
 }) {
-  const mangas = work?.mangas || [];
+  const mangas = workWeighingRows(work);
   const compact = useMediaQuery('(max-width:899px)');
   if (!mangas.length) return <Alert severity="info">Este trabajo todavía no tiene mangas.</Alert>;
   return (
@@ -873,6 +891,20 @@ function MangaTable({
     >
       <Stack spacing={1}>
         {mangas.map((manga) => {
+          if (manga.regularizado) {
+            return (
+              <Card key={manga.public_id} variant="outlined" data-testid="manga-mobile-card">
+                <Stack spacing={0.75} sx={{ p: 1.25 }}>
+                  <Typography fontWeight={850}>{manga.codigo}</Typography>
+                  <Typography variant="body2">{manga.articulo_nombre}</Typography>
+                  <Typography variant="body2">{manga.kg_medido} kg netos · Entregada a Armado</Typography>
+                  {canViewWeighing && (
+                    <Box><RegularizedWeighingAction {...{ manga, weighingBusy, onWeighing }} /></Box>
+                  )}
+                </Stack>
+              </Card>
+            );
+          }
           const labelChecked = selectedLabels.includes(manga.public_id);
           const labelEligible = !manga.etiqueta_vigente && manga.estado === 'PLANIFICADA';
           const weighable = [
@@ -941,6 +973,25 @@ function MangaTable({
         </TableHead>
         <TableBody>
           {mangas.map((manga) => {
+            if (manga.regularizado) {
+              return (
+                <TableRow key={manga.public_id}>
+                  <TableCell padding="checkbox" />
+                  <TableCell>
+                    <Typography fontWeight={800}>{manga.codigo}</Typography>
+                    <Typography variant="body2">{manga.articulo_nombre}</Typography>
+                  </TableCell>
+                  <TableCell>—</TableCell>
+                  <TableCell align="right">{manga.kg_medido} kg netos</TableCell>
+                  <TableCell><Chip size="small" label="Entregada a Armado" /></TableCell>
+                  <TableCell>
+                    {canViewWeighing && (
+                      <RegularizedWeighingAction {...{ manga, weighingBusy, onWeighing }} />
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            }
             const labelChecked = selectedLabels.includes(manga.public_id);
             const labelEligible = !manga.etiqueta_vigente && manga.estado === 'PLANIFICADA';
             return (
@@ -3036,7 +3087,7 @@ export default function OtMangasScm({ view = 'all' }) {
     try {
       const [detailResult, targetsResult] = await Promise.allSettled([
         obtenerPesajeMangaScm(manga.public_id),
-        canReattributeManga
+        canReattributeManga && !manga.regularizado
           ? listarOtScm(
             selectedWork?.orden_fabricacion_id,
             'FABRICACION',
@@ -3170,7 +3221,7 @@ export default function OtMangasScm({ view = 'all' }) {
     }
     const documentBelongsToWork = weighingDialog?.manga?.trabajo_color_actual_id
       ? weighingDialog.manga.trabajo_color_actual_id === selectedWork.id
-      : (selectedWork.mangas || []).some((item) => item.public_id === selectedMangaId);
+      : workWeighingRows(selectedWork).some((item) => item.public_id === selectedMangaId);
     if (weighingDialog && (!selectedMangaId
       || weighingDialog.manga?.public_id !== selectedMangaId
       || !documentBelongsToWork)) {
@@ -3183,7 +3234,7 @@ export default function OtMangasScm({ view = 'all' }) {
       setIdentityError('La consulta de Manga/Pesaje requiere la capacidad MANGA_PESAJE_VER.');
       return;
     }
-    const manga = (selectedWork.mangas || []).find(
+    const manga = workWeighingRows(selectedWork).find(
       (item) => item.public_id === selectedMangaId,
     );
     if (!manga) {
@@ -5102,7 +5153,25 @@ export default function OtMangasScm({ view = 'all' }) {
         </DialogTitle>
         <DialogContent>
           {weighingBusy && <CircularProgress size={24} />}
-          {weighingDialog?.detail && (
+          {weighingDialog?.detail?.regularizado && (
+            <Stack spacing={1.5} sx={{ pt: 1 }}>
+              <Typography fontWeight={800}>{weighingDialog.detail.vigente.peso_fisico_neto_kg} kg netos</Typography>
+              <Typography variant="body2">
+                {weighingDialog.detail.vigente.fecha_local_pesaje.split('-').reverse().join('/')}
+                {' · Pesaje final regularizado · Entregada a Armado'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Bruto {weighingDialog.detail.vigente.peso_bruto_kg} kg
+                {' · '}Tara {weighingDialog.detail.vigente.tara_kg} kg
+              </Typography>
+              <PostWeighingLabelVisualization
+                regularizedManga={weighingDialog.manga}
+                canReprint={canReprintPost}
+                actorId={actorId}
+              />
+            </Stack>
+          )}
+          {weighingDialog?.detail && !weighingDialog.detail.regularizado && (
             <Stack spacing={2} sx={{ pt: 1 }}>
               {weighingDialog.detail.anulacion && (
                 <Alert severity="warning">

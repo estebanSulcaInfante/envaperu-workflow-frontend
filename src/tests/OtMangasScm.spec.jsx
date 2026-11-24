@@ -1992,6 +1992,39 @@ describe('OT de máquina, Trabajos de color y mangas', () => {
     expect(within(dialog).getByText(/conserva manga, QR, pesajes y saldo KG/i)).toBeVisible();
   });
 
+  it('abre un pesaje regularizado en el mismo trabajo de color', async () => {
+    const user = userEvent.setup();
+    const historical = {
+      public_id: '44444444-4444-4444-8444-444444444444',
+      codigo: 'OF000154-OT570-M003',
+      articulo_nombre: 'Sartén turquesa pastel',
+      estado: 'RETIRADA_ARMADO',
+      kg_medido: '8.500',
+      trabajo_color_actual_id: 'work-green',
+      regularizado: true,
+    };
+    const ot = {
+      ...machineOt,
+      trabajos_color: [{ ...greenWork, mangas_regularizadas: [historical] }, blueWork],
+    };
+    scmMocks.listarOtScm.mockResolvedValue({ items: [ot] });
+    scmMocks.obtenerOtScm.mockResolvedValue({ ot });
+    scmMocks.obtenerPesajeMangaScm.mockResolvedValue({
+      regularizado: true,
+      vigente: {
+        fecha_local_pesaje: '2026-11-16', peso_fisico_neto_kg: '8.500',
+        peso_bruto_kg: '8.500', tara_kg: '0.000',
+      },
+    });
+    renderSubject();
+    await user.click(await screen.findByRole('button', { name: `Ver pesaje de ${historical.codigo}` }));
+    const document = within(await screen.findByTestId('manga-weighing-document'));
+    expect(document.getByText('8.500 kg netos')).toBeVisible();
+    expect(document.getByText(/16\/11\/2026.*Entregada a Armado/)).toBeVisible();
+    expect(document.getByRole('button', { name: 'Imprimir comprobante' })).toBeEnabled();
+    expect(document.queryByText('Corregir OT / Trabajo de color')).not.toBeInTheDocument();
+  });
+
   it('no ofrece reatribución del piloto para una manga UN', async () => {
     const user = userEvent.setup();
     const unManga = { ...weighedManga, unidad_inventario: 'UN' };

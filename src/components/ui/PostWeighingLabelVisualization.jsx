@@ -69,23 +69,30 @@ const projectionValue = (row) => {
 };
 
 export default function PostWeighingLabelVisualization(props) {
-  if (!isPostWeighingLabel(props.label)) return null;
+  if (!props.regularizedManga?.regularizado && !isPostWeighingLabel(props.label)) return null;
   const actorId = props.actorId ?? obtenerActorScm();
-  const key = `${actorId}:${props.pesaje?.public_id || props.pesaje?.id}:${props.label?.public_id || props.label?.id}:${props.label?.estado}:${props.pesaje?.estado}:${props.canReprint}`;
+  const source = props.regularizedManga
+    ? `historical:${props.regularizedManga.public_id}`
+    : `${props.pesaje?.public_id || props.pesaje?.id}:${props.label?.public_id || props.label?.id}:${props.label?.estado}:${props.pesaje?.estado}`;
+  const key = `${actorId}:${source}:${props.canReprint}`;
   return <PostWeighingLabelContent key={key} {...props} actorId={actorId} />;
 }
 
 function PostWeighingLabelContent({
   label,
   pesaje,
+  regularizedManga,
   stationId = '',
   canReprint = false,
   actorId,
 }) {
   const { notify } = useFeedback();
+  const isRegularized = Boolean(regularizedManga);
+  const defaultCopies = regularizedManga ? '2' : '1';
+  const requestLabel = regularizedManga ? 'Imprimir comprobante' : 'Solicitar reimpresión';
   const [open, setOpen] = useState(false);
   const [motivo, setMotivo] = useState('');
-  const [copias, setCopias] = useState('1');
+  const [copias, setCopias] = useState(defaultCopies);
   const [destination, setDestination] = useState('');
   const [stations, setStations] = useState([]);
   const [stationsState, setStationsState] = useState('idle');
@@ -107,10 +114,12 @@ function PostWeighingLabelContent({
   }, [notify]);
 
   const item = useMemo(
-    () => buildPostWeighingReprintItem({ pesaje, label, copias: Number(copias) }),
-    [copias, label, pesaje],
+    () => buildPostWeighingReprintItem({ pesaje, label, copias: Number(copias), regularizedManga }),
+    [copias, label, pesaje, regularizedManga],
   );
-  const sourceKey = `${actorId}:${item?.pesaje_id || ''}:${item?.source_label_id || ''}`;
+  const sourceKey = item?.manga_historica_id
+    ? `${actorId}:historical:${item.manga_historica_id}`
+    : `${actorId}:${item?.pesaje_id || ''}:${item?.source_label_id || ''}`;
   const draftKey = `${storagePrefix}${sourceKey}`;
   const actionable = Boolean(item && canReprint);
   const locked = ['previewing', 'confirming', 'status', 'queued', 'uncertain'].includes(state);
@@ -121,7 +130,7 @@ function PostWeighingLabelContent({
     restoringRef.current = true;
     loadedSourceRef.current = sourceKey;
     setMotivo('');
-    setCopias('1');
+    setCopias(defaultCopies);
     setDestination('');
     setPreview(null);
     setFrozenPayload(null);
@@ -134,7 +143,7 @@ function PostWeighingLabelContent({
     const draft = readDraft(draftKey);
     if (!draft) return;
     setMotivo(draft.motivo || '');
-    setCopias(String(draft.copias || '1'));
+    setCopias(String(draft.copias || defaultCopies));
     setDestination(destinationId(draft.destination));
     setPreview(draft.preview || null);
     setFrozenPayload(draft.frozenPayload || null);
@@ -148,7 +157,7 @@ function PostWeighingLabelContent({
       : (draft.state || 'idle');
     setState(restoredState);
     if (restoredState === 'uncertain') setError('La solicitud quedó abierta antes de cerrar. Consulta su estado; no se reenvía automáticamente.');
-  }, [draftKey, sourceKey]);
+  }, [defaultCopies, draftKey, sourceKey]);
 
   useEffect(() => {
     if (restoringRef.current) {
@@ -166,7 +175,7 @@ function PostWeighingLabelContent({
     if (!open || typeof listWeighingStations !== 'function') return undefined;
     let active = true;
     setStationsState('loading');
-    listWeighingStations()
+    listWeighingStations(isRegularized ? { historical: true } : undefined)
       .then((response) => {
         if (!active) return;
         const next = stationList(response).filter((station) => stationValue(station));
@@ -182,9 +191,7 @@ function PostWeighingLabelContent({
       reportError(errorMessage(cause, 'No se pudo cargar el catálogo de estaciones.'), 'error', 'post-reprint-stations');
       });
     return () => { active = false; };
-  }, [open, reportError, stationId]);
-
-  if (!isPostWeighingLabel(label)) return null;
+  }, [isRegularized, open, reportError, stationId]);
 
   const invalidatePreview = () => {
     if (locked) return;
@@ -211,7 +218,7 @@ function PostWeighingLabelContent({
     setResult(null);
     setRequestId('');
     setMotivo('');
-    setCopias('1');
+    setCopias(defaultCopies);
     setError('');
     setState('idle');
   };
@@ -313,16 +320,18 @@ function PostWeighingLabelContent({
       <Paper variant="outlined" sx={{ p: 1.25 }} data-testid="post-weighing-label">
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="subtitle2">Etiqueta POSTPESAJE</Typography>
-            <Typography variant="body2" color="text.secondary">
-              {label.codigo || label.public_id || label.id || 'Fuente identificada'}
-              {label.estado ? ` · ${label.estado}` : ''}
-            </Typography>
+            <Typography variant="subtitle2">{regularizedManga ? 'Comprobante de pesaje final' : 'Etiqueta POSTPESAJE'}</Typography>
+            {!regularizedManga && (
+              <Typography variant="body2" color="text.secondary">
+                {label.codigo || label.public_id || label.id || 'Fuente identificada'}
+                {label.estado ? ` · ${label.estado}` : ''}
+              </Typography>
+            )}
           </Box>
           {canReprint && (
             <Button size="small" variant="outlined" startIcon={<PrintOutlinedIcon />}
-              onClick={openDialog} disabled={!actionable} aria-label="Solicitar reimpresión">
-              Solicitar reimpresión
+              onClick={openDialog} disabled={!actionable} aria-label={requestLabel}>
+              {requestLabel}
             </Button>
           )}
           {canReprint && !item && (
@@ -333,10 +342,16 @@ function PostWeighingLabelContent({
         </Stack>
       </Paper>
       <Dialog open={open} onClose={close} fullWidth maxWidth="sm" aria-labelledby="post-reprint-title">
-        <DialogTitle id="post-reprint-title">Solicitar reimpresión POSTPESAJE</DialogTitle>
+        <DialogTitle id="post-reprint-title">
+          {regularizedManga ? requestLabel : 'Solicitar reimpresión POSTPESAJE'}
+        </DialogTitle>
         <DialogContent dividers>
           <Stack spacing={1.5} sx={{ pt: 0.5 }}>
-            <Alert severity="info">Se crea una copia nueva. El pesaje y la etiqueta original permanecen inmutables.</Alert>
+            <Alert severity="info">
+              {regularizedManga
+                ? 'El comprobante conserva el peso y la fecha documentados de la manga entregada a Armado.'
+                : 'Se crea una copia nueva. El pesaje y la etiqueta original permanecen inmutables.'}
+            </Alert>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
               <TextField fullWidth type="number" label="Copias" value={copias} disabled={locked}
                 inputProps={{ min: 1, max: 50, step: 1 }}
@@ -353,7 +368,13 @@ function PostWeighingLabelContent({
               </FormControl>
             </Stack>
             {stationsState === 'loading' && <Typography variant="caption">Cargando estaciones autorizadas…</Typography>}
-            {stationsState === 'ready' && !stations.length && <Alert severity="warning">No hay estaciones disponibles para seleccionar.</Alert>}
+            {stationsState === 'ready' && !stations.length && (
+              <Alert severity="warning">
+                {isRegularized
+                  ? 'Aún no hay una estación habilitada para estos comprobantes.'
+                  : 'No hay estaciones disponibles para seleccionar.'}
+              </Alert>
+            )}
             <TextField label="Motivo obligatorio" multiline minRows={2} value={motivo} disabled={locked}
               onChange={(event) => { setMotivo(event.target.value); invalidatePreview(); }} />
             {error && <Alert severity={state === 'uncertain' ? 'warning' : 'error'}>{error}</Alert>}
@@ -362,10 +383,15 @@ function PostWeighingLabelContent({
                 <Stack spacing={0.75}>
                   <Typography variant="subtitle2">Vista previa validada</Typography>
                   {previewItems.map((row, index) => (
-                    <Box key={row.source_label_id || row.item_id || index} sx={{ borderLeft: 2, borderColor: 'primary.main', pl: 1 }}>
+                    <Box key={row.source_historical_manga_id || row.source_label_id || row.item_id || index} sx={{ borderLeft: 2, borderColor: 'primary.main', pl: 1 }}>
                       <Typography variant="body2" fontWeight={700}>{row.manga_codigo || 'Manga de origen'}</Typography>
                       {row.source_payload?.pieza_color && <Typography variant="body2">{row.source_payload.pieza_color}</Typography>}
                       <Typography variant="body2">Peso neto (kg): {projectionValue(row) ?? '-'} · {row.copias || 0} copia(s)</Typography>
+                      {regularizedManga && row.source_payload?.fecha_local_pesaje && (
+                        <Typography variant="body2">
+                          Fecha de pesaje {row.source_payload.fecha_local_pesaje.split('-').reverse().join('/')}
+                        </Typography>
+                      )}
                     </Box>
                   ))}
                   <Typography variant="body2">Total: {preview.total_copias ?? previewItems.reduce((sum, row) => sum + Number(row.copias || 0), 0)} copia(s)</Typography>
@@ -395,7 +421,7 @@ function PostWeighingLabelContent({
           {!preview && !locked && <Button onClick={previewRequest} variant="outlined" disabled={state === 'previewing' || stationsState !== 'ready' || !stations.length || !destination}>{state === 'previewing' ? <CircularProgress size={18} /> : 'Validar vista previa'}</Button>}
           {preview && state !== 'queued' && state !== 'uncertain' && (
             <Button onClick={confirmRequest} variant="contained" disabled={state === 'confirming' || state === 'status'}>
-              {state === 'confirming' ? <CircularProgress size={18} /> : 'Confirmar reimpresión'}
+              {state === 'confirming' ? <CircularProgress size={18} /> : regularizedManga ? 'Enviar a estación' : 'Confirmar reimpresión'}
             </Button>
           )}
           {(state === 'queued' || state === 'uncertain') && requestId && <Button onClick={queryStatus} disabled={state === 'status'}>Consultar estado</Button>}

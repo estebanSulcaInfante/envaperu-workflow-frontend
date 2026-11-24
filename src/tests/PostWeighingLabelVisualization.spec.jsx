@@ -90,6 +90,28 @@ describe('visualización compartida de etiqueta POSTPESAJE', () => {
     expect(mocks.confirm).not.toHaveBeenCalled();
   });
 
+  it('solicita impresión de un final regularizado con el código histórico como fuente', async () => {
+    const user = userEvent.setup();
+    const publicId = '44444444-4444-4444-8444-444444444444';
+    render(<PostWeighingLabelVisualization
+      regularizedManga={{ public_id: publicId, codigo: 'OF000154-OT570-M003', regularizado: true }}
+      canReprint
+      actorId={5}
+    />);
+    await user.click(screen.getByRole('button', { name: 'Imprimir comprobante' }));
+    expect(mocks.stations).toHaveBeenCalledWith({ historical: true });
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Estación destino' })).not.toHaveAttribute('aria-disabled', 'true'));
+    await user.click(screen.getByRole('combobox', { name: 'Estación destino' }));
+    await user.click(screen.getByRole('option', { name: 'Balanza 1' }));
+    await user.type(screen.getByLabelText('Motivo obligatorio'), 'Archivar comprobante de pesaje');
+    await user.click(screen.getByRole('button', { name: 'Validar vista previa' }));
+    await user.click(await screen.findByRole('button', { name: 'Enviar a estación' }));
+    expect(mocks.confirm).toHaveBeenCalledWith(expect.objectContaining({
+      items: [{ manga_historica_id: publicId, copias: 2 }],
+      station_id: 'station-1',
+    }), expect.any(String));
+  });
+
   it('timeout y remontaje recuperan exactamente la misma operación y cuerpo', async () => {
     const user = userEvent.setup();
     mocks.confirm.mockRejectedValueOnce(new Error('timeout'));

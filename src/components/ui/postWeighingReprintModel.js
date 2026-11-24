@@ -22,7 +22,13 @@ const publicId = (value) => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id)) ? String(id) : '';
 };
 
-export const buildPostWeighingReprintItem = ({ pesaje, label, copias }) => {
+export const buildPostWeighingReprintItem = ({ pesaje, label, copias, regularizedManga }) => {
+  if (regularizedManga) {
+    const mangaHistoricaId = publicId(regularizedManga);
+    return mangaHistoricaId && regularizedManga.regularizado
+      ? { manga_historica_id: mangaHistoricaId, copias }
+      : null;
+  }
   const pesajeId = publicId(pesaje);
   const sourceLabelId = publicId(label);
   if (labelType(label) !== 'POSTPESAJE' || !pesajeId || !sourceLabelId) return null;

@@ -13,6 +13,7 @@ vi.mock('../services/scmEngineeringApi', () => ({
 import {
   confirmPostWeighingReprint,
   getPostWeighingReprintRequest,
+  listWeighingStations,
   previewPostWeighingReprint,
 } from '../services/scmPostWeighingReprintApi';
 
@@ -59,6 +60,15 @@ describe('API de reimpresión POSTPESAJE', () => {
     });
     expect(api.get).toHaveBeenCalledWith(
       '/scm/v1/reimpresiones-postpesaje/solicitudes/request-1',
+      { headers: { 'X-Actor-Id': '41' } },
+    );
+  });
+
+  it('consulta sólo las estaciones habilitadas para comprobantes históricos', async () => {
+    api.get.mockResolvedValueOnce({ data: { items: [] } });
+    await expect(listWeighingStations({ historical: true })).resolves.toEqual({ items: [] });
+    expect(api.get).toHaveBeenCalledWith(
+      '/scm/v1/reimpresiones-postpesaje/estaciones-historicas',
       { headers: { 'X-Actor-Id': '41' } },
     );
   });
