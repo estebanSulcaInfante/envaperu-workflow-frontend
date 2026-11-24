@@ -56,7 +56,7 @@ const stationLabel = (station) => (
 const stationList = (response) => (
   Array.isArray(response?.items) ? response.items : Array.isArray(response) ? response : []
 );
-const queueStates = new Set(['QUEUED', 'PENDIENTE', 'RESERVADO', 'EMITIENDO', 'ACEPTADO_SPOOLER']);
+const queueStates = new Set(['QUEUED', 'PENDIENTE', 'RESERVADO', 'EMITIENDO', 'ACEPTADO_SPOOLER', 'COMPLETED']);
 const isKnownQueuedResponse = (response) => (
   Boolean(response?.request_id && queueStates.has(String(response?.estado || '').toUpperCase()))
 );
@@ -390,11 +390,9 @@ function PostWeighingLabelContent({
         </DialogTitle>
         <DialogContent dividers>
           <Stack spacing={1.5} sx={{ pt: 0.5 }}>
-            <Alert severity="info">
-              {regularizedManga
-                ? 'El comprobante conserva el peso y la fecha documentados de la manga entregada a Armado.'
-                : 'Se crea una copia nueva. El pesaje y la etiqueta original permanecen inmutables.'}
-            </Alert>
+            {!isRegularized && (
+              <Alert severity="info">Se crea una copia nueva. El pesaje y la etiqueta original permanecen inmutables.</Alert>
+            )}
             {isRegularized && ['previewing', 'confirming'].includes(state) && (
               <Typography role="status">Enviando a Estación 1…</Typography>
             )}
