@@ -43,9 +43,12 @@ function candidateLabel(candidate) {
 const PHYSICAL_ZONES = {
   'ALM-PZ': 'Almacén de piezas general',
   'Z-ALMACEN-PIEZAS': 'Almacén de piezas general',
-  'ALM-ARM-3': 'Almacén de armado – 3.er piso',
-  'ALM-LLANTAS-3': 'Almacén de llantas – 3.er piso',
-  'ALM-ARM-4': 'Almacén de armado – 4.º piso',
+  'ALM-ARM-3': 'Almacén de armado – 2.º piso',
+  'Z-ALMACEN-ARMADO-3P': 'Almacén de armado – 2.º piso',
+  'ALM-LLANTAS-3': 'Almacén de llantas – 2.º piso',
+  'Z-ALMACEN-LLANTAS-3P': 'Almacén de llantas – 2.º piso',
+  'ALM-ARM-4': 'Almacén de armado – 3.er piso',
+  'Z-ALMACEN-ARMADO-4P': 'Almacén de armado – 3.er piso',
 };
 
 function physicalZoneName(session) {
