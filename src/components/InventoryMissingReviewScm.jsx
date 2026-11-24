@@ -33,6 +33,28 @@ function candidateLabel(candidate) {
   return [candidate.pieza, candidate.color].filter(Boolean).join(' · ') || 'Pieza sin detalle';
 }
 
+// The API preserves these identifiers because historical C66 readings refer to
+// them. The displayed floor names follow the current plant layout. A newer API
+// can provide zona_nombre directly, while the fallback keeps older responses
+// readable during a rolling deployment.
+const PHYSICAL_ZONES = {
+  'ALM-PZ': 'Almacén de piezas general',
+  'Z-ALMACEN-PIEZAS': 'Almacén de piezas general',
+  'ALM-ARM-3': 'Almacén de armado – 2.º piso',
+  'Z-ALMACEN-ARMADO-3P': 'Almacén de armado – 2.º piso',
+  'ALM-LLANTAS-3': 'Almacén de llantas – 2.º piso',
+  'Z-ALMACEN-LLANTAS-3P': 'Almacén de llantas – 2.º piso',
+  'ALM-ARM-4': 'Almacén de armado – 3.er piso',
+  'Z-ALMACEN-ARMADO-4P': 'Almacén de armado – 3.er piso',
+};
+
+function physicalZoneName(value, fallback = 'Zona no informada') {
+  const key = typeof value === 'object' ? value?.zona : value;
+  return typeof value === 'object' && value?.zona_nombre
+    ? value.zona_nombre
+    : PHYSICAL_ZONES[key] || key || fallback;
+}
+
 export default function InventoryMissingReviewScm() {
   const [state, setState] = useState(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
@@ -232,7 +254,7 @@ export default function InventoryMissingReviewScm() {
                     aria-label={`Seleccionar ${code}`}
                     sx={{ justifyContent: 'space-between', textAlign: 'left', py: 1.25, px: 1.5, gap: 1 }}
                   >
-                    <Box sx={{ minWidth: 0 }}><Typography component="span" variant="body2" fontWeight={800} display="block" noWrap>{code}</Typography><Typography component="span" variant="caption" color={isSelected ? 'inherit' : 'text.secondary'} display="block" noWrap>{candidateLabel(candidate)} · {candidate.zona || 'Zona no informada'}{candidate.vigente === false ? ` · ${candidate.motivo_bloqueo || 'Evidencia no vigente'}` : candidate.cobertura_pieza?.completa === false ? ' · Cobertura pendiente' : ''}</Typography></Box>
+                    <Box sx={{ minWidth: 0 }}><Typography component="span" variant="body2" fontWeight={800} display="block" noWrap>{code}</Typography><Typography component="span" variant="caption" color={isSelected ? 'inherit' : 'text.secondary'} display="block" noWrap>{candidateLabel(candidate)} · {physicalZoneName(candidate)}{candidate.vigente === false ? ` · ${candidate.motivo_bloqueo || 'Evidencia no vigente'}` : candidate.cobertura_pieza?.completa === false ? ' · Cobertura pendiente' : ''}</Typography></Box>
                     <Typography component="span" variant="body2" fontWeight={800} sx={{ flexShrink: 0 }}>{candidate.neto ? `${candidate.neto} kg` : 'Sin neto'}</Typography>
                   </Button>
                 </Box>;
@@ -251,7 +273,7 @@ export default function InventoryMissingReviewScm() {
             {selected ? <>
               <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'background.default' }}>
                 <Typography variant="body2" fontWeight={800}>{candidateLabel(selected)}</Typography>
-                <Typography variant="caption" color="text.secondary" display="block">Zona registrada: {selected.zona || 'No informada'}</Typography>
+                <Typography variant="caption" color="text.secondary" display="block">Zona registrada: {physicalZoneName(selected, 'No informada')}</Typography>
                 <Typography variant="caption" color="text.secondary" display="block">Neto vigente: {selected.neto ? `${selected.neto} kg` : 'No informado'}</Typography>
               </Paper>
               {!activeReview && !candidateCanReview && <Alert severity="warning">{selected?.vigente === false ? `${staleReason} Actualiza el estado antes de revisar una nueva evidencia.` : `Falta completar la cobertura${missingZones.length ? ` de ${missingZones.join(', ')}` : ''} antes de registrar la revisión.`}</Alert>}
@@ -288,7 +310,7 @@ export default function InventoryMissingReviewScm() {
                 const coverage = session.cobertura_confirmada ?? session.cobertura;
                 const closedAt = session.cerrado_at || session.cerrado_en || session.closed_at;
                 return <Typography variant="body2" key={session.id || `${session.nombre}:${session.zona}`}>
-                  {session.nombre || 'Conteo sin nombre'} · {session.zona || 'Zona no informada'} · Cobertura {coverage === true ? 'confirmada' : 'no confirmada'}{closedAt ? ` · Cerrado ${closedAt}` : ''}
+                  {session.nombre || 'Conteo sin nombre'} · {physicalZoneName(session)} · Cobertura {coverage === true ? 'confirmada' : 'no confirmada'}{closedAt ? ` · Cerrado ${closedAt}` : ''}
                 </Typography>;
               })}</Stack> : <Typography variant="body2" color="text.secondary">No hay conteos vinculados a esta manga.</Typography>}
               <Typography variant="overline" color="text.secondary" display="block" sx={{ mt: 1 }}>Ajustes locales de inventario</Typography>

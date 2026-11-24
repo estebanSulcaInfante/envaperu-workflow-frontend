@@ -119,6 +119,16 @@ describe('Revisión de faltantes SCM', () => {
     expect(screen.queryByText('SALIDA · -1.000 kg')).not.toBeInTheDocument();
   });
 
+  it('muestra el piso vigente sin exponer el identificador histórico de zona', async () => {
+    mocks.get.mockResolvedValue({
+      revision: { ajuste_habilitado: false, movimientos_habilitados: false, candidatas: [{ ...candidate, zona: 'Z-ALMACEN-ARMADO-3P' }] },
+      movimientos: [],
+    });
+    renderPage();
+    expect(await screen.findByText(/Almacén de armado – 2\.º piso/)).toBeVisible();
+    expect(screen.queryByText(/Z-ALMACEN-ARMADO-3P/)).not.toBeInTheDocument();
+  });
+
   it('retira de la cola una manga que dejó de estar vigente al actualizar', async () => {
     mocks.get.mockResolvedValueOnce({ revision: { ajuste_habilitado: true, candidatas: [candidate] }, movimientos: [] })
       .mockResolvedValueOnce({ revision: { ajuste_habilitado: true, candidatas: [] }, movimientos: [] });
