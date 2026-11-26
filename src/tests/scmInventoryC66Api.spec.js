@@ -63,4 +63,42 @@ describe('API de conteo C66', () => {
       ['/scm/v1/inventario-c66/faltantes', { codigo: 'C66-001', token: 'REV-1', motivo: 'No encontrado' }, { headers: { 'X-Actor-Id': '42', 'Idempotency-Key': 'key-missing' } }],
     ]);
   });
+
+  it('expone la bandeja de sesiones y aprueba con idempotencia', async () => {
+    api.get.mockResolvedValue({ data: { sesiones: [{ id: 'S-1', nombre: 'Conteo mañana' }] } });
+    api.post.mockResolvedValue({ data: { ok: true } });
+    const {
+      obtenerSesionesRevision,
+      obtenerDetalleRevisionSesion,
+      aprobarRevisionSesion,
+    } = await import('../services/scmInventoryC66Api');
+
+    await obtenerSesionesRevision();
+    await obtenerDetalleRevisionSesion('S-1');
+    await aprobarRevisionSesion('S-1', {
+      version_revision: 3,
+      codigos: ['M-1'],
+      motivo: 'Cobertura validada',
+      cobertura: true,
+      movimientos_revisados: true,
+      busqueda: true,
+    }, 'approve-key');
+
+    expect(api.get.mock.calls.slice(-2)).toEqual([
+      ['/scm/v1/inventario-c66/revision/sesiones', { headers: { 'X-Actor-Id': '42' } }],
+      ['/scm/v1/inventario-c66/revision/sesiones/S-1', { headers: { 'X-Actor-Id': '42' } }],
+    ]);
+    expect(api.post.mock.calls.at(-1)).toEqual([
+      '/scm/v1/inventario-c66/revision/sesiones/S-1/aprobar',
+      {
+        version_revision: 3,
+        codigos: ['M-1'],
+        motivo: 'Cobertura validada',
+        cobertura: true,
+        movimientos_revisados: true,
+        busqueda: true,
+      },
+      { headers: { 'X-Actor-Id': '42', 'Idempotency-Key': 'approve-key' } },
+    ]);
+  });
 });

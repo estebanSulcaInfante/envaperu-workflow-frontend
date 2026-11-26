@@ -137,7 +137,24 @@ describe('Conteo C66 web', () => {
     ));
   });
 
-  it('envía cobertura solo al cerrar con la confirmación explícita de zona completa', async () => {
+  it('solicita revisión explícita y conserva el cierre parcial aun sin faltantes', async () => {
+    const activeState = {
+      ...state,
+      sesiones: [{ id: 'S-C66-REVIEW', estado: 'ABIERTA', zona: 'Z1', nombre: 'Conteo sin faltantes', piezas: ['Tapa'], lecturas: [{ codigo: 'C66-001' }], pendientes_conteo: [] }],
+    };
+    mocks.getState.mockResolvedValue(activeState);
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Conteo sin faltantes/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cerrar sesión' }));
+    expect(await screen.findByText(/No quedan mangas pendientes/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Solicitar revisión' }));
+    await waitFor(() => expect(mocks.close).toHaveBeenCalledWith(
+      'S-C66-REVIEW', { solicitar_revision: true }, expect.stringMatching(/^[0-9a-f-]{36}$/i),
+    ));
+    expect(await screen.findByText(/Solicitud enviada/)).toBeVisible();
+  });
+
+  it('solicita revisión con las no habidas pendientes y envía cobertura confirmada', async () => {
     const activeState = {
       ...state,
       zonas: [{ id: 'Z1', nombre: 'Almacén de piezas general' }, { id: 'Z2', nombre: 'Almacén de armado 3er piso' }],
@@ -151,9 +168,10 @@ describe('Conteo C66 web', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Cerrar sesión' }));
     expect(screen.getByLabelText('Recorrí por completo Almacén de piezas general para las piezas seleccionadas')).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('Recorrí por completo Almacén de piezas general para las piezas seleccionadas'));
-    fireEvent.click(screen.getByRole('button', { name: /Cerrar y marcar 1 no habida/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Solicitar revisión' }));
     await waitFor(() => expect(mocks.close).toHaveBeenCalledWith(
-      'S-C66-COVER', { marcar_no_habidas: true, no_habidas: ['C66-010'], cobertura: true }, expect.stringMatching(/^[0-9a-f-]{36}$/i),
+      'S-C66-COVER', { marcar_no_habidas: true, no_habidas: ['C66-010'], cobertura: true, solicitar_revision: true }, expect.stringMatching(/^[0-9a-f-]{36}$/i),
     ));
+    expect(await screen.findByText(/Solicitud enviada/)).toBeVisible();
   });
 });

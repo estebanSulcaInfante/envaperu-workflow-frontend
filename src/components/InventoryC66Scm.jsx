@@ -262,18 +262,20 @@ export default function InventoryC66Scm() {
     }
   };
 
-  const closeSession = async (markMissing = false) => {
+  const closeSession = async (markMissing = false, requestReview = false) => {
     if (!sessionId || busy || sessionClosed) return;
-    const keyName = `close:${sessionId}:${markMissing ? pendingCodes.join('|') : 'counted'}:${pieceCountEnabled ? (pieceCoverageReviewed ? 'complete' : 'partial') : (roomCovered ? 'complete' : 'partial')}`;
+    const keyName = `close:${sessionId}:${markMissing ? pendingCodes.join('|') : 'counted'}:${requestReview ? 'review' : 'no-review'}:${pieceCountEnabled ? (pieceCoverageReviewed ? 'complete' : 'partial') : (roomCovered ? 'complete' : 'partial')}`;
     setBusy('close');
     try {
       const result = await cerrarSesionInventarioC66(sessionId, markMissing
-        ? { marcar_no_habidas: true, no_habidas: pendingCodes, ...(pieceCoverageReviewed ? { cobertura: true } : {}) }
+        ? { marcar_no_habidas: true, no_habidas: pendingCodes, ...(pieceCoverageReviewed ? { cobertura: true } : {}), ...(requestReview ? { solicitar_revision: true } : {}) }
         : (pieceCountEnabled
-          ? (pieceCoverageReviewed ? { cobertura: true } : {})
-          : (roomCovered ? { cobertura: true } : {})), keyFor(keyName));
+          ? { ...(pieceCoverageReviewed ? { cobertura: true } : {}), ...(requestReview ? { solicitar_revision: true } : {}) }
+          : { ...(roomCovered ? { cobertura: true } : {}), ...(requestReview ? { solicitar_revision: true } : {}) }), keyFor(keyName));
       clearKey(keyName);
-      setFeedback({ severity: 'success', text: `Recorrido cerrado · ${selectedZoneName} · ${result?.cantidad ?? activeSession?.lecturas?.length ?? 0} mangas. ${pieceCountEnabled ? 'No mueve kilos ni altera el Kardex.' : ''}` });
+      setFeedback({ severity: 'success', text: requestReview
+        ? `Solicitud enviada · ${selectedZoneName} · ${pendingCodes.length} manga(s) quedarán como no habidas para revisión.`
+        : `Recorrido cerrado · ${selectedZoneName} · ${result?.cantidad ?? activeSession?.lecturas?.length ?? 0} mangas. ${pieceCountEnabled ? 'No mueve kilos ni altera el Kardex.' : ''}` });
       resetSession();
       await loadState();
     } catch (error) {
@@ -339,7 +341,7 @@ export default function InventoryC66Scm() {
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>Cerrar no mueve kilos ni altera el Kardex.</Typography>
               <FormControlLabel control={<Checkbox checked={pieceCoverageReviewed} onChange={(event) => setPieceCoverageReviewed(event.target.checked)} />} label={`Recorrí por completo ${activeSessionZoneName} para las piezas seleccionadas`} />
               <Typography variant="caption" color="text.secondary" display="block">Sin marcar la casilla, el cierre conserva las no habidas como pendientes de cobertura.</Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} sx={{ mt: 2 }}><Button variant="outlined" onClick={() => closeSession(false)} disabled={Boolean(busy)}>Cerrar solo lo contado</Button><Button variant="contained" onClick={() => closeSession(true)} disabled={Boolean(busy) || !pendingCodes.length}>Cerrar y marcar {pendingCodes.length} no habida{pendingCodes.length === 1 ? '' : 's'}</Button></Stack>
+              <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} sx={{ mt: 2 }}><Button variant="outlined" onClick={() => closeSession(false)} disabled={Boolean(busy)}>Cerrar solo lo contado</Button><Button variant="contained" color="secondary" onClick={() => closeSession(pendingCodes.length > 0, true)} disabled={Boolean(busy)}>Solicitar revisión</Button></Stack>
             </Paper>}
           </Stack>
         </Paper>

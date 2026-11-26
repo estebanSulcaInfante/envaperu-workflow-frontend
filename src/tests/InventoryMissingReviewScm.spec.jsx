@@ -1,7 +1,7 @@
 import { createTheme, ThemeProvider } from '@mui/material';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import InventoryMissingReviewScm from '../components/InventoryMissingReviewScm';
+import { LegacyInventoryMissingReviewScm as InventoryMissingReviewScm } from '../components/InventoryMissingReviewScm';
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(), review: vi.fn(), missing: vi.fn(),
@@ -11,6 +11,9 @@ vi.mock('../services/scmInventoryC66Api', () => ({
   obtenerRevisionFaltantes: mocks.get,
   registrarRevisionFaltante: mocks.review,
   confirmarFaltanteInventario: mocks.missing,
+  obtenerSesionesRevision: undefined,
+  obtenerDetalleRevisionSesion: undefined,
+  aprobarRevisionSesion: undefined,
 }));
 vi.mock('../services/scmEngineeringApi', () => ({ mensajeErrorScm: (_error, fallback) => fallback }));
 
@@ -101,7 +104,7 @@ describe('Revisión de faltantes SCM', () => {
     mocks.get.mockResolvedValue({ revision: { ajuste_habilitado: true, movimientos_habilitados: true, candidatas: [{ ...candidate, revision: { token: 'REV-1', neto: '12.300', cobertura_confirmada: true } }] }, movimientos: [] });
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: /Seleccionar C66-001/ }));
-    expect(await screen.findByText(/API todavía no habilitó la confirmación/)).toBeVisible();
+    expect(await screen.findByText(/confirmación de faltantes aún no está disponible/)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Confirmar faltante' })).toBeDisabled();
   });
 

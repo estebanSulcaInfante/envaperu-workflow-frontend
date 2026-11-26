@@ -50,3 +50,17 @@ export const confirmarFaltanteInventario = (payload, idempotencyKey) => data(() 
   payload,
   { headers: headers(idempotencyKey) },
 ));
+
+export const obtenerSesionesRevision = () => data(() => api.get(
+  `${BASE}/revision/sesiones`, { headers: headers() },
+));
+
+export const obtenerDetalleRevisionSesion = (sessionId) => data(() => api.get(
+  `${BASE}/revision/sesiones/${encodeURIComponent(sessionId)}`, { headers: headers() },
+));
+
+export const aprobarRevisionSesion = (sessionId, payload, idempotencyKey) => data(() => api.post(
+  `${BASE}/revision/sesiones/${encodeURIComponent(sessionId)}/aprobar`,
+  payload,
+  { headers: headers(idempotencyKey) },
+));
