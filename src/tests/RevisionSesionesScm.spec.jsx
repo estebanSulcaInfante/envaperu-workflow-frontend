@@ -84,14 +84,15 @@ describe('Bandeja de sesiones de revisión C66', () => {
 
   it('muestra la medición de mesa y envía solo las identidades con ajuste, incluso si se compensan', async () => {
     const observed = [
-      { ...detail.mangas[0], codigo: 'MENOS', neto_anterior_kg: '10.000', bruto_repesado_kg: '8.100', neto_repesado_kg: '8.000', diferencia_repesaje_kg: '-2.000' },
-      { ...detail.mangas[0], codigo: 'MAS', neto_anterior_kg: '8.000', bruto_repesado_kg: '10.100', neto_repesado_kg: '10.000', diferencia_repesaje_kg: '2.000' },
-      { ...detail.mangas[0], codigo: 'IGUAL', neto_anterior_kg: '4.200', bruto_repesado_kg: '4.300', neto_repesado_kg: '4.200', diferencia_repesaje_kg: '0.000', aprobable: false },
+      { ...detail.mangas[0], codigo: 'MENOS', estado: 'REPESADA', neto_anterior_kg: '10.000', bruto_repesado_kg: '8.100', neto_repesado_kg: '8.000', diferencia_repesaje_kg: '-2.000' },
+      { ...detail.mangas[0], codigo: 'MAS', estado: 'REPESADA', neto_anterior_kg: '8.000', bruto_repesado_kg: '10.100', neto_repesado_kg: '10.000', diferencia_repesaje_kg: '2.000' },
+      { ...detail.mangas[0], codigo: 'IGUAL', estado: 'REPESADA', neto_anterior_kg: '4.200', bruto_repesado_kg: '4.300', neto_repesado_kg: '4.200', diferencia_repesaje_kg: '0.000', aprobable: false },
     ];
     mocks.detail.mockResolvedValue({ ...detail, mangas: observed });
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: /Abrir Corte mañana/ }));
     expect((await screen.findAllByText('Neto repesado'))[0]).toBeVisible();
+    expect(screen.getAllByText('Repesada')).toHaveLength(3);
     expect(screen.getByText('8.100 kg')).toBeVisible();
     expect(screen.getByText('−2.000 kg')).toBeVisible();
     expect(screen.getByText('+2.000 kg')).toBeVisible();

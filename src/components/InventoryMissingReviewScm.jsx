@@ -361,6 +361,7 @@ function LegacyInventoryMissingReviewScm({ initialResult = null, requestSessionI
 const SESSION_EMPTY = { sesiones: [] };
 const STATUS_LABELS = {
   ENCONTRADA: { label: 'Encontrada (OK)', color: 'success' },
+  REPESADA: { label: 'Repesada', color: 'info' },
   NO_HABIDA: { label: 'No habida', color: 'warning' },
   PENDIENTE: { label: 'Pendiente', color: 'info' },
   FUERA_DE_AJUSTE: { label: 'Fuera de ajuste', color: 'error' },
@@ -566,7 +567,7 @@ function RevisionSessionsInbox({ initialSessions = null, initialSessionId = '' }
   const receiptMovements = Array.isArray(receipt?.movimientos) ? receipt.movimientos : [];
   const adjustedKg = receiptMovements.length
     ? receiptMovements.reduce((grams, movement) => grams + Math.round(Number(movement.delta_kg) * 1000), 0) / 1000
-    : -Math.abs(Number(receipt?.kg_descontados) || 0);
+    : -(Number(receipt?.kg_descontados) || 0);
 
   const approve = async () => {
     if (!detail?.sesion?.id || !canApprove || busy) return;
