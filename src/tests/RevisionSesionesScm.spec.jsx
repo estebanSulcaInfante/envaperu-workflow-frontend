@@ -77,9 +77,36 @@ describe('Bandeja de sesiones de revisión C66', () => {
       motivo: 'Cobertura validada y movimientos revisados',
     }, expect.stringMatching(/^[0-9a-f-]{36}$/i)));
     expect(await screen.findByText(/Aprobación registrada: REV-1/)).toBeVisible();
-    expect(await screen.findByText(/kilos ajustados 3\.100 kg/)).toBeVisible();
+    expect(await screen.findByText(/cambio en Kardex −3\.100 kg/)).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Aprobar sesión completa' })).not.toBeInTheDocument();
     await waitFor(() => expect(mocks.detail).toHaveBeenCalledTimes(2));
+  });
+
+  it('muestra la medición de mesa y envía solo las identidades con ajuste, incluso si se compensan', async () => {
+    const observed = [
+      { ...detail.mangas[0], codigo: 'MENOS', neto_anterior_kg: '10.000', bruto_repesado_kg: '8.100', neto_repesado_kg: '8.000', diferencia_repesaje_kg: '-2.000' },
+      { ...detail.mangas[0], codigo: 'MAS', neto_anterior_kg: '8.000', bruto_repesado_kg: '10.100', neto_repesado_kg: '10.000', diferencia_repesaje_kg: '2.000' },
+      { ...detail.mangas[0], codigo: 'IGUAL', neto_anterior_kg: '4.200', bruto_repesado_kg: '4.300', neto_repesado_kg: '4.200', diferencia_repesaje_kg: '0.000', aprobable: false },
+    ];
+    mocks.detail.mockResolvedValue({ ...detail, mangas: observed });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Abrir Corte mañana/ }));
+    expect((await screen.findAllByText('Neto repesado'))[0]).toBeVisible();
+    expect(screen.getByText('8.100 kg')).toBeVisible();
+    expect(screen.getByText('−2.000 kg')).toBeVisible();
+    expect(screen.getByText('+2.000 kg')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Aprobar sesión completa' }));
+    await waitFor(() => expect(mocks.approve).toHaveBeenCalledWith(session.id,
+      expect.objectContaining({ codigos: ['MENOS', 'MAS'] }), expect.any(String)));
+  });
+
+  it('protege un cambio de peso aunque todas las mangas estén presentes', async () => {
+    mocks.detail.mockResolvedValue({ ...detail, movimientos_habilitados: false,
+      mangas: [{ ...detail.mangas[0], neto_anterior_kg: '4.200', bruto_repesado_kg: '5.300', neto_repesado_kg: '5.200', diferencia_repesaje_kg: '1.000' }] });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Abrir Corte mañana/ }));
+    await screen.findByText('Detalle de la solicitud');
+    expect(screen.getByRole('button', { name: 'Aprobar sesión completa' })).toBeDisabled();
   });
 
   it('expone el permiso y bloquea aprobación cuando la API lo niega', async () => {
@@ -109,7 +136,7 @@ describe('Bandeja de sesiones de revisión C66', () => {
     expect(screen.getByRole('button', { name: 'Aprobar sesión completa' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Aprobar sesión completa' }));
     await waitFor(() => expect(mocks.approve).toHaveBeenCalledWith('S-2026-11-23', expect.objectContaining({ codigos: [], motivo: '' }), expect.any(String)));
-    expect(await screen.findByText(/kilos ajustados 0.000 kg/)).toBeVisible();
+    expect(await screen.findByText(/cambio en Kardex 0\.000 kg/)).toBeVisible();
   });
 
   it('recarga y conserva el mensaje ante revisión obsoleta, limpiando checks', async () => {

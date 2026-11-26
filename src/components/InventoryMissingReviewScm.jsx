@@ -381,6 +381,18 @@ function grossKg(value) {
   return value === null || value === undefined || value === '' ? 'Sin registro' : kg(value);
 }
 
+function signedKg(value) {
+  const grams = Math.round(Number(value) * 1000);
+  const sign = grams > 0 ? '+' : grams < 0 ? '−' : '';
+  return `${sign}${(Math.abs(grams) / 1000).toFixed(3)} kg`;
+}
+
+function proposedDelta(manga) {
+  if (manga.estado === 'NO_HABIDA') return -Number(manga.neto_kg || 0);
+  if (manga.aprobable && manga.diferencia_repesaje_kg != null) return Number(manga.diferencia_repesaje_kg);
+  return 0;
+}
+
 function localDateTime(value) {
   if (!value) return 'No informado';
   const parsed = new Date(value);
@@ -400,6 +412,7 @@ function revisionStateLabel(manga) {
 
 function mangaExplanation(manga) {
   if (manga?.motivo_bloqueo) return manga.motivo_bloqueo;
+  if (manga.neto_repesado_kg != null) return 'Repesada en Estación 2.';
   switch (String(manga?.estado || '').toUpperCase()) {
     case 'ENCONTRADA': return 'Sin descuento: encontrada en el corte.';
     case 'AJUSTADA': return 'Ajustada previamente; no se vuelve a descontar.';
@@ -412,6 +425,19 @@ function mangaExplanation(manga) {
 }
 
 function MangaWeights({ manga, table = false }) {
+  if (manga.neto_repesado_kg != null) {
+    return <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'auto auto', gap: '.2rem .75rem', textAlign: 'left', '& dd': { m: 0, textAlign: 'right', whiteSpace: 'nowrap' } }}>
+      {[
+        ['Neto anterior', kg(manga.neto_anterior_kg)],
+        ['Bruto en balanza', grossKg(manga.bruto_repesado_kg)],
+        ['Neto repesado', kg(manga.neto_repesado_kg)],
+        ['Diferencia', signedKg(manga.diferencia_repesaje_kg)],
+      ].map(([label, value]) => <Fragment key={label}>
+        <Typography component="dt" variant="caption" color="text.secondary">{label}</Typography>
+        <Typography component="dd" variant="body2" fontWeight={label === 'Diferencia' ? 800 : 600}>{value}</Typography>
+      </Fragment>)}
+    </Box>;
+  }
   return <Stack direction={table ? 'column' : 'row'} spacing={table ? .25 : 2} alignItems={table ? 'flex-end' : 'flex-start'}>
     <Box>
       <Typography variant="caption" color="text.secondary" display="block">Neto</Typography>
@@ -518,14 +544,10 @@ function RevisionSessionsInbox({ initialSessions = null, initialSessionId = '' }
     || Boolean(approvalReceipt?.comprobante || detail?.comprobante || selectedSession?.comprobante);
   const blockedMangas = mangas.filter((manga) => manga.bloquea_sesion === true
     || (String(manga.estado || '').toUpperCase() === 'NO_HABIDA' && manga.bloquea_sesion == null && manga.aprobable === false));
-  const hasCurrentNoHabidas = mangas.some((manga) => String(manga.estado || '').toUpperCase() === 'NO_HABIDA');
-  const proposedDiscount = mangas
-    .filter((manga) => String(manga.estado || '').toUpperCase() === 'NO_HABIDA')
-    .reduce((total, manga) => total + (Number(manga.neto_kg) || 0), 0);
-  const canApprove = detail?.puede_aprobar === true
-    && (hasCurrentNoHabidas
-      ? detail?.movimientos_habilitados === true && blockedMangas.length === 0
-      : blockedMangas.length === 0);
+  const adjustmentRows = mangas.filter((manga) => manga.estado === 'NO_HABIDA' || proposedDelta(manga) !== 0);
+  const proposedKg = adjustmentRows.reduce((grams, manga) => grams + Math.round(proposedDelta(manga) * 1000), 0) / 1000;
+  const canApprove = detail?.puede_aprobar === true && blockedMangas.length === 0
+    && (!adjustmentRows.length || detail.movimientos_habilitados === true);
   const groupedMangas = useMemo(() => mangas.reduce((groups, manga) => {
     const piece = manga.pieza || 'Pieza no informada';
     const existing = groups.find((group) => group.pieza === piece);
@@ -542,9 +564,9 @@ function RevisionSessionsInbox({ initialSessions = null, initialSessionId = '' }
     kg_descontados: detail?.kg_descontados ?? approvalReceipt?.kg_descontados,
   } : null;
   const receiptMovements = Array.isArray(receipt?.movimientos) ? receipt.movimientos : [];
-  const adjustedKg = receipt?.kg_descontados != null
-    ? Math.abs(Number(receipt.kg_descontados) || 0)
-    : receiptMovements.reduce((total, movement) => total + Math.abs(Number(movement.delta_kg) || 0), 0);
+  const adjustedKg = receiptMovements.length
+    ? receiptMovements.reduce((grams, movement) => grams + Math.round(Number(movement.delta_kg) * 1000), 0) / 1000
+    : -Math.abs(Number(receipt?.kg_descontados) || 0);
 
   const approve = async () => {
     if (!detail?.sesion?.id || !canApprove || busy) return;
@@ -553,9 +575,7 @@ function RevisionSessionsInbox({ initialSessions = null, initialSessionId = '' }
     const approvingSessionId = detail.sesion.id;
     const payload = {
       version_revision: detail.version_revision,
-      codigos: mangas
-        .filter((manga) => String(manga.estado || '').toUpperCase() === 'NO_HABIDA')
-        .map((manga) => manga.codigo),
+      codigos: adjustmentRows.map((manga) => manga.codigo),
       motivo: reason.trim(),
     };
     try {
@@ -571,7 +591,7 @@ function RevisionSessionsInbox({ initialSessions = null, initialSessionId = '' }
             ...refreshed,
             comprobante: refreshed?.comprobante || result?.comprobante,
             movimientos: refreshed?.movimientos || result?.movimientos || [],
-            kg_descontados: refreshed?.kg_descontados ?? result?.movimientos?.reduce((total, movement) => total + Math.abs(Number(movement.delta_kg) || 0), 0),
+            kg_descontados: refreshed?.kg_descontados ?? result?.kg_descontados,
             aprobada_at: refreshed?.aprobada_at || result?.aprobada_at,
             sesion: { ...refreshed?.sesion, estado: refreshed?.sesion?.estado || 'APROBADA', comprobante: refreshed?.sesion?.comprobante || result?.comprobante, aprobada_at: refreshed?.sesion?.aprobada_at || result?.aprobada_at },
           });
@@ -581,7 +601,7 @@ function RevisionSessionsInbox({ initialSessions = null, initialSessionId = '' }
           ...current,
           comprobante: result?.comprobante,
           movimientos: result?.movimientos || [],
-          kg_descontados: result?.movimientos?.reduce((total, movement) => total + Math.abs(Number(movement.delta_kg) || 0), 0),
+          kg_descontados: result?.kg_descontados,
           aprobada_at: result?.aprobada_at,
           sesion: { ...current.sesion, estado: 'APROBADA', comprobante: result?.comprobante, aprobada_at: result?.aprobada_at },
         } : current);
@@ -674,7 +694,7 @@ function RevisionSessionsInbox({ initialSessions = null, initialSessionId = '' }
               <Chip variant="outlined" label={`Encontradas: ${selectedSession?.encontradas ?? 0}`} />
               <Chip variant="outlined" label={`No habidas: ${selectedSession?.no_habidas ?? 0}`} />
               <Chip variant="outlined" label={`Corte: ${localDateTime(selectedSession?.corte_at || selectedSession?.solicitada_at)}`} />
-              <Chip variant="outlined" color={isApproved ? 'success' : proposedDiscount > 0 ? 'warning' : 'default'} label={`${isApproved ? 'Ajuste aplicado' : 'Descuento propuesto'} · ${(isApproved ? adjustedKg : proposedDiscount).toFixed(3)} kg`} />
+              <Chip variant="outlined" color={isApproved ? 'success' : adjustmentRows.length ? 'warning' : 'default'} label={`${isApproved ? 'Ajuste aplicado' : 'Ajuste propuesto'} · ${signedKg(isApproved ? adjustedKg : proposedKg)}`} />
             </Stack>
             <Box>
               <Typography component="h3" variant="subtitle1" fontWeight={850}>Mangas por pieza y color</Typography>
@@ -692,17 +712,17 @@ function RevisionSessionsInbox({ initialSessions = null, initialSessionId = '' }
             <Divider />
             <Box>
               <Typography component="h3" variant="subtitle1" fontWeight={850}>Confirmación final</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: .5 }}>La aprobación cubre toda la sesión. Las mangas no habidas vigentes se descuentan juntas; si no hay faltantes, el ajuste queda en 0 kg.</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: .5 }}>Al aprobar se descuentan las mangas no habidas y se aplica la diferencia de cada repesaje.</Typography>
               <Stack spacing={.25} sx={{ mt: 1 }}>
                 <Typography variant="caption" color="text.secondary">Solicitada por: {selectedSession?.solicitante || selectedSession?.solicitante_id || 'no informado'} · {localDateTime(selectedSession?.solicitada_at)}</Typography>
                 {(isApproved || selectedSession?.aprobador_id || receipt?.aprobada_at) && <Typography variant="caption" color="text.secondary">Aprobada por: {selectedSession?.aprobador || selectedSession?.aprobador_id || 'esta cuenta'} · {localDateTime(receipt?.aprobada_at || selectedSession?.aprobada_at)}</Typography>}
                 {selectedSession?.motivo && <Typography variant="caption" color="text.secondary">Motivo registrado: {selectedSession.motivo}</Typography>}
               </Stack>
-              {isApproved && <Alert severity="success" sx={{ mt: 1 }}>Aprobación confirmada · comprobante {receipt?.comprobante || 'no informado'} · kilos ajustados {adjustedKg.toFixed(3)} kg.</Alert>}
+              {isApproved && <Alert severity="success" sx={{ mt: 1 }}>Aprobación confirmada · comprobante {receipt?.comprobante || 'no informado'} · cambio en Kardex {signedKg(adjustedKg)}.</Alert>}
               {!isApproved && <>
                 {blockedMangas.length > 0 && <Alert severity="warning" sx={{ mt: 1 }}>Hay {blockedMangas.length} manga(s) bloqueada(s). La sesión queda solicitada hasta resolver el estado vigente.</Alert>}
                 {detail.puede_aprobar !== true && <Alert severity="warning" sx={{ mt: 1 }}>Permiso: no puedes aprobar esta solicitud{detail.motivo_bloqueo ? ` · ${detail.motivo_bloqueo}` : ''}.</Alert>}
-                {hasCurrentNoHabidas && detail.movimientos_habilitados !== true && <Alert severity="warning" sx={{ mt: 1 }}>Los movimientos están deshabilitados en este entorno; la aprobación permanece bloqueada.</Alert>}
+                {adjustmentRows.length > 0 && detail.movimientos_habilitados !== true && <Alert severity="warning" sx={{ mt: 1 }}>Los movimientos de Kardex están deshabilitados en este entorno.</Alert>}
                 {detail.puede_aprobar === true && <Stack spacing={1.25} sx={{ mt: 1 }}>
                   <TextField label="Motivo de aprobación" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Nota" slotProps={{ inputLabel: { shrink: true } }} multiline minRows={2} fullWidth />
                 </Stack>}
